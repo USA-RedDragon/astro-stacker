@@ -1,0 +1,90 @@
+---
+project_name: pixinsight-worker
+
+release:
+  extra_files:
+    - glob: ./LICENSE
+  github:
+    owner: USA-RedDragon
+    name: pixinsight-worker
+
+dockers:
+  - image_templates:
+      - "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}-amd64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}-amd64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:latest-amd64"
+    use: buildx
+    goarch: amd64
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - --label=org.opencontainers.image.licenses=MIT
+      - --label=org.opencontainers.image.url=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - "--platform=linux/amd64"
+  - image_templates:
+      - "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}-arm64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}-arm64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}-arm64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:latest-arm64"
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - --label=org.opencontainers.image.licenses=MIT
+      - --label=org.opencontainers.image.url=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - --label=org.opencontainers.image.source=https://github.com/USA-RedDragon/{{ .ProjectName }}
+      - "--platform=linux/arm64"
+
+docker_manifests:
+  - name_template: "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}-amd64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}-arm64"
+  - name_template: "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}"
+    image_templates:
+      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}-amd64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}-arm64"
+  - name_template: "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}"
+    image_templates:
+      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}-arm64"
+  - name_template: "ghcr.io/usa-reddragon/pixinsight-worker:latest"
+    image_templates:
+      - "ghcr.io/usa-reddragon/pixinsight-worker:latest-amd64"
+      - "ghcr.io/usa-reddragon/pixinsight-worker:latest-arm64"
+
+builds:
+  - main: .
+    binary: pixinsight-worker
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm
+      - arm64
+      - riscv64
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: riscv64
+    goarm:
+      - "6"
+      - "7"
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+
+milestones:
+  - close: true

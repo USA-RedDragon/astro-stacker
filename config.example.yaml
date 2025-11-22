@@ -1,0 +1,41 @@
+# Copy this file to config.yaml and modify it to suit your needs.
+
+# Logging level (debug, info, warn, error)
+log-level: info
+
+# HTTP server configuration
+http:
+  # IPv6 wildcard, listens on all interfaces
+  bind: "[::]"
+  port: 8080
+  # List of trusted proxy IPs for X-Forwarded-* headers
+  trusted-proxies: []
+
+# Prometheus metrics endpoint
+metrics:
+  enabled: false
+  # Localhost only by default
+  bind: "127.0.0.1"
+  port: 9000
+
+# Go pprof profiling endpoint (for debugging/performance analysis)
+pprof:
+  enabled: false
+  # Localhost only by default
+  bind: "127.0.0.1"
+  port: 9999
+
+# Database configuration
+storage:
+  # Database type (sqlite, postgres, mysql)
+  type: sqlite
+  # Data source name for the application database
+  dsn_app: ":memory:?_pragma=foreign_keys(1)"
+  # Data source name for the scheduler database
+  dsn_schedulerdb: ":memory:?_pragma=foreign_keys(1)"
+  # Example Postgres DSN:
+  # "host=localhost user=username dbname=database password=password sslmode=disable"
+  # Example MySQL DSN:
+  # "username:password@tcp(localhost:3306)/database?charset=utf8&parseTime=True"
+  # Example SQLite DSN:
+  # "file:database.db?_pragma=foreign_keys(1)&journal_mode=WAL"
