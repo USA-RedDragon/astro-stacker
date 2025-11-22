@@ -29,13 +29,17 @@ pprof:
 storage:
   # Database type (sqlite, postgres, mysql)
   type: sqlite
-  # Data source name for the application database
-  dsn_app: ":memory:?_pragma=foreign_keys(1)"
-  # Data source name for the scheduler database
-  dsn_schedulerdb: ":memory:?_pragma=foreign_keys(1)"
-  # Example Postgres DSN:
-  # "host=localhost user=username dbname=database password=password sslmode=disable"
-  # Example MySQL DSN:
-  # "username:password@tcp(localhost:3306)/database?charset=utf8&parseTime=True"
-  # Example SQLite DSN:
-  # "file:database.db?_pragma=foreign_keys(1)&journal_mode=WAL"
+  # Data Source Names (DSNs) for different databases
+  dsn:
+    # Example Postgres DSN:
+    # "host=localhost user=username dbname=database password=password sslmode=disable"
+    # Example MySQL DSN:
+    # "username:password@tcp(localhost:3306)/database?charset=utf8&parseTime=True"
+    # Example SQLite DSN:
+    # "file:database.db?_pragma=foreign_keys(1)&journal_mode=WAL"
+
+    # Data source name for the application database
+    app: ":memory:?_pragma=foreign_keys(1)"
+    # Data source name for the scheduler database
+    schedulerdb: ":memory:?_pragma=foreign_keys(1)"
+  

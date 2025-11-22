@@ -43,9 +43,13 @@ type PProf struct {
 }
 
 type Storage struct {
-	Type           types.StorageType `name:"type" description:"Storage type. One of mysql, postgres, sqlite" default:"sqlite"`
-	DSNApp         string            `name:"dsn_app" description:"Data source name for the application storage" default:":memory:?_pragma=foreign_keys(1)"`
-	DSNSchedulerDB string            `name:"dsn_schedulerdb" description:"Data source name for the scheduler database" default:":memory:?_pragma=foreign_keys(1)"`
+	Type types.StorageType `name:"type" description:"Storage type. One of mysql, postgres, sqlite" default:"sqlite"`
+	DSN  DSN               `name:"dsn" description:"Data source names for the storage"`
+}
+
+type DSN struct {
+	App         string `name:"app" description:"Data source name for the application storage" default:":memory:?_pragma=foreign_keys(1)"`
+	SchedulerDB string `name:"schedulerdb" description:"Data source name for the scheduler database" default:":memory:?_pragma=foreign_keys(1)"`
 }
 
 var (
@@ -71,19 +75,19 @@ func (c Config) Validate() error {
 		return ErrInvalidStorageType
 	}
 
-	if c.Storage.DSNApp == "" {
+	if c.Storage.DSN.App == "" {
 		return ErrEmptyStorageDSNApp
 	}
 
-	if err := utils.TestDSN(c.Storage.Type, c.Storage.DSNApp); err != nil {
+	if err := utils.TestDSN(c.Storage.Type, c.Storage.DSN.App); err != nil {
 		return ErrInvalidStorageDSNApp
 	}
 
-	if c.Storage.DSNSchedulerDB == "" {
+	if c.Storage.DSN.SchedulerDB == "" {
 		return ErrEmptyStorageDSNSchedulerDB
 	}
 
-	if err := utils.TestDSN(c.Storage.Type, c.Storage.DSNSchedulerDB); err != nil {
+	if err := utils.TestDSN(c.Storage.Type, c.Storage.DSN.SchedulerDB); err != nil {
 		return ErrInvalidStorageDSNSchedulerDB
 	}
 

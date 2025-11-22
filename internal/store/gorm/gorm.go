@@ -18,7 +18,7 @@ type Gorm struct {
 }
 
 func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
-	store, err := NewGormStore(cfg.Storage.Type, cfg.Storage.DSNApp)
+	store, err := NewGormStore(cfg.Storage.Type, cfg.Storage.DSN.App)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +30,7 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 }
 
 func NewSchedulerDBGormStore(cfg *config.Config) (*Gorm, error) {
-	return NewGormStore(cfg.Storage.Type, cfg.Storage.DSNSchedulerDB)
+	return NewGormStore(cfg.Storage.Type, cfg.Storage.DSN.SchedulerDB)
 }
 
 func NewGormStore(storageType types.StorageType, dsn string) (*Gorm, error) {
