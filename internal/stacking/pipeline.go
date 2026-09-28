@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -201,7 +202,11 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	for _, f := range frames {
 		c, status := p.classify(f, scores, sets, positions)
 		if status != "" {
-			if err := p.record(ctx, app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}); err != nil {
+			sf := app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}
+			if status == app.StackStatusCalibration {
+				sf.Error = missingCalibration(c.cal)
+			}
+			if err := p.record(ctx, sf); err != nil {
 				return 0, err
 			}
 			continue
@@ -354,6 +359,21 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 // Failures (failed, registration) count attempts and are retried with a
 // doubling backoff until MaxAttempts, when the sub is dead. Missing
 // calibration is rechecked every RetryAfter, as new frames may arrive.
+// missingCalibration names the calibration frames a light has no match for.
+func missingCalibration(m calmatch.Result) *string {
+	var missing []string
+	for _, c := range []struct {
+		name string
+		ok   bool
+	}{{"flat", m.Flat.Set != nil}, {"dark", m.Dark.Set != nil}, {"bias", m.Bias.Set != nil}} {
+		if !c.ok {
+			missing = append(missing, c.name)
+		}
+	}
+	msg := "no matching " + strings.Join(missing, ", ")
+	return &msg
+}
+
 func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 	sf.ProcessedAt = time.Now()
 	var existing app.StackFrame

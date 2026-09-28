@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"io"
 	"log/slog"
 	"os"
 	"path"
@@ -215,6 +216,15 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 		if err := p.download(ctx, p.dest, *m.MasterKey, local); err != nil {
 			return err
 		}
+		// Masters carry their target's plate solution; only older ones are
+		// solved here, from the panel's planned position, which fails more
+		// often than solving from where the mount actually pointed.
+		if solved(local) {
+			if err := os.Rename(local, filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", i+1))); err != nil {
+				return err
+			}
+			continue
+		}
 		focal, pixel, err := p.optics(ctx, m.Object, filter)
 		if err != nil {
 			return fmt.Errorf("%s: %w", m.Object, err)
@@ -377,6 +387,19 @@ func (p *Pipeline) solvePanel(ctx context.Context, dir string, n int, pos panel,
 		}
 	}
 	return fmt.Errorf("plate solve: %w", err)
+}
+
+// solved reports whether a FITS file's header holds a plate solution.
+func solved(file string) bool {
+	f, err := os.Open(file)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	b := make([]byte, 64*2880)
+	n, _ := io.ReadFull(f, b)
+	cards, err := frameheader.ParseCards(b[:n])
+	return err == nil && hasCard(cards, "CRVAL1") && hasCard(cards, "CRPIX1")
 }
 
 func mosaicPrefix(project, filter string) string {
