@@ -36,7 +36,7 @@ type calibrated struct {
 	darkScale float64
 }
 
-func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch []candidate, sets []calmatch.Set, scores map[string]quality.SubScore) error {
+func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch []candidate, sets []calmatch.Set, scores map[string]quality.SubScore, positions map[string][2]float64) error {
 	start := time.Now()
 	stack, err := p.loadStack(ctx, object, filter)
 	if err != nil {
@@ -48,7 +48,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	}
 	defer os.RemoveAll(dir)
 
-	ref, err := p.reference(ctx, object, sets, scores)
+	ref, err := p.reference(ctx, object, sets, scores, positions)
 	if err != nil {
 		return fmt.Errorf("reference for %s: %w", object, err)
 	}
@@ -67,9 +67,11 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	// Store the registered subs; they're the input for rebuilds and for
 	// integrating at the desk.
 	var added []addedSub
+	unregistered := 0
 	for i, c := range cals {
 		reg := registered[i]
 		if reg == "" {
+			unregistered++
 			msg := "Siril could not register the sub to the target reference"
 			if err := p.record(ctx, app.StackFrame{FrameID: c.c.frame.ID, Status: app.StackStatusRegistration,
 				Score: c.c.score.Score, Exposure: *c.c.frame.Exposure, DarkScale: c.darkScale, Error: &msg}); err != nil {
@@ -82,6 +84,12 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 			return err
 		}
 		added = append(added, addedSub{c: c, local: reg, key: key})
+	}
+	if unregistered > 0 {
+		// Many failures mean a poor reference: replace it and restack.
+		if replaced, err := p.maybeReReference(ctx, object); err != nil || replaced {
+			return err
+		}
 	}
 	if len(added) == 0 {
 		return nil
@@ -247,7 +255,7 @@ func (p *Pipeline) register(ctx context.Context, dir, ref string, cals []calibra
 
 // reference returns the calibrated frame a target's subs are registered to,
 // choosing it from all of the target's usable lights the first time.
-func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch.Set, scores map[string]quality.SubScore) (string, error) {
+func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch.Set, scores map[string]quality.SubScore, positions map[string][2]float64) (string, error) {
 	h := sha256.Sum256([]byte(object))
 	local := filepath.Join(p.workDir, "references", hex.EncodeToString(h[:8])+".fit")
 	if _, err := os.Stat(local); err == nil {
@@ -269,11 +277,13 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 	}
 	var usable []candidate
 	for _, f := range frames {
-		if c, status := p.classify(f, scores, sets); status == "" {
+		if c, status := p.classify(f, scores, sets, positions); status == "" {
 			usable = append(usable, c)
 		}
 	}
-	best, ok := pickReference(usable)
+	// Subs framed differently register poorly against each other, so the
+	// reference comes from the framing most subs share.
+	best, ok := pickReference(mainFraming(usable))
 	if !ok {
 		return "", fmt.Errorf("no usable lights")
 	}
@@ -309,6 +319,9 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 // Star matching fails against a soft reference: its brightest stars are
 // not the same ones a sharp sub finds. Subs with under three quarters of the
 // best star count are skipped, as clouds or haze, before comparing HFR.
+// maxReferenceEccentricity is the most elongated a reference's stars may be.
+const maxReferenceEccentricity = 0.6
+
 func pickReference(cands []candidate) (candidate, bool) {
 	most := 0
 	for _, c := range cands {
@@ -318,6 +331,10 @@ func pickReference(cands []candidate) (candidate, bool) {
 	found := false
 	for _, c := range cands {
 		if c.score.HFR <= 0 || 4*c.score.Stars < 3*most {
+			continue
+		}
+		// Elongated stars (wind, guiding) change which stars are brightest.
+		if c.score.Eccentricity > maxReferenceEccentricity {
 			continue
 		}
 		if !found || c.score.HFR < best.score.HFR {

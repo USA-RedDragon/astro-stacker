@@ -24,7 +24,13 @@ type Frame struct {
 	Rotator  *float64
 	Camera   string
 	DateObs  *time.Time `gorm:"index"`
-	Night    *time.Time `gorm:"type:date;index"`
+	// MountRA and MountDec are where the mount pointed, in degrees, from
+	// the header; PointingRead is set once the header has been checked for
+	// them, so frames indexed before these existed get them backfilled.
+	MountRA      *float64
+	MountDec     *float64
+	PointingRead bool
+	Night        *time.Time `gorm:"type:date;index"`
 
 	// IndexError is set when the header could not be read; the frame is
 	// retried when its ETag changes.

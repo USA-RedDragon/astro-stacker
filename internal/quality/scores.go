@@ -28,8 +28,9 @@ type SubScore struct {
 	Score float64
 	// HFR and Stars are NINA's star measurements, used to pick a sharp
 	// registration reference.
-	HFR   float64
-	Stars int
+	HFR          float64
+	Stars        int
+	Eccentricity float64
 }
 
 type group struct {
@@ -73,6 +74,7 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]
 				GradingStatus: r.GradingStatus,
 				HFR:           float64(m.HFR),
 				Stars:         int(m.DetectedStars),
+				Eccentricity:  float64(m.Eccentricity),
 			},
 			raw: raw,
 			g:   g,

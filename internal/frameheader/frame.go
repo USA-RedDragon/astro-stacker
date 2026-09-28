@@ -24,6 +24,8 @@ type Frame struct {
 	DateObs   time.Time
 	HasDate   bool
 	Longitude float64
+	// RA and Dec are where the mount pointed, in degrees; NaN if unknown.
+	RA, Dec float64
 }
 
 // FromKeywords maps NINA's FITS keywords onto a Frame.
@@ -42,6 +44,8 @@ func FromKeywords(k Keywords) Frame {
 		Rotator:   k.Float("ROTATANG"),
 		Camera:    k.String("INSTRUME"),
 		Longitude: k.Float("SITELONG"),
+		RA:        k.Float("RA"),
+		Dec:       k.Float("DEC"),
 	}
 	if math.IsNaN(f.Exposure) {
 		f.Exposure = k.Float("EXPOSURE")

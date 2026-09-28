@@ -39,6 +39,15 @@ type Cover struct {
 // MosaicSubject is a project's mosaics' Cover subject.
 func MosaicSubject(project string) string { return "mosaic:" + project }
 
+// ReferenceReset counts how often a target's registration reference was
+// replaced because too many of its subs wouldn't register to it.
+type ReferenceReset struct {
+	ID     int    `gorm:"primaryKey;autoIncrement"`
+	Object string `gorm:"not null;uniqueIndex"`
+	Count  int
+	At     time.Time
+}
+
 // Mosaic is one filter's mosaic of a project's panel masters.
 type Mosaic struct {
 	ID      int    `gorm:"primaryKey;autoIncrement"`
@@ -103,7 +112,8 @@ const (
 	StackStatusCalibration  = "calibration" // no usable flat, dark or bias yet
 	StackStatusRegistration = "registration"
 	StackStatusFailed       = "failed"
-	StackStatusDead         = "dead" // failed MaxAttempts times; left out until reset
+	StackStatusDead         = "dead"       // failed MaxAttempts times; left out until reset
+	StackStatusOffTarget    = "off_target" // the mount pointed elsewhere
 )
 
 // StackFrame records what happened to one light.
