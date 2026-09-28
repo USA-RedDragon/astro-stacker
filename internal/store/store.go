@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 
+	gormlib "gorm.io/gorm"
+
 	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/store/gorm"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/types"
@@ -10,6 +12,7 @@ import (
 
 type Store interface {
 	WithContext(ctx context.Context) Store
+	DB() *gormlib.DB
 }
 
 type gormStore struct {
