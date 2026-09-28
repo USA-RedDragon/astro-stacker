@@ -15,62 +15,56 @@ import (
 // between subs move a star's peak far more than the noise does.
 const RelativeTolerance = 0.15
 
-// AddAgainst folds a sub in like Add, but rejects pixels against fixed
-// statistics from an earlier pass (refMean, refStd per pixel, per second)
-// instead of the running ones. A pixel with no reference is kept.
-func (a *Accumulator) AddAgainst(sub []float32, exposure, weight float64, refMean, refStd []float32, noise float64, opts Options) (AddResult, error) {
-	if len(sub) != a.W*a.H || len(refMean) != len(sub) || len(refStd) != len(sub) {
+// AddAgainst folds a sub in like Add, but rejects pixels against a finished
+// earlier pass instead of the running statistics. A pixel with too few other
+// values to judge it is kept.
+//
+// With leaveOut, ref already holds this sub (with the same weight), and each
+// pixel is judged against the other subs only: statistics that include the
+// outlier can never reject it with few subs, since one value out of n is at
+// most (n-1)/√n σ from a mean it pulls, 3.2σ for 12 subs.
+func (a *Accumulator) AddAgainst(sub []float32, exposure, weight float64, ref *Accumulator, leaveOut bool, noise float64, opts Options) (AddResult, error) {
+	if len(sub) != a.W*a.H || len(ref.Mean) != len(sub) {
 		return AddResult{}, fmt.Errorf("sub, reference and master sizes differ")
 	}
 	bg := background(sub, opts.SaturationLevel)
-	res := AddResult{Background: bg / exposure}
 	inv := float32(1 / exposure)
 	w := float32(weight)
 	k := opts.RejectSigma
 	floor := float32(noise / exposure)
+	reject := make([]bool, len(sub))
 	for i, v := range sub {
-		switch {
-		case v == 0:
-			res.Empty++
-			continue
-		case v >= opts.SaturationLevel:
-			res.Saturated++
+		if v == 0 || v >= opts.SaturationLevel {
 			continue
 		}
 		x := (v - float32(bg)) * inv
-		if s := refStd[i]; s > 0 {
-			tol := k*max(s, floor) + RelativeTolerance*abs32(refMean[i])
-			if abs32(x-refMean[i]) > tol {
-				res.Rejected++
-				continue
-			}
+		if mean, std, ok := refStats(ref, i, x, w, leaveOut); ok {
+			reject[i] = abs32(x-mean) > k*max(std, floor)+RelativeTolerance*abs32(mean)
 		}
-		wOld := a.Weight[i]
-		wNew := wOld + w
-		delta := x - a.Mean[i]
-		r := delta * w / wNew
-		a.Mean[i] += r
-		a.M2[i] += wOld * delta * r
-		a.Weight[i] = wNew
-		a.Count[i]++
-		res.Used++
 	}
-	a.BackgroundSum += weight * res.Background
-	a.WeightSum += weight
-	a.Subs++
-	return res, nil
+	return a.fold(sub, exposure, weight, bg, reject, opts), nil
 }
 
-// Stats returns the per-pixel mean and standard deviation, for rejecting
-// against in the next pass.
-func (a *Accumulator) Stats() (mean, std []float32) {
-	std = make([]float32, len(a.Mean))
-	for i, w := range a.Weight {
-		if w > 0 && a.Count[i] > 1 {
-			std[i] = float32(math.Sqrt(float64(max(a.M2[i], 0) / w)))
+// refStats returns pixel i's mean and standard deviation in ref, without the
+// value x of weight w when leaveOut (undoing West's update). ok is false with
+// fewer than three values to go on.
+func refStats(ref *Accumulator, i int, x, w float32, leaveOut bool) (mean, std float32, ok bool) {
+	W, mu, m2, n := ref.Weight[i], ref.Mean[i], ref.M2[i], ref.Count[i]
+	if leaveOut {
+		W -= w
+		n--
+		if n < 3 || W <= 0 {
+			return 0, 0, false
 		}
+		mean = (ref.Weight[i]*mu - w*x) / W
+		m2 -= w * (x - mean) * (x - mu)
+	} else {
+		if n < 3 || W <= 0 {
+			return 0, 0, false
+		}
+		mean = mu
 	}
-	return slices.Clone(a.Mean), std
+	return mean, float32(math.Sqrt(float64(max(m2, 0) / W))), true
 }
 
 func abs32(v float32) float32 {
@@ -208,8 +202,12 @@ func toMemSub(sub []float32, exposure, weight float64, sat float32) memSub {
 // from the median than the sub's noise allows. With fewer than three values a
 // pixel keeps them all, since one sub's outlier can't be told from signal.
 func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
-	acc := NewAccumulator(w, h)
 	k := opts.RejectSigma
+	// First mark each sub's outliers, so the rejection can be grown.
+	reject := make([][]bool, len(all))
+	for j := range reject {
+		reject[j] = make([]bool, w*h)
+	}
 	vals := make([]float32, 0, len(all))
 	idx := make([]int, 0, len(all))
 	sorted := make([]float32, 0, len(all))
@@ -227,20 +225,30 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 			vals = append(vals, v/float32(l.exposure)-l.bg)
 			idx = append(idx, j)
 		}
-		if len(vals) == 0 {
+		if len(vals) < 3 {
 			continue
 		}
-		var med float32
-		if len(vals) >= 3 {
-			sorted = append(sorted[:0], vals...)
-			slices.Sort(sorted)
-			med = sorted[len(sorted)/2]
-		}
+		sorted = append(sorted[:0], vals...)
+		slices.Sort(sorted)
+		med := sorted[len(sorted)/2]
 		for n, x := range vals {
-			l := all[idx[n]]
-			if len(vals) >= 3 && abs32(x-med) > k*l.noise+RelativeTolerance*abs32(med) {
+			if abs32(x-med) > k*all[idx[n]].noise+RelativeTolerance*abs32(med) {
+				reject[idx[n]][i] = true
+			}
+		}
+	}
+	acc := NewAccumulator(w, h)
+	for j, l := range all {
+		reject[j] = grow(reject[j], w, h, opts.RejectGrow)
+		for i, q := range l.px {
+			if q == 0 || reject[j][i] {
 				continue
 			}
+			v := dequantize(q)
+			if v >= opts.SaturationLevel {
+				continue
+			}
+			x := v/float32(l.exposure) - l.bg
 			wf := float32(l.weight)
 			wOld := acc.Weight[i]
 			wNew := wOld + wf
@@ -251,8 +259,7 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 			acc.Weight[i] = wNew
 			acc.Count[i]++
 		}
-	}
-	for _, l := range all {
+		reject[j] = nil
 		acc.BackgroundSum += l.weight * float64(l.bg)
 		acc.WeightSum += l.weight
 		acc.Subs++
@@ -261,23 +268,26 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 }
 
 // rebuildStreaming reads the subs once per pass, one at a time, so memory
-// stays at a few frames no matter how many subs there are. The first pass
-// has no rejection; each later pass rejects against the previous one.
+// stays at a few frames no matter how many subs there are.
 func (p *Pipeline) rebuildStreaming(ctx context.Context, dir string, subs []storedSub, passes int) (*Accumulator, error) {
+	return streamStack(subs, passes, p.opts.Stack, func(i int, s storedSub) ([]float32, int, int, error) {
+		local := filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
+		if err := p.download(ctx, p.dest, s.key, local); err != nil {
+			return nil, 0, 0, err
+		}
+		defer os.Remove(local)
+		return readSub(local)
+	})
+}
+
+// streamStack stacks subs from load in passes. The first pass has no
+// rejection; each later pass rejects against the previous one.
+func streamStack(subs []storedSub, passes int, stackOpts Options, load func(int, storedSub) ([]float32, int, int, error)) (*Accumulator, error) {
 	var prev *Accumulator
 	for pass := range passes {
 		var acc *Accumulator
-		var refMean, refStd []float32
-		if prev != nil {
-			refMean, refStd = prev.Stats()
-		}
 		for i, s := range subs {
-			local := filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
-			if err := p.download(ctx, p.dest, s.key, local); err != nil {
-				return nil, err
-			}
-			sub, w, h, err := readSub(local)
-			os.Remove(local)
+			sub, w, h, err := load(i, s)
 			if err != nil {
 				return nil, err
 			}
@@ -288,15 +298,18 @@ func (p *Pipeline) rebuildStreaming(ctx context.Context, dir string, subs []stor
 				return nil, fmt.Errorf("sub %s is %dx%d, expected %dx%d", s.key, w, h, acc.W, acc.H)
 			}
 			if pass == 0 {
-				opts := p.opts.Stack
+				opts := stackOpts
 				opts.MinSamples = math.MaxFloat32 // no rejection on the first pass
 				if _, err := acc.Add(sub, s.exposure, s.weight, opts); err != nil {
 					return nil, err
 				}
 				continue
 			}
-			noise := noiseLevel(sub, p.opts.Stack.SaturationLevel)
-			if _, err := acc.AddAgainst(sub, s.exposure, s.weight, refMean, refStd, noise, p.opts.Stack); err != nil {
+			// The second pass judges each sub against the others in the
+			// unrejected first pass; later ones against the cleaner pass
+			// before, which no longer holds the outliers.
+			noise := noiseLevel(sub, stackOpts.SaturationLevel)
+			if _, err := acc.AddAgainst(sub, s.exposure, s.weight, prev, pass == 1, noise, stackOpts); err != nil {
 				return nil, err
 			}
 		}
