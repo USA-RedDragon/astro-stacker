@@ -8,7 +8,7 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/klauspost/compress v1.20.1
-	github.com/lmittmann/tint v1.1.2
+	github.com/lmittmann/tint v1.2.0
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/pierrec/lz4/v4 v4.1.31
 	github.com/prometheus/client_golang v1.23.2
