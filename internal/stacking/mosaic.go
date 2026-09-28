@@ -86,11 +86,15 @@ func mosaicGroups(ctx context.Context, sched *gorm.DB) ([]mosaicGroup, error) {
 	return out, nil
 }
 
-// runMosaics builds mosaics that are due every interval until ctx ends.
+// runMosaics builds mosaics and linear fits that are due every interval
+// until ctx ends.
 func (p *Pipeline) runMosaics(ctx context.Context, interval time.Duration) {
 	for {
 		if err := p.MosaicsOnce(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Building mosaics failed", "error", err)
+		}
+		if err := p.linearFitsOnce(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("LinearFit failed", "error", err)
 		}
 		select {
 		case <-ctx.Done():

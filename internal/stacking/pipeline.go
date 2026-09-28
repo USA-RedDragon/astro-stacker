@@ -120,6 +120,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		// Recropping re-renders covers of the masters it touches.
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
+		p.republishMasters(ctx)
 	})
 	if p.opts.MosaicInterval > 0 {
 		wg.Go(func() { p.runMosaics(ctx, p.opts.MosaicInterval) })
@@ -291,6 +292,17 @@ func (p *Pipeline) claim(q *gorm.DB) (*app.Frame, error) {
 	}
 	p.busy[first.Object] = true
 	return &first, nil
+}
+
+// hold marks a target busy, as claim does, unless it already is.
+func (p *Pipeline) hold(object string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.busy[object] {
+		return false
+	}
+	p.busy[object] = true
+	return true
 }
 
 func (p *Pipeline) release(object string) {

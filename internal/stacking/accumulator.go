@@ -203,7 +203,54 @@ func (a *Accumulator) Master(scaleExposure float64) []float32 {
 			out[i] = (a.Mean[i] + sky) * s
 		}
 	}
+	fillSaturated(out, a.Weight, a.W, a.H)
 	return out
+}
+
+// fillSaturated sets pixels without data that data surrounds to 1, full
+// scale. They are star and galaxy cores saturated in every sub, so every
+// sample was left out; written as 0 they show as black or, when only one
+// filter saturates, coloured dots. Pixels without data that reach the
+// image's edge are registration borders and stay 0.
+func fillSaturated(out, weight []float32, w, h int) {
+	border := make([]bool, w*h)
+	var queue []int
+	visit := func(i int) {
+		if weight[i] == 0 && !border[i] {
+			border[i] = true
+			queue = append(queue, i)
+		}
+	}
+	for x := range w {
+		visit(x)
+		visit((h-1)*w + x)
+	}
+	for y := range h {
+		visit(y * w)
+		visit(y*w + w - 1)
+	}
+	for len(queue) > 0 {
+		i := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		x, y := i%w, i/w
+		if x > 0 {
+			visit(i - 1)
+		}
+		if x < w-1 {
+			visit(i + 1)
+		}
+		if y > 0 {
+			visit(i - w)
+		}
+		if y < h-1 {
+			visit(i + w)
+		}
+	}
+	for i, wt := range weight {
+		if wt == 0 && !border[i] {
+			out[i] = 1
+		}
+	}
 }
 
 // background is the median of the pixels that aren't empty or saturated,

@@ -23,6 +23,11 @@ type TargetReference struct {
 	FrameID   int    `gorm:"not null"`
 	ObjectKey string `gorm:"not null"` // calibrated reference in the processed bucket
 	CreatedAt time.Time
+	// WCS is the plate solution of the target's masters, as JSON header
+	// cards; SolveAttempts counts tries, SolveError the last failure.
+	WCS           *string `gorm:"type:text"`
+	SolveAttempts int
+	SolveError    *string `gorm:"type:text"`
 }
 
 // Stack is the running master for one target and filter.
@@ -95,12 +100,23 @@ type Stack struct {
 	// previews show only this. CropVersion is the rule that made it.
 	CropX, CropY, CropW, CropH int
 	CropVersion                int
+	// MasterVersion is how the master file was written (see
+	// stacking.MasterVersion).
+	MasterVersion int
 
 	StateKey   *string // accumulator planes
 	MasterKey  *string // linear master FITS for download
 	PreviewKey *string // auto-stretched JPEG
 	LinearKey  *string // small linear preview for palette mixing in the browser
-	UpdatedAt  time.Time
+	// FittedKey is the master linear fitted to FitReference, the target's
+	// filter with the most effective exposure: FitOffset + FitScale×master.
+	// FitSignature identifies the target's masters it was fitted from.
+	FittedKey    *string
+	FitReference string
+	FitOffset    float64
+	FitScale     float64
+	FitSignature string
+	UpdatedAt    time.Time
 }
 
 // Why a light is or isn't in a master.

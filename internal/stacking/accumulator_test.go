@@ -152,3 +152,33 @@ func TestPlanesRoundTrip(t *testing.T) {
 		t.Error("wrong geometry should fail")
 	}
 }
+
+// A star core saturated in every sub is full scale in the master, not a black
+// hole; empty registration borders stay 0.
+func TestSaturatedCoreIsFullScale(t *testing.T) {
+	t.Parallel()
+	const w, h = 20, 20
+	a := stacking.NewAccumulator(w, h)
+	for range 3 {
+		sub := make([]float32, w*h)
+		for y := range h {
+			for x := 2; x < w; x++ { // columns 0-1 are outside the footprint
+				sub[y*w+x] = 0.01
+			}
+		}
+		sub[10*w+10] = 0.95
+		if _, err := a.Add(sub, 300, 300, stacking.DefaultOptions); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := a.Master(300)
+	if m[10*w+10] != 1 {
+		t.Errorf("saturated core = %v, want 1", m[10*w+10])
+	}
+	if m[5*w] != 0 || m[5*w+1] != 0 {
+		t.Errorf("border = %v %v, want 0", m[5*w], m[5*w+1])
+	}
+	if m[5*w+5] == 0 || m[5*w+5] == 1 {
+		t.Errorf("sky = %v", m[5*w+5])
+	}
+}
