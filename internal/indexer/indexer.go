@@ -175,9 +175,15 @@ func (ix *Indexer) indexObject(ctx context.Context, obj minio.ObjectInfo) error 
 }
 
 func (ix *Indexer) readHeader(ctx context.Context, obj minio.ObjectInfo) (frameheader.Keywords, error) {
+	return ReadHeader(ctx, ix.client, ix.bucket, obj)
+}
+
+// ReadHeader reads an image's header keywords with ranged reads of the
+// start of the object, growing the range until the header fits.
+func ReadHeader(ctx context.Context, client *minio.Client, bucket string, obj minio.ObjectInfo) (frameheader.Keywords, error) {
 	size := int64(frameheader.PrefixSize)
 	for range 4 {
-		prefix, err := ix.readPrefix(ctx, obj.Key, min(size, obj.Size))
+		prefix, err := readPrefix(ctx, client, bucket, obj.Key, min(size, obj.Size))
 		if err != nil {
 			return nil, err
 		}
@@ -192,12 +198,12 @@ func (ix *Indexer) readHeader(ctx context.Context, obj minio.ObjectInfo) (frameh
 	return nil, fmt.Errorf("header larger than %d bytes", size)
 }
 
-func (ix *Indexer) readPrefix(ctx context.Context, key string, n int64) ([]byte, error) {
+func readPrefix(ctx context.Context, client *minio.Client, bucket, key string, n int64) ([]byte, error) {
 	opts := minio.GetObjectOptions{}
 	if err := opts.SetRange(0, n-1); err != nil {
 		return nil, err
 	}
-	r, err := ix.client.GetObject(ctx, ix.bucket, key, opts)
+	r, err := client.GetObject(ctx, bucket, key, opts)
 	if err != nil {
 		return nil, err
 	}
