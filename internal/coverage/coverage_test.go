@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/pixinsight-worker/internal/calmatch"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/coverage"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
@@ -69,11 +70,34 @@ func TestReport(t *testing.T) {
 	if r.Flat.Quality != "exact" || r.Flat.Frames != 30 {
 		t.Errorf("flat %+v", r.Flat)
 	}
-	// The only darks are at 0 °C, 10 °C away from the -10 °C lights.
-	if r.Dark.Quality != "missing" {
+	// The only darks are at 0 °C, 10 °C away from the -10 °C lights: usable
+	// once scaled.
+	if r.Dark.Quality != "fallback" || !r.Dark.Scaled {
 		t.Errorf("dark %+v", r.Dark)
 	}
 	if r.Bias.Quality != "fallback" || r.Bias.AgeDays != 283 {
 		t.Errorf("bias %+v", r.Bias)
+	}
+}
+
+func TestDarkGaps(t *testing.T) {
+	t.Parallel()
+	rows := []coverage.Row{
+		{Night: "2025-11-15", Gain: f(0), Offset: f(50), SetTemp: f(-13), Lights: 10},
+		{Night: "2025-11-16", Gain: f(0), Offset: f(50), SetTemp: f(-17), Lights: 5},
+		{Night: "2025-11-16", Gain: f(100), Offset: f(50), SetTemp: f(4), Lights: 7},
+		{Night: "2025-11-17", Gain: f(0), Offset: f(50), SetTemp: f(-4), Lights: 3},
+		{Night: "2025-11-18", SetTemp: f(-13), Lights: 4}, // no gain recorded
+	}
+	have := []calmatch.Set{{Type: "DARK", Gain: 0, Offset: 50, SetTemp: -5}}
+	gaps := coverage.DarkGaps(rows, have)
+	if len(gaps) != 2 {
+		t.Fatalf("got %+v", gaps)
+	}
+	if gaps[0].SetTemp != -15 || *gaps[0].Gain != 0 || gaps[0].Lights != 15 || gaps[0].Nights != 2 || gaps[0].Latest != "2025-11-16" {
+		t.Errorf("first gap %+v", gaps[0])
+	}
+	if gaps[1].SetTemp != 5 || *gaps[1].Gain != 100 || gaps[1].Lights != 7 {
+		t.Errorf("second gap %+v", gaps[1])
 	}
 }

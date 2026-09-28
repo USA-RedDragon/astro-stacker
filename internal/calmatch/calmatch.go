@@ -23,7 +23,11 @@ const (
 	RotationToleranceDeg = 1.0
 	ExposureTolerance    = 0.01 // relative
 	SetTempExactC        = 1.0
-	SetTempFallbackC     = 5.0
+	// SetTempScaleMaxC is how far a dark's setpoint may be from the lights'
+	// when the dark's thermal signal is scaled to fit (dark optimization).
+	// Dark current roughly doubles every 6 °C, which bias-subtracted scaling
+	// absorbs; beyond this the hot pixel population drifts too far.
+	SetTempScaleMaxC = 10.0
 )
 
 // Group describes a set of lights that share calibration.
@@ -61,6 +65,9 @@ type Match struct {
 	// RotationMismatch is set when the chosen flat was taken at another
 	// rotator angle than the lights.
 	RotationMismatch bool
+	// Scaled is set when a dark needs its thermal signal scaled because the
+	// setpoint or exposure differs; that needs a master bias.
+	Scaled bool
 }
 
 // Result holds the choice for each calibration type.
@@ -152,19 +159,18 @@ func chooseBias(g Group, sets []Set) Match {
 	return nearestInTime(g, cands)
 }
 
-// Darks must match exposure, gain, offset and binning. Among those, the
-// closest setpoint wins, then the nearest night. Darks are a library, so a
-// different night is still exact when the setpoint matches.
+// Darks must match gain, offset and binning. Their thermal signal is scaled
+// to the lights (bias-subtracted dark optimization), and the IMX571 has no amp
+// glow, so neither the setpoint nor the exposure has to match exactly. The
+// closest setpoint wins, then a same-exposure dark, then the longest one
+// (scaling down adds less noise), then the nearest night.
 func chooseDark(g Group, sets []Set) Match {
 	var cands []Set
 	for _, s := range sets {
 		if s.Type != "DARK" || !same(s.Gain, g.Gain) || !same(s.Offset, g.Offset) || !same(s.BinX, g.BinX) {
 			continue
 		}
-		if math.Abs(s.Exposure-g.Exposure) > ExposureTolerance*g.Exposure {
-			continue
-		}
-		if tempOff(g, s) > SetTempFallbackC {
+		if tempOff(g, s) > SetTempScaleMaxC || !(s.Exposure > 0) {
 			continue
 		}
 		cands = append(cands, s)
@@ -177,20 +183,32 @@ func chooseDark(g Group, sets []Set) Match {
 		if ti != tj {
 			return ti < tj
 		}
+		ei, ej := sameExposure(g, cands[i]), sameExposure(g, cands[j])
+		if ei != ej {
+			return ei
+		}
+		if cands[i].Exposure != cands[j].Exposure {
+			return cands[i].Exposure > cands[j].Exposure
+		}
 		return days(g.Night, cands[i].Night) < days(g.Night, cands[j].Night)
 	})
 	best := cands[0]
 	m := Match{Set: &best, AgeDays: days(g.Night, best.Night), TempOff: tempOff(g, best), Quality: Fallback}
-	if m.TempOff <= SetTempExactC {
+	m.Scaled = m.TempOff > SetTempExactC || !sameExposure(g, best)
+	if !m.Scaled {
 		m.Quality = Exact
 	}
 	return m
 }
 
+func sameExposure(g Group, s Set) bool {
+	return math.Abs(s.Exposure-g.Exposure) <= ExposureTolerance*g.Exposure
+}
+
 func tempOff(g Group, s Set) float64 {
 	if math.IsNaN(g.SetTemp) || math.IsNaN(s.SetTemp) {
-		// Unknown temperature can never be an exact match.
-		return SetTempFallbackC
+		// Unknown temperature can never be an exact match, but is usable.
+		return SetTempScaleMaxC
 	}
 	return math.Abs(g.SetTemp - s.SetTemp)
 }
