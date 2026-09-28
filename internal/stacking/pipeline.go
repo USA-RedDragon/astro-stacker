@@ -187,6 +187,10 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	if err != nil {
 		return 0, err
 	}
+	positions, err := targetPositions(ctx, p.sched)
+	if err != nil {
+		return 0, err
+	}
 
 	retrying, err := p.failedBefore(ctx, frames)
 	if err != nil {
@@ -194,7 +198,7 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	}
 	var batch []candidate
 	for _, f := range frames {
-		c, status := p.classify(f, scores, sets)
+		c, status := p.classify(f, scores, sets, positions)
 		if status != "" {
 			if err := p.record(ctx, app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}); err != nil {
 				return 0, err
@@ -216,7 +220,7 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	}
 	if len(batch) > 0 {
 		start := time.Now()
-		err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores)
+		err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores, positions)
 		metrics.BatchSeconds.Observe(time.Since(start).Seconds())
 		if err == nil {
 			metrics.Batches.WithLabelValues("ok").Inc()
@@ -305,8 +309,12 @@ func (p *Pipeline) lockKey(key string) func() {
 
 // classify decides whether a light goes into its master. It returns a status
 // when it doesn't.
-func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, sets []calmatch.Set) (candidate, string) {
+func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, sets []calmatch.Set, positions map[string][2]float64) (candidate, string) {
 	c := candidate{frame: f}
+	if pos, ok := positions[f.Object]; ok && f.MountRA != nil && f.MountDec != nil &&
+		separation(*f.MountRA, *f.MountDec, pos[0], pos[1]) > OffTargetDegrees {
+		return c, app.StackStatusOffTarget
+	}
 	s, ok := scores[path.Base(f.Key)]
 	if !ok {
 		return c, app.StackStatusNoMetadata

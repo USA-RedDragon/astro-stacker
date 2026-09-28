@@ -57,12 +57,67 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
 			slog.Info("Indexed bucket", "bucket", ix.bucket, "seen", stats.Seen, "indexed", stats.Indexed,
 				"failed", stats.Failed, "removed", stats.Removed, "duration", time.Since(start).Round(time.Millisecond))
 		}
+		if n, err := ix.BackfillPointing(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("Reading mount pointing failed", "error", err)
+		} else if n > 0 {
+			slog.Info("Read mount pointing", "lights", n)
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
 		}
 	}
+}
+
+// BackfillPointing reads where the mount pointed for lights indexed before
+// frames recorded it, a ranged read of each header.
+func (ix *Indexer) BackfillPointing(ctx context.Context) (int, error) {
+	var frames []app.Frame
+	if err := ix.db.WithContext(ctx).Select("id", "key", "size").
+		Where("type = ? AND index_error IS NULL AND pointing_read = ?", "LIGHT", false).
+		Find(&frames).Error; err != nil {
+		return 0, err
+	}
+	work := make(chan app.Frame)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	done := 0
+	for range ix.concurrency {
+		wg.Go(func() {
+			for f := range work {
+				kw, err := ReadHeader(ctx, ix.client, ix.bucket, minio.ObjectInfo{Key: f.Key, Size: f.Size})
+				if err != nil {
+					if ctx.Err() == nil {
+						slog.Debug("Could not read header for pointing", "key", f.Key, "error", err)
+					}
+					continue
+				}
+				h := frameheader.FromKeywords(kw)
+				if err := ix.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).Updates(map[string]any{
+					"mount_ra": ptr(h.RA), "mount_dec": ptr(h.Dec), "pointing_read": true,
+				}).Error; err != nil {
+					slog.Debug("Could not save pointing", "key", f.Key, "error", err)
+					continue
+				}
+				mu.Lock()
+				done++
+				mu.Unlock()
+			}
+		})
+	}
+	for _, f := range frames {
+		select {
+		case work <- f:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	close(work)
+	wg.Wait()
+	return done, ctx.Err()
 }
 
 type Stats struct {
@@ -240,6 +295,8 @@ func fillFrame(dst *app.Frame, f frameheader.Frame) {
 	dst.BinY = ptr(f.BinY)
 	dst.Rotator = ptr(f.Rotator)
 	dst.Camera = f.Camera
+	dst.MountRA, dst.MountDec = ptr(f.RA), ptr(f.Dec)
+	dst.PointingRead = true
 	if f.HasDate {
 		d := f.DateObs
 		dst.DateObs = &d
