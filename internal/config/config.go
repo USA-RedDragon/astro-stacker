@@ -34,7 +34,7 @@ type Stacking struct {
 	MinScore        float64 `name:"min-score" description:"Lowest sub score (0-1) that goes into a master" default:"0.3"`
 	BatchSize       int     `name:"batch-size" description:"Subs calibrated and registered per Siril run" default:"12"`
 	WorkDir         string  `name:"work-dir" description:"Scratch space for downloads, masters and Siril output" default:"/tmp/stacking"`
-	SirilCommand    string  `name:"siril-command" description:"Path to Siril's extracted AppImage AppRun" default:"/opt/siril/AppRun"`
+	SirilCommand    string  `name:"siril-command" description:"siril-cli, or an extracted Siril AppImage's AppRun" default:"siril-cli"`
 	SirilThreads    int     `name:"siril-threads" description:"Threads Siril may use" default:"4"`
 	SirilMemory     float64 `name:"siril-memory" description:"Share of free memory Siril may use for stacking masters" default:"0.25"`
 	Pedestal        float64 `name:"pedestal" description:"Camera pedestal in ADU, for scoring subs" default:"506"`

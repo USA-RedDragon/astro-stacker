@@ -20,7 +20,8 @@ import (
 // Runner invokes siril-cli. Siril ships as an AppImage; extracted, its AppRun
 // takes the binary name as the first argument.
 type Runner struct {
-	// Command and Args start siril-cli, e.g. ["/opt/siril/AppRun", "siril-cli"].
+	// Command and Args start siril-cli: "siril-cli", or an extracted
+	// AppImage's AppRun with "siril-cli" as its argument.
 	Command string
 	Args    []string
 }
