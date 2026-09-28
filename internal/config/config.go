@@ -25,6 +25,19 @@ type Config struct {
 	S3       S3       `name:"s3" description:"Object store holding the raw frames"`
 	Indexer  Indexer  `name:"indexer" description:"Frame indexer configuration"`
 	Previews Previews `name:"previews" description:"Sub preview rendering"`
+	Stacking Stacking `name:"stacking" description:"Calibrating, registering and stacking lights into one master per target and filter"`
+}
+
+type Stacking struct {
+	Enabled         bool    `name:"enabled" description:"Stack good lights into masters as they arrive"`
+	IntervalSeconds int     `name:"interval-seconds" description:"Seconds between checks for new lights when idle" default:"120"`
+	MinScore        float64 `name:"min-score" description:"Lowest sub score (0-1) that goes into a master" default:"0.3"`
+	BatchSize       int     `name:"batch-size" description:"Subs calibrated and registered per Siril run" default:"12"`
+	WorkDir         string  `name:"work-dir" description:"Scratch space for downloads, masters and Siril output" default:"/tmp/stacking"`
+	SirilCommand    string  `name:"siril-command" description:"Path to Siril's extracted AppImage AppRun" default:"/opt/siril/AppRun"`
+	SirilThreads    int     `name:"siril-threads" description:"Threads Siril may use" default:"4"`
+	SirilMemory     float64 `name:"siril-memory" description:"Share of free memory Siril may use for stacking masters" default:"0.25"`
+	Pedestal        float64 `name:"pedestal" description:"Camera pedestal in ADU, for scoring subs" default:"506"`
 }
 
 type Previews struct {
@@ -77,7 +90,11 @@ type PProf struct {
 
 type Storage struct {
 	Type types.StorageType `name:"type" description:"Storage type. One of mysql, postgres, sqlite" default:"sqlite"`
-	DSN  DSN               `name:"dsn" description:"Data source names for the storage"`
+	// SchedulerDBType lets the scheduler database use a different engine
+	// from the app database, e.g. a local SQLite app database against the
+	// cluster's Postgres. Empty means the same as Type.
+	SchedulerDBType types.StorageType `name:"schedulerdb-type" description:"Storage type of the scheduler database, if different from type"`
+	DSN             DSN               `name:"dsn" description:"Data source names for the storage"`
 }
 
 type DSN struct {
@@ -113,7 +130,7 @@ func (c Config) Validate() error {
 		return ErrEmptyStorageDSNApp
 	}
 
-	if (c.Indexer.Enabled || c.Previews.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {
+	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {
 		return ErrMissingS3Credentials
 	}
 
@@ -125,7 +142,11 @@ func (c Config) Validate() error {
 		return ErrEmptyStorageDSNSchedulerDB
 	}
 
-	if err := utils.TestDSN(c.Storage.Type, c.Storage.DSN.SchedulerDB); err != nil {
+	schedType := c.Storage.Type
+	if c.Storage.SchedulerDBType != "" {
+		schedType = c.Storage.SchedulerDBType
+	}
+	if err := utils.TestDSN(schedType, c.Storage.DSN.SchedulerDB); err != nil {
 		return ErrInvalidStorageDSNSchedulerDB
 	}
 

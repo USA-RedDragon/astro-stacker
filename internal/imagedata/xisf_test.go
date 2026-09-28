@@ -196,3 +196,35 @@ func TestRealFile(t *testing.T) {
 		t.Logf("wrote %s (%d bytes)", out, len(jpg))
 	}
 }
+
+func TestWriteFITSRoundTrip(t *testing.T) {
+	t.Parallel()
+	data := []float32{0, 0.25, 0.5, 1, 0.75, 0.125, 0.3, 0.6, 0.9, 0.1, 0.2, 0.4}
+	var buf bytes.Buffer
+	cards := []imagedata.Card{
+		imagedata.StringCard("OBJECT", "Bode's Galaxy", "target"),
+		imagedata.FloatCard("EXPTIME", 600, "seconds"),
+		imagedata.IntCard("NCOMBINE", 42, "subs"),
+	}
+	if err := imagedata.WriteFITS(&buf, 3, 2, 2, data, cards); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len()%2880 != 0 {
+		t.Errorf("file is %d bytes, not whole blocks", buf.Len())
+	}
+	im, err := imagedata.Decode(buf.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if im.W != 3 || im.H != 2 || im.C != 2 {
+		t.Fatalf("geometry %dx%dx%d", im.W, im.H, im.C)
+	}
+	for i, v := range data {
+		if im.Data[i] != v {
+			t.Errorf("sample %d = %v want %v", i, im.Data[i], v)
+		}
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("OBJECT  = 'Bode''s Galaxy'")) {
+		t.Error("quoted string card not written as expected")
+	}
+}

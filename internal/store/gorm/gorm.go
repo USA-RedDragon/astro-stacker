@@ -3,6 +3,9 @@ package gorm
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"time"
 
 	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
@@ -11,6 +14,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type Gorm struct {
@@ -22,7 +26,8 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = store.db.AutoMigrate(app.ImageProcess{}, app.PreStackedImage{}, app.Frame{})
+	err = store.db.AutoMigrate(app.ImageProcess{}, app.PreStackedImage{}, app.Frame{},
+		app.CalibrationMaster{}, app.TargetReference{}, app.Stack{}, app.StackFrame{})
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +35,11 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 }
 
 func NewSchedulerDBGormStore(cfg *config.Config) (*Gorm, error) {
-	return NewGormStore(cfg.Storage.Type, cfg.Storage.DSN.SchedulerDB)
+	typ := cfg.Storage.Type
+	if cfg.Storage.SchedulerDBType != "" {
+		typ = cfg.Storage.SchedulerDBType
+	}
+	return NewGormStore(typ, cfg.Storage.DSN.SchedulerDB)
 }
 
 func NewGormStore(storageType types.StorageType, dsn string) (*Gorm, error) {
@@ -46,7 +55,14 @@ func NewGormStore(storageType types.StorageType, dsn string) (*Gorm, error) {
 		return nil, config.ErrInvalidStorageType
 	}
 
-	db, err := gorm.Open(dialect, &gorm.Config{})
+	db, err := gorm.Open(dialect, &gorm.Config{
+		// Lookups that find nothing are normal here, not errors.
+		Logger: logger.New(log.New(os.Stderr, "", log.LstdFlags), logger.Config{
+			SlowThreshold:             time.Second,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+		}),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}

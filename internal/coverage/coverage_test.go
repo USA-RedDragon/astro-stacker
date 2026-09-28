@@ -101,3 +101,59 @@ func TestDarkGaps(t *testing.T) {
 		t.Errorf("second gap %+v", gaps[1])
 	}
 }
+
+func TestSetFramesMatchesGrouping(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.Frame{}); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	add := func(fr app.Frame, count int) {
+		for range count {
+			n++
+			fr.ID = 0
+			fr.Key = fmt.Sprintf("frame-%d", n)
+			fr.ETag = "e"
+			fr.LastModified = time.Now()
+			if err := db.Create(&fr).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	flat := app.Frame{Type: "FLAT", Object: "M31", Filter: "Red", Exposure: f(1.2), Gain: f(0), Offset: f(50),
+		SetTemp: f(-10), BinX: f(1), Rotator: f(142.38), Night: day("2025-11-15")}
+	add(flat, 20)
+	jitter := flat
+	jitter.Rotator = f(142.44)
+	add(jitter, 10)
+	// Same everything but no gain recorded: a different set.
+	noGain := flat
+	noGain.Gain = nil
+	add(noGain, 5)
+	other := flat
+	other.Filter = "Green"
+	add(other, 7)
+
+	sets, err := coverage.Sets(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[int]int{}
+	for _, s := range sets {
+		frames, err := coverage.SetFrames(context.Background(), db, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(frames) != s.Count {
+			t.Errorf("%s %s gain %v: %d frames, set says %d", s.Type, s.Filter, s.Gain, len(frames), s.Count)
+		}
+		counts[s.Count]++
+	}
+	if len(sets) != 3 || counts[30] != 1 || counts[5] != 1 || counts[7] != 1 {
+		t.Errorf("sets %+v", sets)
+	}
+}
