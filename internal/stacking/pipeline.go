@@ -14,6 +14,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -76,6 +77,9 @@ type Pipeline struct {
 	busy map[string]bool
 	// building serializes work on one calibration master's files.
 	building sync.Map // set key -> *sync.Mutex
+
+	// Events, if set, hears about updated masters.
+	Events *events.Broker
 }
 
 func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runner siril.Runner, workDir string, opts PipelineOptions) *Pipeline {

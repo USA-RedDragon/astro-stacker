@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -34,6 +35,9 @@ type Previewer struct {
 	db          *gorm.DB
 	concurrency int
 	opts        preview.Options
+
+	// Events, if set, hears about rendered previews.
+	Events *events.Broker
 }
 
 func New(client *minio.Client, source, dest string, db *gorm.DB, concurrency int, opts preview.Options) *Previewer {
@@ -137,6 +141,9 @@ func (p *Previewer) renderOne(ctx context.Context, f app.Frame) error {
 	if dbErr := p.db.WithContext(ctx).Model(&app.Frame{}).
 		Where("id = ? AND e_tag = ?", f.ID, f.ETag).Updates(updates).Error; dbErr != nil {
 		return fmt.Errorf("save preview: %w", dbErr)
+	}
+	if err == nil && f.Type == "LIGHT" {
+		p.Events.Publish(events.Event{Type: events.TypePreview, Object: f.Object, Filter: f.Filter, Key: f.Key})
 	}
 	return err
 }
