@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -48,6 +49,11 @@ func (r Runner) Run(ctx context.Context, dir, script string) (Result, error) {
 	start := time.Now()
 	err := cmd.Run()
 	res := Result{Log: out.String(), Duration: time.Since(start)}
+	result := "ok"
+	if err != nil || strings.Contains(res.Log, "Script execution failed") {
+		result = "failed"
+	}
+	metrics.SirilSeconds.WithLabelValues(mainCommand(script), result).Observe(res.Duration.Seconds())
 	if err != nil || strings.Contains(res.Log, "Script execution failed") {
 		slog.Debug("Siril script failed", "dir", dir, "script", script, "log", res.Log)
 		if err == nil {
@@ -57,6 +63,19 @@ func (r Runner) Run(ctx context.Context, dir, script string) (Result, error) {
 	}
 	slog.Debug("Siril script finished", "dir", dir, "duration", res.Duration.Round(time.Millisecond))
 	return res, nil
+}
+
+// mainCommand names a script by the first of its commands that does the
+// work, for metrics.
+func mainCommand(script string) string {
+	for _, line := range strings.Split(script, "\n") {
+		cmd, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+		switch cmd {
+		case "calibrate_single", "calibrate", "register", "seqplatesolve", "platesolve", "stack", "seqapplyreg":
+			return cmd
+		}
+	}
+	return "other"
 }
 
 // tail returns the last n meaningful lines of Siril's log, which hold the

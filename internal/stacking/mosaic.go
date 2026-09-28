@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -158,6 +159,8 @@ func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string
 	defer p.finished(name)
 	start := time.Now()
 	buildErr := p.buildMosaic(ctx, g, filter, masters, &mosaic)
+	metrics.MosaicSeconds.Observe(time.Since(start).Seconds())
+	metrics.Mosaics.WithLabelValues(map[bool]string{true: "ok", false: "failed"}[buildErr == nil]).Inc()
 	mosaic.Signature, mosaic.PanelsTotal = sig, len(g.Panels)
 	if buildErr != nil {
 		// Recorded so it isn't retried until a panel master changes.

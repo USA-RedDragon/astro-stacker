@@ -17,6 +17,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
@@ -101,6 +102,7 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 					slog.Warn("Could not index frame", "key", obj.Key, "error", err)
 				} else {
 					stats.Indexed++
+					metrics.FramesIndexed.Inc()
 				}
 				mu.Unlock()
 			}

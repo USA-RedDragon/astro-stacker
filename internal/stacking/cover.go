@@ -16,6 +16,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -140,6 +141,7 @@ func choosePalette(have map[string]layer) (palette, bool) {
 func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, linear map[string]layer) error {
 	pal, ok := choosePalette(linear)
 	if !ok {
+		metrics.Covers.WithLabelValues("mono").Inc()
 		return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
 	}
 	planes := map[string]*linearImage{}
@@ -182,6 +184,7 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 		return err
 	}
 	c.Subject, c.Palette, c.PreviewKey, c.UpdatedAt = subject, pal.Name, key, time.Now()
+	metrics.Covers.WithLabelValues("colour").Inc()
 	return p.db.WithContext(ctx).Save(&c).Error
 }
 

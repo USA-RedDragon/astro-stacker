@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
@@ -33,12 +34,14 @@ func (p *Pipeline) progress(object, filter, stage string, done, total int) {
 	}
 	w.Filter, w.Stage, w.Done, w.Total = filter, stage, done, total
 	p.dirty = true
+	metrics.WorkersBusy.Set(float64(len(p.working)))
 }
 
 func (p *Pipeline) finished(object string) {
 	p.statusMu.Lock()
 	delete(p.working, object)
 	p.dirty = true
+	metrics.WorkersBusy.Set(float64(len(p.working)))
 	p.statusMu.Unlock()
 }
 
@@ -105,6 +108,10 @@ func (p *Pipeline) countBacklog(ctx context.Context) (events.Backlog, error) {
 	}
 	b.LightsPending, b.LightsDone = int(pending), int(total-pending)
 	b.Dead, b.PreviewsPending = int(dead), int(previews)
+	metrics.LightsPending.Set(float64(b.LightsPending))
+	metrics.LightsDone.Set(float64(b.LightsDone))
+	metrics.SubsDead.Set(float64(b.Dead))
+	metrics.PreviewsPending.Set(float64(b.PreviewsPending))
 	return b, nil
 }
 

@@ -5,6 +5,7 @@ package events
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"net/http"
 	"strconv"
 	"sync"
@@ -162,6 +163,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	after, _ := strconv.ParseUint(r.Header.Get("Last-Event-ID"), 10, 64)
 	backlog, ch, cancel := b.Subscribe(after)
 	defer cancel()
+	metrics.EventListeners.Inc()
+	defer metrics.EventListeners.Dec()
 	Stream(w, r, backlog, ch)
 }
 

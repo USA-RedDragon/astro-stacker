@@ -18,6 +18,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -120,6 +121,9 @@ func (p *Previewer) RenderBatch(ctx context.Context) (int, error) {
 
 func (p *Previewer) renderOne(ctx context.Context, f app.Frame) error {
 	jpg, err := p.render(ctx, f.Key)
+	if ctx.Err() == nil {
+		metrics.PreviewsRendered.WithLabelValues(map[bool]string{true: "ok", false: "failed"}[err == nil]).Inc()
+	}
 	now := time.Now()
 	updates := map[string]any{"preview_at": now}
 	if err != nil {

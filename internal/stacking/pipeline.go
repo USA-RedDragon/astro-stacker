@@ -15,6 +15,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -210,10 +211,16 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 		}
 	}
 	if len(batch) > 0 {
-		if err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores); err != nil {
+		start := time.Now()
+		err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores)
+		metrics.BatchSeconds.Observe(time.Since(start).Seconds())
+		if err == nil {
+			metrics.Batches.WithLabelValues("ok").Inc()
+		} else {
 			if ctx.Err() != nil {
 				return 0, ctx.Err()
 			}
+			metrics.Batches.WithLabelValues("failed").Inc()
 			slog.Error("Stacking batch failed", "object", first.Object, "filter", first.Filter, "subs", len(batch), "error", err)
 			msg := err.Error()
 			for _, c := range batch {
@@ -344,6 +351,7 @@ func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 			sf.NextAttemptAt = &next
 		}
 	}
+	metrics.Subs.WithLabelValues(sf.Status).Inc()
 	switch {
 	case err == nil:
 		sf.ID = existing.ID
