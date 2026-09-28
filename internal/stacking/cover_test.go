@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,6 +37,20 @@ func TestChoosePalette(t *testing.T) {
 		p, ok := choosePalette(c.have)
 		if got := map[bool]string{true: p.Name, false: ""}[ok]; got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestPaletteFilters(t *testing.T) {
+	want := map[string][]string{
+		"RGB+Ha": {"Red", "Green", "Blue", "H-a"},
+		"RGB":    {"Red", "Green", "Blue"},
+		"SHO":    {"S-II", "H-a", "O-III"},
+		"HOO":    {"H-a", "O-III"},
+	}
+	for _, p := range palettes {
+		if got := p.filters(); !slices.Equal(got, want[p.Name]) {
+			t.Errorf("%s reads %v, want %v", p.Name, got, want[p.Name])
 		}
 	}
 }

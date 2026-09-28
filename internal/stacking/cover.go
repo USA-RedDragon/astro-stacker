@@ -29,6 +29,20 @@ type palette struct {
 	HaRed   bool
 }
 
+// filters lists each filter the palette reads once.
+func (p palette) filters() []string {
+	out := []string{p.R}
+	for _, f := range []string{p.G, p.B} {
+		if !slices.Contains(out, f) {
+			out = append(out, f)
+		}
+	}
+	if p.HaRed && !slices.Contains(out, "H-a") {
+		out = append(out, "H-a")
+	}
+	return out
+}
+
 // palettes in order of preference for a cover.
 var palettes = []palette{
 	{Name: "RGB+Ha", R: "Red", G: "Green", B: "Blue", HaRed: true},
@@ -98,13 +112,7 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 		return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
 	}
 	planes := map[string]*linearImage{}
-	for _, f := range []string{pal.R, pal.G, pal.B, "H-a"} {
-		if f == "H-a" && !pal.HaRed {
-			continue
-		}
-		if planes[f] != nil {
-			continue
-		}
+	for _, f := range pal.filters() {
 		img, err := p.readLinear(ctx, linear[f].Key)
 		if err != nil {
 			return fmt.Errorf("%s %s: %w", subject, f, err)
