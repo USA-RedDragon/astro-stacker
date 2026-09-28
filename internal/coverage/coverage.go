@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/pixinsight-worker/internal/calmatch"
+	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
 	"gorm.io/gorm"
 )
 
@@ -85,34 +86,72 @@ func Gaps(ctx context.Context, db *gorm.DB) ([]DarkGap, error) {
 	return DarkGaps(rows, sets), nil
 }
 
-func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.Set, error) {
-	// Round rotation to whole degrees so frames from one session group
-	// together; matching uses a 1 degree tolerance anyway.
-	const cols = `type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, ROUND(rotator) as rotator, COUNT(*) as n`
-	const group = `type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, ROUND(rotator)`
+// Frames of a session are grouped on these columns. Rotation is rounded to
+// whole degrees so frames from one session group together; matching uses a
+// 1 degree tolerance anyway.
+const (
+	groupCols = `type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, ROUND(rotator) as rotator, COUNT(*) as n`
+	groupBy   = `type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, ROUND(rotator)`
+)
 
+// Sets loads every flat, dark and bias set.
+func Sets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, error) {
 	var cal []groupRow
-	if err := db.WithContext(ctx).Table("frames").Select(cols).
+	if err := db.WithContext(ctx).Table("frames").Select(groupCols).
 		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL", []string{"FLAT", "DARK", "BIAS"}).
-		Group(group).Scan(&cal).Error; err != nil {
-		return nil, nil, fmt.Errorf("load calibration sets: %w", err)
+		Group(groupBy).Scan(&cal).Error; err != nil {
+		return nil, fmt.Errorf("load calibration sets: %w", err)
 	}
 	sets := make([]calmatch.Set, 0, len(cal))
 	for _, c := range cal {
 		sets = append(sets, calmatch.Set{
-			Type: c.Type, Night: c.Night, Filter: c.Filter, Exposure: val(c.Exposure),
+			Type: c.Type, Night: c.Night, Object: c.Object, Filter: c.Filter, Exposure: val(c.Exposure),
 			Gain: val(c.Gain), Offset: val(c.Offset), SetTemp: val(c.SetTemp),
 			BinX: val(c.BinX), Rotator: val(c.Rotator), Count: c.N,
 		})
 	}
+	return sets, nil
+}
 
-	q := db.WithContext(ctx).Table("frames").Select(cols).
+// SetFrames returns the frames that make up a set, matching the grouping in
+// Sets exactly, with missing values matched as NULL.
+func SetFrames(ctx context.Context, db *gorm.DB, s calmatch.Set) ([]app.Frame, error) {
+	q := db.WithContext(ctx).Where("type = ? AND night = ? AND object = ? AND filter = ? AND index_error IS NULL",
+		s.Type, s.Night, s.Object, s.Filter)
+	for col, v := range map[string]float64{
+		"exposure": s.Exposure, "gain": s.Gain, `"offset"`: s.Offset, "set_temp": s.SetTemp, "bin_x": s.BinX,
+	} {
+		if math.IsNaN(v) {
+			q = q.Where(col + " IS NULL")
+		} else {
+			q = q.Where(col+" = ?", v)
+		}
+	}
+	if math.IsNaN(s.Rotator) {
+		q = q.Where("rotator IS NULL")
+	} else {
+		q = q.Where("ROUND(rotator) = ?", s.Rotator)
+	}
+	var frames []app.Frame
+	if err := q.Order("key").Find(&frames).Error; err != nil {
+		return nil, fmt.Errorf("load frames of %s set: %w", s.Type, err)
+	}
+	return frames, nil
+}
+
+func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.Set, error) {
+	sets, err := Sets(ctx, db)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	q := db.WithContext(ctx).Table("frames").Select(groupCols).
 		Where("type = ? AND night IS NOT NULL AND index_error IS NULL", "LIGHT")
 	if object != "" {
 		q = q.Where("object = ?", object)
 	}
 	var lights []groupRow
-	if err := q.Group(group).Scan(&lights).Error; err != nil {
+	if err := q.Group(groupBy).Scan(&lights).Error; err != nil {
 		return nil, nil, fmt.Errorf("load lights: %w", err)
 	}
 

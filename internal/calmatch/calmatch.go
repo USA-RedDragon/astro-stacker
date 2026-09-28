@@ -46,6 +46,7 @@ type Group struct {
 type Set struct {
 	Type     string // FLAT, DARK, BIAS
 	Night    time.Time
+	Object   string // Target Scheduler names flats after their target
 	Filter   string
 	Exposure float64
 	Gain     float64

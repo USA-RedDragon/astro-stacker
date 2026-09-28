@@ -1,0 +1,83 @@
+package app
+
+import "time"
+
+// CalibrationMaster is a master bias, dark or flat built from one set of raw
+// frames and stored in the processed bucket.
+type CalibrationMaster struct {
+	ID int `gorm:"primaryKey;autoIncrement"`
+	// SetKey identifies the raw frames it was built from (their keys and
+	// ETags), so a changed set gets a new master.
+	SetKey    string `gorm:"not null;uniqueIndex"`
+	Type      string `gorm:"not null"`
+	ObjectKey string `gorm:"not null"`
+	Frames    int    `gorm:"not null"`
+	BuiltAt   time.Time
+}
+
+// TargetReference is the frame every sub of a target is registered to, so
+// all its filters' masters line up.
+type TargetReference struct {
+	ID        int    `gorm:"primaryKey;autoIncrement"`
+	Object    string `gorm:"not null;uniqueIndex"`
+	FrameID   int    `gorm:"not null"`
+	ObjectKey string `gorm:"not null"` // calibrated reference in the processed bucket
+	CreatedAt time.Time
+}
+
+// Stack is the running master for one target and filter.
+type Stack struct {
+	ID     int    `gorm:"primaryKey;autoIncrement"`
+	Object string `gorm:"not null;uniqueIndex:idx_stack_target_filter"`
+	Filter string `gorm:"not null;uniqueIndex:idx_stack_target_filter"`
+	Width  int
+	Height int
+
+	Subs int
+	// ExposureSeconds is the total exposure of the subs in the master;
+	// EffectiveSeconds weights each by its score.
+	ExposureSeconds  float64
+	EffectiveSeconds float64
+	WeightSum        float64
+	BackgroundSum    float64
+	// ScaleExposure is the exposure the master is scaled to, the longest
+	// sub exposure, so it reads like one sub of that length.
+	ScaleExposure float64
+	// RebuiltAtSubs is the sub count at the last full rebuild.
+	RebuiltAtSubs int
+
+	StateKey   *string // accumulator planes
+	MasterKey  *string // linear master FITS for download
+	PreviewKey *string // auto-stretched JPEG
+	LinearKey  *string // small linear preview for palette mixing in the browser
+	UpdatedAt  time.Time
+}
+
+// Why a light is or isn't in a master.
+const (
+	StackStatusAdded        = "added"
+	StackStatusLowScore     = "low_score"
+	StackStatusRejected     = "rejected"    // graded as rejected in Target Scheduler
+	StackStatusNoMetadata   = "no_metadata" // no scheduler record to score it
+	StackStatusCalibration  = "calibration" // no usable flat, dark or bias yet
+	StackStatusRegistration = "registration"
+	StackStatusFailed       = "failed"
+)
+
+// StackFrame records what happened to one light.
+type StackFrame struct {
+	ID            int    `gorm:"primaryKey;autoIncrement"`
+	FrameID       int    `gorm:"not null;uniqueIndex"`
+	StackID       *int   `gorm:"index"`
+	Status        string `gorm:"not null;index"`
+	Score         float64
+	Weight        float64
+	Exposure      float64
+	RegisteredKey *string
+	DarkScale     float64
+	Used          int
+	Rejected      int
+	Saturated     int
+	Error         *string `gorm:"type:text"`
+	ProcessedAt   time.Time
+}

@@ -17,7 +17,7 @@ import (
 	"github.com/USA-RedDragon/pixinsight-worker/internal/store"
 	"github.com/lmittmann/tint"
 	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	miniocreds "github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
 	"github.com/ztrue/shutdown"
 )
@@ -34,6 +34,7 @@ func NewCommand(version, commit string) *cobra.Command {
 		SilenceErrors:     true,
 		DisableAutoGenTag: true,
 	}
+	cmd.AddCommand(newStackCommand())
 	return cmd
 }
 
@@ -82,9 +83,9 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	indexCtx, stopIndexer := context.WithCancel(context.Background())
 	defer stopIndexer()
 	var signer *previewer.Signer
-	if cfg.Indexer.Enabled || cfg.Previews.Enabled {
-		creds := credentials.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, "")
-		s3, err := minio.New(cfg.S3.Endpoint, &minio.Options{Creds: creds, Secure: cfg.S3.UseSSL, Region: cfg.S3.Region})
+	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled {
+		creds := credentials(cfg)
+		s3, err := newS3(cfg)
 		if err != nil {
 			return fmt.Errorf("failed to create S3 client: %w", err)
 		}
@@ -105,6 +106,11 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 				return fmt.Errorf("failed to create public S3 client: %w", err)
 			}
 			signer = previewer.NewSigner(public, cfg.S3.ProcessedBucket, time.Duration(cfg.Previews.URLTTLSeconds)*time.Second)
+		}
+		if cfg.Stacking.Enabled {
+			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
+			go p.Run(indexCtx, time.Duration(cfg.Stacking.IntervalSeconds)*time.Second)
+			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir)
 		}
 	}
 
@@ -132,4 +138,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	shutdown.Listen(syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 
 	return nil
+}
+
+func credentials(cfg *config.Config) *miniocreds.Credentials {
+	return miniocreds.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, "")
 }
