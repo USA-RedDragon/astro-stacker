@@ -40,7 +40,7 @@ type Master struct {
 	LinearURL        string    `json:"linear_url"`
 	Crop             *Crop     `json:"crop,omitempty"`
 	// FittedURL is the master linear fitted to FitReference, when the
-	// target has other filters.
+	// target has other colour or other narrowband filters.
 	FittedURL    string `json:"fitted_url,omitempty"`
 	FitReference string `json:"fit_reference,omitempty"`
 }

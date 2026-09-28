@@ -52,3 +52,16 @@ func TestSexagesimal(t *testing.T) {
 		}
 	}
 }
+
+func TestFitGroup(t *testing.T) {
+	t.Parallel()
+	for filter, want := range map[string]string{
+		"Red": "Red/Green/Blue", "Blue": "Red/Green/Blue",
+		"H-a": "H-a/O-III/S-II", "S-II": "H-a/O-III/S-II",
+		"Luminance": "", "Clear": "",
+	} {
+		if got := fitGroup(filter); got != want {
+			t.Errorf("fitGroup(%q) = %q, want %q", filter, got, want)
+		}
+	}
+}

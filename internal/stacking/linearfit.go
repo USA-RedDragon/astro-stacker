@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/minio/minio-go/v7"
 )
 
 // StageLinearFit is reported while a target's masters are being fitted.
@@ -31,30 +32,74 @@ const fitRejectHigh = 0.92
 // fitSamples caps how many pixels a fit uses.
 const fitSamples = 2_000_000
 
-// linearFitsOnce refits the masters of every target with more than one
-// filter whose masters changed and have been left alone for MosaicQuiet.
+// fitGroups are the filters fitted to each other. Colour channels are
+// matched to colour channels and narrowband to narrowband; luminance, and
+// any filter not listed, is left alone.
+var fitGroups = [][]string{
+	{"Red", "Green", "Blue"},
+	{"H-a", "O-III", "S-II"},
+}
+
+// linearFitsOnce refits each target's filter groups whose masters changed
+// and have been left alone for MosaicQuiet.
 func (p *Pipeline) linearFitsOnce(ctx context.Context) error {
 	var stacks []app.Stack
 	if err := p.db.WithContext(ctx).Where("subs > 0 AND master_key IS NOT NULL").
 		Order("object, filter").Find(&stacks).Error; err != nil {
 		return err
 	}
-	byObject := map[string][]app.Stack{}
+	type key struct{ object, group string }
+	groups := map[key][]app.Stack{}
 	for _, s := range stacks {
-		byObject[s.Object] = append(byObject[s.Object], s)
-	}
-	for object, masters := range byObject {
-		if len(masters) < 2 {
+		g := fitGroup(s.Filter)
+		if g == "" {
+			if s.FittedKey != nil {
+				p.dropFit(ctx, &s)
+			}
 			continue
 		}
-		if err := p.linearFitIfDue(ctx, object, masters); err != nil {
+		groups[key{s.Object, g}] = append(groups[key{s.Object, g}], s)
+	}
+	for k, masters := range groups {
+		if len(masters) < 2 {
+			for i := range masters {
+				if masters[i].FittedKey != nil {
+					p.dropFit(ctx, &masters[i])
+				}
+			}
+			continue
+		}
+		if err := p.linearFitIfDue(ctx, k.object, masters); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			slog.Error("LinearFit failed", "object", object, "error", err)
+			slog.Error("LinearFit failed", "object", k.object, "filters", k.group, "error", err)
 		}
 	}
 	return nil
+}
+
+// fitGroup names the group a filter is fitted within, or "" for none.
+func fitGroup(filter string) string {
+	for _, g := range fitGroups {
+		if slices.Contains(g, filter) {
+			return strings.Join(g, "/")
+		}
+	}
+	return ""
+}
+
+// dropFit removes a fitted master that no longer has a group to fit in.
+func (p *Pipeline) dropFit(ctx context.Context, s *app.Stack) {
+	if err := p.s3.RemoveObject(ctx, p.dest, *s.FittedKey, minio.RemoveObjectOptions{}); err != nil {
+		slog.Warn("Could not remove fitted master", "object", s.Object, "filter", s.Filter, "error", err)
+		return
+	}
+	if err := p.db.WithContext(ctx).Model(s).UpdateColumns(map[string]any{
+		"fitted_key": nil, "fit_reference": "", "fit_offset": 0, "fit_scale": 0, "fit_signature": "",
+	}).Error; err != nil {
+		slog.Warn("Could not clear fitted master", "object", s.Object, "filter", s.Filter, "error", err)
+	}
 }
 
 // fitSignature identifies the masters a fit was made from.
