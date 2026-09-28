@@ -1,19 +1,19 @@
 ---
-project_name: pixinsight-worker
+project_name: astro-stacker
 
 release:
   extra_files:
     - glob: ./LICENSE
   github:
     owner: USA-RedDragon
-    name: pixinsight-worker
+    name: astro-stacker
 
 dockers:
   - image_templates:
-      - "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}-amd64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}-amd64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}-amd64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:latest-amd64"
+      - "ghcr.io/usa-reddragon/astro-stacker:{{ .Tag }}-amd64"
+      - "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}-amd64"
+      - "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/usa-reddragon/astro-stacker:latest-amd64"
     use: buildx
     goarch: amd64
     build_flag_templates:
@@ -27,10 +27,10 @@ dockers:
       - --label=org.opencontainers.image.source=https://github.com/USA-RedDragon/{{ .ProjectName }}
       - "--platform=linux/amd64"
   - image_templates:
-      - "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}-arm64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}-arm64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}-arm64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:latest-arm64"
+      - "ghcr.io/usa-reddragon/astro-stacker:{{ .Tag }}-arm64"
+      - "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}-arm64"
+      - "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}.{{ .Minor }}-arm64"
+      - "ghcr.io/usa-reddragon/astro-stacker:latest-arm64"
     use: buildx
     goarch: arm64
     build_flag_templates:
@@ -45,26 +45,26 @@ dockers:
       - "--platform=linux/arm64"
 
 docker_manifests:
-  - name_template: "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}"
+  - name_template: "ghcr.io/usa-reddragon/astro-stacker:{{ .Tag }}"
     image_templates:
-      - "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}-amd64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:{{ .Tag }}-arm64"
-  - name_template: "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}"
+      - "ghcr.io/usa-reddragon/astro-stacker:{{ .Tag }}-amd64"
+      - "ghcr.io/usa-reddragon/astro-stacker:{{ .Tag }}-arm64"
+  - name_template: "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}"
     image_templates:
-      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}-amd64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}-arm64"
-  - name_template: "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}"
+      - "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}-amd64"
+      - "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}-arm64"
+  - name_template: "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}.{{ .Minor }}"
     image_templates:
-      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}-amd64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:v{{ .Major }}.{{ .Minor }}-arm64"
-  - name_template: "ghcr.io/usa-reddragon/pixinsight-worker:latest"
+      - "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/usa-reddragon/astro-stacker:v{{ .Major }}.{{ .Minor }}-arm64"
+  - name_template: "ghcr.io/usa-reddragon/astro-stacker:latest"
     image_templates:
-      - "ghcr.io/usa-reddragon/pixinsight-worker:latest-amd64"
-      - "ghcr.io/usa-reddragon/pixinsight-worker:latest-arm64"
+      - "ghcr.io/usa-reddragon/astro-stacker:latest-amd64"
+      - "ghcr.io/usa-reddragon/astro-stacker:latest-arm64"
 
 builds:
   - main: .
-    binary: pixinsight-worker
+    binary: astro-stacker
     goos:
       - linux
       - windows

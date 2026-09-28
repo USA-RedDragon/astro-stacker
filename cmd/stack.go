@@ -6,11 +6,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/siril"
+	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
+	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/configulator"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/siril"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/stacking"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store"
 	"github.com/minio/minio-go/v7"
 	"github.com/spf13/cobra"
 )

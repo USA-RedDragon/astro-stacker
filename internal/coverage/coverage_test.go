@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/calmatch"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/coverage"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
+	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )

@@ -8,8 +8,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/imagedata"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/preview"
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 )
 
 func TestMTF(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/stacking"
+	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 )
 
 // frame makes a sub: flat sky plus a star-like signal at pixel 0, noise, and

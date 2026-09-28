@@ -5,9 +5,9 @@ import (
 
 	gormlib "gorm.io/gorm"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/gorm"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/types"
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/gorm"
+	"github.com/USA-RedDragon/astro-stacker/internal/types"
 )
 
 type Store interface {

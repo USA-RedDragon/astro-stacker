@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store"
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/gin-gonic/gin"
 )
 

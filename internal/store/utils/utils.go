@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/types"
+	"github.com/USA-RedDragon/astro-stacker/internal/types"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"

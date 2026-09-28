@@ -3,8 +3,8 @@ package config
 import (
 	"errors"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/utils"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/types"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/utils"
+	"github.com/USA-RedDragon/astro-stacker/internal/types"
 )
 
 type LogLevel string

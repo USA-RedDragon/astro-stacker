@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/imagedata"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/preview"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/preview"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )

@@ -1,4 +1,4 @@
-module github.com/USA-RedDragon/pixinsight-worker
+module github.com/USA-RedDragon/astro-stacker
 
 go 1.25.4
 

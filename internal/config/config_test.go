@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/configulator"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
 )
 
 func TestLogLevelConstants(t *testing.T) {

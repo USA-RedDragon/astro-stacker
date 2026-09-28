@@ -11,7 +11,7 @@ import (
 	"math"
 	"slices"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 )
 
 // PixInsight's STF auto-stretch defaults.

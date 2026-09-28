@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/calmatch"
+	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 )
 
 func night(s string) time.Time {

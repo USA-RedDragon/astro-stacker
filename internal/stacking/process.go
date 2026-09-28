@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/calmatch"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/imagedata"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/siril"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/siril"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
 
