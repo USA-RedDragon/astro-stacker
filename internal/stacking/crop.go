@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"path"
+	"slices"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
@@ -13,7 +14,7 @@ import (
 
 // CropVersion changes with the crop rule, so masters cropped by an older
 // rule get their crop and preview redone.
-const CropVersion = 3
+const CropVersion = 5
 
 // Rect is a crop in full-resolution pixels.
 type Rect struct{ X, Y, W, H int }
@@ -21,10 +22,14 @@ type Rect struct{ X, Y, W, H int }
 // cropBlock is the block size crops are computed on.
 const cropBlock = 8
 
-// coverageCrop crops to where (nearly) every sub overlaps, as PixInsight's
-// WBPP autocrop does: the largest rectangle whose pixels are all covered by
-// at least 95% of the subs. That drops both the empty borders registration
-// leaves and the weak edges only some subs reach.
+// coverageCrop crops to where (nearly) every sub of the master's framing
+// overlaps, as PixInsight's WBPP autocrop does for a single framing: the
+// largest rectangle whose pixels are all covered by at least 95% of the
+// subs that cover most of the frame. That drops the empty borders
+// registration leaves and the weak edges only some subs reach. Subs from
+// another framing (a target re-centred on some nights) add depth where
+// they overlap but don't shrink the crop: the count to reach is the one
+// most of the frame has, not the peak where both framings overlap.
 //
 // Coverage is each sub's footprint, not the per-pixel count: counts drop
 // where stars, trails and hot pixels were rejected, which would read as
@@ -33,22 +38,81 @@ const cropBlock = 8
 // while leaving the edges where they are.
 func coverageCrop(acc *Accumulator) Rect {
 	cover := localExtreme(localExtreme(acc.Count, acc.W, acc.H, rejectionFill, true), acc.W, acc.H, rejectionFill, false)
-	var most float32
-	for _, c := range cover {
-		most = max(most, c)
+	need := 0.95 * typicalCoverage(cover)
+	low := make([]bool, len(cover))
+	for i, c := range cover {
+		low[i] = c < need || c == 0
 	}
-	need := 0.95 * most
+	outside := fromBorder(low, acc.W, acc.H)
 	return largestRect(acc.W, acc.H, func(sum float64, _ int) float64 { return sum }, nil, 0,
 		func(bx, by int) bool {
 			for y := by * cropBlock; y < (by+1)*cropBlock; y++ {
 				for x := bx * cropBlock; x < (bx+1)*cropBlock; x++ {
-					if cover[y*acc.W+x] < need {
+					if outside[y*acc.W+x] {
 						return false
 					}
 				}
 			}
 			return true
 		})
+}
+
+// fromBorder marks the low pixels connected to the image's edge: those are
+// the frame's ragged or weak edges. Low pixels enclosed by covered ones are
+// holes inside the frame, where saturated galaxy cores and bright stars
+// were left out of every sub, and don't limit a crop.
+func fromBorder(low []bool, w, h int) []bool {
+	out := make([]bool, len(low))
+	stack := make([]int, 0, 2*(w+h))
+	push := func(i int) {
+		if low[i] && !out[i] {
+			out[i] = true
+			stack = append(stack, i)
+		}
+	}
+	for x := range w {
+		push(x)
+		push((h-1)*w + x)
+	}
+	for y := range h {
+		push(y * w)
+		push(y*w + w - 1)
+	}
+	for len(stack) > 0 {
+		i := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		x, y := i%w, i/w
+		if x > 0 {
+			push(i - 1)
+		}
+		if x < w-1 {
+			push(i + 1)
+		}
+		if y > 0 {
+			push(i - w)
+		}
+		if y < h-1 {
+			push(i + w)
+		}
+	}
+	return out
+}
+
+// typicalCoverage is the coverage most of the frame has: the 20th
+// percentile of covered pixels, below any overlap of framings (which covers
+// only part of the frame) and above the thin dithered edges.
+func typicalCoverage(cover []float32) float32 {
+	var s []float32
+	for i := 0; i < len(cover); i += 13 {
+		if cover[i] > 0 {
+			s = append(s, cover[i])
+		}
+	}
+	if len(s) == 0 {
+		return 0
+	}
+	slices.Sort(s)
+	return s[len(s)/5]
 }
 
 // rejectionFill is the width of the local maximum that fills rejected
