@@ -14,7 +14,7 @@ const (
 )
 
 // decodeFITS decodes the primary HDU of an uncompressed FITS file with 2 or 3
-// axes (the third being channels).
+// axes (the third being channels), returning rows top first.
 func decodeFITS(b []byte) (*Image, error) {
 	kw := map[string]string{}
 	end := -1
@@ -96,5 +96,22 @@ func decodeFITS(b []byte) (*Image, error) {
 	default:
 		return nil, fmt.Errorf("%w: BITPIX=%d", ErrUnsupported, bitpix)
 	}
+	flipRows(im)
 	return im, nil
+}
+
+// flipRows reverses the row order of every plane in place. FITS stores the
+// bottom row first while XISF (and everything the worker renders) stores the
+// top row first, so FITS data is flipped on read and again on write.
+func flipRows(im *Image) {
+	for c := range im.C {
+		p := im.Plane(c)
+		for top, bottom := 0, im.H-1; top < bottom; top, bottom = top+1, bottom-1 {
+			a := p[top*im.W : (top+1)*im.W]
+			b := p[bottom*im.W : (bottom+1)*im.W]
+			for x := range a {
+				a[x], b[x] = b[x], a[x]
+			}
+		}
+	}
 }

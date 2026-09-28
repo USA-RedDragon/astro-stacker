@@ -153,8 +153,11 @@ func TestFITSUnsigned16(t *testing.T) {
 	for hdr.Len()%2880 != 0 {
 		hdr.WriteByte(' ')
 	}
-	for _, v := range pixels {
-		_ = binary.Write(&hdr, binary.BigEndian, int16(int32(v)-32768))
+	// FITS stores the bottom row first: write row 1, then row 0.
+	for _, row := range [][]uint16{pixels[3:], pixels[:3]} {
+		for _, v := range row {
+			_ = binary.Write(&hdr, binary.BigEndian, int16(int32(v)-32768))
+		}
 	}
 	im, err := imagedata.Decode(hdr.Bytes())
 	if err != nil {
@@ -223,6 +226,12 @@ func TestWriteFITSRoundTrip(t *testing.T) {
 		if im.Data[i] != v {
 			t.Errorf("sample %d = %v want %v", i, im.Data[i], v)
 		}
+	}
+	// On disk the bottom row comes first: the first sample is data[3] (row 1).
+	off := bytes.Index(buf.Bytes(), []byte(fmt.Sprintf("%-80s", "END"))) + 80
+	off = (off + 2879) / 2880 * 2880
+	if got := math.Float32frombits(binary.BigEndian.Uint32(buf.Bytes()[off:])); got != data[3] {
+		t.Errorf("first sample on disk = %v, want the bottom row's %v", got, data[3])
 	}
 	if !bytes.Contains(buf.Bytes(), []byte("OBJECT  = 'Bode''s Galaxy'")) {
 		t.Error("quoted string card not written as expected")
