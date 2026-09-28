@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -69,6 +70,41 @@ type Mosaic struct {
 	PreviewURL  string    `json:"preview_url"`
 	LinearURL   string    `json:"linear_url"`
 	Crop        *Crop     `json:"crop,omitempty"`
+}
+
+// monoFilterOrder ranks filters by how well one shows a target on its own:
+// nebulae are faint in blue and green but bright in H-a.
+var monoFilterOrder = []string{"H-a", "O-III", "S-II", "Luminance", "Red", "Green", "Blue"}
+
+// monoCovers picks each object's single-filter cover: the highest-ranked
+// filter with at least a quarter of its best filter's effective exposure,
+// so a thin H-a master doesn't beat a deep one in another filter.
+func monoCovers(stacks []app.Stack) []app.Stack {
+	best := map[string]float64{}
+	for _, s := range stacks {
+		best[s.Object] = max(best[s.Object], s.EffectiveSeconds)
+	}
+	rank := func(f string) int {
+		if i := slices.Index(monoFilterOrder, f); i >= 0 {
+			return i
+		}
+		return len(monoFilterOrder)
+	}
+	chosen := map[string]app.Stack{}
+	for _, s := range stacks {
+		if s.EffectiveSeconds < best[s.Object]/4 {
+			continue
+		}
+		c, ok := chosen[s.Object]
+		if !ok || rank(s.Filter) < rank(c.Filter) || (rank(s.Filter) == rank(c.Filter) && s.EffectiveSeconds > c.EffectiveSeconds) {
+			chosen[s.Object] = s
+		}
+	}
+	out := make([]app.Stack, 0, len(chosen))
+	for _, s := range chosen {
+		out = append(out, s)
+	}
+	return out
 }
 
 // Cover is the preview that best shows a target or project.
@@ -177,7 +213,7 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 				out.Objects[cv.Subject] = cover
 			}
 		}
-		for _, s := range stacks {
+		for _, s := range monoCovers(stacks) {
 			if _, ok := out.Objects[s.Object]; ok {
 				continue
 			}
