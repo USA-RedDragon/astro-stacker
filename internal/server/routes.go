@@ -52,6 +52,19 @@ type Mosaic struct {
 	LinearURL   string    `json:"linear_url"`
 }
 
+// Cover is the preview that best shows a target or project.
+type Cover struct {
+	Filter     string    `json:"filter"`
+	PreviewURL string    `json:"preview_url"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// Covers maps targets and mosaic projects to their cover previews.
+type Covers struct {
+	Objects map[string]Cover `json:"objects"`
+	Mosaics map[string]Cover `json:"mosaics"`
+}
+
 // PreviewURL is a presigned link to one light's auto-stretched preview.
 type PreviewURL struct {
 	File string `json:"file"`
@@ -102,6 +115,52 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 				return
 			}
 			out = append(out, PreviewURL{File: path.Base(f.Key), URL: u})
+		}
+		c.JSON(http.StatusOK, out)
+	})
+
+	// One preview per target and per mosaic project, for dashboard cards: a
+	// target's master with the most effective exposure, and a project's
+	// mosaic with the most panels.
+	r.GET("/covers", func(c *gin.Context) {
+		out := Covers{Objects: map[string]Cover{}, Mosaics: map[string]Cover{}}
+		if signer == nil {
+			c.JSON(http.StatusOK, out)
+			return
+		}
+		ctx := c.Request.Context()
+		db := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection).AppStore.DB().WithContext(ctx)
+		var stacks []app.Stack
+		if err := db.Where("subs > 0 AND preview_key IS NOT NULL").Order("effective_seconds DESC").Find(&stacks).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		for _, s := range stacks {
+			if _, ok := out.Objects[s.Object]; ok {
+				continue
+			}
+			u, err := signer.URL(ctx, *s.PreviewKey)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			out.Objects[s.Object] = Cover{Filter: s.Filter, PreviewURL: u, UpdatedAt: s.UpdatedAt}
+		}
+		var mosaics []app.Mosaic
+		if err := db.Where("preview_key IS NOT NULL").Order("panels DESC, updated_at DESC").Find(&mosaics).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		for _, m := range mosaics {
+			if _, ok := out.Mosaics[m.Project]; ok {
+				continue
+			}
+			u, err := signer.URL(ctx, *m.PreviewKey)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			out.Mosaics[m.Project] = Cover{Filter: m.Filter, PreviewURL: u, UpdatedAt: m.UpdatedAt}
 		}
 		c.JSON(http.StatusOK, out)
 	})
