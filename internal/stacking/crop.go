@@ -205,7 +205,7 @@ func crop(data []float32, w int, r Rect) []float32 {
 // rule, from their saved state, and their targets' covers.
 func (p *Pipeline) recropMasters(ctx context.Context) {
 	var stacks []app.Stack
-	if err := p.db.WithContext(ctx).Where("state_key IS NOT NULL AND crop_version < ?", CropVersion).
+	if err := p.db.WithContext(ctx).Where("state_key IS NOT NULL AND (crop_version IS NULL OR crop_version < ?)", CropVersion).
 		Find(&stacks).Error; err != nil {
 		slog.Warn("Could not find masters to recrop", "error", err)
 		return
