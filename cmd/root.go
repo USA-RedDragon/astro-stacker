@@ -99,14 +99,14 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 				preview.Options{MaxWidth: cfg.Previews.MaxWidth, Quality: cfg.Previews.Quality})
 			go pv.Run(indexCtx, time.Duration(cfg.Previews.IntervalSeconds)*time.Second)
 			slog.Info("Preview renderer started", "bucket", cfg.S3.ProcessedBucket, "concurrency", cfg.Previews.Concurrency)
-
-			// Presigned URLs are signed for the public host browsers use.
-			public, err := minio.New(cfg.S3.PublicEndpoint, &minio.Options{Creds: creds, Secure: cfg.S3.PublicUseSSL, Region: cfg.S3.Region})
-			if err != nil {
-				return fmt.Errorf("failed to create public S3 client: %w", err)
-			}
-			signer = previewer.NewSigner(public, cfg.S3.ProcessedBucket, time.Duration(cfg.Previews.URLTTLSeconds)*time.Second)
 		}
+		// Presigned URLs, for previews and masters, are signed for the public
+		// host browsers use.
+		public, err := minio.New(cfg.S3.PublicEndpoint, &minio.Options{Creds: creds, Secure: cfg.S3.PublicUseSSL, Region: cfg.S3.Region})
+		if err != nil {
+			return fmt.Errorf("failed to create public S3 client: %w", err)
+		}
+		signer = previewer.NewSigner(public, cfg.S3.ProcessedBucket, time.Duration(cfg.Previews.URLTTLSeconds)*time.Second)
 		if cfg.Stacking.Enabled {
 			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
 			go p.Run(indexCtx, time.Duration(cfg.Stacking.IntervalSeconds)*time.Second)
