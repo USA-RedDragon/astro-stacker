@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/url"
 	"path"
 	"strings"
@@ -168,10 +169,21 @@ func NewSigner(publicClient *minio.Client, bucket string, ttl time.Duration) *Si
 	return &Signer{client: publicClient, bucket: bucket, ttl: ttl}
 }
 
-// URL presigns a GET for a preview key. It makes no network call when the
-// client has a region set.
-func (s *Signer) URL(ctx context.Context, previewKey string) (string, error) {
-	u, err := s.client.PresignedGetObject(ctx, s.bucket, previewKey, s.ttl, url.Values{})
+// URL presigns a GET for an object in the processed bucket. It makes no
+// network call when the client has a region set.
+func (s *Signer) URL(ctx context.Context, key string) (string, error) {
+	return s.sign(ctx, key, url.Values{})
+}
+
+// DownloadURL presigns a GET that the browser saves as filename.
+func (s *Signer) DownloadURL(ctx context.Context, key, filename string) (string, error) {
+	params := url.Values{}
+	params.Set("response-content-disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	return s.sign(ctx, key, params)
+}
+
+func (s *Signer) sign(ctx context.Context, key string, params url.Values) (string, error) {
+	u, err := s.client.PresignedGetObject(ctx, s.bucket, key, s.ttl, params)
 	if err != nil {
 		return "", err
 	}
