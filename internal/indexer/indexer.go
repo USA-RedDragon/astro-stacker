@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -29,6 +30,9 @@ type Indexer struct {
 	bucket      string
 	db          *gorm.DB
 	concurrency int
+
+	// Events, if set, hears when new frames are indexed.
+	Events *events.Broker
 }
 
 func New(client *minio.Client, bucket string, db *gorm.DB, concurrency int) *Indexer {
@@ -46,6 +50,9 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Indexing failed", "error", err)
 		} else if err == nil {
+			if stats.Indexed > 0 {
+				ix.Events.Publish(events.Event{Type: events.TypeFrames})
+			}
 			slog.Info("Indexed bucket", "bucket", ix.bucket, "seen", stats.Seen, "indexed", stats.Indexed,
 				"failed", stats.Failed, "removed", stats.Removed, "duration", time.Since(start).Round(time.Millisecond))
 		}

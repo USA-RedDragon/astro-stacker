@@ -20,7 +20,8 @@ func TestWorkersClaimDifferentTargets(t *testing.T) {
 	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now()
+	// Backfill: nights long past.
+	now := time.Now().AddDate(-1, 0, 0)
 	for i, f := range []struct{ object, filter string }{
 		{"A", "Red"}, {"A", "Blue"}, {"B", "Red"}, {"C", "H-a"},
 	} {
@@ -54,6 +55,42 @@ func TestWorkersClaimDifferentTargets(t *testing.T) {
 	p.release("A")
 	if f, _ := p.claim(lights()); f == nil || f.Object != "A" {
 		t.Fatalf("after release claimed %v, want A", f)
+	}
+}
+
+func TestTonightsSubsGoFirst(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}); err != nil {
+		t.Fatal(err)
+	}
+	old, earlier, latest := time.Now().AddDate(-1, 0, 0), time.Now().Add(-3*time.Hour), time.Now().Add(-time.Hour)
+	for _, f := range []app.Frame{
+		{Key: "a", Type: "LIGHT", Object: "Abell 85", Filter: "Red", DateObs: &old},
+		{Key: "m", Type: "LIGHT", Object: "M31", Filter: "Red", DateObs: &earlier},
+		{Key: "z", Type: "LIGHT", Object: "Zeta", Filter: "H-a", DateObs: &latest},
+	} {
+		f.LastModified = time.Now()
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := &Pipeline{db: db, busy: map[string]bool{}}
+	lights := db.Model(&app.Frame{}).Joins("LEFT JOIN stack_frames sf ON sf.frame_id = frames.id").
+		Where("frames.type = ? AND sf.id IS NULL", "LIGHT")
+	var got []string
+	for range 3 {
+		f, err := p.claim(lights.Session(&gorm.Session{}))
+		if err != nil || f == nil {
+			t.Fatalf("claim: %v, %v", f, err)
+		}
+		got = append(got, f.Object)
+	}
+	// Newest live sub first, then the backfill.
+	if want := []string{"Zeta", "M31", "Abell 85"}; !slices.Equal(got, want) {
+		t.Fatalf("claimed %v, want %v", got, want)
 	}
 }
 
