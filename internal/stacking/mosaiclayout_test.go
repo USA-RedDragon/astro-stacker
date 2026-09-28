@@ -46,7 +46,7 @@ func TestLayoutPlacesPanelsAndLeavesMissingOnesBlack(t *testing.T) {
 	p2.Data = nil
 	p3 := synthPanel(83.0, 21.4, w, h, scale)
 	panels := []layoutPanel{p1, p2, p3}
-	l, bin := newLayout(panels, scale, 1000)
+	l, bin := newLayout(panels, p1.WCS, 1000)
 	if bin != 1 || l.H < 2*h || l.W < w-2 {
 		t.Fatalf("layout %+v, bin %d: not all three panels fit", l, bin)
 	}
@@ -88,5 +88,26 @@ func TestLayoutPlacesPanelsAndLeavesMissingOnesBlack(t *testing.T) {
 	}
 	if edges < 2*(w+h)/2 {
 		t.Errorf("drew %d outline pixels for the missing panel", edges)
+	}
+}
+
+func TestLayoutIsTurnedLikeThePanels(t *testing.T) {
+	// Two panels turned 40° on the sky, side by side along their own x.
+	const w, h, scale = 120, 80, 0.01
+	turn := func(p layoutPanel) layoutPanel {
+		s, c := math.Sin(40*deg), math.Cos(40*deg)
+		cd := p.WCS.cd
+		p.WCS.cd = [2][2]float64{{c*cd[0][0] - s*cd[1][0], c*cd[0][1] - s*cd[1][1]}, {s*cd[0][0] + c*cd[1][0], s*cd[0][1] + c*cd[1][1]}}
+		return p
+	}
+	p1 := turn(synthPanel(83.0, 20.0, w, h, scale))
+	// Panel 2 one panel-width along panel 1's x axis.
+	ra2, dec2 := p1.WCS.toSky(float64(w)+float64(w+1)/2, float64(h+1)/2)
+	p2 := turn(synthPanel(ra2, dec2, w, h, scale))
+	l, _ := newLayout([]layoutPanel{p1, p2}, p1.WCS, 1000)
+	// Upright: the canvas is two panels wide and one tall, not a tilted
+	// bounding box.
+	if l.W < 2*w-2 || l.W > 2*w+3 || l.H < h-2 || l.H > h+3 {
+		t.Errorf("canvas %dx%d, want about %dx%d", l.W, l.H, 2*w, h)
 	}
 }

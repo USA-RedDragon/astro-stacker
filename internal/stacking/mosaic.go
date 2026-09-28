@@ -240,7 +240,7 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 	if err != nil {
 		return err
 	}
-	// The previews: every panel of the project on one north-up canvas, so
+	// The previews: every panel of the project on one canvas, so
 	// panels without a master yet show as outlined gaps where they go, and
 	// every filter's mosaic lines up for colour.
 	canvas, img, cw, ch, err := p.layoutPreview(dir, g, masters)
@@ -297,7 +297,8 @@ func readHead(file string) (*imagedata.Image, error) {
 	return &imagedata.Image{W: w, H: h}, nil
 }
 
-// layoutPreview puts every panel of the project on one canvas: solved panels
+// layoutPreview puts every panel of the project on one canvas, turned like
+// the panels: solved panels
 // from their plate solutions, missing ones placed from Target Scheduler,
 // framed like the first solved panel. It returns the linear canvas and a
 // stretched copy with the missing panels outlined.
@@ -343,7 +344,7 @@ func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack)
 		}
 		panels = append(panels, layoutPanel{WCS: refWCS.placed(pn.RA, pn.Dec, pn.Rotation-refRot)})
 	}
-	l, bin := newLayout(panels, refWCS.scale(), mosaicPreviewWidth)
+	l, bin := newLayout(panels, refWCS, mosaicPreviewWidth)
 	for i, b := range files {
 		im, err := imagedata.Decode(b)
 		if err != nil {

@@ -112,50 +112,59 @@ type layoutPanel struct {
 	Bin  int
 }
 
-// layout is a north-up canvas holding every panel of a mosaic.
+// layout is a canvas holding every panel of a mosaic, with its axes along
+// the panels' own (those of the first solved one), so a grid of panels
+// comes out as an upright rectangle rather than tilted on a north-up map.
 type layout struct {
-	ra0, dec0 float64
-	scale     float64 // degrees per canvas pixel
-	x0, y0    float64 // tangent-plane offset of the canvas's top-left corner
-	W, H      int
+	g          wcs     // the canvas's plate solution, in whole canvas pixels
+	xMin, yMax float64 // FITS coordinates of the canvas's top-left corner
+	W, H       int
 }
 
 // newLayout frames all panels, present or not, at no more than maxWidth
-// canvas pixels across, at a whole multiple of the panels' pixel scale.
-func newLayout(panels []layoutPanel, nativeScale float64, maxWidth int) (layout, int) {
+// canvas pixels across, at a whole multiple of the reference panel's pixel
+// scale, turned like the reference panel.
+func newLayout(panels []layoutPanel, ref wcs, maxWidth int) (layout, int) {
 	var ras, decs []float64
 	for _, p := range panels {
 		ras = append(ras, p.WCS.ra0)
 		decs = append(decs, p.WCS.dec0)
 	}
-	l := layout{ra0: meanRA(ras), dec0: mean(decs)}
-	minX, maxX, minY, maxY := math.Inf(1), math.Inf(-1), math.Inf(1), math.Inf(-1)
-	for _, p := range panels {
-		for _, c := range p.WCS.corners() {
-			xi, eta, ok := project(l.ra0, l.dec0, c[0], c[1])
-			if !ok {
-				continue
+	extent := func(g wcs) (minX, maxX, minY, maxY float64) {
+		minX, maxX, minY, maxY = math.Inf(1), math.Inf(-1), math.Inf(1), math.Inf(-1)
+		for _, p := range panels {
+			for _, c := range p.WCS.corners() {
+				x, y, ok := g.toPixel(c[0], c[1])
+				if !ok {
+					continue
+				}
+				minX, maxX = min(minX, x), max(maxX, x)
+				minY, maxY = min(minY, y), max(maxY, y)
 			}
-			minX, maxX = min(minX, xi), max(maxX, xi)
-			minY, maxY = min(minY, eta), max(maxY, eta)
+		}
+		return
+	}
+	g := wcs{ra0: meanRA(ras), dec0: mean(decs), cd: ref.cd}
+	minX, maxX, _, _ := extent(g)
+	bin := max(1, int(math.Ceil((maxX-minX)/float64(maxWidth))))
+	for i := range 2 {
+		for j := range 2 {
+			g.cd[i][j] *= float64(bin)
 		}
 	}
-	bin := max(1, int(math.Ceil((maxX-minX)/nativeScale/float64(maxWidth))))
-	l.scale = nativeScale * float64(bin)
-	// East is left on a north-up sky image: xi grows to the left.
-	l.x0, l.y0 = maxX, maxY
-	l.W = int(math.Ceil((maxX - minX) / l.scale))
-	l.H = int(math.Ceil((maxY - minY) / l.scale))
+	minX, maxX, minY, maxY := extent(g)
+	l := layout{g: g, xMin: minX, yMax: maxY}
+	l.W, l.H = int(math.Ceil(maxX-minX)), int(math.Ceil(maxY-minY))
 	return l, bin
 }
 
 func (l layout) toSky(col, row float64) (float64, float64) {
-	return deproject(l.ra0, l.dec0, l.x0-(col+0.5)*l.scale, l.y0-(row+0.5)*l.scale)
+	return l.g.toSky(l.xMin+col+0.5, l.yMax-row-0.5)
 }
 
 func (l layout) toCanvas(ra, dec float64) (col, row float64, ok bool) {
-	xi, eta, ok := project(l.ra0, l.dec0, ra, dec)
-	return (l.x0-xi)/l.scale - 0.5, (l.y0-eta)/l.scale - 0.5, ok
+	x, y, ok := l.g.toPixel(ra, dec)
+	return x - l.xMin - 0.5, l.yMax - y - 0.5, ok
 }
 
 // render reprojects the panels with masters onto the canvas, matching their
