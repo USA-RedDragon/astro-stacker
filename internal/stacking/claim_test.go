@@ -1,10 +1,12 @@
 package stacking
 
 import (
+	"context"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -52,5 +54,43 @@ func TestWorkersClaimDifferentTargets(t *testing.T) {
 	p.release("A")
 	if f, _ := p.claim(lights()); f == nil || f.Object != "A" {
 		t.Fatalf("after release claimed %v, want A", f)
+	}
+}
+
+func TestFailuresBackOffThenDie(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.StackFrame{}); err != nil {
+		t.Fatal(err)
+	}
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions)
+	ctx := context.Background()
+	var waits []time.Duration
+	for range 5 {
+		if err := p.record(ctx, app.StackFrame{FrameID: 1, Status: app.StackStatusFailed}); err != nil {
+			t.Fatal(err)
+		}
+		var sf app.StackFrame
+		db.Where("frame_id = 1").First(&sf)
+		if sf.NextAttemptAt != nil {
+			waits = append(waits, sf.NextAttemptAt.Sub(sf.ProcessedAt).Round(time.Minute))
+		} else if sf.Status != app.StackStatusDead || sf.Attempts != 5 {
+			t.Fatalf("after 5 failures: %s, %d attempts", sf.Status, sf.Attempts)
+		}
+	}
+	want := []time.Duration{30 * time.Minute, time.Hour, 2 * time.Hour, 4 * time.Hour}
+	if !slices.Equal(waits, want) {
+		t.Errorf("waits %v, want %v", waits, want)
+	}
+	// Success clears the failure count.
+	if err := p.record(ctx, app.StackFrame{FrameID: 1, Status: app.StackStatusAdded}); err != nil {
+		t.Fatal(err)
+	}
+	var sf app.StackFrame
+	db.Where("frame_id = 1").First(&sf)
+	if sf.Attempts != 0 || sf.NextAttemptAt != nil {
+		t.Errorf("after success: %d attempts, next %v", sf.Attempts, sf.NextAttemptAt)
 	}
 }

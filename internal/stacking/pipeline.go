@@ -30,10 +30,14 @@ type PipelineOptions struct {
 	// BatchSize is how many subs of one master are calibrated and
 	// registered per Siril run.
 	BatchSize int
-	// RetryAfter is how long to wait before retrying a sub that lacked
-	// calibration or failed.
-	RetryAfter   time.Duration
-	SirilThreads int
+	// RetryAfter is how long to wait before checking again for calibration
+	// a sub lacked.
+	RetryAfter time.Duration
+	// FailureBackoff is the wait after a sub's first failure, doubling after
+	// each further one; after MaxAttempts failures the sub is dead.
+	FailureBackoff time.Duration
+	MaxAttempts    int
+	SirilThreads   int
 	// SirilMemoryRatio is the share of memory all Siril runs together may
 	// use; each worker's Siril gets its part.
 	SirilMemoryRatio float64
@@ -47,6 +51,8 @@ var DefaultPipelineOptions = PipelineOptions{
 	Pedestal:         quality.DefaultPedestal,
 	BatchSize:        12,
 	RetryAfter:       24 * time.Hour,
+	FailureBackoff:   30 * time.Minute,
+	MaxAttempts:      5,
 	SirilThreads:     4,
 	SirilMemoryRatio: 0.5,
 	Workers:          1,
@@ -77,6 +83,12 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 		opts.BatchSize = DefaultPipelineOptions.BatchSize
 	}
 	opts.Workers = max(1, opts.Workers)
+	if opts.MaxAttempts < 1 {
+		opts.MaxAttempts = DefaultPipelineOptions.MaxAttempts
+	}
+	if opts.FailureBackoff <= 0 {
+		opts.FailureBackoff = DefaultPipelineOptions.FailureBackoff
+	}
 	return &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
 		busy: map[string]bool{}}
 }
@@ -121,8 +133,9 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	q := p.db.WithContext(ctx).Model(&app.Frame{}).
 		Joins("LEFT JOIN stack_frames sf ON sf.frame_id = frames.id").
 		Where("frames.type = ? AND frames.index_error IS NULL AND frames.object <> '' AND frames.filter <> ''", "LIGHT").
-		Where("sf.id IS NULL OR (sf.status IN ? AND sf.processed_at < ?)",
-			[]string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration}, time.Now().Add(-p.opts.RetryAfter))
+		// Rows from before next_attempt_at existed wait RetryAfter.
+		Where("sf.id IS NULL OR (sf.status IN ? AND (sf.next_attempt_at < ? OR (sf.next_attempt_at IS NULL AND sf.processed_at < ?)))",
+			[]string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration}, time.Now(), time.Now().Add(-p.opts.RetryAfter))
 	if object != "" {
 		q = q.Where("frames.object = ?", object)
 	}
@@ -151,6 +164,10 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 		return 0, err
 	}
 
+	retrying, err := p.failedBefore(ctx, frames)
+	if err != nil {
+		return 0, err
+	}
 	var batch []candidate
 	for _, f := range frames {
 		c, status := p.classify(f, scores, sets)
@@ -160,6 +177,14 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 			}
 			continue
 		}
+		// A sub that failed before is retried on its own, so a bad file
+		// can only fail itself.
+		if retrying[f.ID] {
+			if len(batch) == 0 {
+				batch = append(batch, c)
+			}
+			break
+		}
 		batch = append(batch, c)
 		if len(batch) == p.opts.BatchSize {
 			break
@@ -167,10 +192,38 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	}
 	if len(batch) > 0 {
 		if err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores); err != nil {
-			return len(frames), err
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
+			}
+			slog.Error("Stacking batch failed", "object", first.Object, "filter", first.Filter, "subs", len(batch), "error", err)
+			msg := err.Error()
+			for _, c := range batch {
+				if err := p.record(ctx, app.StackFrame{FrameID: c.frame.ID, Status: app.StackStatusFailed,
+					Score: c.score.Score, Exposure: val(c.frame.Exposure), Error: &msg}); err != nil {
+					return 0, err
+				}
+			}
 		}
 	}
 	return len(frames), nil
+}
+
+// failedBefore returns the frames among these with failed attempts.
+func (p *Pipeline) failedBefore(ctx context.Context, frames []app.Frame) (map[int]bool, error) {
+	ids := make([]int, 0, len(frames))
+	for _, f := range frames {
+		ids = append(ids, f.ID)
+	}
+	var failed []int
+	if err := p.db.WithContext(ctx).Model(&app.StackFrame{}).Where("frame_id IN ? AND attempts > 0", ids).
+		Pluck("frame_id", &failed).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int]bool, len(failed))
+	for _, id := range failed {
+		out[id] = true
+	}
+	return out, nil
 }
 
 // claim picks the first light of a target no other worker is stacking and
@@ -238,10 +291,30 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 }
 
 // record upserts what happened to one light.
+// Failures (failed, registration) count attempts and are retried with a
+// doubling backoff until MaxAttempts, when the sub is dead. Missing
+// calibration is rechecked every RetryAfter, as new frames may arrive.
 func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 	sf.ProcessedAt = time.Now()
 	var existing app.StackFrame
 	err := p.db.WithContext(ctx).Where("frame_id = ?", sf.FrameID).First(&existing).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	switch sf.Status {
+	case app.StackStatusCalibration:
+		next := sf.ProcessedAt.Add(p.opts.RetryAfter)
+		sf.NextAttemptAt = &next
+	case app.StackStatusFailed, app.StackStatusRegistration:
+		sf.Attempts = existing.Attempts + 1
+		if sf.Attempts >= p.opts.MaxAttempts {
+			slog.Warn("Giving up on sub", "frame_id", sf.FrameID, "attempts", sf.Attempts, "status", sf.Status)
+			sf.Status = app.StackStatusDead
+		} else {
+			next := sf.ProcessedAt.Add(p.opts.FailureBackoff << (sf.Attempts - 1))
+			sf.NextAttemptAt = &next
+		}
+	}
 	switch {
 	case err == nil:
 		sf.ID = existing.ID
