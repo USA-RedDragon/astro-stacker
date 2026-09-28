@@ -11,6 +11,8 @@ import (
 	"github.com/USA-RedDragon/configulator"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/indexer"
+	"github.com/USA-RedDragon/pixinsight-worker/internal/preview"
+	"github.com/USA-RedDragon/pixinsight-worker/internal/previewer"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/server"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/store"
 	"github.com/lmittmann/tint"
@@ -79,21 +81,34 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 
 	indexCtx, stopIndexer := context.WithCancel(context.Background())
 	defer stopIndexer()
-	if cfg.Indexer.Enabled {
-		s3, err := minio.New(cfg.S3.Endpoint, &minio.Options{
-			Creds:  credentials.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, ""),
-			Secure: cfg.S3.UseSSL,
-			Region: cfg.S3.Region,
-		})
+	var signer *previewer.Signer
+	if cfg.Indexer.Enabled || cfg.Previews.Enabled {
+		creds := credentials.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, "")
+		s3, err := minio.New(cfg.S3.Endpoint, &minio.Options{Creds: creds, Secure: cfg.S3.UseSSL, Region: cfg.S3.Region})
 		if err != nil {
 			return fmt.Errorf("failed to create S3 client: %w", err)
 		}
-		ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
-		go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second)
-		slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds)
+		if cfg.Indexer.Enabled {
+			ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
+			go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second)
+			slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds)
+		}
+		if cfg.Previews.Enabled {
+			pv := previewer.New(s3, cfg.S3.Bucket, cfg.S3.ProcessedBucket, appStore.DB(), cfg.Previews.Concurrency,
+				preview.Options{MaxWidth: cfg.Previews.MaxWidth, Quality: cfg.Previews.Quality})
+			go pv.Run(indexCtx, time.Duration(cfg.Previews.IntervalSeconds)*time.Second)
+			slog.Info("Preview renderer started", "bucket", cfg.S3.ProcessedBucket, "concurrency", cfg.Previews.Concurrency)
+
+			// Presigned URLs are signed for the public host browsers use.
+			public, err := minio.New(cfg.S3.PublicEndpoint, &minio.Options{Creds: creds, Secure: cfg.S3.PublicUseSSL, Region: cfg.S3.Region})
+			if err != nil {
+				return fmt.Errorf("failed to create public S3 client: %w", err)
+			}
+			signer = previewer.NewSigner(public, cfg.S3.ProcessedBucket, time.Duration(cfg.Previews.URLTTLSeconds)*time.Second)
+		}
 	}
 
-	server := server.NewServer(cfg, appStore, schedulerDBStore, cmd.Annotations["version"])
+	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, cmd.Annotations["version"])
 	if err := server.Start(); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}

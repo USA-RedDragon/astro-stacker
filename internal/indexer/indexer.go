@@ -163,7 +163,8 @@ func (ix *Indexer) indexObject(ctx context.Context, obj minio.ObjectInfo) error 
 		fillFrame(&frame, frameheader.FromKeywords(kw))
 	}
 
-	// Upsert on key so a changed object replaces its old row.
+	// Upsert on key so a changed object replaces its old row, including its
+	// preview fields, which are left empty so the preview is rendered again.
 	if dbErr := ix.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}},
 		UpdateAll: true,

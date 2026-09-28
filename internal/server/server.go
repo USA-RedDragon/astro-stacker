@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
+	"github.com/USA-RedDragon/pixinsight-worker/internal/previewer"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/server/middleware"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/store"
 	"github.com/gin-contrib/pprof"
@@ -28,7 +29,7 @@ type Server struct {
 
 const defTimeout = 5 * time.Second
 
-func NewServer(config *config.Config, appStore store.Store, schedulerDBStore store.Store, version string) *Server {
+func NewServer(config *config.Config, appStore store.Store, schedulerDBStore store.Store, signer *previewer.Signer, version string) *Server {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -39,7 +40,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	}
 
 	applyMiddleware(r, config, appStore, schedulerDBStore, version)
-	applyRoutes(r)
+	applyRoutes(r, signer)
 
 	var metricsServer *http.Server
 	var pprofServer *http.Server

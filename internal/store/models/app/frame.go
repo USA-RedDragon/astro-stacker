@@ -30,4 +30,10 @@ type Frame struct {
 	// retried when its ETag changes.
 	IndexError *string `gorm:"type:text"`
 	IndexedAt  time.Time
+
+	// PreviewKey is the auto-stretched JPEG in the processed bucket. The
+	// indexer clears it when the frame changes, so it is rendered again.
+	PreviewKey   *string
+	PreviewError *string `gorm:"type:text"`
+	PreviewAt    *time.Time
 }
