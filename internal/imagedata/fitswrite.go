@@ -32,9 +32,8 @@ func IntCard(key string, value int, comment string) Card {
 }
 
 // WriteFITS writes a 32-bit float FITS image. data is planar
-// (c*w*h + y*w + x), which FITS stores as NAXIS1=w, NAXIS2=h, NAXIS3=c.
-// Row 0 is written first; readers that follow the FITS convention show it at
-// the bottom, the same as files written by Siril and PixInsight.
+// (c*w*h + y*w + x) with row 0 at the top, which FITS stores as NAXIS1=w,
+// NAXIS2=h, NAXIS3=c with the bottom row first, as Siril and PixInsight do.
 func WriteFITS(out io.Writer, w, h, c int, data []float32, extra []Card) error {
 	if len(data) != w*h*c {
 		return fmt.Errorf("have %d samples, want %d", len(data), w*h*c)
@@ -66,10 +65,15 @@ func WriteFITS(out io.Writer, w, h, c int, data []float32, extra []Card) error {
 		return err
 	}
 	buf := make([]byte, 4)
-	for _, v := range data {
-		binary.BigEndian.PutUint32(buf, math.Float32bits(v))
-		if _, err := bw.Write(buf); err != nil {
-			return err
+	for p := range c {
+		plane := data[p*w*h : (p+1)*w*h]
+		for y := h - 1; y >= 0; y-- {
+			for _, v := range plane[y*w : (y+1)*w] {
+				binary.BigEndian.PutUint32(buf, math.Float32bits(v))
+				if _, err := bw.Write(buf); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if err := pad(bw, 4*len(data), 0); err != nil {
