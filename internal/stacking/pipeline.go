@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
@@ -31,10 +32,14 @@ type PipelineOptions struct {
 	BatchSize int
 	// RetryAfter is how long to wait before retrying a sub that lacked
 	// calibration or failed.
-	RetryAfter       time.Duration
-	SirilThreads     int
+	RetryAfter   time.Duration
+	SirilThreads int
+	// SirilMemoryRatio is the share of memory all Siril runs together may
+	// use; each worker's Siril gets its part.
 	SirilMemoryRatio float64
-	Stack            Options
+	// Workers is how many targets are stacked at once.
+	Workers int
+	Stack   Options
 }
 
 var DefaultPipelineOptions = PipelineOptions{
@@ -44,6 +49,7 @@ var DefaultPipelineOptions = PipelineOptions{
 	RetryAfter:       24 * time.Hour,
 	SirilThreads:     4,
 	SirilMemoryRatio: 0.5,
+	Workers:          1,
 	Stack:            DefaultOptions,
 }
 
@@ -57,17 +63,35 @@ type Pipeline struct {
 	siril   siril.Runner
 	workDir string
 	opts    PipelineOptions
+
+	// busy holds the targets workers are stacking, so no two work on the
+	// same target's reference and masters.
+	mu   sync.Mutex
+	busy map[string]bool
+	// building serializes work on one calibration master's files.
+	building sync.Map // set key -> *sync.Mutex
 }
 
 func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runner siril.Runner, workDir string, opts PipelineOptions) *Pipeline {
 	if opts.BatchSize < 1 {
 		opts.BatchSize = DefaultPipelineOptions.BatchSize
 	}
-	return &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts}
+	opts.Workers = max(1, opts.Workers)
+	return &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
+		busy: map[string]bool{}}
 }
 
-// Run stacks new lights until ctx is cancelled, sleeping interval when idle.
+// Run stacks new lights with opts.Workers workers until ctx is cancelled,
+// each sleeping interval when idle.
 func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
+	var wg sync.WaitGroup
+	for range p.opts.Workers {
+		wg.Go(func() { p.work(ctx, interval) })
+	}
+	wg.Wait()
+}
+
+func (p *Pipeline) work(ctx context.Context, interval time.Duration) {
 	for {
 		n, err := p.RunOnce(ctx, "", "")
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -106,14 +130,12 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 		q = q.Where("frames.filter = ?", filter)
 	}
 	// Work one master at a time, oldest subs first, so a target's master
-	// grows in the order it was shot.
-	var first app.Frame
-	if err := q.Order("frames.object, frames.filter, frames.date_obs").First(&first).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("find lights: %w", err)
+	// grows in the order it was shot, on a target no other worker has.
+	first, err := p.claim(q)
+	if err != nil || first == nil {
+		return 0, err
 	}
+	defer p.release(first.Object)
 	var frames []app.Frame
 	if err := q.Where("frames.object = ? AND frames.filter = ?", first.Object, first.Filter).
 		Order("frames.date_obs").Limit(4 * p.opts.BatchSize).Find(&frames).Error; err != nil {
@@ -149,6 +171,43 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 		}
 	}
 	return len(frames), nil
+}
+
+// claim picks the first light of a target no other worker is stacking and
+// marks the target busy. It returns nil when there is nothing to do.
+func (p *Pipeline) claim(q *gorm.DB) (*app.Frame, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.busy) > 0 {
+		busy := make([]string, 0, len(p.busy))
+		for o := range p.busy {
+			busy = append(busy, o)
+		}
+		q = q.Session(&gorm.Session{}).Where("frames.object NOT IN ?", busy)
+	}
+	var first app.Frame
+	if err := q.Session(&gorm.Session{}).Order("frames.object, frames.filter, frames.date_obs").First(&first).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find lights: %w", err)
+	}
+	p.busy[first.Object] = true
+	return &first, nil
+}
+
+func (p *Pipeline) release(object string) {
+	p.mu.Lock()
+	delete(p.busy, object)
+	p.mu.Unlock()
+}
+
+// lockKey serializes work on one calibration master across workers.
+func (p *Pipeline) lockKey(key string) func() {
+	m, _ := p.building.LoadOrStore(key, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // classify decides whether a light goes into its master. It returns a status
