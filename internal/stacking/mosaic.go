@@ -236,18 +236,14 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 		}
 		out = filepath.Join(dir, "mosaic.fit")
 	}
-	head, err := readHead(out)
-	if err != nil {
-		return err
-	}
 	// The previews: every panel of the project on one canvas, so
 	// panels without a master yet show as outlined gaps where they go, and
 	// every filter's mosaic lines up for colour.
-	canvas, img, cw, ch, err := p.layoutPreview(dir, g, masters)
+	canvas, img, cw, ch, r, err := p.layoutPreview(dir, g, masters)
 	if err != nil {
 		return err
 	}
-	jpg, err := encodeGray(img, cw, ch)
+	jpg, err := encodeGray(crop(img, cw, r), r.W, r.H)
 	if err != nil {
 		return err
 	}
@@ -255,8 +251,10 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 	if err != nil {
 		return err
 	}
-	mosaic.CropX, mosaic.CropY, mosaic.CropW, mosaic.CropH = 0, 0, 0, 0
-	im := head
+	// The mosaic's size and crop are the layout's, which the linear preview
+	// shows; the downloadable FITS is Siril's own framing.
+	mosaic.CropX, mosaic.CropY, mosaic.CropW, mosaic.CropH = r.X, r.Y, r.W, r.H
+	im := &imagedata.Image{W: cw, H: ch}
 	prefix := mosaicPrefix(g.Project, filter)
 	keys := map[string]string{}
 	for name, up := range map[string]func(string) error{
@@ -280,29 +278,12 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 	return nil
 }
 
-// readHead reads a FITS file's size.
-func readHead(file string) (*imagedata.Image, error) {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return nil, err
-	}
-	kw, err := frameheader.Parse(b)
-	if err != nil {
-		return nil, err
-	}
-	w, h := int(kw.Float("NAXIS1")), int(kw.Float("NAXIS2"))
-	if w <= 0 || h <= 0 {
-		return nil, fmt.Errorf("%s has no image size", filepath.Base(file))
-	}
-	return &imagedata.Image{W: w, H: h}, nil
-}
-
 // layoutPreview puts every panel of the project on one canvas, turned like
 // the panels: solved panels
 // from their plate solutions, missing ones placed from Target Scheduler,
 // framed like the first solved panel. It returns the linear canvas and a
 // stretched copy with the missing panels outlined.
-func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack) (canvas, img []float32, w, h int, err error) {
+func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack) (canvas, img []float32, w, h int, r Rect, err error) {
 	present := map[string]int{} // object -> pan file number
 	for i, m := range masters {
 		present[m.Object] = i + 1
@@ -318,15 +299,15 @@ func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack)
 		}
 		b, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", n)))
 		if err != nil {
-			return nil, nil, 0, 0, err
+			return nil, nil, 0, 0, Rect{}, err
 		}
 		kw, err := frameheader.Parse(b)
 		if err != nil {
-			return nil, nil, 0, 0, err
+			return nil, nil, 0, 0, Rect{}, err
 		}
 		gw, err := wcsFromHeader(kw, int(kw.Float("NAXIS1")), int(kw.Float("NAXIS2")))
 		if err != nil {
-			return nil, nil, 0, 0, fmt.Errorf("%s: %w", pn.Object, err)
+			return nil, nil, 0, 0, Rect{}, fmt.Errorf("%s: %w", pn.Object, err)
 		}
 		files[len(panels)] = b
 		panels = append(panels, layoutPanel{WCS: gw})
@@ -335,7 +316,7 @@ func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack)
 		}
 	}
 	if ref == nil {
-		return nil, nil, 0, 0, fmt.Errorf("no solved panel")
+		return nil, nil, 0, 0, Rect{}, fmt.Errorf("no solved panel")
 	}
 	refWCS := ref.WCS
 	for _, pn := range g.Panels {
@@ -348,13 +329,18 @@ func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack)
 	for i, b := range files {
 		im, err := imagedata.Decode(b)
 		if err != nil {
-			return nil, nil, 0, 0, err
+			return nil, nil, 0, 0, Rect{}, err
 		}
 		panels[i].Data, panels[i].W, panels[i].H = binImage(im.Data, im.W, im.H, bin)
 		panels[i].Bin = bin
 	}
 	canvas = l.render(panels)
-	return canvas, l.stretchedWithOutlines(canvas, panels), l.W, l.H, nil
+	img = l.stretchedWithOutlines(canvas, panels)
+	// The preview is cropped to leave out the wedges around the outside
+	// that no panel reaches, counting missing panels' frames as covered so
+	// their gaps stay in. The linear canvas stays whole, so every filter's
+	// lines up, and carries the crop.
+	return canvas, img, l.W, l.H, l.panelCrop(canvas, panels), nil
 }
 
 // mosaicPreviewWidth caps the layout canvas's width in pixels.
