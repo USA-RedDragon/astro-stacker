@@ -16,6 +16,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
@@ -35,7 +36,7 @@ type calibrated struct {
 	darkScale float64
 }
 
-func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch []candidate, sets []calmatch.Set) error {
+func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch []candidate, sets []calmatch.Set, scores map[string]quality.SubScore) error {
 	start := time.Now()
 	stack, err := p.loadStack(ctx, object, filter)
 	if err != nil {
@@ -47,7 +48,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	}
 	defer os.RemoveAll(dir)
 
-	ref, err := p.reference(ctx, object, batch, sets)
+	ref, err := p.reference(ctx, object, sets, scores)
 	if err != nil {
 		return fmt.Errorf("reference for %s: %w", object, err)
 	}
@@ -221,8 +222,13 @@ func (p *Pipeline) register(ctx context.Context, dir, ref string, cals []calibra
 	// Registered subs are stored as 16-bit: calibrated data comes from a
 	// 16-bit sensor, and the rounding is far below the noise.
 	script := p.sirilPreamble(false) + "cd reg\nsetref seq_ 1\nregister seq_ -prefix=r_\n"
-	if _, err := p.siril.Run(ctx, dir, script); err != nil {
-		return nil, fmt.Errorf("register: %w", err)
+	if res, err := p.siril.Run(ctx, dir, script); err != nil {
+		// When no sub matches the reference, Siril fails the whole script.
+		// Those subs are recorded as unregistered like any other failure.
+		if !strings.Contains(res.Log, "No image was registered to the reference") {
+			return nil, fmt.Errorf("register: %w", err)
+		}
+		slog.Warn("No sub in the batch matched the reference", "subs", len(cals))
 	}
 	out := make([]string, len(cals))
 	for i := range cals {
@@ -235,8 +241,8 @@ func (p *Pipeline) register(ctx context.Context, dir, ref string, cals []calibra
 }
 
 // reference returns the calibrated frame a target's subs are registered to,
-// choosing the best-scored sub of the first batch the first time.
-func (p *Pipeline) reference(ctx context.Context, object string, batch []candidate, sets []calmatch.Set) (string, error) {
+// choosing it from all of the target's usable lights the first time.
+func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch.Set, scores map[string]quality.SubScore) (string, error) {
 	h := sha256.Sum256([]byte(object))
 	local := filepath.Join(p.workDir, "references", hex.EncodeToString(h[:8])+".fit")
 	if _, err := os.Stat(local); err == nil {
@@ -251,11 +257,20 @@ func (p *Pipeline) reference(ctx context.Context, object string, batch []candida
 		return "", err
 	}
 
-	best := batch[0]
-	for _, c := range batch[1:] {
-		if c.score.Score > best.score.Score {
-			best = c
+	var frames []app.Frame
+	if err := p.db.WithContext(ctx).Where("type = ? AND object = ? AND index_error IS NULL AND filter <> ''", "LIGHT", object).
+		Find(&frames).Error; err != nil {
+		return "", fmt.Errorf("load lights: %w", err)
+	}
+	var usable []candidate
+	for _, f := range frames {
+		if c, status := p.classify(f, scores, sets); status == "" {
+			usable = append(usable, c)
 		}
+	}
+	best, ok := pickReference(usable)
+	if !ok {
+		return "", fmt.Errorf("no usable lights")
 	}
 	dir, err := os.MkdirTemp(p.workDir, "ref-")
 	if err != nil {
@@ -280,8 +295,40 @@ func (p *Pipeline) reference(ctx context.Context, object string, batch []candida
 	if err := p.db.WithContext(ctx).Create(&tr).Error; err != nil {
 		return "", err
 	}
-	slog.Info("Chose registration reference", "object", object, "frame", best.frame.Key, "score", best.score.Score)
+	slog.Info("Chose registration reference", "object", object, "frame", best.frame.Key,
+		"hfr", best.score.HFR, "stars", best.score.Stars, "score", best.score.Score)
 	return local, nil
+}
+
+// pickReference chooses the sharpest sub among those with plenty of stars.
+// Star matching fails against a soft reference: its brightest stars are
+// not the same ones a sharp sub finds. Subs with under three quarters of the
+// best star count are skipped, as clouds or haze, before comparing HFR.
+func pickReference(cands []candidate) (candidate, bool) {
+	most := 0
+	for _, c := range cands {
+		most = max(most, c.score.Stars)
+	}
+	var best candidate
+	found := false
+	for _, c := range cands {
+		if c.score.HFR <= 0 || 4*c.score.Stars < 3*most {
+			continue
+		}
+		if !found || c.score.HFR < best.score.HFR {
+			best, found = c, true
+		}
+	}
+	if !found && len(cands) > 0 {
+		// No star measurements: fall back to the best score.
+		best, found = cands[0], true
+		for _, c := range cands[1:] {
+			if c.score.Score > best.score.Score {
+				best = c
+			}
+		}
+	}
+	return best, found
 }
 
 // readSub decodes a registered sub on the 0-1 scale.

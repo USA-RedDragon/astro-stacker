@@ -144,7 +144,7 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 		}
 	}
 	if len(batch) > 0 {
-		if err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets); err != nil {
+		if err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores); err != nil {
 			return len(frames), err
 		}
 	}
