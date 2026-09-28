@@ -1,0 +1,344 @@
+package stacking
+
+import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"image"
+	"image/jpeg"
+	"io"
+	"log/slog"
+	"math"
+	"path"
+	"slices"
+	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/preview"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/minio/minio-go/v7"
+	"gorm.io/gorm"
+)
+
+// palette maps filters to red, green and blue; HaRed blends H-a into red.
+type palette struct {
+	Name    string
+	R, G, B string
+	HaRed   bool
+}
+
+// palettes in order of preference for a cover.
+var palettes = []palette{
+	{Name: "RGB+Ha", R: "Red", G: "Green", B: "Blue", HaRed: true},
+	{Name: "RGB", R: "Red", G: "Green", B: "Blue"},
+	{Name: "SHO", R: "S-II", G: "H-a", B: "O-III"},
+	{Name: "HOO", R: "H-a", G: "O-III", B: "O-III"},
+}
+
+// minShare is the least effective exposure a palette channel may have,
+// relative to the palette's best channel: a channel with much less data
+// only adds noise to the cover.
+const minShare = 0.25
+
+// layer is one filter's linear preview and how much data backs it.
+type layer struct {
+	Key       string
+	Effective float64 // seconds, score-weighted
+}
+
+// haBlend is how much of H-a's excess over red goes into red, in units of
+// each channel's noise, as in the browser's palette mixer.
+const haBlend = 0.6
+
+// choosePalette picks the first palette whose filters all have a linear
+// preview and comparable data: every channel at least minShare of the
+// best one. RGB+Ha needs H-a at minShare of the average of R, G and B.
+func choosePalette(have map[string]layer) (palette, bool) {
+	for _, p := range palettes {
+		channels := []string{p.R, p.G, p.B}
+		ok := true
+		best, sum := 0.0, 0.0
+		for _, f := range channels {
+			l, found := have[f]
+			if !found || l.Key == "" {
+				ok = false
+				break
+			}
+			best = max(best, l.Effective)
+			sum += l.Effective
+		}
+		if !ok {
+			continue
+		}
+		for _, f := range channels {
+			if have[f].Effective < minShare*best {
+				ok = false
+			}
+		}
+		if p.HaRed {
+			ha, found := have["H-a"]
+			ok = ok && found && ha.Key != "" && ha.Effective >= minShare*sum/3
+		}
+		if ok {
+			return p, true
+		}
+	}
+	return palette{}, false
+}
+
+// renderCover renders a colour preview for subject (a target, or a mosaic
+// project) from the linear previews of its filters, keyed by filter, and
+// stores it at prefix/color.jpg. Without a full palette it clears the cover,
+// and the mono preview is used.
+func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, linear map[string]layer) error {
+	pal, ok := choosePalette(linear)
+	if !ok {
+		return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
+	}
+	planes := map[string]*linearImage{}
+	for _, f := range []string{pal.R, pal.G, pal.B, "H-a"} {
+		if f == "H-a" && !pal.HaRed {
+			continue
+		}
+		if planes[f] != nil {
+			continue
+		}
+		img, err := p.readLinear(ctx, linear[f].Key)
+		if err != nil {
+			return fmt.Errorf("%s %s: %w", subject, f, err)
+		}
+		planes[f] = img
+	}
+	w, h := planes[pal.R].W, planes[pal.R].H
+	for f, img := range planes {
+		if img.W != w || img.H != h {
+			// Mosaics of different filters can come out framed differently.
+			slog.Info("Filters differ in size; no colour cover", "subject", subject, "filter", f)
+			return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
+		}
+	}
+	jpg, err := composeCover(pal, planes, w, h)
+	if err != nil {
+		return err
+	}
+	key := path.Join(prefix, "color.jpg")
+	if err := p.putBytes(ctx, key, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"}); err != nil {
+		return err
+	}
+	var c app.Cover
+	err = p.db.WithContext(ctx).Where("subject = ?", subject).First(&c).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	c.Subject, c.Palette, c.PreviewKey, c.UpdatedAt = subject, pal.Name, key, time.Now()
+	return p.db.WithContext(ctx).Save(&c).Error
+}
+
+// composeCover stretches each channel on its own and encodes a JPEG.
+func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte, error) {
+	red := planes[pal.R].Data
+	if pal.HaRed {
+		red = blendHa(red, planes["H-a"].Data)
+	}
+	r, g, b := stretchNonZero(red), stretchNonZero(planes[pal.G].Data), stretchNonZero(planes[pal.B].Data)
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := range r {
+		img.Pix[4*i] = to8(r[i])
+		img.Pix[4*i+1] = to8(g[i])
+		img.Pix[4*i+2] = to8(b[i])
+		img.Pix[4*i+3] = 255
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func to8(v float32) uint8 {
+	return uint8(math.Round(float64(max(0, min(1, v))) * 255))
+}
+
+type linearImage struct {
+	W, H int
+	Data []float32
+}
+
+// readLinear downloads and decodes a linear preview (LinearMagic format).
+func (p *Pipeline) readLinear(ctx context.Context, key string) (*linearImage, error) {
+	obj, err := p.s3.GetObject(ctx, p.dest, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer obj.Close()
+	raw, err := io.ReadAll(obj)
+	if err != nil {
+		return nil, err
+	}
+	// Stored gzip-encoded for browsers; MinIO returns it as stored.
+	if zr, zerr := gzip.NewReader(bytes.NewReader(raw)); zerr == nil {
+		if raw, err = io.ReadAll(zr); err != nil {
+			return nil, err
+		}
+	}
+	return decodeLinear(raw)
+}
+
+func decodeLinear(b []byte) (*linearImage, error) {
+	if len(b) < 12 || string(b[:4]) != LinearMagic {
+		return nil, fmt.Errorf("not a linear preview")
+	}
+	w := int(binary.LittleEndian.Uint32(b[4:8]))
+	h := int(binary.LittleEndian.Uint32(b[8:12]))
+	if len(b) < 12+4*w*h {
+		return nil, fmt.Errorf("linear preview is truncated")
+	}
+	data := make([]float32, w*h)
+	if err := binary.Read(bytes.NewReader(b[12:12+4*w*h]), binary.LittleEndian, data); err != nil {
+		return nil, err
+	}
+	return &linearImage{W: w, H: h, Data: data}, nil
+}
+
+// statsNonZero is the median and MAD-derived σ of the covered pixels.
+func statsNonZero(p []float32) (med, sigma float64) {
+	stride := max(1, len(p)/200_000)
+	s := make([]float64, 0, len(p)/stride+1)
+	for i := 0; i < len(p); i += stride {
+		if v := p[i]; v != 0 && !math.IsNaN(float64(v)) {
+			s = append(s, float64(v))
+		}
+	}
+	if len(s) == 0 {
+		return 0, 0
+	}
+	slices.Sort(s)
+	med = s[len(s)/2]
+	for i := range s {
+		s[i] = math.Abs(s[i] - med)
+	}
+	slices.Sort(s)
+	return med, s[len(s)/2] * madToSigma
+}
+
+// stretchNonZero applies the STF auto-stretch from the covered pixels'
+// statistics, leaving uncovered pixels black.
+func stretchNonZero(p []float32) []float32 {
+	med, sigma := statsNonZero(p)
+	var hi float64
+	for i := 0; i < len(p); i += 7 {
+		hi = max(hi, float64(p[i]))
+	}
+	if hi <= 0 {
+		hi = 1
+	}
+	c0 := math.Max(0, math.Min(hi, med+preview.ShadowsClip*sigma))
+	span := hi - c0
+	if span <= 0 {
+		span = 1
+	}
+	m := preview.MTF(preview.TargetBackground, (med-c0)/span)
+	out := make([]float32, len(p))
+	for i, v := range p {
+		if v == 0 {
+			continue
+		}
+		out[i] = float32(preview.MTF(m, math.Max(0, math.Min(1, (float64(v)-c0)/span))))
+	}
+	return out
+}
+
+// blendHa adds H-a signal brighter than red into red, comparing both on a
+// common scale (median 0, σ 1), and returns it on red's scale.
+func blendHa(red, ha []float32) []float32 {
+	rm, rs := statsNonZero(red)
+	hm, hs := statsNonZero(ha)
+	if rs == 0 || hs == 0 {
+		return red
+	}
+	out := make([]float32, len(red))
+	for i, v := range red {
+		if v == 0 {
+			continue
+		}
+		r := (float64(v) - rm) / rs
+		h := (float64(ha[i]) - hm) / hs
+		out[i] = float32((r+haBlend*math.Max(0, h-r))*rs + rm)
+	}
+	return out
+}
+
+// refreshCover re-renders a target's colour cover from its masters.
+func (p *Pipeline) refreshCover(ctx context.Context, object string) {
+	var stacks []app.Stack
+	if err := p.db.WithContext(ctx).Where("object = ? AND linear_key IS NOT NULL", object).Find(&stacks).Error; err != nil {
+		slog.Warn("Could not load masters for the cover", "object", object, "error", err)
+		return
+	}
+	linear := map[string]layer{}
+	for _, s := range stacks {
+		linear[s.Filter] = layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds}
+	}
+	if err := p.renderCover(ctx, object, path.Join("stacks", object), linear); err != nil {
+		slog.Warn("Could not render the cover", "object", object, "error", err)
+	}
+}
+
+// refreshMosaicCover re-renders a project's colour cover from its mosaics.
+func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
+	var mosaics []app.Mosaic
+	if err := p.db.WithContext(ctx).Where("project = ? AND linear_key IS NOT NULL", project).Find(&mosaics).Error; err != nil {
+		slog.Warn("Could not load mosaics for the cover", "project", project, "error", err)
+		return
+	}
+	linear := map[string]layer{}
+	for _, m := range mosaics {
+		linear[m.Filter] = layer{Key: *m.LinearKey, Effective: m.EffectiveSeconds}
+	}
+	if err := p.renderCover(ctx, app.MosaicSubject(project), path.Join("mosaics", project), linear); err != nil {
+		slog.Warn("Could not render the mosaic cover", "project", project, "error", err)
+	}
+}
+
+// backfillCovers renders covers for targets and projects whose masters are
+// newer than their cover, such as those stacked before covers existed.
+func (p *Pipeline) backfillCovers(ctx context.Context) {
+	covers := map[string]time.Time{}
+	var cs []app.Cover
+	if err := p.db.WithContext(ctx).Find(&cs).Error; err != nil {
+		slog.Warn("Could not load covers", "error", err)
+		return
+	}
+	for _, c := range cs {
+		covers[c.Subject] = c.UpdatedAt
+	}
+	var stacks []app.Stack
+	if err := p.db.WithContext(ctx).Where("linear_key IS NOT NULL").Find(&stacks).Error; err != nil {
+		slog.Warn("Could not load masters", "error", err)
+		return
+	}
+	done := map[string]bool{}
+	for _, s := range stacks {
+		if done[s.Object] || s.UpdatedAt.Before(covers[s.Object]) || ctx.Err() != nil {
+			continue
+		}
+		done[s.Object] = true
+		p.refreshCover(ctx, s.Object)
+	}
+	var mosaics []app.Mosaic
+	if err := p.db.WithContext(ctx).Where("linear_key IS NOT NULL").Find(&mosaics).Error; err != nil {
+		return
+	}
+	for _, m := range mosaics {
+		if done[app.MosaicSubject(m.Project)] || m.UpdatedAt.Before(covers[app.MosaicSubject(m.Project)]) || ctx.Err() != nil {
+			continue
+		}
+		done[app.MosaicSubject(m.Project)] = true
+		p.refreshMosaicCover(ctx, m.Project)
+	}
+	if len(done) > 0 {
+		slog.Info("Rendered covers", "subjects", len(done))
+	}
+}

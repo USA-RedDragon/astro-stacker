@@ -113,6 +113,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	if err := p.db.WithContext(ctx).Save(stack).Error; err != nil {
 		return err
 	}
+	p.refreshCover(ctx, stack.Object)
 	p.Events.Publish(events.Event{Type: events.TypeMaster, Object: stack.Object, Filter: stack.Filter})
 	return nil
 }

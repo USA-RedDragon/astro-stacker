@@ -26,6 +26,19 @@ type TargetReference struct {
 }
 
 // Stack is the running master for one target and filter.
+// Cover is a colour preview of a target, or of a project's mosaics
+// (Subject "mosaic:" + project), from its filters' masters.
+type Cover struct {
+	ID         int    `gorm:"primaryKey;autoIncrement"`
+	Subject    string `gorm:"not null;uniqueIndex"`
+	Palette    string // RGB+Ha, RGB, SHO or HOO
+	PreviewKey string
+	UpdatedAt  time.Time
+}
+
+// MosaicSubject is a project's mosaics' Cover subject.
+func MosaicSubject(project string) string { return "mosaic:" + project }
+
 // Mosaic is one filter's mosaic of a project's panel masters.
 type Mosaic struct {
 	ID      int    `gorm:"primaryKey;autoIncrement"`
@@ -34,8 +47,10 @@ type Mosaic struct {
 	// Panels is how many panels went in, of PanelsTotal in the project.
 	Panels      int
 	PanelsTotal int
-	Width       int
-	Height      int
+	// EffectiveSeconds sums the panel masters' score-weighted exposure.
+	EffectiveSeconds float64
+	Width            int
+	Height           int
 	// Signature identifies the panel masters it was built from, so it is
 	// rebuilt only when one of them changes.
 	Signature  string
