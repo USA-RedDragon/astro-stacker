@@ -43,7 +43,7 @@ var DefaultPipelineOptions = PipelineOptions{
 	BatchSize:        12,
 	RetryAfter:       24 * time.Hour,
 	SirilThreads:     4,
-	SirilMemoryRatio: 0.25,
+	SirilMemoryRatio: 0.5,
 	Stack:            DefaultOptions,
 }
 
