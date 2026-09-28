@@ -1,8 +1,11 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"path"
+	"strings"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
@@ -17,6 +20,20 @@ func applyRoutes(r *gin.Engine, signer *previewer.Signer) {
 	})
 
 	v1(r.Group("/api/v1"), signer)
+}
+
+// Master is one filter's stacked master for a target, with presigned links.
+type Master struct {
+	Filter           string    `json:"filter"`
+	Subs             int       `json:"subs"`
+	ExposureSeconds  float64   `json:"exposure_seconds"`
+	EffectiveSeconds float64   `json:"effective_seconds"`
+	Width            int       `json:"width"`
+	Height           int       `json:"height"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	MasterURL        string    `json:"master_url"`
+	PreviewURL       string    `json:"preview_url"`
+	LinearURL        string    `json:"linear_url"`
 }
 
 // PreviewURL is a presigned link to one light's auto-stretched preview.
@@ -69,6 +86,49 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 				return
 			}
 			out = append(out, PreviewURL{File: path.Base(f.Key), URL: u})
+		}
+		c.JSON(http.StatusOK, out)
+	})
+
+	// Stacked masters for one target, one per filter.
+	r.GET("/stacks", func(c *gin.Context) {
+		if signer == nil {
+			c.JSON(http.StatusOK, []Master{})
+			return
+		}
+		object := c.Query("object")
+		if object == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "object is required"})
+			return
+		}
+		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+		var stacks []app.Stack
+		if err := di.AppStore.DB().WithContext(c.Request.Context()).
+			Where("object = ? AND subs > 0 AND master_key IS NOT NULL", object).
+			Order("filter").Find(&stacks).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		out := make([]Master, 0, len(stacks))
+		for _, s := range stacks {
+			m := Master{
+				Filter: s.Filter, Subs: s.Subs, ExposureSeconds: s.ExposureSeconds, EffectiveSeconds: s.EffectiveSeconds,
+				Width: s.Width, Height: s.Height, UpdatedAt: s.UpdatedAt,
+			}
+			ctx := c.Request.Context()
+			var err error
+			name := fmt.Sprintf("%s_%s_master.fit", strings.ReplaceAll(s.Object, " ", "_"), strings.ReplaceAll(s.Filter, " ", "_"))
+			if m.MasterURL, err = signer.DownloadURL(ctx, *s.MasterKey, name); err == nil && s.PreviewKey != nil {
+				m.PreviewURL, err = signer.URL(ctx, *s.PreviewKey)
+			}
+			if err == nil && s.LinearKey != nil {
+				m.LinearURL, err = signer.URL(ctx, *s.LinearKey)
+			}
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			out = append(out, m)
 		}
 		c.JSON(http.StatusOK, out)
 	})
