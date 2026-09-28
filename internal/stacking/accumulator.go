@@ -18,9 +18,13 @@ type Options struct {
 	// from the running mean, once MinSamples values are in.
 	RejectSigma float32
 	MinSamples  float32
+	// RejectGrow also rejects pixels within this many pixels of a rejected
+	// cluster. A satellite trail's faint edges are below the threshold pixel
+	// by pixel but sit right beside its rejected core.
+	RejectGrow int
 }
 
-var DefaultOptions = Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8}
+var DefaultOptions = Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2}
 
 // Accumulator holds the running state for one master: per pixel, the total
 // weight, the weighted mean and sum of squared deviations (West's weighted
@@ -61,11 +65,31 @@ func (a *Accumulator) Add(sub []float32, exposure, weight float64, opts Options)
 		return AddResult{}, fmt.Errorf("exposure %v and weight %v must be positive", exposure, weight)
 	}
 	bg := background(sub, opts.SaturationLevel)
+	inv := float32(1 / exposure)
+	k2 := opts.RejectSigma * opts.RejectSigma
+	// Pixels are independent, so judging all of them before folding any in
+	// gives the same result as judging each just before it's folded.
+	reject := make([]bool, len(sub))
+	for i, v := range sub {
+		if v == 0 || v >= opts.SaturationLevel {
+			continue
+		}
+		wOld := a.Weight[i]
+		if a.Count[i] >= opts.MinSamples && wOld > 0 {
+			delta := (v-float32(bg))*inv - a.Mean[i]
+			reject[i] = delta*delta > k2*(a.M2[i]/wOld)
+		}
+	}
+	return a.fold(sub, exposure, weight, bg, reject, opts), nil
+}
+
+// fold adds a sub's pixels that aren't empty, saturated or rejected (after
+// growing the rejection by opts.RejectGrow).
+func (a *Accumulator) fold(sub []float32, exposure, weight, bg float64, reject []bool, opts Options) AddResult {
 	res := AddResult{Background: bg / exposure}
+	reject = grow(reject, a.W, a.H, opts.RejectGrow)
 	inv := float32(1 / exposure)
 	w := float32(weight)
-	k2 := opts.RejectSigma * opts.RejectSigma
-
 	for i, v := range sub {
 		switch {
 		case v == 0:
@@ -75,20 +99,16 @@ func (a *Accumulator) Add(sub []float32, exposure, weight float64, opts Options)
 		case v >= opts.SaturationLevel:
 			res.Saturated++
 			continue
+		case reject[i]:
+			res.Rejected++
+			continue
 		}
 		// Per second, with this sub's sky removed so moonlit and dark subs
 		// agree on the background and aren't rejected against each other.
 		x := (v - float32(bg)) * inv
 		wOld := a.Weight[i]
-		delta := x - a.Mean[i]
-		if a.Count[i] >= opts.MinSamples && wOld > 0 {
-			variance := a.M2[i] / wOld
-			if delta*delta > k2*variance {
-				res.Rejected++
-				continue
-			}
-		}
 		wNew := wOld + w
+		delta := x - a.Mean[i]
 		r := delta * w / wNew
 		a.Mean[i] += r
 		a.M2[i] += wOld * delta * r
@@ -99,7 +119,73 @@ func (a *Accumulator) Add(sub []float32, exposure, weight float64, opts Options)
 	a.BackgroundSum += weight * res.Background
 	a.WeightSum += weight
 	a.Subs++
-	return res, nil
+	return res
+}
+
+// grow widens rejected clusters (pixels with at least two rejected
+// neighbours, as along a trail) to squares of radius r. Lone rejections,
+// mostly noise, stay as they are.
+func grow(mask []bool, w, h, r int) []bool {
+	if r <= 0 {
+		return mask
+	}
+	seeds := make([]bool, len(mask))
+	for y := range h {
+		for x := range w {
+			if !mask[y*w+x] {
+				continue
+			}
+			n := 0
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					xx, yy := x+dx, y+dy
+					if (dx != 0 || dy != 0) && xx >= 0 && xx < w && yy >= 0 && yy < h && mask[yy*w+xx] {
+						n++
+					}
+				}
+			}
+			seeds[y*w+x] = n >= 2
+		}
+	}
+	// Separable: rows, then columns, each with a running count.
+	tmp := make([]bool, len(mask))
+	for y := range h {
+		row := seeds[y*w : (y+1)*w]
+		n := 0
+		for x := range min(r, w) {
+			if row[x] {
+				n++
+			}
+		}
+		for x := range w {
+			if x+r < w && row[x+r] {
+				n++
+			}
+			if x-r-1 >= 0 && row[x-r-1] {
+				n--
+			}
+			tmp[y*w+x] = n > 0
+		}
+	}
+	out := make([]bool, len(mask))
+	for x := range w {
+		n := 0
+		for y := range min(r, h) {
+			if tmp[y*w+x] {
+				n++
+			}
+		}
+		for y := range h {
+			if y+r < h && tmp[(y+r)*w+x] {
+				n++
+			}
+			if y-r-1 >= 0 && tmp[(y-r-1)*w+x] {
+				n--
+			}
+			out[y*w+x] = n > 0 || mask[y*w+x]
+		}
+	}
+	return out
 }
 
 // Master returns the stacked image on the 0-1 scale of a single sub of
