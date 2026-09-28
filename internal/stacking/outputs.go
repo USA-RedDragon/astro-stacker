@@ -14,6 +14,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -116,6 +117,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	if err := p.db.WithContext(ctx).Save(stack).Error; err != nil {
 		return err
 	}
+	metrics.MastersUpdated.Inc()
 	p.refreshCover(ctx, stack.Object)
 	p.Events.Publish(events.Event{Type: events.TypeMaster, Object: stack.Object, Filter: stack.Filter})
 	return nil
