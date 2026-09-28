@@ -53,10 +53,12 @@ type PipelineOptions struct {
 }
 
 var DefaultPipelineOptions = PipelineOptions{
-	MinScore:         0.3,
-	Pedestal:         quality.DefaultPedestal,
-	BatchSize:        12,
-	RetryAfter:       24 * time.Hour,
+	MinScore:  0.3,
+	Pedestal:  quality.DefaultPedestal,
+	BatchSize: 12,
+	// Tonight's subs usually wait for the morning's flats; rechecking is
+	// only a database query.
+	RetryAfter:       3 * time.Hour,
 	FailureBackoff:   30 * time.Minute,
 	MaxAttempts:      5,
 	SirilThreads:     4,
@@ -243,6 +245,9 @@ func (p *Pipeline) failedBefore(ctx context.Context, frames []app.Frame) (map[in
 	return out, nil
 }
 
+// LiveWindow is how recent a sub must be to go ahead of the backfill.
+const LiveWindow = 48 * time.Hour
+
 // claim picks the first light of a target no other worker is stacking and
 // marks the target busy. It returns nil when there is nothing to do.
 func (p *Pipeline) claim(q *gorm.DB) (*app.Frame, error) {
@@ -255,8 +260,15 @@ func (p *Pipeline) claim(q *gorm.DB) (*app.Frame, error) {
 		}
 		q = q.Session(&gorm.Session{}).Where("frames.object NOT IN ?", busy)
 	}
+	// Subs from the last two nights go first, newest first, so tonight's
+	// data reaches its master ahead of the backfill.
 	var first app.Frame
-	if err := q.Session(&gorm.Session{}).Order("frames.object, frames.filter, frames.date_obs").First(&first).Error; err != nil {
+	err := q.Session(&gorm.Session{}).Where("frames.date_obs > ?", time.Now().Add(-LiveWindow)).
+		Order("frames.date_obs DESC").First(&first).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		err = q.Session(&gorm.Session{}).Order("frames.object, frames.filter, frames.date_obs").First(&first).Error
+	}
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}

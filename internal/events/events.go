@@ -15,6 +15,7 @@ const (
 	TypePreview = "preview" // a sub's preview was rendered
 	TypeMaster  = "master"  // a master was updated
 	TypeMosaic  = "mosaic"  // a project's mosaic was updated; Object is the project
+	TypeFrames  = "frames"  // new frames were indexed
 	TypeStatus  = "status"  // what the stacker is doing; not replayed
 )
 
