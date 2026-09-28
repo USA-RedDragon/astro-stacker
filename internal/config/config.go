@@ -24,6 +24,16 @@ type Config struct {
 	Storage  Storage  `name:"storage" description:"Storage configuration"`
 	S3       S3       `name:"s3" description:"Object store holding the raw frames"`
 	Indexer  Indexer  `name:"indexer" description:"Frame indexer configuration"`
+	Previews Previews `name:"previews" description:"Sub preview rendering"`
+}
+
+type Previews struct {
+	Enabled         bool `name:"enabled" description:"Render auto-stretched JPEG previews of lights into the processed bucket"`
+	IntervalSeconds int  `name:"interval-seconds" description:"Seconds between checks for frames without previews" default:"120"`
+	Concurrency     int  `name:"concurrency" description:"Frames rendered in parallel; each needs about 200 MB" default:"2"`
+	MaxWidth        int  `name:"max-width" description:"Preview width in pixels" default:"1280"`
+	Quality         int  `name:"quality" description:"JPEG quality" default:"80"`
+	URLTTLSeconds   int  `name:"url-ttl-seconds" description:"Lifetime of presigned preview URLs" default:"3600"`
 }
 
 type S3 struct {
@@ -33,6 +43,12 @@ type S3 struct {
 	Bucket    string `name:"bucket" description:"Bucket holding the raw frames" default:"astro"`
 	AccessKey string `name:"access-key" description:"S3 access key"`
 	SecretKey string `name:"secret-key" description:"S3 secret key"`
+	// Processed outputs (previews, calibrated subs, stacks) go here.
+	ProcessedBucket string `name:"processed-bucket" description:"Bucket for previews and processed frames" default:"astro-processed"`
+	// Browsers fetch presigned URLs, so they must be signed for the public
+	// host, not the in-cluster endpoint the worker itself uses.
+	PublicEndpoint string `name:"public-endpoint" description:"S3 host browsers use for presigned URLs" default:"s3.mcswain.dev"`
+	PublicUseSSL   bool   `name:"public-use-ssl" description:"Presigned URLs use HTTPS" default:"true"`
 }
 
 type Indexer struct {
@@ -97,7 +113,7 @@ func (c Config) Validate() error {
 		return ErrEmptyStorageDSNApp
 	}
 
-	if c.Indexer.Enabled && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {
+	if (c.Indexer.Enabled || c.Previews.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {
 		return ErrMissingS3Credentials
 	}
 
