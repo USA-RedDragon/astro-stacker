@@ -152,12 +152,20 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 		}
 		planes[f] = img
 	}
+	// Mosaic canvases of different filters are framed from each filter's
+	// own plate solutions, so they can differ by a pixel or two; trim them
+	// to the common size. Anything more means they don't line up.
 	w, h := planes[pal.R].W, planes[pal.R].H
+	for _, img := range planes {
+		w, h = min(w, img.W), min(h, img.H)
+	}
 	for f, img := range planes {
-		if img.W != w || img.H != h {
-			// Mosaics of different filters can come out framed differently.
+		if float64(img.W-w) > 0.01*float64(img.W) || float64(img.H-h) > 0.01*float64(img.H) {
 			slog.Info("Filters differ in size; no colour cover", "subject", subject, "filter", f)
 			return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
+		}
+		if img.W != w || img.H != h {
+			planes[f] = &linearImage{W: w, H: h, Data: crop(img.Data, img.W, Rect{0, 0, w, h})}
 		}
 	}
 	var layers []layer
