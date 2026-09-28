@@ -37,6 +37,24 @@ type Master struct {
 	MasterURL        string    `json:"master_url"`
 	PreviewURL       string    `json:"preview_url"`
 	LinearURL        string    `json:"linear_url"`
+	Crop             *Crop     `json:"crop,omitempty"`
+}
+
+// Crop is the well-covered part of an image as fractions of its width and
+// height, for cropping previews and the linear preview alike.
+type Crop struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	W float64 `json:"w"`
+	H float64 `json:"h"`
+}
+
+func cropOf(x, y, w, h, width, height int) *Crop {
+	if w <= 0 || h <= 0 || width <= 0 || height <= 0 {
+		return nil
+	}
+	fw, fh := float64(width), float64(height)
+	return &Crop{X: float64(x) / fw, Y: float64(y) / fh, W: float64(w) / fw, H: float64(h) / fh}
 }
 
 // Mosaic is one filter's mosaic of a project's panels, with presigned links.
@@ -50,6 +68,7 @@ type Mosaic struct {
 	MasterURL   string    `json:"master_url"`
 	PreviewURL  string    `json:"preview_url"`
 	LinearURL   string    `json:"linear_url"`
+	Crop        *Crop     `json:"crop,omitempty"`
 }
 
 // Cover is the preview that best shows a target or project.
@@ -208,7 +227,8 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		}
 		out := make([]Mosaic, 0, len(mosaics))
 		for _, m := range mosaics {
-			o := Mosaic{Filter: m.Filter, Panels: m.Panels, PanelsTotal: m.PanelsTotal, Width: m.Width, Height: m.Height, UpdatedAt: m.UpdatedAt}
+			o := Mosaic{Filter: m.Filter, Panels: m.Panels, PanelsTotal: m.PanelsTotal, Width: m.Width, Height: m.Height, UpdatedAt: m.UpdatedAt,
+				Crop: cropOf(m.CropX, m.CropY, m.CropW, m.CropH, m.Width, m.Height)}
 			ctx := c.Request.Context()
 			name := fmt.Sprintf("%s_%s_mosaic.fit", strings.ReplaceAll(m.Project, " ", "_"), strings.ReplaceAll(m.Filter, " ", "_"))
 			var err error
@@ -251,6 +271,7 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 			m := Master{
 				Filter: s.Filter, Subs: s.Subs, ExposureSeconds: s.ExposureSeconds, EffectiveSeconds: s.EffectiveSeconds,
 				Width: s.Width, Height: s.Height, UpdatedAt: s.UpdatedAt,
+				Crop: cropOf(s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height),
 			}
 			ctx := c.Request.Context()
 			var err error

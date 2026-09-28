@@ -234,7 +234,9 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 	if err != nil {
 		return err
 	}
-	jpg, err := preview.Render(im, preview.DefaultOptions)
+	r := dataCrop(im.W, im.H, im.Data)
+	mosaic.CropX, mosaic.CropY, mosaic.CropW, mosaic.CropH = r.X, r.Y, r.W, r.H
+	jpg, err := preview.Render(&imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(im.Data, im.W, r)}, preview.DefaultOptions)
 	if err != nil {
 		return err
 	}
