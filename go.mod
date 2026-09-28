@@ -1,6 +1,6 @@
 module github.com/USA-RedDragon/astro-stacker
 
-go 1.25.4
+go 1.27.1
 
 require (
 	github.com/USA-RedDragon/configulator v0.0.1
