@@ -8,9 +8,12 @@ func TestCoverageCropDropsThinEdges(t *testing.T) {
 	for y := range h {
 		for x := range w {
 			c := float32(20)
-			// A dithered left edge and a rotated bottom-right corner.
+			// A dithered left edge and a rotated bottom-right corner, and a
+			// band three quarters of the subs cover, which stays in.
 			if x < 12 || (y > 60 && x > 120) {
 				c = 6
+			} else if y < 10 {
+				c = 15
 			}
 			// A few rejected star pixels inside the good area.
 			if (x*7+y*3)%97 == 0 {
@@ -25,6 +28,9 @@ func TestCoverageCropDropsThinEdges(t *testing.T) {
 	}
 	if r.X+r.W > w || r.Y+r.H > h || r.W*r.H < 100*50 {
 		t.Errorf("crop %+v too small or out of bounds", r)
+	}
+	if r.Y != 0 {
+		t.Errorf("crop %+v left out the band three quarters of the subs cover", r)
 	}
 	for y := r.Y; y < r.Y+r.H; y++ {
 		for x := r.X; x < r.X+r.W; x++ {

@@ -7,12 +7,14 @@ type Rect struct{ X, Y, W, H int }
 const cropBlock = 8
 
 // coverageCrop is the largest rectangle whose blocks are each, on average,
-// covered by at least 80% of the best-covered block's subs. Registration
-// leaves dithered and rotated edges covered by fewer subs; rejected star
-// pixels only dent a block's average.
+// covered by at least half the best-covered block's subs. Registration
+// leaves dithered edges covered by few subs, so they fall well below it;
+// a band a quarter of the subs missed, as from another rotator angle, stays
+// in, where a stricter threshold would crop Andromeda to 40% of its frame.
+// Rejected star pixels and trails only dent a block's average.
 func coverageCrop(acc *Accumulator) Rect {
 	return largestRect(acc.W, acc.H, func(sum float64, n int) float64 { return sum / float64(n) },
-		func(i int) float64 { return float64(acc.Count[i]) }, 0.8)
+		func(i int) float64 { return float64(acc.Count[i]) }, 0.5)
 }
 
 // dataCrop is the largest rectangle of blocks with image data in nearly
