@@ -246,21 +246,33 @@ func (ix *Indexer) readHeader(ctx context.Context, obj minio.ObjectInfo) (frameh
 // ReadHeader reads an image's header keywords with ranged reads of the
 // start of the object, growing the range until the header fits.
 func ReadHeader(ctx context.Context, client *minio.Client, bucket string, obj minio.ObjectInfo) (frameheader.Keywords, error) {
+	return readPrefixed(ctx, client, bucket, obj, frameheader.Parse)
+}
+
+// ReadCards reads an object's FITS keywords in order, with comments.
+func ReadCards(ctx context.Context, client *minio.Client, bucket string, obj minio.ObjectInfo) ([]frameheader.Card, error) {
+	return readPrefixed(ctx, client, bucket, obj, frameheader.ParseCards)
+}
+
+// readPrefixed parses an object's header from a ranged read, reading more
+// when the header is longer than frameheader.PrefixSize.
+func readPrefixed[T any](ctx context.Context, client *minio.Client, bucket string, obj minio.ObjectInfo, parse func([]byte) (T, error)) (T, error) {
+	var zero T
 	size := int64(frameheader.PrefixSize)
 	for range 4 {
 		prefix, err := readPrefix(ctx, client, bucket, obj.Key, min(size, obj.Size))
 		if err != nil {
-			return nil, err
+			return zero, err
 		}
-		kw, err := frameheader.Parse(prefix)
+		v, err := parse(prefix)
 		var more *frameheader.NeedMoreError
 		if errors.As(err, &more) && int64(more.Total) <= obj.Size && int64(more.Total) > size {
 			size = int64(more.Total)
 			continue
 		}
-		return kw, err
+		return v, err
 	}
-	return nil, fmt.Errorf("header larger than %d bytes", size)
+	return zero, fmt.Errorf("header larger than %d bytes", size)
 }
 
 func readPrefix(ctx context.Context, client *minio.Client, bucket, key string, n int64) ([]byte, error) {

@@ -39,6 +39,10 @@ type Master struct {
 	PreviewURL       string    `json:"preview_url"`
 	LinearURL        string    `json:"linear_url"`
 	Crop             *Crop     `json:"crop,omitempty"`
+	// FittedURL is the master linear fitted to FitReference, when the
+	// target has other filters.
+	FittedURL    string `json:"fitted_url,omitempty"`
+	FitReference string `json:"fit_reference,omitempty"`
 }
 
 // Crop is the well-covered part of an image as fractions of its width and
@@ -317,6 +321,10 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 			}
 			if err == nil && s.LinearKey != nil {
 				m.LinearURL, err = signer.URL(ctx, *s.LinearKey)
+			}
+			if err == nil && s.FittedKey != nil {
+				m.FitReference = s.FitReference
+				m.FittedURL, err = signer.DownloadURL(ctx, *s.FittedKey, strings.TrimSuffix(name, "master.fit")+"linearfit.fit")
 			}
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

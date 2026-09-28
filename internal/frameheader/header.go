@@ -40,14 +40,48 @@ type Keywords map[string]string
 
 // Parse extracts the FITS keywords from an XISF or FITS file prefix.
 func Parse(prefix []byte) (Keywords, error) {
+	cards, props, err := parse(prefix)
+	if err != nil {
+		return nil, err
+	}
+	kw := Keywords{}
+	for _, c := range cards {
+		if _, dup := kw[c.Name]; !dup {
+			kw[c.Name] = c.Value
+		}
+	}
+	return merge(kw, props), nil
+}
+
+// Card is one FITS keyword in header order. Value is unquoted; Quoted says
+// it was a string.
+type Card struct {
+	Name, Value, Comment string
+	Quoted               bool
+}
+
+// ParseCards returns an XISF or FITS file prefix's FITS keywords in order,
+// with their comments, for copying into another file's header.
+func ParseCards(prefix []byte) ([]Card, error) {
+	cards, _, err := parse(prefix)
+	return cards, err
+}
+
+func parse(prefix []byte) ([]Card, Keywords, error) {
 	switch {
 	case bytes.HasPrefix(prefix, []byte(xisfMagic)):
 		return parseXISF(prefix)
 	case bytes.HasPrefix(prefix, []byte("SIMPLE  =")):
-		return parseFITS(prefix)
+		cards, err := parseFITS(prefix)
+		return cards, nil, err
 	default:
-		return nil, ErrUnknownFormat
+		return nil, nil, ErrUnknownFormat
 	}
+}
+
+func newCard(name, raw, comment string) Card {
+	raw = strings.TrimSpace(raw)
+	return Card{Name: name, Value: cleanValue(raw), Comment: strings.TrimSpace(comment), Quoted: strings.HasPrefix(raw, "'")}
 }
 
 // xisfProperties maps XISF property ids to the FITS keyword they stand in
@@ -69,18 +103,18 @@ var xisfProperties = map[string]string{
 // signature, a little-endian uint32 header length, 4 reserved bytes, then the
 // XML. Only the first Image element counts, since masters also carry
 // rejection maps as extra images with their own keywords.
-func parseXISF(b []byte) (Keywords, error) {
+func parseXISF(b []byte) ([]Card, Keywords, error) {
 	if len(b) < 16 {
-		return nil, &NeedMoreError{Total: 16}
+		return nil, nil, &NeedMoreError{Total: 16}
 	}
 	n := int(binary.LittleEndian.Uint32(b[8:12]))
 	if len(b) < 16+n {
-		return nil, &NeedMoreError{Total: 16 + n}
+		return nil, nil, &NeedMoreError{Total: 16 + n}
 	}
 	// The header may be padded with NULs after the XML.
 	header := bytes.TrimRight(b[16:16+n], "\x00")
 
-	kw := Keywords{}
+	var cards []Card
 	props := Keywords{}
 	dec := xml.NewDecoder(bytes.NewReader(header))
 	depth := 0 // nesting inside the first Image; 0 means not inside it
@@ -91,7 +125,7 @@ func parseXISF(b []byte) (Keywords, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("xisf header: %w", err)
+			return nil, nil, fmt.Errorf("xisf header: %w", err)
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
@@ -105,11 +139,8 @@ func parseXISF(b []byte) (Keywords, error) {
 			depth++
 			switch t.Name.Local {
 			case "FITSKeyword":
-				name, value := attr(t, "name"), attr(t, "value")
-				if name != "" {
-					if _, dup := kw[name]; !dup {
-						kw[name] = cleanValue(value)
-					}
+				if name := attr(t, "name"); name != "" {
+					cards = append(cards, newCard(name, attr(t, "value"), attr(t, "comment")))
 				}
 			case "Property":
 				id := attr(t, "id")
@@ -131,12 +162,12 @@ func parseXISF(b []byte) (Keywords, error) {
 				depth--
 				if depth == 0 {
 					// Finished the first image; later images are ignored.
-					return merge(kw, props), nil
+					return cards, props, nil
 				}
 			}
 		}
 	}
-	return merge(kw, props), nil
+	return cards, props, nil
 }
 
 func attr(t xml.StartElement, name string) string {
@@ -163,8 +194,8 @@ func merge(kw, props Keywords) Keywords {
 	return kw
 }
 
-func parseFITS(b []byte) (Keywords, error) {
-	kw := Keywords{}
+func parseFITS(b []byte) ([]Card, error) {
+	var cards []Card
 	for off := 0; ; off += fitsCardSize {
 		if off+fitsCardSize > len(b) {
 			// Headers are padded to whole blocks, so ask for the next one.
@@ -173,10 +204,12 @@ func parseFITS(b []byte) (Keywords, error) {
 		card := string(b[off : off+fitsCardSize])
 		key := strings.TrimSpace(card[:8])
 		if key == "END" {
-			return kw, nil
+			return cards, nil
 		}
 		if len(card) > 10 && card[8:10] == "= " {
-			kw[key] = cleanValue(stripComment(card[10:]))
+			value := stripComment(card[10:])
+			comment := strings.TrimPrefix(card[10+len(value):], "/")
+			cards = append(cards, newCard(key, value, comment))
 		}
 	}
 }

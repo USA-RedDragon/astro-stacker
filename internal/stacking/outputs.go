@@ -76,6 +76,12 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	if err := writeFITSFile(masterFile, acc.W, acc.H, 1, master, cards); err != nil {
 		return err
 	}
+	// Plate solving needs the master on disk, so it's written again with
+	// the full header.
+	if err := writeFITSFile(masterFile, acc.W, acc.H, 1, master, p.masterHeader(ctx, stack, cards, dir, masterFile)); err != nil {
+		return err
+	}
+	stack.MasterVersion = MasterVersion
 	stateFile := filepath.Join(dir, "state.fit")
 	if err := writeFITSFile(stateFile, acc.W, acc.H, 4, acc.Planes(), nil); err != nil {
 		return err

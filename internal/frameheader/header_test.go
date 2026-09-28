@@ -161,3 +161,33 @@ func TestXISFSpecEdgeCases(t *testing.T) {
 		t.Errorf("gain from the second image leaked in: %v", f.Gain)
 	}
 }
+
+func TestParseCardsKeepsOrderAndComments(t *testing.T) {
+	t.Parallel()
+	cards, err := frameheader.ParseCards(xisf(ninaXML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 14 || cards[0] != (frameheader.Card{Name: "IMAGETYP", Value: "LIGHT", Comment: "Type of exposure", Quoted: true}) {
+		t.Errorf("xisf cards = %+v", cards)
+	}
+	if c := cards[2]; c.Name != "EXPTIME" || c.Value != "300.0" || c.Quoted {
+		t.Errorf("EXPTIME = %+v", c)
+	}
+	cards, err = frameheader.ParseCards(fits(
+		"SIMPLE  =                    T",
+		"FILTER  = 'O''III / narrow'    / quoted slash",
+		"GAIN    =                    0",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []frameheader.Card{
+		{Name: "SIMPLE", Value: "T"},
+		{Name: "FILTER", Value: "O'III / narrow", Comment: "quoted slash", Quoted: true},
+		{Name: "GAIN", Value: "0"},
+	}
+	if fmt.Sprint(cards) != fmt.Sprint(want) {
+		t.Errorf("fits cards = %+v", cards)
+	}
+}
