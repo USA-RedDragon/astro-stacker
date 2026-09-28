@@ -13,7 +13,7 @@ import (
 
 // CropVersion changes with the crop rule, so masters cropped by an older
 // rule get their crop and preview redone.
-const CropVersion = 2
+const CropVersion = 3
 
 // Rect is a crop in full-resolution pixels.
 type Rect struct{ X, Y, W, H int }
@@ -21,57 +21,77 @@ type Rect struct{ X, Y, W, H int }
 // cropBlock is the block size crops are computed on.
 const cropBlock = 8
 
-// coverageCrop trims the ragged, nearly empty borders registration leaves:
-// it is the largest rectangle of blocks where some pixel has at least a
-// tenth of the best-covered pixel's subs (and at least one), less one block
-// each side for blocks the edge crosses. It does not crop to where most subs
-// overlap: a master whose subs were framed differently keeps its whole frame
-// rather than being cut to the overlap, and pixels where stars were
-// rejected, dense in masters of few subs, don't count against a block.
+// coverageCrop crops to where (nearly) every sub overlaps, as PixInsight's
+// WBPP autocrop does: the largest rectangle whose pixels are all covered by
+// at least 95% of the subs. That drops both the empty borders registration
+// leaves and the weak edges only some subs reach.
+//
+// Coverage is each sub's footprint, not the per-pixel count: counts drop
+// where stars, trails and hot pixels were rejected, which would read as
+// holes. A frame's edges are straight and rejections small, so a closing
+// (local maximum, then local minimum, over rejectionFill pixels) fills them
+// while leaving the edges where they are.
 func coverageCrop(acc *Accumulator) Rect {
+	cover := localExtreme(localExtreme(acc.Count, acc.W, acc.H, rejectionFill, true), acc.W, acc.H, rejectionFill, false)
 	var most float32
-	for _, c := range acc.Count {
+	for _, c := range cover {
 		most = max(most, c)
 	}
-	need := max(1, most/10)
-	r := largestRect(acc.W, acc.H, func(sum float64, _ int) float64 { return sum },
-		func(i int) float64 { return float64(acc.Count[i]) }, 0, blockMaxAtLeast(acc, need))
-	return shrink(r, cropBlock, acc.W, acc.H)
-}
-
-// blockMaxAtLeast keeps blocks where some pixel's count reaches need.
-func blockMaxAtLeast(acc *Accumulator, need float32) func(bx, by int) bool {
-	return func(bx, by int) bool {
-		for y := by * cropBlock; y < (by+1)*cropBlock; y++ {
-			for x := bx * cropBlock; x < (bx+1)*cropBlock; x++ {
-				if acc.Count[y*acc.W+x] >= need {
-					return true
+	need := 0.95 * most
+	return largestRect(acc.W, acc.H, func(sum float64, _ int) float64 { return sum }, nil, 0,
+		func(bx, by int) bool {
+			for y := by * cropBlock; y < (by+1)*cropBlock; y++ {
+				for x := bx * cropBlock; x < (bx+1)*cropBlock; x++ {
+					if cover[y*acc.W+x] < need {
+						return false
+					}
 				}
 			}
-		}
-		return false
-	}
+			return true
+		})
 }
 
-// shrink insets r by d on each side it doesn't share with the image edge.
-func shrink(r Rect, d, w, h int) Rect {
-	out := r
-	if r.X > 0 {
-		out.X += d
-		out.W -= d
+// rejectionFill is the width of the local maximum that fills rejected
+// pixels: wider than a grown satellite trail or a bright star's core.
+const rejectionFill = 25
+
+// localExtreme is a w×h image's maximum (or minimum) over size×size
+// windows, computed separably. For the minimum, outside the image counts
+// as 0, uncovered, so a closing can't fill an empty border back in.
+func localExtreme(src []float32, w, h, size int, maximum bool) []float32 {
+	pick := func(a, b float32) float32 {
+		if maximum {
+			return max(a, b)
+		}
+		return min(a, b)
 	}
-	if r.Y > 0 {
-		out.Y += d
-		out.H -= d
+	r := size / 2
+	tmp := make([]float32, len(src))
+	for y := range h {
+		row := src[y*w : (y+1)*w]
+		for x := range w {
+			m := row[x]
+			if !maximum && (x-r < 0 || x+r > w-1) {
+				m = 0
+			}
+			for k := max(0, x-r); k <= min(w-1, x+r); k++ {
+				m = pick(m, row[k])
+			}
+			tmp[y*w+x] = m
+		}
 	}
-	if r.X+r.W < w {
-		out.W -= d
-	}
-	if r.Y+r.H < h {
-		out.H -= d
-	}
-	if out.W <= 0 || out.H <= 0 {
-		return r
+	out := make([]float32, len(src))
+	for x := range w {
+		for y := range h {
+			m := tmp[y*w+x]
+			if !maximum && (y-r < 0 || y+r > h-1) {
+				m = 0
+			}
+			for k := max(0, y-r); k <= min(h-1, y+r); k++ {
+				m = pick(m, tmp[k*w+x])
+			}
+			out[y*w+x] = m
+		}
 	}
 	return out
 }
