@@ -27,22 +27,23 @@ func (a *Accumulator) AddAgainst(sub []float32, exposure, weight float64, ref *A
 	if len(sub) != a.W*a.H || len(ref.Mean) != len(sub) {
 		return AddResult{}, fmt.Errorf("sub, reference and master sizes differ")
 	}
-	bg := background(sub, opts.SaturationLevel)
-	inv := float32(1 / exposure)
-	w := float32(weight)
+	sky := skyFor(sub, a.W, a.H, exposure, ref, opts)
+	norm := sky.normalizer(exposure)
+	// ref holds this sub at its scaled weight (see fold).
+	w := float32(weight * sky.scale * sky.scale)
 	k := opts.RejectSigma
-	floor := float32(noise / exposure)
+	floor := float32(noise / exposure / sky.scale)
 	reject := make([]bool, len(sub))
 	for i, v := range sub {
 		if v == 0 || v >= opts.SaturationLevel {
 			continue
 		}
-		x := (v - float32(bg)) * inv
+		x := norm.at(i, v)
 		if mean, std, ok := refStats(ref, i, x, w, leaveOut); ok {
 			reject[i] = abs32(x-mean) > k*max(std, floor)+RelativeTolerance*abs32(mean)
 		}
 	}
-	return a.fold(sub, exposure, weight, bg, reject, opts), nil
+	return a.fold(sub, exposure, weight, sky, reject, opts), nil
 }
 
 // refStats returns pixel i's mean and standard deviation in ref, without the
@@ -154,6 +155,7 @@ type memSub struct {
 	px       []uint16 // quantize()d samples, 0 = empty
 	bg       float32  // background per second
 	noise    float32  // background noise per second
+	sky      skyModel
 	exposure float64
 	weight   float64
 }
@@ -204,10 +206,30 @@ func toMemSub(sub []float32, exposure, weight float64, sat float32) memSub {
 // pixel keeps them all, since one sub's outlier can't be told from signal.
 func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 	k := opts.RejectSigma
+	for j := range all {
+		all[j].sky = flatSky(w, h, float64(all[j].bg))
+	}
+	if opts.LocalNorm && len(all) >= 3 {
+		// Each sub's sky is fitted against all of them stacked with their
+		// background levels, which averages their gradients.
+		ref := NewAccumulator(w, h)
+		for _, l := range all {
+			foldMem(ref, l, nil, opts.SaturationLevel)
+		}
+		for j := range all {
+			if !needsLocalNorm(ref) {
+				break
+			}
+			l := &all[j]
+			l.sky = fitSky(func(i int) float32 { return dequantize(l.px[i]) }, w, h, l.exposure, ref, opts.SaturationLevel, float64(l.bg))
+		}
+	}
+	norms := make([]*normalizer, len(all))
 	// First mark each sub's outliers, so the rejection can be grown.
 	reject := make([][]bool, len(all))
 	for j := range reject {
 		reject[j] = make([]bool, w*h)
+		norms[j] = all[j].sky.normalizer(all[j].exposure)
 	}
 	vals := make([]float32, 0, len(all))
 	idx := make([]int, 0, len(all))
@@ -223,7 +245,7 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 			if v >= opts.SaturationLevel {
 				continue
 			}
-			vals = append(vals, v/float32(l.exposure)-l.bg)
+			vals = append(vals, norms[j].at(i, v))
 			idx = append(idx, j)
 		}
 		if len(vals) < 3 {
@@ -233,7 +255,8 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 		slices.Sort(sorted)
 		med := sorted[len(sorted)/2]
 		for n, x := range vals {
-			if abs32(x-med) > k*all[idx[n]].noise+RelativeTolerance*abs32(med) {
+			l := all[idx[n]]
+			if abs32(x-med) > k*l.noise/float32(l.sky.scale)+RelativeTolerance*abs32(med) {
 				reject[idx[n]][i] = true
 			}
 		}
@@ -241,31 +264,39 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 	acc := NewAccumulator(w, h)
 	for j, l := range all {
 		reject[j] = grow(reject[j], w, h, opts.RejectGrow)
-		for i, q := range l.px {
-			if q == 0 || reject[j][i] {
-				continue
-			}
-			v := dequantize(q)
-			if v >= opts.SaturationLevel {
-				continue
-			}
-			x := v/float32(l.exposure) - l.bg
-			wf := float32(l.weight)
-			wOld := acc.Weight[i]
-			wNew := wOld + wf
-			delta := x - acc.Mean[i]
-			r := delta * wf / wNew
-			acc.Mean[i] += r
-			acc.M2[i] += wOld * delta * r
-			acc.Weight[i] = wNew
-			acc.Count[i]++
-		}
+		foldMem(acc, l, reject[j], opts.SaturationLevel)
 		reject[j] = nil
-		acc.BackgroundSum += l.weight * float64(l.bg)
-		acc.WeightSum += l.weight
-		acc.Subs++
 	}
 	return acc
+}
+
+// foldMem adds an in-memory sub's pixels that aren't empty, saturated or
+// rejected, normalized by its sky, as fold does.
+func foldMem(acc *Accumulator, l memSub, reject []bool, sat float32) {
+	norm := l.sky.normalizer(l.exposure)
+	weight := l.weight * l.sky.scale * l.sky.scale
+	wf := float32(weight)
+	for i, q := range l.px {
+		if q == 0 || (reject != nil && reject[i]) {
+			continue
+		}
+		v := dequantize(q)
+		if v >= sat {
+			continue
+		}
+		x := norm.at(i, v)
+		wOld := acc.Weight[i]
+		wNew := wOld + wf
+		delta := x - acc.Mean[i]
+		r := delta * wf / wNew
+		acc.Mean[i] += r
+		acc.M2[i] += wOld * delta * r
+		acc.Weight[i] = wNew
+		acc.Count[i]++
+	}
+	acc.BackgroundSum += weight * l.sky.mean / l.sky.scale
+	acc.WeightSum += weight
+	acc.Subs++
 }
 
 // rebuildStreaming reads the subs once per pass, one at a time, so memory
@@ -304,6 +335,9 @@ func streamStack(subs []storedSub, passes int, stackOpts Options, load func(int,
 			if pass == 0 {
 				opts := stackOpts
 				opts.MinSamples = math.MaxFloat32 // no rejection on the first pass
+				// Nor local normalization: this pass, which averages the
+				// subs' gradients, is what later passes normalize to.
+				opts.LocalNorm = false
 				if _, err := acc.Add(sub, s.exposure, s.weight, opts); err != nil {
 					return nil, err
 				}
