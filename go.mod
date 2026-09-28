@@ -3,7 +3,7 @@ module github.com/USA-RedDragon/astro-stacker
 go 1.25.4
 
 require (
-	github.com/USA-RedDragon/configulator v0.0.1
+	github.com/USA-RedDragon/configulator v0.0.5
 	github.com/gin-contrib/pprof v1.5.3
 	github.com/gin-gonic/gin v1.11.0
 	github.com/glebarez/sqlite v1.11.0
