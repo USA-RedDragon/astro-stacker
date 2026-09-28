@@ -75,7 +75,8 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
 func (ix *Indexer) BackfillPointing(ctx context.Context) (int, error) {
 	var frames []app.Frame
 	if err := ix.db.WithContext(ctx).Select("id", "key", "size").
-		Where("type = ? AND index_error IS NULL AND pointing_read = ?", "LIGHT", false).
+		// Frames indexed before the column existed have it NULL.
+		Where("type = ? AND index_error IS NULL AND (pointing_read IS NULL OR pointing_read = ?)", "LIGHT", false).
 		Find(&frames).Error; err != nil {
 		return 0, err
 	}
