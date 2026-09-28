@@ -1,16 +1,21 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/USA-RedDragon/configulator"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
+	"github.com/USA-RedDragon/pixinsight-worker/internal/indexer"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/server"
 	"github.com/USA-RedDragon/pixinsight-worker/internal/store"
 	"github.com/lmittmann/tint"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
 	"github.com/ztrue/shutdown"
 )
@@ -72,6 +77,22 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 
 	slog.Info("Connected to scheduler database datastore", "type", cfg.Storage.Type)
 
+	indexCtx, stopIndexer := context.WithCancel(context.Background())
+	defer stopIndexer()
+	if cfg.Indexer.Enabled {
+		s3, err := minio.New(cfg.S3.Endpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, ""),
+			Secure: cfg.S3.UseSSL,
+			Region: cfg.S3.Region,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create S3 client: %w", err)
+		}
+		ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
+		go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second)
+		slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds)
+	}
+
 	server := server.NewServer(cfg, appStore, schedulerDBStore, cmd.Annotations["version"])
 	if err := server.Start(); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
@@ -83,6 +104,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		fmt.Println("")
 
 		slog.Info("Received signal", "signal", sig)
+		stopIndexer()
 
 		err := server.Stop()
 		if err != nil {

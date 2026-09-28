@@ -22,7 +22,7 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = store.db.AutoMigrate(app.ImageProcess{}, app.PreStackedImage{})
+	err = store.db.AutoMigrate(app.ImageProcess{}, app.PreStackedImage{}, app.Frame{})
 	if err != nil {
 		return nil, err
 	}
@@ -60,4 +60,9 @@ func (g *Gorm) WithContext(ctx context.Context) *Gorm {
 	return &Gorm{
 		db: g.db.WithContext(ctx),
 	}
+}
+
+// DB exposes the underlying connection for packages that run their own queries.
+func (g *Gorm) DB() *gorm.DB {
+	return g.db
 }
