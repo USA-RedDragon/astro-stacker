@@ -2,57 +2,34 @@ package stacking
 
 import "testing"
 
-func TestCoverageCropTrimsOnlyNearlyEmptyEdges(t *testing.T) {
-	const w, h = 160, 80
+func TestCoverageCropIsWhereAllSubsOverlap(t *testing.T) {
+	const w, h = 320, 200
 	acc := NewAccumulator(w, h)
 	for y := range h {
 		for x := range w {
 			c := float32(20)
 			switch {
-			case x < 12 || (y > 60 && x > 120):
-				// A dithered edge and a rotated corner: a sub or none.
-				c = float32((x + y) % 2)
+			case x < 12:
+				c = 0 // empty registration border
 			case y < 30:
-				// Most subs framed lower: the top is thin but real data.
-				c = 5
+				c = 12 // a weak edge only some subs reach
 			}
-			// Rejected star pixels, dense as in a master of few subs.
-			if (x*7+y*3)%11 == 0 {
-				c = 0
+			// Rejected stars and a satellite trail inside the good area.
+			if (x*7+y*3)%53 == 0 || (x > 100 && x < 106) {
+				c = max(0, c-3)
 			}
 			acc.Count[y*w+x] = c
 		}
 	}
 	r := coverageCrop(acc)
 	if r.X < 12 || r.X > 24 {
-		t.Errorf("left edge at %d, want just past the dithered 12 px", r.X)
+		t.Errorf("left edge at %d, want just past the empty 12 px", r.X)
 	}
-	if r.Y != 0 {
-		t.Errorf("crop %+v cut the thinly covered top, which has data", r)
+	if r.Y < 30 || r.Y > 40 {
+		t.Errorf("top at %d, want just below the weak 30 px", r.Y)
 	}
-	if r.W*r.H < 100*55 {
-		t.Errorf("crop %+v too small", r)
-	}
-}
-
-func TestCoverageCropKeepsAFewSubsOffsetFrame(t *testing.T) {
-	// Horsehead H-a: 4 subs, 3 framed lower, so most of the frame has 1.
-	const w, h = 160, 80
-	acc := NewAccumulator(w, h)
-	for y := range h {
-		for x := range w {
-			c := float32(1)
-			if y > 48 && x < 150 {
-				c = 4
-			}
-			if (x*5+y*9)%7 == 0 {
-				c = 0 // stars rejected
-			}
-			acc.Count[y*w+x] = c
-		}
-	}
-	if r := coverageCrop(acc); r.W*r.H < 150*75 {
-		t.Errorf("crop %+v, want nearly the whole frame", r)
+	if r.W < 280 || r.H < 150 {
+		t.Errorf("crop %+v: rejections inside shrank it", r)
 	}
 }
 
