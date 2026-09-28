@@ -81,7 +81,10 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	}
 
 	im := &imagedata.Image{W: acc.W, H: acc.H, C: 1, Data: master}
-	jpg, err := preview.Render(im, preview.DefaultOptions)
+	r := coverageCrop(acc)
+	stack.CropX, stack.CropY, stack.CropW, stack.CropH = r.X, r.Y, r.W, r.H
+	cropped := &imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}
+	jpg, err := preview.Render(cropped, preview.DefaultOptions)
 	if err != nil {
 		return err
 	}

@@ -60,6 +60,37 @@ const minShare = 0.25
 type layer struct {
 	Key       string
 	Effective float64 // seconds, score-weighted
+	// Crop is the well-covered part as fractions of the frame; zero W
+	// means the whole frame.
+	CropX, CropY, CropW, CropH float64
+}
+
+// fracCrop turns a crop in pixels of a width×height image into fractions.
+func fracCrop(l layer, x, y, w, h, width, height int) layer {
+	if w > 0 && h > 0 && width > 0 && height > 0 {
+		l.CropX, l.CropY = float64(x)/float64(width), float64(y)/float64(height)
+		l.CropW, l.CropH = float64(w)/float64(width), float64(h)/float64(height)
+	}
+	return l
+}
+
+// commonCrop is where every filter's crop overlaps, in pixels of a w×h
+// linear preview.
+func commonCrop(layers []layer, w, h int) Rect {
+	x0, y0, x1, y1 := 0.0, 0.0, 1.0, 1.0
+	for _, l := range layers {
+		if l.CropW <= 0 {
+			continue
+		}
+		x0, y0 = max(x0, l.CropX), max(y0, l.CropY)
+		x1, y1 = min(x1, l.CropX+l.CropW), min(y1, l.CropY+l.CropH)
+	}
+	r := Rect{X: int(math.Ceil(x0 * float64(w))), Y: int(math.Ceil(y0 * float64(h)))}
+	r.W, r.H = int(x1*float64(w))-r.X, int(y1*float64(h))-r.Y
+	if r.W <= 0 || r.H <= 0 {
+		return Rect{0, 0, w, h}
+	}
+	return r
 }
 
 // haBlend is how much of H-a's excess over red goes into red, in units of
@@ -126,6 +157,16 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 			slog.Info("Filters differ in size; no colour cover", "subject", subject, "filter", f)
 			return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
 		}
+	}
+	var layers []layer
+	for _, f := range pal.filters() {
+		layers = append(layers, linear[f])
+	}
+	if r := commonCrop(layers, w, h); r.W != w || r.H != h {
+		for f, img := range planes {
+			planes[f] = &linearImage{W: r.W, H: r.H, Data: crop(img.Data, img.W, r)}
+		}
+		w, h = r.W, r.H
 	}
 	jpg, err := composeCover(pal, planes, w, h)
 	if err != nil {
@@ -287,7 +328,8 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 	}
 	linear := map[string]layer{}
 	for _, s := range stacks {
-		linear[s.Filter] = layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds}
+		linear[s.Filter] = fracCrop(layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds},
+			s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height)
 	}
 	if err := p.renderCover(ctx, object, path.Join("stacks", object), linear); err != nil {
 		slog.Warn("Could not render the cover", "object", object, "error", err)
@@ -303,7 +345,8 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 	}
 	linear := map[string]layer{}
 	for _, m := range mosaics {
-		linear[m.Filter] = layer{Key: *m.LinearKey, Effective: m.EffectiveSeconds}
+		linear[m.Filter] = fracCrop(layer{Key: *m.LinearKey, Effective: m.EffectiveSeconds},
+			m.CropX, m.CropY, m.CropW, m.CropH, m.Width, m.Height)
 	}
 	if err := p.renderCover(ctx, app.MosaicSubject(project), path.Join("mosaics", project), linear); err != nil {
 		slog.Warn("Could not render the mosaic cover", "project", project, "error", err)

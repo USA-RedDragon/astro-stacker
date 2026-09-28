@@ -49,8 +49,10 @@ type Mosaic struct {
 	PanelsTotal int
 	// EffectiveSeconds sums the panel masters' score-weighted exposure.
 	EffectiveSeconds float64
-	Width            int
-	Height           int
+	// Crop is the part of the canvas every panel's data fills, in pixels.
+	CropX, CropY, CropW, CropH int
+	Width                      int
+	Height                     int
 	// Signature identifies the panel masters it was built from, so it is
 	// rebuilt only when one of them changes.
 	Signature  string
@@ -80,6 +82,9 @@ type Stack struct {
 	ScaleExposure float64
 	// RebuiltAtSubs is the sub count at the last full rebuild.
 	RebuiltAtSubs int
+	// Crop is the part of the frame covered by most subs, in pixels; the
+	// ragged, thinly covered edges outside it are left out of previews.
+	CropX, CropY, CropW, CropH int
 
 	StateKey   *string // accumulator planes
 	MasterKey  *string // linear master FITS for download
