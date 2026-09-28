@@ -122,7 +122,7 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 	defer os.RemoveAll(dir)
 
 	if len(subs) < WarmUpSubs {
-		return p.rebuildMedian(ctx, dir, subs)
+		return p.rebuildMedian(ctx, dir, stack, subs)
 	}
 	passes := 2
 	if len(subs) < 40 {
@@ -130,7 +130,7 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 		// clip once more against cleaner statistics.
 		passes = 3
 	}
-	return p.rebuildStreaming(ctx, dir, subs, passes)
+	return p.rebuildStreaming(ctx, dir, stack, subs, passes)
 }
 
 // memOffset lets memSub store slightly negative calibrated values: samples
@@ -160,11 +160,12 @@ type memSub struct {
 
 // rebuildMedian holds every sub in memory as 16-bit samples and anchors
 // rejection on the per-pixel median, which a single outlier can't move.
-func (p *Pipeline) rebuildMedian(ctx context.Context, dir string, subs []storedSub) (*Accumulator, error) {
+func (p *Pipeline) rebuildMedian(ctx context.Context, dir string, stack *app.Stack, subs []storedSub) (*Accumulator, error) {
 	var all []memSub
 	var w, h int
 	sat := p.opts.Stack.SaturationLevel
 	for i, s := range subs {
+		p.progress(stack.Object, stack.Filter, StageRebuilding, i, len(subs))
 		local := filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
 		if err := p.download(ctx, p.dest, s.key, local); err != nil {
 			return nil, err
@@ -269,8 +270,11 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 
 // rebuildStreaming reads the subs once per pass, one at a time, so memory
 // stays at a few frames no matter how many subs there are.
-func (p *Pipeline) rebuildStreaming(ctx context.Context, dir string, subs []storedSub, passes int) (*Accumulator, error) {
+func (p *Pipeline) rebuildStreaming(ctx context.Context, dir string, stack *app.Stack, subs []storedSub, passes int) (*Accumulator, error) {
+	loaded := 0
 	return streamStack(subs, passes, p.opts.Stack, func(i int, s storedSub) ([]float32, int, int, error) {
+		p.progress(stack.Object, stack.Filter, StageRebuilding, loaded, passes*len(subs))
+		loaded++
 		local := filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
 		if err := p.download(ctx, p.dest, s.key, local); err != nil {
 			return nil, 0, 0, err

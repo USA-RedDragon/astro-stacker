@@ -55,6 +55,19 @@ func TestStreamReplaysAfterLastEventID(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	b.Publish(Event{Type: TypeMaster, Object: "M33", Filter: "H-a"})
 	want(`"object":"M33"`)
+	b.SetStatus(Status{Workers: []Worker{{Object: "M42", Stage: "registering", Done: 3, Total: 12}}})
+	want(`"type":"status"`)
+}
+
+func TestNewListenerGetsLatestStatusFirst(t *testing.T) {
+	b := NewBroker()
+	b.SetStatus(Status{Backlog: Backlog{LightsPending: 1}})
+	b.SetStatus(Status{Backlog: Backlog{LightsPending: 2}})
+	backlog, _, cancel := b.Subscribe(0)
+	defer cancel()
+	if len(backlog) != 1 || !strings.Contains(string(backlog[0]), `"lights_pending":2`) {
+		t.Fatalf("backlog %q", backlog)
+	}
 }
 
 func TestNilBrokerDropsEvents(t *testing.T) {

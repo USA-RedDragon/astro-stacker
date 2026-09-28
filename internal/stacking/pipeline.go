@@ -78,8 +78,12 @@ type Pipeline struct {
 	// building serializes work on one calibration master's files.
 	building sync.Map // set key -> *sync.Mutex
 
-	// Events, if set, hears about updated masters.
+	// Events, if set, hears about updated masters and what workers do.
 	Events *events.Broker
+
+	statusMu sync.Mutex
+	working  map[string]*events.Worker // by object
+	dirty    bool
 }
 
 func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runner siril.Runner, workDir string, opts PipelineOptions) *Pipeline {
@@ -94,13 +98,14 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 		opts.FailureBackoff = DefaultPipelineOptions.FailureBackoff
 	}
 	return &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
-		busy: map[string]bool{}}
+		busy: map[string]bool{}, working: map[string]*events.Worker{}}
 }
 
 // Run stacks new lights with opts.Workers workers until ctx is cancelled,
 // each sleeping interval when idle.
 func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	var wg sync.WaitGroup
+	wg.Go(func() { p.reportStatus(ctx) })
 	for range p.opts.Workers {
 		wg.Go(func() { p.work(ctx, interval) })
 	}
@@ -134,12 +139,7 @@ type candidate struct {
 // RunOnce processes one batch of new lights for one master and returns how
 // many lights it looked at. object and filter narrow it to one master.
 func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, error) {
-	q := p.db.WithContext(ctx).Model(&app.Frame{}).
-		Joins("LEFT JOIN stack_frames sf ON sf.frame_id = frames.id").
-		Where("frames.type = ? AND frames.index_error IS NULL AND frames.object <> '' AND frames.filter <> ''", "LIGHT").
-		// Rows from before next_attempt_at existed wait RetryAfter.
-		Where("sf.id IS NULL OR (sf.status IN ? AND (sf.next_attempt_at < ? OR (sf.next_attempt_at IS NULL AND sf.processed_at < ?)))",
-			[]string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration}, time.Now(), time.Now().Add(-p.opts.RetryAfter))
+	q := p.pendingLights(p.db.WithContext(ctx), time.Now())
 	if object != "" {
 		q = q.Where("frames.object = ?", object)
 	}
@@ -153,6 +153,8 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 		return 0, err
 	}
 	defer p.release(first.Object)
+	p.progress(first.Object, first.Filter, StageStarting, 0, 0)
+	defer p.finished(first.Object)
 	var frames []app.Frame
 	if err := q.Where("frames.object = ? AND frames.filter = ?", first.Object, first.Filter).
 		Order("frames.date_obs").Limit(4 * p.opts.BatchSize).Find(&frames).Error; err != nil {
