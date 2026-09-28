@@ -53,10 +53,12 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 		return fmt.Errorf("reference for %s: %w", object, err)
 	}
 
+	p.progress(object, filter, StageCalibrating, 0, len(batch))
 	cals, err := p.calibrate(ctx, dir, batch, sets)
 	if err != nil {
 		return err
 	}
+	p.progress(object, filter, StageRegistering, 0, len(cals))
 	registered, err := p.register(ctx, dir, ref, cals)
 	if err != nil {
 		return err
@@ -95,7 +97,8 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 		}
 	}
 
-	for _, a := range added {
+	for i, a := range added {
+		p.progress(object, filter, StageAdding, i, len(added))
 		exp := *a.c.c.frame.Exposure
 		sf := app.StackFrame{
 			FrameID: a.c.c.frame.ID, StackID: &stack.ID, Status: app.StackStatusAdded,
@@ -127,6 +130,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 		}
 		stack.RebuiltAtSubs = acc.Subs
 	}
+	p.progress(object, filter, StagePublishing, 0, 0)
 	if err := p.publish(ctx, stack, acc); err != nil {
 		return err
 	}
@@ -158,6 +162,7 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 	sb.WriteString(p.sirilPreamble(true))
 	out := make([]calibrated, 0, len(batch))
 	for i, c := range batch {
+		p.progress(c.frame.Object, c.frame.Filter, StageCalibrating, i, len(batch))
 		raw := fmt.Sprintf("raw%04d%s", i, strings.ToLower(path.Ext(c.frame.Key)))
 		if err := p.download(ctx, p.source, c.frame.Key, filepath.Join(dir, raw)); err != nil {
 			return nil, err
