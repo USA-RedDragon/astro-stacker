@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
@@ -83,6 +84,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	indexCtx, stopIndexer := context.WithCancel(context.Background())
 	defer stopIndexer()
 	var signer *previewer.Signer
+	broker := events.NewBroker()
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)
@@ -97,6 +99,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if cfg.Previews.Enabled {
 			pv := previewer.New(s3, cfg.S3.Bucket, cfg.S3.ProcessedBucket, appStore.DB(), cfg.Previews.Concurrency,
 				preview.Options{MaxWidth: cfg.Previews.MaxWidth, Quality: cfg.Previews.Quality})
+			pv.Events = broker
 			go pv.Run(indexCtx, time.Duration(cfg.Previews.IntervalSeconds)*time.Second)
 			slog.Info("Preview renderer started", "bucket", cfg.S3.ProcessedBucket, "concurrency", cfg.Previews.Concurrency)
 		}
@@ -109,12 +112,13 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		signer = previewer.NewSigner(public, cfg.S3.ProcessedBucket, time.Duration(cfg.Previews.URLTTLSeconds)*time.Second)
 		if cfg.Stacking.Enabled {
 			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
+			p.Events = broker
 			go p.Run(indexCtx, time.Duration(cfg.Stacking.IntervalSeconds)*time.Second)
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir)
 		}
 	}
 
-	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, cmd.Annotations["version"])
+	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, cmd.Annotations["version"])
 	if err := server.Start(); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}

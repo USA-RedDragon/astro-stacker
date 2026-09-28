@@ -8,16 +8,19 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
 )
 
-func applyRoutes(r *gin.Engine, signer *previewer.Signer) {
+func applyRoutes(r *gin.Engine, signer *previewer.Signer, broker *events.Broker) {
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"state": "OK"})
 	})
+	// Server-sent events for rendered previews and updated masters.
+	r.GET("/api/v1/events", gin.WrapH(broker))
 
 	v1(r.Group("/api/v1"), signer)
 }

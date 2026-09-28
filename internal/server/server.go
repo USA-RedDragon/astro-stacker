@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
@@ -29,7 +30,7 @@ type Server struct {
 
 const defTimeout = 5 * time.Second
 
-func NewServer(config *config.Config, appStore store.Store, schedulerDBStore store.Store, signer *previewer.Signer, version string) *Server {
+func NewServer(config *config.Config, appStore store.Store, schedulerDBStore store.Store, signer *previewer.Signer, broker *events.Broker, version string) *Server {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -40,7 +41,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	}
 
 	applyMiddleware(r, config, appStore, schedulerDBStore, version)
-	applyRoutes(r, signer)
+	applyRoutes(r, signer, broker)
 
 	var metricsServer *http.Server
 	var pprofServer *http.Server

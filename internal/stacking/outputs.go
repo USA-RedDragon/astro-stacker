@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -109,7 +110,11 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	stack.MasterKey, stack.StateKey = keys["master.fit"], keys["state.fit"]
 	stack.PreviewKey, stack.LinearKey = keys["preview.jpg"], keys["linear.bin"]
 	stack.UpdatedAt = time.Now()
-	return p.db.WithContext(ctx).Save(stack).Error
+	if err := p.db.WithContext(ctx).Save(stack).Error; err != nil {
+		return err
+	}
+	p.Events.Publish(events.Event{Type: events.TypeMaster, Object: stack.Object, Filter: stack.Filter})
+	return nil
 }
 
 func writeFITSFile(name string, w, h, c int, data []float32, cards []imagedata.Card) error {
