@@ -1,23 +1,10 @@
-FROM ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54 AS siril
-# Siril only ships an x86_64 AppImage. The checksum is of the file from the
-# official download URL; Siril doesn't publish one, so update both together.
-ARG SIRIL_VERSION=1.4.4
-ARG SIRIL_SHA256=47f3f299f6771888516bebed076580a57f7abe76484981f387a325115547ed78
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /tmp
-RUN curl -fsSL -o siril.AppImage "https://free-astro.org/download/Siril-${SIRIL_VERSION}-x86_64.AppImage" \
-    && echo "${SIRIL_SHA256}  siril.AppImage" | sha256sum -c - \
-    && chmod +x siril.AppImage \
-    && ./siril.AppImage --appimage-extract >/dev/null \
-    && mv squashfs-root /opt/siril
-
-FROM ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=siril /opt/siril /opt/siril
+# Siril does the calibration and registration. Fedora packages the current
+# 1.4 release; Debian and Ubuntu stable only have 1.2, which can't read the
+# XISF files NINA writes. Siril is x86_64 only, so the image is amd64 only.
+FROM docker.io/library/fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+RUN dnf install -y --setopt=install_weak_deps=False siril ca-certificates \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
 # Siril writes its settings under HOME; the root filesystem is read-only in
 # the cluster, so keep them in /tmp alongside the stacking work directory.
 ENV HOME=/tmp XDG_CONFIG_HOME=/tmp/.config XDG_CACHE_HOME=/tmp/.cache

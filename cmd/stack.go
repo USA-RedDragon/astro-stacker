@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
@@ -84,6 +85,10 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	opts.BatchSize = cfg.Stacking.BatchSize
 	opts.SirilThreads = cfg.Stacking.SirilThreads
 	opts.SirilMemoryRatio = cfg.Stacking.SirilMemory
-	runner := siril.Runner{Command: cfg.Stacking.SirilCommand, Args: []string{"siril-cli"}}
+	runner := siril.Runner{Command: cfg.Stacking.SirilCommand}
+	if filepath.Base(runner.Command) == "AppRun" {
+		// An extracted AppImage picks the binary from its first argument.
+		runner.Args = []string{"siril-cli"}
+	}
 	return stacking.NewPipeline(s3, cfg.S3.Bucket, cfg.S3.ProcessedBucket, appStore.DB(), schedStore.DB(), runner, cfg.Stacking.WorkDir, opts)
 }
