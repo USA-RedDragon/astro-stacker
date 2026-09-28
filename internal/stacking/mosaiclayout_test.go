@@ -111,3 +111,50 @@ func TestLayoutIsTurnedLikeThePanels(t *testing.T) {
 		t.Errorf("canvas %dx%d, want about %dx%d", l.W, l.H, 2*w, h)
 	}
 }
+
+func TestLayoutOfAllPanelsHasNoEmptyEdges(t *testing.T) {
+	const w, h, scale = 120, 80, 0.01
+	p1 := synthPanel(83.0, 20.0, w, h, scale)
+	// Panel 2 above panel 1, overlapping, and shifted sideways a little so
+	// the layout's corners are uncovered.
+	p2 := synthPanel(83.08, 20.7, w, h, scale)
+	panels := []layoutPanel{p1, p2}
+	l, _ := newLayout(panels, p1.WCS, 1000)
+	canvas := l.render(panels)
+	r := l.panelCrop(canvas, panels)
+	for _, v := range crop(canvas, l.W, r) {
+		if v == 0 {
+			t.Fatalf("crop %+v of %dx%d still has uncovered pixels", r, l.W, l.H)
+		}
+	}
+	if r.W < w-12 || r.H < 2*h-30 {
+		t.Errorf("crop %+v cut too much of the %dx%d layout", r, l.W, l.H)
+	}
+}
+
+func TestPanelCropKeepsTheGapButNotTheWedges(t *testing.T) {
+	const w, h, scale = 120, 80, 0.01
+	p1 := synthPanel(83.0, 20.0, w, h, scale)
+	p2 := synthPanel(83.08, 20.7, w, h, scale) // shifted: wedges at the corners
+	p2.Data = nil                              // not done yet
+	panels := []layoutPanel{p1, p2}
+	l, _ := newLayout(panels, p1.WCS, 1000)
+	canvas := l.render(panels)
+	// A cluster of empty pixels inside panel 1, as rejected hot pixels
+	// leave, mustn't cut the crop.
+	c, rr, _ := l.toCanvas(83.0, 19.8)
+	for y := int(rr) - 3; y <= int(rr)+3; y++ {
+		for x := int(c) - 3; x <= int(c)+3; x++ {
+			canvas[y*l.W+x] = 0
+		}
+	}
+	r := l.panelCrop(canvas, panels)
+	// The gap is kept: the crop reaches well into panel 2's frame.
+	if r.H < 2*h-30 {
+		t.Errorf("crop %+v of %dx%d dropped the missing panel's gap", r, l.W, l.H)
+	}
+	// The wedges aren't: the crop is narrower than the shifted layout.
+	if r.W >= l.W-2 {
+		t.Errorf("crop %+v kept the uncovered wedges of the %dx%d layout", r, l.W, l.H)
+	}
+}

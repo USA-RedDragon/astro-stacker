@@ -349,3 +349,63 @@ func (l layout) stretchedWithOutlines(canvas []float32, panels []layoutPanel) []
 	l.outlines(s, panels, 0.35)
 	return s
 }
+
+// panelCrop is the largest rectangle of the canvas that panels fill:
+// solved panels where they have data, and missing panels' whole frames.
+func (l layout) panelCrop(canvas []float32, panels []layoutPanel) Rect {
+	var gaps [][4][2]float64 // missing panels' corners in canvas pixels
+	for _, p := range panels {
+		if p.Data != nil {
+			continue
+		}
+		var q [4][2]float64
+		ok := true
+		for i, c := range p.WCS.corners() {
+			col, row, in := l.toCanvas(c[0], c[1])
+			q[i], ok = [2]float64{col, row}, ok && in
+		}
+		if ok {
+			gaps = append(gaps, q)
+		}
+	}
+	filled := make([]float32, len(canvas))
+	for i, v := range canvas {
+		if v != 0 {
+			filled[i] = 1
+			continue
+		}
+		col, row := float64(i%l.W), float64(i/l.W)
+		for _, q := range gaps {
+			if inQuad(q, col, row) {
+				filled[i] = 1
+				break
+			}
+		}
+	}
+	// Close small holes, clusters of rejected pixels in a master, so they
+	// don't read as uncovered, keeping the frames' straight edges.
+	filled = localExtreme(localExtreme(filled, l.W, l.H, layoutFill, true), l.W, l.H, layoutFill, false)
+	return dataCrop(l.W, l.H, filled)
+}
+
+// layoutFill is rejectionFill at the layout's scale: masters are binned
+// down onto the canvas, so their rejected clusters are a few pixels.
+const layoutFill = 11
+
+// inQuad says whether (x, y) is inside the convex quadrilateral q.
+func inQuad(q [4][2]float64, x, y float64) bool {
+	var sign float64
+	for i := range 4 {
+		a, b := q[i], q[(i+1)%4]
+		c := (b[0]-a[0])*(y-a[1]) - (b[1]-a[1])*(x-a[0])
+		if c == 0 {
+			continue
+		}
+		if sign == 0 {
+			sign = c
+		} else if (c > 0) != (sign > 0) {
+			return false
+		}
+	}
+	return true
+}
