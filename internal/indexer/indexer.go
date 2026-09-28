@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/frameheader"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"

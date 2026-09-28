@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 )
 
 func xisf(xml string) []byte {

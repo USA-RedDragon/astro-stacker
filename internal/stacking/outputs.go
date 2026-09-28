@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/imagedata"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/preview"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/preview"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -68,7 +68,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 		imagedata.FloatCard("EFFEXP", stack.EffectiveSeconds, "[s] exposure weighted by sub score"),
 		imagedata.FloatCard("MINSCORE", p.opts.MinScore, "lowest sub score stacked"),
 		imagedata.StringCard("DATE", time.Now().UTC().Format("2006-01-02T15:04:05"), "file written"),
-		imagedata.StringCard("SWCREATE", "pixinsight-worker (Siril 1.4 calibration)", ""),
+		imagedata.StringCard("SWCREATE", "astro-stacker (Siril 1.4 calibration)", ""),
 	}
 	masterFile := filepath.Join(dir, "master.fit")
 	if err := writeFITSFile(masterFile, acc.W, acc.H, 1, master, cards); err != nil {

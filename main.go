@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/USA-RedDragon/astro-stacker/cmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/configulator"
-	"github.com/USA-RedDragon/pixinsight-worker/cmd"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
 )
 
 // https://goreleaser.com/cookbooks/using-main.version/

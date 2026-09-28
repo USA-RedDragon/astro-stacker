@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"path"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/coverage"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/previewer"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/server/middleware"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
+	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
+	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
 )
 

@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/types"
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/types"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"

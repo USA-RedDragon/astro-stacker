@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/quality"
+	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 )
 
 func TestParseMetadataHandlesNaNStrings(t *testing.T) {

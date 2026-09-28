@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/calmatch"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/coverage"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/quality"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/siril"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
+	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
+	"github.com/USA-RedDragon/astro-stacker/internal/quality"
+	"github.com/USA-RedDragon/astro-stacker/internal/siril"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )

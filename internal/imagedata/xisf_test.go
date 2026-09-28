@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/USA-RedDragon/pixinsight-worker/internal/imagedata"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/preview"
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
 )

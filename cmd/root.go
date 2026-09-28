@@ -8,13 +8,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
+	"github.com/USA-RedDragon/astro-stacker/internal/preview"
+	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
+	"github.com/USA-RedDragon/astro-stacker/internal/server"
+	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/configulator"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/config"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/indexer"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/preview"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/previewer"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/server"
-	"github.com/USA-RedDragon/pixinsight-worker/internal/store"
 	"github.com/lmittmann/tint"
 	"github.com/minio/minio-go/v7"
 	miniocreds "github.com/minio/minio-go/v7/pkg/credentials"
@@ -24,7 +24,7 @@ import (
 
 func NewCommand(version, commit string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "pixinsight-worker",
+		Use:     "astro-stacker",
 		Version: fmt.Sprintf("%s - %s", version, commit),
 		Annotations: map[string]string{
 			"version": version,
@@ -64,7 +64,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 	slog.SetDefault(logger)
 
-	slog.Info("pixinsight-worker", "version", cmd.Annotations["version"], "commit", cmd.Annotations["commit"])
+	slog.Info("astro-stacker", "version", cmd.Annotations["version"], "commit", cmd.Annotations["commit"])
 
 	appStore, err := store.NewAppStore(cfg)
 	if err != nil {
