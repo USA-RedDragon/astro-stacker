@@ -22,9 +22,14 @@ type Options struct {
 	// cluster. A satellite trail's faint edges are below the threshold pixel
 	// by pixel but sit right beside its rejected core.
 	RejectGrow int
+	// LocalNorm matches each sub's sky, gradients and transparency to the
+	// reference before folding it in, instead of subtracting one
+	// background level, when the master's coverage is uneven (see fitSky
+	// and needsLocalNorm).
+	LocalNorm bool
 }
 
-var DefaultOptions = Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2}
+var DefaultOptions = Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2, LocalNorm: true}
 
 // Accumulator holds the running state for one master: per pixel, the total
 // weight, the weighted mean and sum of squared deviations (West's weighted
@@ -64,8 +69,8 @@ func (a *Accumulator) Add(sub []float32, exposure, weight float64, opts Options)
 	if !(exposure > 0) || !(weight > 0) {
 		return AddResult{}, fmt.Errorf("exposure %v and weight %v must be positive", exposure, weight)
 	}
-	bg := background(sub, opts.SaturationLevel)
-	inv := float32(1 / exposure)
+	sky := skyFor(sub, a.W, a.H, exposure, a, opts)
+	norm := sky.normalizer(exposure)
 	k2 := opts.RejectSigma * opts.RejectSigma
 	// Pixels are independent, so judging all of them before folding any in
 	// gives the same result as judging each just before it's folded.
@@ -76,19 +81,31 @@ func (a *Accumulator) Add(sub []float32, exposure, weight float64, opts Options)
 		}
 		wOld := a.Weight[i]
 		if a.Count[i] >= opts.MinSamples && wOld > 0 {
-			delta := (v-float32(bg))*inv - a.Mean[i]
+			delta := norm.at(i, v) - a.Mean[i]
 			reject[i] = delta*delta > k2*(a.M2[i]/wOld)
 		}
 	}
-	return a.fold(sub, exposure, weight, bg, reject, opts), nil
+	return a.fold(sub, exposure, weight, sky, reject, opts), nil
+}
+
+// skyFor is a sub's sky: fitted against ref with LocalNorm, otherwise its
+// background level.
+func skyFor(sub []float32, w, h int, exposure float64, ref *Accumulator, opts Options) skyModel {
+	flat := background(sub, opts.SaturationLevel) / exposure
+	if !opts.LocalNorm || !needsLocalNorm(ref) {
+		return flatSky(w, h, flat)
+	}
+	return fitSky(func(i int) float32 { return sub[i] }, w, h, exposure, ref, opts.SaturationLevel, flat)
 }
 
 // fold adds a sub's pixels that aren't empty, saturated or rejected (after
-// growing the rejection by opts.RejectGrow).
-func (a *Accumulator) fold(sub []float32, exposure, weight, bg float64, reject []bool, opts Options) AddResult {
-	res := AddResult{Background: bg / exposure}
+// growing the rejection by opts.RejectGrow), normalized by its sky. A sub
+// scaled up for haze is scaled noise too, so its weight drops by the square.
+func (a *Accumulator) fold(sub []float32, exposure, weight float64, sky skyModel, reject []bool, opts Options) AddResult {
+	weight *= sky.scale * sky.scale
+	res := AddResult{Background: sky.mean / sky.scale}
 	reject = grow(reject, a.W, a.H, opts.RejectGrow)
-	inv := float32(1 / exposure)
+	norm := sky.normalizer(exposure)
 	w := float32(weight)
 	for i, v := range sub {
 		switch {
@@ -105,7 +122,7 @@ func (a *Accumulator) fold(sub []float32, exposure, weight, bg float64, reject [
 		}
 		// Per second, with this sub's sky removed so moonlit and dark subs
 		// agree on the background and aren't rejected against each other.
-		x := (v - float32(bg)) * inv
+		x := norm.at(i, v)
 		wOld := a.Weight[i]
 		wNew := wOld + w
 		delta := x - a.Mean[i]
