@@ -38,6 +38,8 @@ type Match struct {
 	SetTemp *float64 `json:"set_temp,omitempty"`
 	// RotationMismatch marks a flat taken at another rotator angle.
 	RotationMismatch bool `json:"rotation_mismatch,omitempty"`
+	// Scaled marks a dark whose thermal signal must be scaled to the lights.
+	Scaled bool `json:"scaled,omitempty"`
 }
 
 type groupRow struct {
@@ -70,6 +72,20 @@ func ptr(v float64) *float64 {
 
 // Report computes coverage for all lights, or for one object when object is set.
 func Report(ctx context.Context, db *gorm.DB, object string) ([]Row, error) {
+	rows, _, err := report(ctx, db, object)
+	return rows, err
+}
+
+// Gaps computes the dark library capture list across all lights.
+func Gaps(ctx context.Context, db *gorm.DB) ([]DarkGap, error) {
+	rows, sets, err := report(ctx, db, "")
+	if err != nil {
+		return nil, err
+	}
+	return DarkGaps(rows, sets), nil
+}
+
+func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.Set, error) {
 	// Round rotation to whole degrees so frames from one session group
 	// together; matching uses a 1 degree tolerance anyway.
 	const cols = `type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, ROUND(rotator) as rotator, COUNT(*) as n`
@@ -79,7 +95,7 @@ func Report(ctx context.Context, db *gorm.DB, object string) ([]Row, error) {
 	if err := db.WithContext(ctx).Table("frames").Select(cols).
 		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL", []string{"FLAT", "DARK", "BIAS"}).
 		Group(group).Scan(&cal).Error; err != nil {
-		return nil, fmt.Errorf("load calibration sets: %w", err)
+		return nil, nil, fmt.Errorf("load calibration sets: %w", err)
 	}
 	sets := make([]calmatch.Set, 0, len(cal))
 	for _, c := range cal {
@@ -97,7 +113,7 @@ func Report(ctx context.Context, db *gorm.DB, object string) ([]Row, error) {
 	}
 	var lights []groupRow
 	if err := q.Group(group).Scan(&lights).Error; err != nil {
-		return nil, fmt.Errorf("load lights: %w", err)
+		return nil, nil, fmt.Errorf("load lights: %w", err)
 	}
 
 	rows := make([]Row, 0, len(lights))
@@ -122,11 +138,11 @@ func Report(ctx context.Context, db *gorm.DB, object string) ([]Row, error) {
 		}
 		return rows[i].Filter < rows[j].Filter
 	})
-	return rows, nil
+	return rows, sets, nil
 }
 
 func toMatch(m calmatch.Match, dark bool) Match {
-	out := Match{Quality: string(m.Quality), AgeDays: m.AgeDays, RotationMismatch: m.RotationMismatch}
+	out := Match{Quality: string(m.Quality), AgeDays: m.AgeDays, RotationMismatch: m.RotationMismatch, Scaled: m.Scaled}
 	if m.Set != nil {
 		out.Night = m.Set.Night.Format("2006-01-02")
 		out.Frames = m.Set.Count
@@ -136,4 +152,84 @@ func toMatch(m calmatch.Match, dark bool) Match {
 		}
 	}
 	return out
+}
+
+// DarkLadder is the set of setpoints the dark library is kept at. Lights
+// between rungs use the nearest rung's darks, scaled.
+var DarkLadder = []float64{-25, -15, -5, 5}
+
+// DarkGap is a dark set the library should have but doesn't.
+type DarkGap struct {
+	Gain    *float64 `json:"gain"`
+	Offset  *float64 `json:"offset"`
+	SetTemp float64  `json:"set_temp"`
+	Lights  int      `json:"lights"`
+	Nights  int      `json:"nights"`
+	Latest  string   `json:"latest_night"`
+}
+
+// DarkGaps lists the ladder rungs, per gain and offset, that lights need but
+// no dark set within SetTempExactC covers. It is the capture list for the
+// dark library.
+func DarkGaps(rows []Row, have []calmatch.Set) []DarkGap {
+	type key struct {
+		gain, offset, rung float64
+	}
+	covered := func(k key) bool {
+		for _, s := range have {
+			if s.Type == "DARK" && same(s.Gain, k.gain) && same(s.Offset, k.offset) &&
+				math.Abs(s.SetTemp-k.rung) <= calmatch.SetTempExactC {
+				return true
+			}
+		}
+		return false
+	}
+	agg := map[key]*DarkGap{}
+	nights := map[key]map[string]bool{}
+	for _, r := range rows {
+		// Without a recorded setpoint, gain or offset there is no dark set to
+		// ask for. NaN keys would also never match themselves in the map.
+		if r.SetTemp == nil || r.Gain == nil || r.Offset == nil {
+			continue
+		}
+		k := key{val(r.Gain), val(r.Offset), nearestRung(*r.SetTemp)}
+		if covered(k) {
+			continue
+		}
+		g, ok := agg[k]
+		if !ok {
+			g = &DarkGap{Gain: r.Gain, Offset: r.Offset, SetTemp: k.rung}
+			agg[k] = g
+			nights[k] = map[string]bool{}
+		}
+		g.Lights += r.Lights
+		nights[k][r.Night] = true
+		if r.Night > g.Latest {
+			g.Latest = r.Night
+		}
+	}
+	out := make([]DarkGap, 0, len(agg))
+	for k, g := range agg {
+		g.Nights = len(nights[k])
+		out = append(out, *g)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Lights > out[j].Lights })
+	return out
+}
+
+func nearestRung(t float64) float64 {
+	best := DarkLadder[0]
+	for _, r := range DarkLadder[1:] {
+		if math.Abs(r-t) < math.Abs(best-t) {
+			best = r
+		}
+	}
+	return best
+}
+
+func same(a, b float64) bool {
+	if math.IsNaN(a) || math.IsNaN(b) {
+		return math.IsNaN(a) && math.IsNaN(b)
+	}
+	return a == b
 }

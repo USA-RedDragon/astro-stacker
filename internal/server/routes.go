@@ -32,4 +32,15 @@ func v1(r *gin.RouterGroup) {
 		}
 		c.JSON(http.StatusOK, rows)
 	})
+
+	// Dark library capture list: ladder setpoints lights need but no darks cover.
+	r.GET("/coverage/dark-gaps", func(c *gin.Context) {
+		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+		gaps, err := coverage.Gaps(c.Request.Context(), di.AppStore.DB())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gaps)
+	})
 }

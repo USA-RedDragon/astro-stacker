@@ -79,7 +79,7 @@ func TestFlatRotationWrapsAndUnknownRotatorIsCompatible(t *testing.T) {
 	}
 }
 
-func TestDarkPrefersClosestSetpointThenNewest(t *testing.T) {
+func TestDarkPrefersClosestSetpointThenSameExposureThenLongest(t *testing.T) {
 	t.Parallel()
 	sets := []calmatch.Set{
 		{Type: "DARK", Night: night("2025-02-06"), Exposure: 600, Gain: 0, Offset: 50, BinX: 1, SetTemp: 0},
@@ -89,19 +89,37 @@ func TestDarkPrefersClosestSetpointThenNewest(t *testing.T) {
 		{Type: "DARK", Night: night("2025-11-15"), Exposure: 600, Gain: 100, Offset: 50, BinX: 1, SetTemp: -10},
 	}
 	m := calmatch.Choose(lights, sets).Dark
-	if m.Quality != calmatch.Exact || !m.Set.Night.Equal(night("2025-12-01")) || m.TempOff != 0 {
+	if m.Quality != calmatch.Exact || m.Scaled || !m.Set.Night.Equal(night("2025-12-01")) {
+		t.Fatalf("same setpoint and exposure, newest: got %+v", m)
+	}
+
+	// 10 °C away is still usable with scaling.
+	m = calmatch.Choose(lights, sets[:1]).Dark
+	if m.Quality != calmatch.Fallback || !m.Scaled || m.TempOff != 10 {
+		t.Fatalf("10 °C off should be scaled fallback, got %+v", m)
+	}
+
+	// A 300 s light with only 600 s and 120 s darks at its setpoint takes the
+	// longer one and scales it.
+	g := lights
+	g.Exposure = 300
+	short := calmatch.Set{Type: "DARK", Night: night("2025-12-01"), Exposure: 120, Gain: 0, Offset: 50, BinX: 1, SetTemp: -10}
+	m = calmatch.Choose(g, []calmatch.Set{short, sets[1]}).Dark
+	if m.Quality != calmatch.Fallback || !m.Scaled || m.Set.Exposure != 600 {
 		t.Fatalf("got %+v", m)
 	}
+}
 
-	// Only the 0 °C library is left: 10 °C away is too far to use.
-	if m := calmatch.Choose(lights, sets[:1]).Dark; m.Quality != calmatch.Missing {
-		t.Fatalf("10°C off should be missing, got %+v", m)
-	}
-
+func TestDarkBeyondScaleRangeOrOtherGainIsMissing(t *testing.T) {
+	t.Parallel()
 	g := lights
-	g.SetTemp = -3
-	if m := calmatch.Choose(g, sets[:1]).Dark; m.Quality != calmatch.Fallback || m.TempOff != 3 {
-		t.Fatalf("3°C off should be fallback, got %+v", m)
+	g.SetTemp = -25
+	sets := []calmatch.Set{
+		{Type: "DARK", Night: night("2025-02-06"), Exposure: 600, Gain: 0, Offset: 50, BinX: 1, SetTemp: 0},
+		{Type: "DARK", Night: night("2025-02-06"), Exposure: 600, Gain: 100, Offset: 50, BinX: 1, SetTemp: -25},
+	}
+	if m := calmatch.Choose(g, sets).Dark; m.Quality != calmatch.Missing {
+		t.Fatalf("got %+v", m)
 	}
 }
 
