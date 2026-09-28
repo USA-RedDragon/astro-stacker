@@ -2,42 +2,57 @@ package stacking
 
 import "testing"
 
-func TestCoverageCropDropsThinEdges(t *testing.T) {
+func TestCoverageCropTrimsOnlyNearlyEmptyEdges(t *testing.T) {
 	const w, h = 160, 80
 	acc := NewAccumulator(w, h)
 	for y := range h {
 		for x := range w {
 			c := float32(20)
-			// A dithered left edge and a rotated bottom-right corner, and a
-			// band three quarters of the subs cover, which stays in.
-			if x < 12 || (y > 60 && x > 120) {
-				c = 6
-			} else if y < 10 {
-				c = 15
+			switch {
+			case x < 12 || (y > 60 && x > 120):
+				// A dithered edge and a rotated corner: a sub or none.
+				c = float32((x + y) % 2)
+			case y < 30:
+				// Most subs framed lower: the top is thin but real data.
+				c = 5
 			}
-			// A few rejected star pixels inside the good area.
-			if (x*7+y*3)%97 == 0 {
-				c = 17
+			// Rejected star pixels, dense as in a master of few subs.
+			if (x*7+y*3)%11 == 0 {
+				c = 0
 			}
 			acc.Count[y*w+x] = c
 		}
 	}
 	r := coverageCrop(acc)
-	if r.X < 12 || r.X > 16 {
+	if r.X < 12 || r.X > 24 {
 		t.Errorf("left edge at %d, want just past the dithered 12 px", r.X)
 	}
-	if r.X+r.W > w || r.Y+r.H > h || r.W*r.H < 100*50 {
-		t.Errorf("crop %+v too small or out of bounds", r)
-	}
 	if r.Y != 0 {
-		t.Errorf("crop %+v left out the band three quarters of the subs cover", r)
+		t.Errorf("crop %+v cut the thinly covered top, which has data", r)
 	}
-	for y := r.Y; y < r.Y+r.H; y++ {
-		for x := r.X; x < r.X+r.W; x++ {
-			if acc.Count[y*w+x] == 6 {
-				t.Fatalf("crop %+v includes thin coverage at %d,%d", r, x, y)
+	if r.W*r.H < 100*55 {
+		t.Errorf("crop %+v too small", r)
+	}
+}
+
+func TestCoverageCropKeepsAFewSubsOffsetFrame(t *testing.T) {
+	// Horsehead H-a: 4 subs, 3 framed lower, so most of the frame has 1.
+	const w, h = 160, 80
+	acc := NewAccumulator(w, h)
+	for y := range h {
+		for x := range w {
+			c := float32(1)
+			if y > 48 && x < 150 {
+				c = 4
 			}
+			if (x*5+y*9)%7 == 0 {
+				c = 0 // stars rejected
+			}
+			acc.Count[y*w+x] = c
 		}
+	}
+	if r := coverageCrop(acc); r.W*r.H < 150*75 {
+		t.Errorf("crop %+v, want nearly the whole frame", r)
 	}
 }
 

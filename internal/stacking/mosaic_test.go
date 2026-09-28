@@ -16,17 +16,17 @@ func TestMosaicGroupsFromSchedulerProjects(t *testing.T) {
 	}
 	for _, q := range []string{
 		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, name TEXT)`,
-		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, ra REAL, dec REAL, projectid INTEGER)`,
+		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, ra REAL, dec REAL, rotation REAL, projectid INTEGER)`,
 		`INSERT INTO project VALUES (1, 'Cygnis Loop'), (2, 'Rosette'), (3, 'M31'), (4, 'Lonely')`,
 		// Panels out of order, a mosaic, two targets that aren't panels, and
 		// a project with one panel.
 		`INSERT INTO target VALUES
-			(1, 'Cygnis Loop Panel 2', 20.868, 29.76, 1),
-			(2, 'Cygnis Loop Panel 1', 20.868, 31.537, 1),
-			(3, 'Rosette Nebula', 6.53, 4.95, 2),
-			(4, 'Rosette Nebula SHO', 6.53, 4.95, 2),
-			(5, 'Andromeda', 0.71, 41.27, 3),
-			(6, 'Lonely Panel 1', 1, 1, 4)`,
+			(1, 'Cygnis Loop Panel 2', 20.868, 29.76, 0, 1),
+			(2, 'Cygnis Loop Panel 1', 20.868, 31.537, 0, 1),
+			(3, 'Rosette Nebula', 6.53, 4.95, 0, 2),
+			(4, 'Rosette Nebula SHO', 6.53, 4.95, 0, 2),
+			(5, 'Andromeda', 0.71, 41.27, 0, 3),
+			(6, 'Lonely Panel 1', 1, 1, 0, 4)`,
 	} {
 		if err := db.Exec(q).Error; err != nil {
 			t.Fatal(err)

@@ -116,7 +116,11 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	var wg sync.WaitGroup
 	wg.Go(func() { p.reportStatus(ctx) })
-	wg.Go(func() { p.backfillCovers(ctx) })
+	wg.Go(func() {
+		// Recropping re-renders covers of the masters it touches.
+		p.recropMasters(ctx)
+		p.backfillCovers(ctx)
+	})
 	if p.opts.MosaicInterval > 0 {
 		wg.Go(func() { p.runMosaics(ctx, p.opts.MosaicInterval) })
 	}

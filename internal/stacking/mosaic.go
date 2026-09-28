@@ -33,10 +33,11 @@ const StageAssembling = "assembling"
 var panelName = regexp.MustCompile(`(?i)\bpanel\s*(\d+)\s*$`)
 
 type panel struct {
-	Object string
-	Number int
-	RA     float64 // degrees
-	Dec    float64 // degrees
+	Object   string
+	Number   int
+	RA       float64 // degrees
+	Dec      float64 // degrees
+	Rotation float64 // degrees, as Target Scheduler frames it
 }
 
 // mosaicGroup is a Target Scheduler project whose targets are panels.
@@ -48,13 +49,14 @@ type mosaicGroup struct {
 // mosaicGroups reads the projects with two or more panel targets.
 func mosaicGroups(ctx context.Context, sched *gorm.DB) ([]mosaicGroup, error) {
 	var rows []struct {
-		Project string
-		Name    string
-		RA      float64
-		Dec     float64
+		Project  string
+		Name     string
+		RA       float64
+		Dec      float64
+		Rotation float64
 	}
 	if err := sched.WithContext(ctx).Table("target").
-		Select(`project.name AS project, target.name AS name, target.ra AS ra, target.dec AS dec`).
+		Select(`project.name AS project, target.name AS name, target.ra AS ra, target.dec AS dec, target.rotation AS rotation`).
 		Joins(`JOIN project ON target.projectid = project."Id"`).
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load targets: %w", err)
@@ -67,7 +69,7 @@ func mosaicGroups(ctx context.Context, sched *gorm.DB) ([]mosaicGroup, error) {
 		}
 		n, _ := strconv.Atoi(m[1])
 		// Target Scheduler stores right ascension in hours.
-		byProject[r.Project] = append(byProject[r.Project], panel{Object: r.Name, Number: n, RA: r.RA * 15, Dec: r.Dec})
+		byProject[r.Project] = append(byProject[r.Project], panel{Object: r.Name, Number: n, RA: r.RA * 15, Dec: r.Dec, Rotation: r.Rotation})
 	}
 	var out []mosaicGroup
 	for project, panels := range byProject {

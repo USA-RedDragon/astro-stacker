@@ -82,9 +82,10 @@ type Stack struct {
 	ScaleExposure float64
 	// RebuiltAtSubs is the sub count at the last full rebuild.
 	RebuiltAtSubs int
-	// Crop is the part of the frame covered by most subs, in pixels; the
-	// ragged, thinly covered edges outside it are left out of previews.
+	// Crop is the frame less its ragged, nearly empty borders, in pixels;
+	// previews show only this. CropVersion is the rule that made it.
 	CropX, CropY, CropW, CropH int
+	CropVersion                int
 
 	StateKey   *string // accumulator planes
 	MasterKey  *string // linear master FITS for download
