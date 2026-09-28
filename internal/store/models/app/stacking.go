@@ -62,6 +62,7 @@ const (
 	StackStatusCalibration  = "calibration" // no usable flat, dark or bias yet
 	StackStatusRegistration = "registration"
 	StackStatusFailed       = "failed"
+	StackStatusDead         = "dead" // failed MaxAttempts times; left out until reset
 )
 
 // StackFrame records what happened to one light.
@@ -80,4 +81,8 @@ type StackFrame struct {
 	Saturated     int
 	Error         *string `gorm:"type:text"`
 	ProcessedAt   time.Time
+	// Attempts counts failed tries (failed or registration); NextAttemptAt
+	// is when the sub is next picked up, nil for final states.
+	Attempts      int
+	NextAttemptAt *time.Time `gorm:"index"`
 }
