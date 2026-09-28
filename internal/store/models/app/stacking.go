@@ -106,9 +106,10 @@ type Stack struct {
 
 	StateKey   *string // accumulator planes
 	MasterKey  *string // linear master FITS for download
+	XISFKey    *string // the master for PixInsight: upright, plate solved
 	PreviewKey *string // auto-stretched JPEG
 	LinearKey  *string // small linear preview for palette mixing in the browser
-	// FittedKey is the master linear fitted to FitReference, the filter of
+	// FittedKey is the master, as XISF, linear fitted to FitReference, the filter of
 	// its group (colour or narrowband) with the most effective exposure: FitOffset + FitScale×master.
 	// FitSignature identifies the target's masters it was fitted from.
 	FittedKey    *string
