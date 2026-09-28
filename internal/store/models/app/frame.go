@@ -31,6 +31,10 @@ type Frame struct {
 	MountDec     *float64
 	PointingRead bool
 	Night        *time.Time `gorm:"type:date;index"`
+	// LightLeak is the large-scale spread, in ADU, of a dark left out of
+	// its master because light reached the sensor; nil when it's clean or
+	// unchecked.
+	LightLeak *float64
 
 	// IndexError is set when the header could not be read; the frame is
 	// retried when its ETag changes.

@@ -116,12 +116,22 @@ func (p *Pipeline) buildMaster(ctx context.Context, typ string, frames []app.Fra
 	if err := os.Mkdir(in, 0o700); err != nil {
 		return err
 	}
+	files := make([]string, len(frames))
 	for i, f := range frames {
 		// Siril's convert picks up every image in the directory; plain
 		// names keep spaces in target names out of the script.
-		name := fmt.Sprintf("f%04d%s", i, strings.ToLower(path.Ext(f.Key)))
-		if err := p.download(ctx, p.source, f.Key, filepath.Join(in, name)); err != nil {
+		files[i] = filepath.Join(in, fmt.Sprintf("f%04d%s", i, strings.ToLower(path.Ext(f.Key))))
+		if err := p.download(ctx, p.source, f.Key, files[i]); err != nil {
 			return err
+		}
+	}
+	if typ == "DARK" {
+		left, err := p.dropLeakyDarks(ctx, frames, files)
+		if err != nil {
+			return err
+		}
+		if left < 3 {
+			return fmt.Errorf("%d of %d darks have a light leak, too few left", len(frames)-left, len(frames))
 		}
 	}
 
