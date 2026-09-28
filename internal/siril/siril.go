@@ -48,33 +48,37 @@ func (r Runner) Run(ctx context.Context, dir, script string) (Result, error) {
 	start := time.Now()
 	err := cmd.Run()
 	res := Result{Log: out.String(), Duration: time.Since(start)}
-	if err != nil {
-		return res, fmt.Errorf("siril: %w: %s", err, lastErrors(res.Log))
-	}
-	if strings.Contains(res.Log, "Script execution failed") {
-		return res, fmt.Errorf("siril: %s", lastErrors(res.Log))
+	if err != nil || strings.Contains(res.Log, "Script execution failed") {
+		slog.Debug("Siril script failed", "dir", dir, "script", script, "log", res.Log)
+		if err == nil {
+			err = fmt.Errorf("script failed")
+		}
+		return res, fmt.Errorf("siril: %w: %s", err, tail(res.Log, 12))
 	}
 	slog.Debug("Siril script finished", "dir", dir, "duration", res.Duration.Round(time.Millisecond))
 	return res, nil
 }
 
-// lastErrors pulls the lines that explain a failure out of Siril's log.
-func lastErrors(log string) string {
+// tail returns the last n meaningful lines of Siril's log, which hold the
+// failure and what Siril was doing when it happened. Progress bars and the
+// harmless Python environment warnings are dropped.
+func tail(log string, n int) string {
 	var lines []string
 	for _, l := range strings.Split(log, "\n") {
 		l = strings.TrimPrefix(strings.TrimSpace(l), "log: ")
-		lower := strings.ToLower(l)
-		if strings.Contains(lower, "error") || strings.Contains(lower, "failed") {
-			lines = append(lines, l)
+		switch {
+		case l == "",
+			strings.HasPrefix(l, "progress:"),
+			strings.Contains(l, "Python"),
+			strings.Contains(l, "virtual environment"):
+			continue
 		}
+		lines = append(lines, l)
 	}
-	if len(lines) > 5 {
-		lines = lines[len(lines)-5:]
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
 	}
-	if len(lines) == 0 {
-		return "no error lines in log"
-	}
-	return strings.Join(lines, "; ")
+	return strings.Join(lines, " | ")
 }
 
 // Path checks a path for use in an option like -bias=path. Siril splits
