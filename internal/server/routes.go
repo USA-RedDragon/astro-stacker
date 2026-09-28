@@ -54,7 +54,10 @@ type Mosaic struct {
 
 // Cover is the preview that best shows a target or project.
 type Cover struct {
-	Filter           string    `json:"filter"`
+	// Palette is set for a colour composite (RGB+Ha, RGB, SHO, HOO);
+	// Filter for a single filter's preview.
+	Palette          string    `json:"palette,omitempty"`
+	Filter           string    `json:"filter,omitempty"`
 	PreviewURL       string    `json:"preview_url"`
 	EffectiveSeconds float64   `json:"effective_seconds,omitempty"`
 	UpdatedAt        time.Time `json:"updated_at"`
@@ -121,8 +124,7 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 	})
 
 	// One preview per target and per mosaic project, for dashboard cards: a
-	// colour composite where the filters allow one (Filter is then the
-	// palette), else the master with the most effective exposure, or the
+	// colour composite where the filters allow one, else the master with the most effective exposure, or the
 	// mosaic with the most panels.
 	r.GET("/covers", func(c *gin.Context) {
 		out := Covers{Objects: map[string]Cover{}, Mosaics: map[string]Cover{}}
@@ -149,7 +151,7 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
-			cover := Cover{Filter: cv.Palette, PreviewURL: u, UpdatedAt: cv.UpdatedAt}
+			cover := Cover{Palette: cv.Palette, PreviewURL: u, UpdatedAt: cv.UpdatedAt}
 			if project, ok := strings.CutPrefix(cv.Subject, app.MosaicSubject("")); ok {
 				out.Mosaics[project] = cover
 			} else {
