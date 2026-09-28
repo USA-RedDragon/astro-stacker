@@ -85,6 +85,7 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	opts.BatchSize = cfg.Stacking.BatchSize
 	opts.SirilThreads = cfg.Stacking.SirilThreads
 	opts.SirilMemoryRatio = cfg.Stacking.SirilMemory
+	opts.Workers = cfg.Stacking.Workers
 	runner := siril.Runner{Command: cfg.Stacking.SirilCommand}
 	if filepath.Base(runner.Command) == "AppRun" {
 		// An extracted AppImage picks the binary from its first argument.

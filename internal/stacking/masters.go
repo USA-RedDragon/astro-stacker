@@ -40,6 +40,7 @@ func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmat
 		return "", fmt.Errorf("%s set has %d frames, need at least 3", set.Type, len(frames))
 	}
 	key := setKey(set.Type, frames)
+	defer p.lockKey(key)()
 	local := filepath.Join(p.workDir, "masters", key+".fit")
 	if _, err := os.Stat(local); err == nil {
 		return local, nil
@@ -162,6 +163,6 @@ func (p *Pipeline) sirilPreamble(float32bit bool) string {
 	if float32bit {
 		depth = "set32bits"
 	}
-	ratio := math.Max(0.05, math.Min(0.9, p.opts.SirilMemoryRatio))
+	ratio := math.Max(0.05, math.Min(0.9, p.opts.SirilMemoryRatio/float64(p.opts.Workers)))
 	return fmt.Sprintf("%s\nsetext fit\nsetcpu %d\nsetmem %.2f\n", depth, max(1, p.opts.SirilThreads), ratio)
 }

@@ -36,7 +36,8 @@ type Stacking struct {
 	WorkDir         string  `name:"work-dir" description:"Scratch space for downloads, masters and Siril output" default:"/tmp/stacking"`
 	SirilCommand    string  `name:"siril-command" description:"siril-cli, or an extracted Siril AppImage's AppRun" default:"siril-cli"`
 	SirilThreads    int     `name:"siril-threads" description:"Threads Siril may use" default:"4"`
-	SirilMemory     float64 `name:"siril-memory" description:"Share of memory Siril may use (Siril reads the container limit); registration needs about 320 MiB per thread" default:"0.5"`
+	SirilMemory     float64 `name:"siril-memory" description:"Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread" default:"0.5"`
+	Workers         int     `name:"workers" description:"Targets stacked at once; each holds up to about 1.5 GB besides Siril" default:"1"`
 	Pedestal        float64 `name:"pedestal" description:"Camera pedestal in ADU, for scoring subs" default:"506"`
 }
 
