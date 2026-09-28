@@ -26,6 +26,10 @@ type SubScore struct {
 	// filter and exposure across all targets, capped at 1. 0 when the
 	// metadata can't be scored.
 	Score float64
+	// HFR and Stars are NINA's star measurements, used to pick a sharp
+	// registration reference.
+	HFR   float64
+	Stars int
 }
 
 type group struct {
@@ -67,6 +71,8 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]
 				Filter:        g.filter,
 				Exposure:      g.exposure,
 				GradingStatus: r.GradingStatus,
+				HFR:           float64(m.HFR),
+				Stars:         int(m.DetectedStars),
 			},
 			raw: raw,
 			g:   g,
