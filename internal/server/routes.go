@@ -39,6 +39,19 @@ type Master struct {
 	LinearURL        string    `json:"linear_url"`
 }
 
+// Mosaic is one filter's mosaic of a project's panels, with presigned links.
+type Mosaic struct {
+	Filter      string    `json:"filter"`
+	Panels      int       `json:"panels"`
+	PanelsTotal int       `json:"panels_total"`
+	Width       int       `json:"width"`
+	Height      int       `json:"height"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	MasterURL   string    `json:"master_url"`
+	PreviewURL  string    `json:"preview_url"`
+	LinearURL   string    `json:"linear_url"`
+}
+
 // PreviewURL is a presigned link to one light's auto-stretched preview.
 type PreviewURL struct {
 	File string `json:"file"`
@@ -89,6 +102,45 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 				return
 			}
 			out = append(out, PreviewURL{File: path.Base(f.Key), URL: u})
+		}
+		c.JSON(http.StatusOK, out)
+	})
+
+	// Mosaics for one project, one per filter.
+	r.GET("/mosaics", func(c *gin.Context) {
+		if signer == nil {
+			c.JSON(http.StatusOK, []Mosaic{})
+			return
+		}
+		project := c.Query("project")
+		if project == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+			return
+		}
+		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+		var mosaics []app.Mosaic
+		if err := di.AppStore.DB().WithContext(c.Request.Context()).
+			Where("project = ? AND master_key IS NOT NULL", project).Order("filter").Find(&mosaics).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		out := make([]Mosaic, 0, len(mosaics))
+		for _, m := range mosaics {
+			o := Mosaic{Filter: m.Filter, Panels: m.Panels, PanelsTotal: m.PanelsTotal, Width: m.Width, Height: m.Height, UpdatedAt: m.UpdatedAt}
+			ctx := c.Request.Context()
+			name := fmt.Sprintf("%s_%s_mosaic.fit", strings.ReplaceAll(m.Project, " ", "_"), strings.ReplaceAll(m.Filter, " ", "_"))
+			var err error
+			if o.MasterURL, err = signer.DownloadURL(ctx, *m.MasterKey, name); err == nil && m.PreviewKey != nil {
+				o.PreviewURL, err = signer.URL(ctx, *m.PreviewKey)
+			}
+			if err == nil && m.LinearKey != nil {
+				o.LinearURL, err = signer.URL(ctx, *m.LinearKey)
+			}
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			out = append(out, o)
 		}
 		c.JSON(http.StatusOK, out)
 	})

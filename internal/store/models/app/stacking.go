@@ -26,6 +26,26 @@ type TargetReference struct {
 }
 
 // Stack is the running master for one target and filter.
+// Mosaic is one filter's mosaic of a project's panel masters.
+type Mosaic struct {
+	ID      int    `gorm:"primaryKey;autoIncrement"`
+	Project string `gorm:"not null;uniqueIndex:idx_mosaic_project_filter"`
+	Filter  string `gorm:"not null;uniqueIndex:idx_mosaic_project_filter"`
+	// Panels is how many panels went in, of PanelsTotal in the project.
+	Panels      int
+	PanelsTotal int
+	Width       int
+	Height      int
+	// Signature identifies the panel masters it was built from, so it is
+	// rebuilt only when one of them changes.
+	Signature  string
+	MasterKey  *string
+	PreviewKey *string
+	LinearKey  *string
+	Error      *string `gorm:"type:text"`
+	UpdatedAt  time.Time
+}
+
 type Stack struct {
 	ID     int    `gorm:"primaryKey;autoIncrement"`
 	Object string `gorm:"not null;uniqueIndex:idx_stack_target_filter"`

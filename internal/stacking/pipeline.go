@@ -44,7 +44,12 @@ type PipelineOptions struct {
 	SirilMemoryRatio float64
 	// Workers is how many targets are stacked at once.
 	Workers int
-	Stack   Options
+	// MosaicInterval is how often mosaics are checked (0 turns them off);
+	// a mosaic is rebuilt once its panel masters have been unchanged for
+	// MosaicQuiet.
+	MosaicInterval time.Duration
+	MosaicQuiet    time.Duration
+	Stack          Options
 }
 
 var DefaultPipelineOptions = PipelineOptions{
@@ -57,6 +62,8 @@ var DefaultPipelineOptions = PipelineOptions{
 	SirilThreads:     4,
 	SirilMemoryRatio: 0.5,
 	Workers:          1,
+	MosaicInterval:   10 * time.Minute,
+	MosaicQuiet:      30 * time.Minute,
 	Stack:            DefaultOptions,
 }
 
@@ -106,6 +113,9 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	var wg sync.WaitGroup
 	wg.Go(func() { p.reportStatus(ctx) })
+	if p.opts.MosaicInterval > 0 {
+		wg.Go(func() { p.runMosaics(ctx, p.opts.MosaicInterval) })
+	}
 	for range p.opts.Workers {
 		wg.Go(func() { p.work(ctx, interval) })
 	}

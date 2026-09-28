@@ -14,6 +14,7 @@ import (
 const (
 	TypePreview = "preview" // a sub's preview was rendered
 	TypeMaster  = "master"  // a master was updated
+	TypeMosaic  = "mosaic"  // a project's mosaic was updated; Object is the project
 	TypeStatus  = "status"  // what the stacker is doing; not replayed
 )
 
