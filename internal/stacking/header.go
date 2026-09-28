@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
@@ -18,10 +19,10 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
-// MasterVersion is how masters are written: their header and how saturated
-// cores are filled. Masters written by an older version are republished at
+// MasterVersion is how masters are written: their header, how saturated
+// cores are filled and the XISF copy for PixInsight. Masters written by an older version are republished at
 // startup.
-const MasterVersion = 1
+const MasterVersion = 2
 
 // maxSolveAttempts is how many times a target's master is plate solved
 // before giving up on that reference.
@@ -276,4 +277,67 @@ func (p *Pipeline) republishMasters(ctx context.Context) {
 	if len(stacks) > 0 {
 		slog.Info("Republished masters", "masters", done, "of", len(stacks))
 	}
+}
+
+// pixInsightSolution turns a master's plate solution keywords, which
+// describe the FITS layout (rows from the bottom), into the astrometric
+// solution properties PixInsight reads from an XISF file (rows from the
+// top), and returns the other keywords. PixInsight reads FITS rows from the
+// top without adjusting the solution, so a solved FITS master opens
+// mirrored; XISF opens upright and solved. PixInsight's solution is linear,
+// so the distortion terms are left out.
+func pixInsightSolution(cards []imagedata.Card, h int) ([]imagedata.Property, []imagedata.Card) {
+	var rest []imagedata.Card
+	kw := map[string]float64{}
+	for _, c := range cards {
+		if !wcsKey.MatchString(c.Key) {
+			rest = append(rest, c)
+			continue
+		}
+		if f, err := strconv.ParseFloat(strings.TrimSpace(c.Value), 64); err == nil {
+			kw[c.Key] = f
+		}
+	}
+	get := func(k string, def float64) float64 {
+		if v, ok := kw[k]; ok {
+			return v
+		}
+		return def
+	}
+	if _, ok := kw["CRVAL1"]; !ok {
+		return nil, rest
+	}
+	cd := [4]float64{get("CD1_1", 0), get("CD1_2", 0), get("CD2_1", 0), get("CD2_2", 0)}
+	if _, ok := kw["CD1_1"]; !ok {
+		c1, c2 := get("CDELT1", 1), get("CDELT2", 1)
+		cd = [4]float64{c1 * get("PC1_1", 1), c1 * get("PC1_2", 0), c2 * get("PC2_1", 0), c2 * get("PC2_2", 1)}
+	}
+	// Row y from the bottom (1-based, pixel centres) is H - y + 0.5 from
+	// the top in PixInsight's coordinates, which count from pixel corners;
+	// columns are x - 0.5. Turning rows over negates the matrix's y column.
+	return []imagedata.Property{
+		{ID: "PCL:AstrometricSolution:ProjectionSystem", Value: "Gnomonic"},
+		{ID: "PCL:AstrometricSolution:ReferenceCelestialCoordinates", Value: []float64{kw["CRVAL1"], get("CRVAL2", 0)}},
+		{ID: "PCL:AstrometricSolution:ReferenceImageCoordinates", Value: []float64{get("CRPIX1", 0) - 0.5, float64(h) - get("CRPIX2", 0) + 0.5}},
+		{ID: "PCL:AstrometricSolution:LinearTransformationMatrix", Value: []float64{cd[0], -cd[1], cd[2], -cd[3]}, Rows: 2},
+		{ID: "PCL:AstrometricSolution:ReferenceNativeCoordinates", Value: []float64{0, 90}},
+		{ID: "PCL:AstrometricSolution:CelestialPoleNativeCoordinates", Value: []float64{get("LONPOLE", 180), 90}},
+		{ID: "Observation:CelestialReferenceSystem", Value: "ICRS"},
+		{ID: "Observation:Equinox", Value: 2000.0},
+	}, rest
+}
+
+// writeXISFFile writes a master for PixInsight: upright, with its plate
+// solution as PixInsight's own properties.
+func writeXISFFile(name string, w, h int, data []float32, cards []imagedata.Card) error {
+	props, keywords := pixInsightSolution(cards, h)
+	f, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	if err := imagedata.WriteXISF(f, w, h, data, keywords, props); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }

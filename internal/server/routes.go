@@ -39,6 +39,9 @@ type Master struct {
 	PreviewURL       string    `json:"preview_url"`
 	LinearURL        string    `json:"linear_url"`
 	Crop             *Crop     `json:"crop,omitempty"`
+	// XISFURL is the master for PixInsight, which opens it upright and
+	// plate solved.
+	XISFURL string `json:"xisf_url,omitempty"`
 	// FittedURL is the master linear fitted to FitReference, when the
 	// target has other colour or other narrowband filters.
 	FittedURL    string `json:"fitted_url,omitempty"`
@@ -322,9 +325,13 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 			if err == nil && s.LinearKey != nil {
 				m.LinearURL, err = signer.URL(ctx, *s.LinearKey)
 			}
+			base := strings.TrimSuffix(name, "master.fit")
+			if err == nil && s.XISFKey != nil {
+				m.XISFURL, err = signer.DownloadURL(ctx, *s.XISFKey, base+"master.xisf")
+			}
 			if err == nil && s.FittedKey != nil {
 				m.FitReference = s.FitReference
-				m.FittedURL, err = signer.DownloadURL(ctx, *s.FittedKey, strings.TrimSuffix(name, "master.fit")+"linearfit.fit")
+				m.FittedURL, err = signer.DownloadURL(ctx, *s.FittedKey, base+"linearfit"+path.Ext(*s.FittedKey))
 			}
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

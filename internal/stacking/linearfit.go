@@ -178,13 +178,17 @@ func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []
 			imagedata.FloatCard("LFOFFSET", offset, "LinearFit: this = offset + scale * master"),
 			imagedata.FloatCard("LFSCALE", scale, "LinearFit scale"),
 		)
-		file := filepath.Join(dir, "linearfit.fit")
-		if err := writeFITSFile(file, im.W, im.H, 1, im.Data, out); err != nil {
+		file := filepath.Join(dir, "linearfit.xisf")
+		if err := writeXISFFile(file, im.W, im.H, im.Data, out); err != nil {
 			return err
 		}
-		key := path.Join(stackPrefix(m), "linearfit.fit")
-		if err := p.upload(ctx, file, key, "application/fits"); err != nil {
+		key := path.Join(stackPrefix(m), "linearfit.xisf")
+		if err := p.upload(ctx, file, key, "application/octet-stream"); err != nil {
 			return err
+		}
+		if m.FittedKey != nil && *m.FittedKey != key {
+			// Fits were FITS before; the XISF replaces it.
+			_ = p.s3.RemoveObject(ctx, p.dest, *m.FittedKey, minio.RemoveObjectOptions{})
 		}
 		// UpdateColumns leaves updated_at, which the signature is made of.
 		if err := p.db.WithContext(ctx).Model(m).UpdateColumns(map[string]any{

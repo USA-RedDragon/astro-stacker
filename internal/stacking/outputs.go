@@ -78,7 +78,12 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	}
 	// Plate solving needs the master on disk, so it's written again with
 	// the full header.
-	if err := writeFITSFile(masterFile, acc.W, acc.H, 1, master, p.masterHeader(ctx, stack, cards, dir, masterFile)); err != nil {
+	header := p.masterHeader(ctx, stack, cards, dir, masterFile)
+	if err := writeFITSFile(masterFile, acc.W, acc.H, 1, master, header); err != nil {
+		return err
+	}
+	xisfFile := filepath.Join(dir, "master.xisf")
+	if err := writeXISFFile(xisfFile, acc.W, acc.H, master, header); err != nil {
 		return err
 	}
 	stack.MasterVersion = MasterVersion
@@ -103,8 +108,9 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 
 	keys := map[string]*string{}
 	for name, up := range map[string]func(key string) error{
-		"master.fit": func(k string) error { return p.upload(ctx, masterFile, k, "application/fits") },
-		"state.fit":  func(k string) error { return p.upload(ctx, stateFile, k, "application/fits") },
+		"master.fit":  func(k string) error { return p.upload(ctx, masterFile, k, "application/fits") },
+		"master.xisf": func(k string) error { return p.upload(ctx, xisfFile, k, "application/octet-stream") },
+		"state.fit":   func(k string) error { return p.upload(ctx, stateFile, k, "application/fits") },
 		"preview.jpg": func(k string) error {
 			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"})
 		},
@@ -118,7 +124,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 		}
 		keys[name] = &k
 	}
-	stack.MasterKey, stack.StateKey = keys["master.fit"], keys["state.fit"]
+	stack.MasterKey, stack.StateKey, stack.XISFKey = keys["master.fit"], keys["state.fit"], keys["master.xisf"]
 	stack.PreviewKey, stack.LinearKey = keys["preview.jpg"], keys["linear.bin"]
 	stack.UpdatedAt = time.Now()
 	if err := p.db.WithContext(ctx).Save(stack).Error; err != nil {
