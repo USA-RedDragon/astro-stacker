@@ -54,9 +54,10 @@ type Mosaic struct {
 
 // Cover is the preview that best shows a target or project.
 type Cover struct {
-	Filter     string    `json:"filter"`
-	PreviewURL string    `json:"preview_url"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Filter           string    `json:"filter"`
+	PreviewURL       string    `json:"preview_url"`
+	EffectiveSeconds float64   `json:"effective_seconds,omitempty"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // Covers maps targets and mosaic projects to their cover previews.
@@ -144,7 +145,7 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
-			out.Objects[s.Object] = Cover{Filter: s.Filter, PreviewURL: u, UpdatedAt: s.UpdatedAt}
+			out.Objects[s.Object] = Cover{Filter: s.Filter, PreviewURL: u, EffectiveSeconds: s.EffectiveSeconds, UpdatedAt: s.UpdatedAt}
 		}
 		var mosaics []app.Mosaic
 		if err := db.Where("preview_key IS NOT NULL").Order("panels DESC, updated_at DESC").Find(&mosaics).Error; err != nil {
