@@ -121,7 +121,8 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 	})
 
 	// One preview per target and per mosaic project, for dashboard cards: a
-	// target's master with the most effective exposure, and a project's
+	// colour composite where the filters allow one (Filter is then the
+	// palette), else the master with the most effective exposure, or the
 	// mosaic with the most panels.
 	r.GET("/covers", func(c *gin.Context) {
 		out := Covers{Objects: map[string]Cover{}, Mosaics: map[string]Cover{}}
@@ -135,6 +136,25 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		if err := db.Where("subs > 0 AND preview_key IS NOT NULL").Order("effective_seconds DESC").Find(&stacks).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		// Colour covers first; mono masters fill in the rest.
+		var covers []app.Cover
+		if err := db.Find(&covers).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		for _, cv := range covers {
+			u, err := signer.URL(ctx, cv.PreviewKey)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			cover := Cover{Filter: cv.Palette, PreviewURL: u, UpdatedAt: cv.UpdatedAt}
+			if project, ok := strings.CutPrefix(cv.Subject, app.MosaicSubject("")); ok {
+				out.Mosaics[project] = cover
+			} else {
+				out.Objects[cv.Subject] = cover
+			}
 		}
 		for _, s := range stacks {
 			if _, ok := out.Objects[s.Object]; ok {

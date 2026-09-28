@@ -166,6 +166,10 @@ func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string
 	} else {
 		mosaic.Error = nil
 		mosaic.Panels = len(masters)
+		mosaic.EffectiveSeconds = 0
+		for _, m := range masters {
+			mosaic.EffectiveSeconds += m.EffectiveSeconds
+		}
 		mosaic.UpdatedAt = time.Now()
 	}
 	if err := p.db.WithContext(ctx).Save(&mosaic).Error; err != nil {
@@ -174,6 +178,7 @@ func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string
 	if buildErr != nil {
 		return buildErr
 	}
+	p.refreshMosaicCover(ctx, g.Project)
 	p.Events.Publish(events.Event{Type: events.TypeMosaic, Object: g.Project, Filter: filter})
 	slog.Info("Updated mosaic", "project", g.Project, "filter", filter, "panels", len(masters),
 		"size", fmt.Sprintf("%dx%d", mosaic.Width, mosaic.Height), "duration", time.Since(start).Round(time.Second))
