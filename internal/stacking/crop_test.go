@@ -33,6 +33,54 @@ func TestCoverageCropIsWhereAllSubsOverlap(t *testing.T) {
 	}
 }
 
+func TestCoverageCropKeepsTheFrameWhenAnotherFramingOverlaps(t *testing.T) {
+	// 20 subs framed here, and 15 from a night framed 40% lower: only the
+	// top 60% has both. The crop is the master's own framing, not that.
+	const w, h = 320, 200
+	acc := NewAccumulator(w, h)
+	for y := range h {
+		for x := range w {
+			c := float32(20)
+			if x < 8 {
+				c = 0 // registration border
+			}
+			if y >= 80 {
+				c += 15
+			}
+			if (x*7+y*3)%53 == 0 {
+				c -= 3 // rejected stars
+			}
+			acc.Count[y*w+x] = max(c, 0)
+		}
+	}
+	r := coverageCrop(acc)
+	if r.W*r.H < 280*165 {
+		t.Errorf("crop %+v of %dx%d: the other framing shrank it", r, w, h)
+	}
+	if r.X < 8 {
+		t.Errorf("crop %+v kept the empty border", r)
+	}
+}
+
+func TestCoverageCropIgnoresHolesInsideTheFrame(t *testing.T) {
+	// Bode's Galaxy: every sub covers the frame, but saturated galaxy
+	// cores leave holes far bigger than a star.
+	const w, h = 320, 200
+	acc := NewAccumulator(w, h)
+	for y := range h {
+		for x := range w {
+			c := float32(6)
+			if (x-150)*(x-150)+(y-100)*(y-100) < 30*30 || (x-80)*(x-80)/4+(y-150)*(y-150) < 15*15 {
+				c = 0
+			}
+			acc.Count[y*w+x] = c
+		}
+	}
+	if r := coverageCrop(acc); r.W*r.H < 280*165 {
+		t.Errorf("crop %+v of %dx%d: holes inside the frame shrank it", r, w, h)
+	}
+}
+
 func TestDataCropOfMosaic(t *testing.T) {
 	// Two panels offset vertically, as a mosaic canvas leaves them.
 	const w, h = 120, 160
