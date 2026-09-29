@@ -55,6 +55,10 @@ type Set struct {
 	BinX     float64
 	Rotator  float64
 	Count    int
+	// Master is the key, in the source bucket, of a master made elsewhere
+	// for a set whose frames were never uploaded. Empty for sets built from
+	// their frames.
+	Master string
 }
 
 // Match is the chosen set for one calibration type.
