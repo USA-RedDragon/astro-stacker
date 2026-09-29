@@ -52,9 +52,10 @@ func cometAccumulator(subs [][]float32, w, h int, exposure, weight float64, opts
 	return medianAnchored(all, w, h, cometOptions(opts))
 }
 
-// cometOptions are the stacking options for a comet master. Rejections
-// aren't grown: in comet-aligned subs every star trails, and the grown
-// rejections of neighbouring trails would cover whole areas.
+// cometOptions are the options for a comet master stacked against the
+// median. Rejections aren't grown: with the comet moving a few pixels between
+// subs every star's trail is dense, and the grown rejections of neighbouring
+// trails would cover whole areas.
 func cometOptions(opts Options) Options {
 	opts.RejectGrow = 0
 	return opts
@@ -369,7 +370,9 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 	} else {
 		passes := 2
 		loaded := 0
-		acc, err = streamStack(stored, passes, cometOptions(p.opts.Stack), func(i int, s storedSub) ([]float32, int, int, error) {
+		// Long sessions: each star crosses a pixel in about one sub, and
+		// growing rejections catches the faint edges of its trail.
+		acc, err = streamStack(stored, passes, p.opts.Stack, func(i int, s storedSub) ([]float32, int, int, error) {
 			p.progress(stack.Object, stack.Filter, StageComet, loaded, passes*len(stored))
 			loaded++
 			return load(i, s)
