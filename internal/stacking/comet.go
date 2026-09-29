@@ -39,6 +39,27 @@ import (
 // StageComet is reported while a comet master is being stacked.
 const StageComet = "comet"
 
+// cometMedianMax is the most subs a comet master is stacked from in memory,
+// against the per-pixel median: about 3 GB of 16-bit samples.
+const cometMedianMax = 60
+
+// cometAccumulator stacks comet-aligned subs against the per-pixel median.
+func cometAccumulator(subs [][]float32, w, h int, exposure, weight float64, opts Options) *Accumulator {
+	all := make([]memSub, len(subs))
+	for i, s := range subs {
+		all[i] = toMemSub(s, exposure, weight, opts.SaturationLevel)
+	}
+	return medianAnchored(all, w, h, cometOptions(opts))
+}
+
+// cometOptions are the stacking options for a comet master. Rejections
+// aren't grown: in comet-aligned subs every star trails, and the grown
+// rejections of neighbouring trails would cover whole areas.
+func cometOptions(opts Options) Options {
+	opts.RejectGrow = 0
+	return opts
+}
+
 // cometName matches a comet's designation at the start of a target name:
 // C/2025 R2 (SWAN), 12P/Pons-Brooks.
 var cometName = regexp.MustCompile(`^(?:[CPDXI]/\d{4} [A-Z]{1,2}\d*|\d+[PDI])\b`)
@@ -315,14 +336,7 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 	for i, s := range subs {
 		stored[i] = s.stored
 	}
-	passes := 2
-	if len(subs) < 40 {
-		passes = 3
-	}
-	loaded := 0
-	acc, err := streamStack(stored, passes, p.opts.Stack, func(i int, s storedSub) ([]float32, int, int, error) {
-		p.progress(stack.Object, stack.Filter, StageComet, loaded, passes*len(stored))
-		loaded++
+	load := func(i int, s storedSub) ([]float32, int, int, error) {
 		local := filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
 		if err := p.download(ctx, p.dest, s.key, local); err != nil {
 			return nil, 0, 0, err
@@ -333,7 +347,34 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 			return nil, 0, 0, err
 		}
 		return shiftImage(sub, w, h, shifts[i][0], shifts[i][1]), w, h, nil
-	})
+	}
+	var acc *Accumulator
+	if len(stored) <= cometMedianMax {
+		// When the comet moves little between subs, each star lands on the
+		// same pixels in a few of them, which hold each other up against
+		// the mean; the per-pixel median ignores them.
+		all := make([]memSub, 0, len(stored))
+		var w, h int
+		for i, s := range stored {
+			p.progress(stack.Object, stack.Filter, StageComet, i, len(stored))
+			sub, sw, sh, err := load(i, s)
+			if err != nil {
+				p.finished(stack.Object)
+				return err
+			}
+			w, h = sw, sh
+			all = append(all, toMemSub(sub, s.exposure, s.weight, p.opts.Stack.SaturationLevel))
+		}
+		acc = medianAnchored(all, w, h, cometOptions(p.opts.Stack))
+	} else {
+		passes := 2
+		loaded := 0
+		acc, err = streamStack(stored, passes, cometOptions(p.opts.Stack), func(i int, s storedSub) ([]float32, int, int, error) {
+			p.progress(stack.Object, stack.Filter, StageComet, loaded, passes*len(stored))
+			loaded++
+			return load(i, s)
+		})
+	}
 	p.finished(stack.Object)
 	if err != nil {
 		return err
