@@ -101,6 +101,7 @@ func (ix *Indexer) BackfillPointing(ctx context.Context) (int, error) {
 				h := frameheader.FromKeywords(kw)
 				if err := ix.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).Updates(map[string]any{
 					"mount_ra": ptr(h.RA), "mount_dec": ptr(h.Dec), "pointing_read": true, "pointing_wcs": true,
+					"pointing_rev": PointingRevision,
 				}).Error; err != nil {
 					slog.Debug("Could not save pointing", "key", f.Key, "error", err)
 					continue
@@ -125,13 +126,19 @@ func (ix *Indexer) BackfillPointing(ctx context.Context) (int, error) {
 	return done, ctx.Err()
 }
 
+// PointingRevision counts the ways a light's pointing is found: 1, the
+// plate solution's centre; 2, the target's position (OBJCTRA, OBJCTDEC).
+// Lights still without one are read again when it goes up.
+const PointingRevision = 2
+
 // pointingUnread are the lights whose header hasn't been read for where
-// they pointed: indexed before frames recorded it, or, lacking RA and DEC,
-// before the plate solution was read for it. Frames indexed before the
-// columns existed have them NULL.
+// they pointed: indexed before frames recorded it, or, without one, before
+// the current PointingRevision. Frames indexed before the columns existed
+// have them NULL.
 func pointingUnread(db *gorm.DB) *gorm.DB {
 	return db.Model(&app.Frame{}).Where("type = ? AND index_error IS NULL", "LIGHT").
-		Where("pointing_read IS NULL OR pointing_read = ? OR (mount_ra IS NULL AND (pointing_wcs IS NULL OR pointing_wcs = ?))", false, false)
+		Where("pointing_read IS NULL OR pointing_read = ? OR (mount_ra IS NULL AND (pointing_rev IS NULL OR pointing_rev < ?))",
+			false, PointingRevision)
 }
 
 // MeasureUnrecorded measures the sky and stars of lights the stacker found
@@ -391,7 +398,7 @@ func fillFrame(dst *app.Frame, f frameheader.Frame) {
 	dst.Rotator = ptr(f.Rotator)
 	dst.Camera = f.Camera
 	dst.MountRA, dst.MountDec = ptr(f.RA), ptr(f.Dec)
-	dst.PointingRead, dst.PointingWCS = true, true
+	dst.PointingRead, dst.PointingWCS, dst.PointingRev = true, true, PointingRevision
 	if f.HasDate {
 		d := f.DateObs
 		dst.DateObs = &d

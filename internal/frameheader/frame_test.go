@@ -75,3 +75,18 @@ func project(ra, dec, ra0, dec0 float64, cd [4]float64) (x, y float64) {
 	det := cd[0]*cd[3] - cd[1]*cd[2]
 	return (cd[3]*xi - cd[1]*eta) / det, (-cd[2]*xi + cd[0]*eta) / det
 }
+
+// Some Telescope.live subs carry neither RA/DEC nor a plate solution, only
+// the target's position.
+func TestPointingFromObjectPosition(t *testing.T) {
+	t.Parallel()
+	f := frameheader.FromKeywords(frameheader.Keywords{
+		"IMAGETYP": "Light Frame", "OBJCTRA": "14 39 29.71", "OBJCTDEC": "-60 49 55.99",
+	})
+	if math.Abs(f.RA-219.873792) > 1e-5 || math.Abs(f.Dec+60.832219) > 1e-5 {
+		t.Errorf("pointing %v %v, want 219.873792 -60.832219", f.RA, f.Dec)
+	}
+	if _, _, ok := frameheader.ObjectPosition(frameheader.Keywords{"OBJCTRA": "25 00 00", "OBJCTDEC": "10"}); ok {
+		t.Error("an RA past 24h was read")
+	}
+}
