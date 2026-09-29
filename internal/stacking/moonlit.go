@@ -159,16 +159,41 @@ func (p *Pipeline) moonSweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(ids) == 0 {
-		return nil
+	if len(ids) > 0 {
+		ids2 := make([]int, 0, len(stacks))
+		for id := range stacks {
+			ids2 = append(ids2, id)
+		}
+		// Marked together, so a restart between taking the lights out
+		// and stacking their masters again still stacks them.
+		next := time.Now().Add(p.opts.RetryAfter)
+		if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&app.StackFrame{}).Where("id IN ?", ids).
+				UpdateColumns(map[string]any{"status": app.StackStatusMoon, "next_attempt_at": next}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&app.Stack{}).Where("id IN ?", ids2).UpdateColumn("needs_rebuild", true).Error
+		}); err != nil {
+			return err
+		}
+		slog.Info("Taking moonlit lights out of their masters", "lights", len(ids), "masters", len(stacks))
 	}
-	next := time.Now().Add(p.opts.RetryAfter)
-	if err := p.db.WithContext(ctx).Model(&app.StackFrame{}).Where("id IN ?", ids).
-		UpdateColumns(map[string]any{"status": app.StackStatusMoon, "next_attempt_at": next}).Error; err != nil {
+	// Masters due a rebuild with nothing on its way in: those left by this
+	// sweep or a restart. A master waiting for lights calibrated again is
+	// rebuilt when they are added.
+	// Also a master older than the moment a light of it was found
+	// moonlit (next_attempt_at less RetryAfter), for sweeps from before
+	// the masters were marked.
+	var due []int
+	if err := p.db.WithContext(ctx).Model(&app.Stack{}).
+		Where("NOT EXISTS (SELECT 1 FROM stack_frames sf WHERE sf.stack_id = stacks.id AND sf.status = ?)", app.StackStatusRecalibrate).
+		Where("needs_rebuild OR EXISTS (SELECT 1 FROM stack_frames sf WHERE sf.stack_id = stacks.id AND sf.status = ? "+
+			"AND sf.next_attempt_at - make_interval(secs => ?) > stacks.updated_at)",
+			app.StackStatusMoon, p.opts.RetryAfter.Seconds()).
+		Pluck("id", &due).Error; err != nil {
 		return err
 	}
-	slog.Info("Taking moonlit lights out of their masters", "lights", len(ids), "masters", len(stacks))
-	for id := range stacks {
+	for _, id := range due {
 		if err := p.restackWithout(ctx, id); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
