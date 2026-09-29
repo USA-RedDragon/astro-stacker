@@ -77,3 +77,14 @@ func TestReferenceAndScore(t *testing.T) {
 		t.Error("Reference of empty group should be NaN")
 	}
 }
+
+func TestPedestalAt(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ offset, want float64 }{
+		{50, 506}, {240, 2406}, {0, 506}, {math.NaN(), 506},
+	} {
+		if got := quality.PedestalAt(506, c.offset); got != c.want {
+			t.Errorf("PedestalAt(506, %v) = %v, want %v", c.offset, got, c.want)
+		}
+	}
+}

@@ -21,6 +21,23 @@ import (
 // measured as raw ADU median minus WBPP's calibrated median (p10 505, p90 518).
 const DefaultPedestal = 506.0
 
+// pedestalOffset is the camera offset DefaultPedestal was measured at, and
+// pedestalPerOffset the ADU each unit of offset adds: the offset-240 master
+// bias sits at 2403 ADU, 1897 above offset 50's.
+const (
+	pedestalOffset    = 50
+	pedestalPerOffset = 10.0
+)
+
+// PedestalAt is the pedestal at a camera offset, from the pedestal at offset
+// 50. An unknown offset (0 or NaN) is taken as 50.
+func PedestalAt(pedestal, offset float64) float64 {
+	if !(offset > 0) {
+		return pedestal
+	}
+	return pedestal + (offset-pedestalOffset)*pedestalPerOffset
+}
+
 // ReferencePercentile picks the "good conditions" weight a group is
 // normalized against. Using a high percentile rather than the maximum keeps
 // one freak sub from deflating every other sub's score.
@@ -63,6 +80,7 @@ type Metadata struct {
 	FWHM              Float  `json:"FWHM"`
 	Eccentricity      Float  `json:"Eccentricity"`
 	ADUMedian         Float  `json:"ADUMedian"`
+	Offset            Float  `json:"Offset"`
 	GuidingRMSArcSec  Float  `json:"GuidingRMSArcSec"`
 	Airmass           Float  `json:"Airmass"`
 }
