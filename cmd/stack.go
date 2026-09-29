@@ -88,6 +88,8 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	opts.Workers = cfg.Stacking.Workers
 	opts.MosaicInterval = time.Duration(cfg.Stacking.MosaicMinutes) * time.Minute
 	opts.MosaicQuiet = time.Duration(cfg.Stacking.MosaicQuiet) * time.Minute
+	opts.CalibrationSettle = time.Duration(cfg.Stacking.CalibrationSettle) * time.Minute
+	opts.RecalibrateLimit = cfg.Stacking.RecalibrateLimit
 	runner := siril.Runner{Command: cfg.Stacking.SirilCommand}
 	if filepath.Base(runner.Command) == "AppRun" {
 		// An extracted AppImage picks the binary from its first argument.

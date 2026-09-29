@@ -51,7 +51,16 @@ type PipelineOptions struct {
 	// MosaicQuiet.
 	MosaicInterval time.Duration
 	MosaicQuiet    time.Duration
-	Stack          Options
+	// CalibrationSettle is how long a flat, dark or bias set must go
+	// without a new frame before a master is built from it. Sets arrive a
+	// frame at a time, a dark library over hours; a master built meanwhile
+	// holds part of the set, and so do the lights calibrated with it.
+	CalibrationSettle time.Duration
+	// RecalibrateLimit is the most stacked lights waiting at once to be
+	// calibrated again (recalibrateDarks), so a new dark library is worked
+	// into the masters a few hundred lights at a time.
+	RecalibrateLimit int
+	Stack            Options
 }
 
 var DefaultPipelineOptions = PipelineOptions{
@@ -60,15 +69,17 @@ var DefaultPipelineOptions = PipelineOptions{
 	BatchSize: 12,
 	// Tonight's subs usually wait for the morning's flats; rechecking is
 	// only a database query.
-	RetryAfter:       3 * time.Hour,
-	FailureBackoff:   30 * time.Minute,
-	MaxAttempts:      5,
-	SirilThreads:     4,
-	SirilMemoryRatio: 0.5,
-	Workers:          1,
-	MosaicInterval:   10 * time.Minute,
-	MosaicQuiet:      30 * time.Minute,
-	Stack:            DefaultOptions,
+	RetryAfter:        3 * time.Hour,
+	FailureBackoff:    30 * time.Minute,
+	MaxAttempts:       5,
+	SirilThreads:      4,
+	SirilMemoryRatio:  0.5,
+	Workers:           1,
+	MosaicInterval:    10 * time.Minute,
+	MosaicQuiet:       30 * time.Minute,
+	CalibrationSettle: 3 * time.Hour,
+	RecalibrateLimit:  300,
+	Stack:             DefaultOptions,
 }
 
 // Pipeline calibrates, registers and stacks lights as they arrive.
@@ -146,6 +157,9 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 	if opts.FailureBackoff <= 0 {
 		opts.FailureBackoff = DefaultPipelineOptions.FailureBackoff
 	}
+	if opts.RecalibrateLimit < 1 {
+		opts.RecalibrateLimit = DefaultPipelineOptions.RecalibrateLimit
+	}
 	return &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
 		busy: map[string]bool{}, working: map[string]*events.Worker{}, drain: make(chan struct{})}
 }
@@ -200,6 +214,8 @@ type candidate struct {
 	frame app.Frame
 	score quality.SubScore
 	cal   calmatch.Result
+	// waiting is the matched set a light waits for to settle, if any.
+	waiting *calmatch.Set
 }
 
 // RunOnce processes one batch of new lights for one master and returns how
@@ -271,6 +287,13 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 			sf := app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}
 			if status == app.StackStatusCalibration {
 				sf.Error = missingCalibration(c.cal)
+				if w := c.waiting; w != nil {
+					msg := fmt.Sprintf("waiting for the %s set (%d frames) to settle: a frame was uploaded %s",
+						strings.ToLower(w.Type), w.Count, w.Uploaded.UTC().Format(time.RFC3339))
+					sf.Error = &msg
+					next := w.Uploaded.Add(p.opts.CalibrationSettle + time.Minute)
+					sf.NextAttemptAt = &next
+				}
 			}
 			if err := p.record(ctx, sf); err != nil {
 				return 0, err
@@ -432,7 +455,23 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 	if c.cal.Flat.Set == nil || c.cal.Bias.Set == nil {
 		return c, app.StackStatusCalibration
 	}
+	// A matched set still arriving is waited for rather than worked around
+	// with another: the light would be calibrated twice, and the wait is
+	// only CalibrationSettle.
+	for _, s := range []*calmatch.Set{c.cal.Bias.Set, c.cal.Flat.Set, c.cal.Dark.Set} {
+		if s != nil && !p.settled(*s, time.Now()) {
+			c.waiting = s
+			return c, app.StackStatusCalibration
+		}
+	}
 	return c, ""
+}
+
+// settled reports whether a calibration set has stopped growing: none of
+// its frames was uploaded in the last CalibrationSettle. Imported masters
+// and sets of unknown upload time are taken as they are.
+func (p *Pipeline) settled(s calmatch.Set, now time.Time) bool {
+	return s.Master != "" || s.Uploaded.IsZero() || now.Sub(s.Uploaded) >= p.opts.CalibrationSettle
 }
 
 // requeueWeightless sends subs stacked with a weight of 0, which added
@@ -518,8 +557,11 @@ func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 	}
 	switch sf.Status {
 	case app.StackStatusCalibration, app.StackStatusLowScore, app.StackStatusNoMetadata, app.StackStatusMoon:
-		next := sf.ProcessedAt.Add(p.opts.RetryAfter)
-		sf.NextAttemptAt = &next
+		// Unless the caller knows better, as for a set about to settle.
+		if sf.NextAttemptAt == nil {
+			next := sf.ProcessedAt.Add(p.opts.RetryAfter)
+			sf.NextAttemptAt = &next
+		}
 	case app.StackStatusFailed, app.StackStatusRegistration:
 		sf.Attempts = existing.Attempts + 1
 		if sf.Attempts >= p.opts.MaxAttempts {
@@ -579,65 +621,5 @@ func (p *Pipeline) upload(ctx context.Context, src, key, contentType string) err
 	if err != nil {
 		return fmt.Errorf("upload %s: %w", key, err)
 	}
-	return nil
-}
-
-// recalibrateDarks queues lights stacked without a dark for calibration
-// again once a dark matches them, and marks their masters to be rebuilt
-// without the dark-less versions.
-func (p *Pipeline) recalibrateDarks(ctx context.Context) error {
-	var rows []struct {
-		ID    int
-		Frame app.Frame `gorm:"embedded;embeddedPrefix:f_"`
-		Stack int
-	}
-	if err := p.db.WithContext(ctx).Table("stack_frames sf").
-		Select("sf.id, sf.stack_id AS stack, f.night AS f_night, f.filter AS f_filter, f.exposure AS f_exposure, "+
-			"f.gain AS f_gain, f.\"offset\" AS f_offset, f.set_temp AS f_set_temp, f.bin_x AS f_bin_x, f.rotator AS f_rotator").
-		Joins("JOIN frames f ON f.id = sf.frame_id").
-		Where("sf.status = ? AND sf.no_dark", app.StackStatusAdded).Scan(&rows).Error; err != nil {
-		return err
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	sets, err := coverage.Sets(ctx, p.db)
-	if err != nil {
-		return err
-	}
-	var ids []int
-	stacks := map[int]bool{}
-	for _, r := range rows {
-		f := r.Frame
-		if f.Night == nil || f.Exposure == nil {
-			continue
-		}
-		m := calmatch.Choose(calmatch.Group{
-			Night: *f.Night, Filter: f.Filter, Exposure: *f.Exposure, Gain: val(f.Gain), Offset: val(f.Offset),
-			SetTemp: val(f.SetTemp), BinX: val(f.BinX), Rotator: val(f.Rotator),
-		}, sets)
-		if m.Dark.Set != nil {
-			ids = append(ids, r.ID)
-			stacks[r.Stack] = true
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	stackIDs := make([]int, 0, len(stacks))
-	for id := range stacks {
-		stackIDs = append(stackIDs, id)
-	}
-	now := time.Now()
-	if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&app.StackFrame{}).Where("id IN ?", ids).
-			UpdateColumns(map[string]any{"status": app.StackStatusRecalibrate, "next_attempt_at": now}).Error; err != nil {
-			return err
-		}
-		return tx.Model(&app.Stack{}).Where("id IN ?", stackIDs).UpdateColumn("needs_rebuild", true).Error
-	}); err != nil {
-		return err
-	}
-	slog.Info("Darks now match lights stacked without one; calibrating them again", "lights", len(ids), "masters", len(stackIDs))
 	return nil
 }

@@ -34,6 +34,9 @@ type calibrated struct {
 	c         candidate
 	path      string
 	darkScale float64
+	// The keys of the masters it was calibrated with; dark is empty when
+	// there was none.
+	bias, dark, flat string
 }
 
 func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch []candidate, sets []calmatch.Set, scores map[string]quality.SubScore, positions map[string][2]float64) error {
@@ -114,6 +117,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 			FrameID: a.c.c.frame.ID, StackID: &stack.ID, Status: app.StackStatusAdded,
 			Score: a.c.c.score.Score, Weight: a.c.c.score.Score * exp, Exposure: exp,
 			RegisteredKey: &a.key, DarkScale: a.c.darkScale, NoDark: a.c.c.cal.Dark.Set == nil && !precalibrated(a.c.c.frame),
+			BiasMaster: optional(a.c.bias), DarkMaster: optional(a.c.dark), FlatMaster: optional(a.c.flat),
 		}
 		if !rebuild {
 			sub, w, h, err := readSub(a.local)
@@ -150,6 +154,14 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	return nil
 }
 
+// optional is nil for an empty string.
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 type addedSub struct {
 	c     calibrated
 	local string
@@ -184,19 +196,19 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 			out = append(out, calibrated{c: c, path: filepath.Join(dir, fmt.Sprintf("pp_raw%04d.fit", i))})
 			continue
 		}
-		bias, err := p.masterFor(ctx, *c.cal.Bias.Set, sets)
+		bias, biasKey, err := p.masterFor(ctx, *c.cal.Bias.Set, sets)
 		if err != nil {
 			return nil, err
 		}
-		flat, err := p.masterFor(ctx, *c.cal.Flat.Set, sets)
+		flat, flatKey, err := p.masterFor(ctx, *c.cal.Flat.Set, sets)
 		if err != nil {
 			return nil, err
 		}
 		// Without a dark for the lights' setpoint the sub is calibrated
 		// with bias and flat only; it is calibrated again when one comes.
-		dark := ""
+		dark, darkKey := "", ""
 		if c.cal.Dark.Set != nil {
-			if dark, err = p.masterFor(ctx, *c.cal.Dark.Set, sets); err != nil {
+			if dark, darkKey, err = p.masterFor(ctx, *c.cal.Dark.Set, sets); err != nil {
 				return nil, err
 			}
 		}
@@ -219,7 +231,8 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 		} else {
 			fmt.Fprintf(&sb, "calibrate_single %s -bias=%s -flat=%s -prefix=pp_\n", fits, bias, flat)
 		}
-		out = append(out, calibrated{c: c, path: filepath.Join(dir, fmt.Sprintf("pp_raw%04d.fit", i))})
+		out = append(out, calibrated{c: c, path: filepath.Join(dir, fmt.Sprintf("pp_raw%04d.fit", i)),
+			bias: biasKey, dark: darkKey, flat: flatKey})
 	}
 	res, err := p.siril.Run(ctx, dir, sb.String())
 	if err != nil {
