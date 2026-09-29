@@ -191,8 +191,17 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 			return nil, err
 		}
 		if precalibrated(c.frame) {
-			// Only brought to 32 bits and FITS like the calibrated ones.
-			fmt.Fprintf(&sb, "load %s\nsave pp_raw%04d\n", raw, i)
+			// Brought to FITS like the calibrated ones, with the hot
+			// columns and pixels their calibration left taken out.
+			list, err := writeCosmeList(filepath.Join(dir, raw), filepath.Join(dir, fmt.Sprintf("raw%04d.lst", i)), p.opts.Stack.SaturationLevel)
+			if err != nil {
+				return nil, fmt.Errorf("find bad columns in %s: %w", c.frame.Key, err)
+			}
+			fmt.Fprintf(&sb, "load %s\n", raw)
+			if list != "" {
+				fmt.Fprintf(&sb, "cosme %s\n", filepath.Base(list))
+			}
+			fmt.Fprintf(&sb, "find_cosme %g %g\nsave pp_raw%04d\n", cosmeColdSigma, cosmeHotSigma, i)
 			out = append(out, calibrated{c: c, path: filepath.Join(dir, fmt.Sprintf("pp_raw%04d.fit", i))})
 			continue
 		}
