@@ -100,6 +100,37 @@ func hasCard(cards []frameheader.Card, name string) bool {
 	return false
 }
 
+// noPosition starts the error of a master that couldn't be solved for want
+// of anywhere to start. It doesn't count against maxSolveAttempts: masters
+// of targets whose subs had no pointing before it was read from their plate
+// solutions were given up on that way.
+const noPosition = "no position for"
+
+// cardKeywords indexes cards by name, the first of each.
+func cardKeywords(cards []frameheader.Card) frameheader.Keywords {
+	kw := frameheader.Keywords{}
+	for _, c := range cards {
+		if _, ok := kw[c.Name]; !ok {
+			kw[c.Name] = c.Value
+		}
+	}
+	return kw
+}
+
+// solutionOptics is a focal length and pixel size, in mm and µm, that
+// give the pixel scale of the plate solution in kw; pixel is kept when
+// known. Both are 0 without a solution.
+func solutionOptics(kw frameheader.Keywords, pixel float64) (float64, float64) {
+	scale, ok := frameheader.PixelScale(kw)
+	if !ok {
+		return 0, 0
+	}
+	if !(pixel > 0) {
+		pixel = 1
+	}
+	return pixel / 1000 / math.Tan(scale*deg), pixel
+}
+
 func cardFloat(cards []frameheader.Card, name string) float64 {
 	for _, c := range cards {
 		if c.Name == name {
@@ -121,7 +152,7 @@ func (p *Pipeline) plateSolution(ctx context.Context, tr *app.TargetReference, s
 			return cards
 		}
 	}
-	if tr.SolveAttempts >= maxSolveAttempts {
+	if tr.SolveAttempts >= maxSolveAttempts && (tr.SolveError == nil || !strings.HasPrefix(*tr.SolveError, noPosition)) {
 		return nil
 	}
 	cards, err := p.solveMaster(ctx, stack, nina, dir, masterFile)
@@ -148,17 +179,25 @@ func (p *Pipeline) plateSolution(ctx context.Context, tr *app.TargetReference, s
 // reference sub pointed (or the target's position) and the optics in its
 // header, and returns the solution's keywords.
 func (p *Pipeline) solveMaster(ctx context.Context, stack *app.Stack, nina []frameheader.Card, dir, masterFile string) ([]frameheader.Card, error) {
-	ra, dec := cardFloat(nina, "RA"), cardFloat(nina, "DEC")
+	// Where the reference pointed: NINA's RA and DEC, or the centre of the
+	// plate solution Telescope.live writes instead.
+	ref := frameheader.FromKeywords(cardKeywords(nina))
+	ra, dec := ref.RA, ref.Dec
 	if math.IsNaN(ra) || math.IsNaN(dec) {
 		pos, ok := p.targetPosition(ctx, stack.Object)
 		if !ok {
-			return nil, fmt.Errorf("no position for %s", stack.Object)
+			return nil, fmt.Errorf("%s %s", noPosition, stack.Object)
 		}
 		ra, dec = pos[0], pos[1]
 	}
 	focal, pixel := cardFloat(nina, "FOCALLEN"), cardFloat(nina, "XPIXSZ")
 	if bin := cardFloat(nina, "XBINNING"); bin > 1 {
 		pixel *= bin
+	}
+	if !(focal > 0) || !(pixel > 0) {
+		// Telescope.live writes FOCALLEN 0, but its solution gives the
+		// pixel scale, which is all the solver needs of the optics.
+		focal, pixel = solutionOptics(cardKeywords(nina), pixel)
 	}
 	if !(focal > 0) || !(pixel > 0) {
 		var err error
