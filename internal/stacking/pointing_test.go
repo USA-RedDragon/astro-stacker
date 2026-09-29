@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
@@ -129,5 +130,24 @@ func TestLowScoreIsRelativeToTheTarget(t *testing.T) {
 		if (status == app.StackStatusLowScore) != c.low {
 			t.Errorf("score %v of best %v: status %q", c.score, c.best, status)
 		}
+	}
+}
+
+// A light with a flat and bias but no dark for its setpoint is stacked
+// (and calibrated again when a dark comes); one without a flat waits.
+func TestMissingDarkDoesNotHoldALightBack(t *testing.T) {
+	p := &Pipeline{opts: PipelineOptions{MinScore: 0.3}}
+	night := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	exp, gain, offset, temp, bin, rot := 300.0, 0.0, 50.0, -25.0, 1.0, 132.0
+	f := app.Frame{Key: "LIGHT/a.xisf", Filter: "Red", Exposure: &exp, Night: &night, Gain: &gain, Offset: &offset,
+		SetTemp: &temp, BinX: &bin, Rotator: &rot}
+	scores := map[string]quality.SubScore{"a.xisf": {Score: 1, TargetBest: 1}}
+	bias := calmatch.Set{Type: "BIAS", Night: night, Gain: 0, Offset: 50, BinX: 1}
+	flat := calmatch.Set{Type: "FLAT", Night: night, Filter: "Red", Gain: 0, Offset: 50, BinX: 1, Rotator: 132}
+	if c, status := p.classify(f, scores, []calmatch.Set{bias, flat}, nil); status != "" || c.cal.Dark.Set != nil {
+		t.Errorf("no dark: status %q, dark %v", status, c.cal.Dark.Set)
+	}
+	if _, status := p.classify(f, scores, []calmatch.Set{bias}, nil); status != app.StackStatusCalibration {
+		t.Errorf("no flat: status %q", status)
 	}
 }

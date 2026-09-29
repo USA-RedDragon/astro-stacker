@@ -96,7 +96,9 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	}
 
 	newTotal := stack.Subs + len(added)
-	rebuild := newTotal < WarmUpSubs || stack.RebuiltAtSubs < WarmUpSubs || newTotal >= 2*stack.RebuiltAtSubs
+	// A master holding subs calibrated again (a dark came for them) is
+	// rebuilt, so their old versions go.
+	rebuild := newTotal < WarmUpSubs || stack.RebuiltAtSubs < WarmUpSubs || newTotal >= 2*stack.RebuiltAtSubs || stack.NeedsRebuild
 	var acc *Accumulator
 	if !rebuild {
 		if acc, err = p.loadState(ctx, stack); err != nil {
@@ -111,7 +113,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 		sf := app.StackFrame{
 			FrameID: a.c.c.frame.ID, StackID: &stack.ID, Status: app.StackStatusAdded,
 			Score: a.c.c.score.Score, Weight: a.c.c.score.Score * exp, Exposure: exp,
-			RegisteredKey: &a.key, DarkScale: a.c.darkScale,
+			RegisteredKey: &a.key, DarkScale: a.c.darkScale, NoDark: a.c.c.cal.Dark.Set == nil,
 		}
 		if !rebuild {
 			sub, w, h, err := readSub(a.local)
@@ -137,6 +139,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 			return fmt.Errorf("rebuild %s %s: %w", object, filter, err)
 		}
 		stack.RebuiltAtSubs = acc.Subs
+		stack.NeedsRebuild = false
 	}
 	p.progress(object, filter, StagePublishing, 0, 0)
 	if err := p.publish(ctx, stack, acc); err != nil {
@@ -179,15 +182,22 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 		if err != nil {
 			return nil, err
 		}
-		dark, err := p.masterFor(ctx, *c.cal.Dark.Set, sets)
-		if err != nil {
-			return nil, err
-		}
 		flat, err := p.masterFor(ctx, *c.cal.Flat.Set, sets)
 		if err != nil {
 			return nil, err
 		}
+		// Without a dark for the lights' setpoint the sub is calibrated
+		// with bias and flat only; it is calibrated again when one comes.
+		dark := ""
+		if c.cal.Dark.Set != nil {
+			if dark, err = p.masterFor(ctx, *c.cal.Dark.Set, sets); err != nil {
+				return nil, err
+			}
+		}
 		for _, m := range []string{bias, dark, flat} {
+			if m == "" {
+				continue
+			}
 			if _, err := siril.Path(m); err != nil {
 				return nil, err
 			}
@@ -197,21 +207,28 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 		if !strings.EqualFold(path.Ext(raw), ".fit") {
 			fmt.Fprintf(&sb, "load %s\nsave %s\n", raw, strings.TrimSuffix(fits, ".fit"))
 		}
-		fmt.Fprintf(&sb, "calibrate_single %s -bias=%s -dark=%s -flat=%s -cc=dark -opt -prefix=pp_\n",
-			fits, bias, dark, flat)
+		if dark != "" {
+			fmt.Fprintf(&sb, "calibrate_single %s -bias=%s -dark=%s -flat=%s -cc=dark -opt -prefix=pp_\n",
+				fits, bias, dark, flat)
+		} else {
+			fmt.Fprintf(&sb, "calibrate_single %s -bias=%s -flat=%s -prefix=pp_\n", fits, bias, flat)
+		}
 		out = append(out, calibrated{c: c, path: filepath.Join(dir, fmt.Sprintf("pp_raw%04d.fit", i))})
 	}
 	res, err := p.siril.Run(ctx, dir, sb.String())
 	if err != nil {
 		return nil, fmt.Errorf("calibrate: %w", err)
 	}
+	// Siril logs a dark scale for each sub calibrated with a dark, in order.
 	scales := siril.DarkScales(res.Log)
+	next := 0
 	for i := range out {
 		if _, err := os.Stat(out[i].path); err != nil {
 			return nil, fmt.Errorf("calibrate: no output for %s", batch[i].frame.Key)
 		}
-		if i < len(scales) {
-			out[i].darkScale = scales[i]
+		if batch[i].cal.Dark.Set != nil && next < len(scales) {
+			out[i].darkScale = scales[next]
+			next++
 		}
 	}
 	return out, nil

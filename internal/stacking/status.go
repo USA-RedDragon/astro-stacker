@@ -125,7 +125,7 @@ func lights(db *gorm.DB) *gorm.DB {
 // missing calibration and scores can arrive later, and a low score is
 // relative to the target's best, which changes as it is imaged.
 var retried = []string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration,
-	app.StackStatusLowScore, app.StackStatusNoMetadata}
+	app.StackStatusLowScore, app.StackStatusNoMetadata, app.StackStatusRecalibrate}
 
 // pendingLights are lights not yet decided, or due for a retry.
 func (p *Pipeline) pendingLights(db *gorm.DB, now time.Time) *gorm.DB {
