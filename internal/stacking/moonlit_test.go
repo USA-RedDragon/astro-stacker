@@ -2,9 +2,11 @@ package stacking
 
 import (
 	"context"
+	"path"
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -111,5 +113,22 @@ func TestMoonlitAdded(t *testing.T) {
 	}
 	if len(ids) != 1 || ids[0] != 101 || !stacks[7] || len(stacks) != 1 {
 		t.Errorf("moonlit %v in %v, want stack_frames 101 in master 7", ids, stacks)
+	}
+}
+
+// Telescope.live's subs come calibrated and need no bias, dark or flat.
+func TestPrecalibratedNeedsNoCalibration(t *testing.T) {
+	t.Parallel()
+	exp := 600.0
+	night := time.Date(2021, 5, 23, 0, 0, 0, 0, time.UTC)
+	for key, want := range map[string]string{
+		"Telescope.live/Carina Nebula/CHI-1-CCD_2021-05-23T01-09-54_CarinaNebula_Halpha_600s_ID224182_cal.fits": "",
+		"Carina Nebula/LIGHT/2021-05-23_01-09-54_H-a_-10.00_600.00s_0000.xisf":                                  app.StackStatusCalibration,
+	} {
+		f := app.Frame{Key: key, Object: "Carina Nebula", Filter: "H-a", Exposure: &exp, Night: &night}
+		scores := map[string]quality.SubScore{path.Base(key): {Score: 1, TargetBest: 1}}
+		if _, status := (&Pipeline{}).classify(f, scores, nil, nil); status != want {
+			t.Errorf("%s: status %q, want %q", key, status, want)
+		}
 	}
 }

@@ -33,7 +33,7 @@ func FromKeywords(k Keywords) Frame {
 	f := Frame{
 		Type:      normalizeType(k.String("IMAGETYP")),
 		Object:    k.String("OBJECT"),
-		Filter:    k.String("FILTER"),
+		Filter:    NormalizeFilter(k.String("FILTER")),
 		Exposure:  k.Float("EXPTIME"),
 		Gain:      k.Float("GAIN"),
 		Offset:    k.Float("OFFSET"),
@@ -55,6 +55,25 @@ func FromKeywords(k Keywords) Frame {
 	}
 	f.DateObs, f.HasDate = k.Time("DATE-OBS")
 	return f
+}
+
+// filterNames maps other names for the narrowband filters, lower-cased and
+// without spaces or dashes, onto NINA's: remote telescopes (Telescope.live)
+// write "Halpha", "OIII", "Sii".
+var filterNames = map[string]string{
+	"ha": "H-a", "halpha": "H-a", "hydrogenalpha": "H-a",
+	"oiii": "O-III", "o3": "O-III",
+	"sii": "S-II", "s2": "S-II",
+}
+
+// NormalizeFilter names a filter as NINA does, so the same filter stacks
+// into one master whatever wrote the file.
+func NormalizeFilter(name string) string {
+	key := strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(name))
+	if n, ok := filterNames[key]; ok {
+		return n
+	}
+	return name
 }
 
 func normalizeType(t string) string {

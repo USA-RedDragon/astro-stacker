@@ -113,7 +113,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 		sf := app.StackFrame{
 			FrameID: a.c.c.frame.ID, StackID: &stack.ID, Status: app.StackStatusAdded,
 			Score: a.c.c.score.Score, Weight: a.c.c.score.Score * exp, Exposure: exp,
-			RegisteredKey: &a.key, DarkScale: a.c.darkScale, NoDark: a.c.c.cal.Dark.Set == nil,
+			RegisteredKey: &a.key, DarkScale: a.c.darkScale, NoDark: a.c.c.cal.Dark.Set == nil && !precalibrated(a.c.c.frame),
 		}
 		if !rebuild {
 			sub, w, h, err := readSub(a.local)
@@ -177,6 +177,12 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 		raw := fmt.Sprintf("raw%04d%s", i, strings.ToLower(path.Ext(c.frame.Key)))
 		if err := p.download(ctx, p.source, c.frame.Key, filepath.Join(dir, raw)); err != nil {
 			return nil, err
+		}
+		if precalibrated(c.frame) {
+			// Only brought to 32 bits and FITS like the calibrated ones.
+			fmt.Fprintf(&sb, "load %s\nsave pp_raw%04d\n", raw, i)
+			out = append(out, calibrated{c: c, path: filepath.Join(dir, fmt.Sprintf("pp_raw%04d.fit", i))})
+			continue
 		}
 		bias, err := p.masterFor(ctx, *c.cal.Bias.Set, sets)
 		if err != nil {
