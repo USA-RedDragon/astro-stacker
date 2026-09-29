@@ -122,6 +122,17 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
 		p.republishMasters(ctx)
+		// The exposure templates' moon avoidance can change: hourly.
+		for {
+			if err := p.moonSweep(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("Moon sweep failed", "error", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Hour):
+			}
+		}
 	})
 	if p.opts.MosaicInterval > 0 {
 		wg.Go(func() { p.runMosaics(ctx, p.opts.MosaicInterval) })
@@ -197,6 +208,19 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	if err != nil {
 		return 0, err
 	}
+	moonCheck, err := p.moonChecker(ctx, positions)
+	if err != nil {
+		return 0, err
+	}
+	moonlit := make(map[int]bool, len(frames))
+	moonFree, err := p.hasMoonFree(ctx, moonCheck, first.Object, first.Filter)
+	if err != nil {
+		return 0, err
+	}
+	for _, f := range frames {
+		moonlit[f.ID] = moonCheck.moonlit(ctx, f)
+		moonFree = moonFree || !moonlit[f.ID]
+	}
 
 	retrying, err := p.failedBefore(ctx, frames)
 	if err != nil {
@@ -205,6 +229,9 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	var batch []candidate
 	for _, f := range frames {
 		c, status := p.classify(f, scores, sets, positions)
+		if status == "" && moonlit[f.ID] && moonFree {
+			status = app.StackStatusMoon
+		}
 		if status != "" {
 			sf := app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}
 			if status == app.StackStatusCalibration {
@@ -417,7 +444,7 @@ func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 		return err
 	}
 	switch sf.Status {
-	case app.StackStatusCalibration, app.StackStatusLowScore, app.StackStatusNoMetadata:
+	case app.StackStatusCalibration, app.StackStatusLowScore, app.StackStatusNoMetadata, app.StackStatusMoon:
 		next := sf.ProcessedAt.Add(p.opts.RetryAfter)
 		sf.NextAttemptAt = &next
 	case app.StackStatusFailed, app.StackStatusRegistration:
