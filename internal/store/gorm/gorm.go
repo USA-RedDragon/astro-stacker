@@ -3,6 +3,7 @@ package gorm
 import (
 	"context"
 	"fmt"
+	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"log"
 	"os"
 	"time"
@@ -31,7 +32,27 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := normalizeFilters(store.db); err != nil {
+		return nil, err
+	}
 	return store, nil
+}
+
+// normalizeFilters renames filters indexed before their names were
+// normalized (frameheader.NormalizeFilter).
+func normalizeFilters(db *gorm.DB) error {
+	var names []string
+	if err := db.Model(&app.Frame{}).Distinct("filter").Pluck("filter", &names).Error; err != nil {
+		return err
+	}
+	for _, n := range names {
+		if to := frameheader.NormalizeFilter(n); to != n {
+			if err := db.Model(&app.Frame{}).Where("filter = ?", n).UpdateColumn("filter", to).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func NewSchedulerDBGormStore(cfg *config.Config) (*Gorm, error) {

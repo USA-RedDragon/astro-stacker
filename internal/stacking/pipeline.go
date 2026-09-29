@@ -413,6 +413,9 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 	case f.Exposure == nil || *f.Exposure <= 0 || f.Night == nil:
 		return c, app.StackStatusNoMetadata
 	}
+	if precalibrated(f) {
+		return c, ""
+	}
 	c.cal = calmatch.Choose(calmatch.Group{
 		Night: *f.Night, Filter: f.Filter, Exposure: *f.Exposure, Gain: val(f.Gain), Offset: val(f.Offset),
 		SetTemp: val(f.SetTemp), BinX: val(f.BinX), Rotator: val(f.Rotator),
@@ -424,6 +427,12 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		return c, app.StackStatusCalibration
 	}
 	return c, ""
+}
+
+// precalibrated reports whether a light came calibrated, as Telescope.live
+// delivers them ("…_cal.fits"): it is registered as it is.
+func precalibrated(f app.Frame) bool {
+	return strings.Contains(path.Base(f.Key), "_cal.")
 }
 
 // record upserts what happened to one light.
