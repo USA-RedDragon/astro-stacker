@@ -97,6 +97,9 @@ func (p *Pipeline) runMosaics(ctx context.Context, interval time.Duration) {
 		if err := p.linearFitsOnce(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("LinearFit failed", "error", err)
 		}
+		if err := p.cometsOnce(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("Comet masters failed", "error", err)
+		}
 		select {
 		case <-ctx.Done():
 			return

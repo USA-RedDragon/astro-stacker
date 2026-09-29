@@ -365,6 +365,11 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 	for _, s := range stacks {
 		linear[s.Filter] = fracCrop(layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds},
 			s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height)
+		if s.CometLinearKey != nil {
+			// A comet is shown as the comet master sees it, sharp.
+			linear[s.Filter] = fracCrop(layer{Key: *s.CometLinearKey, Effective: s.EffectiveSeconds},
+				s.CometCropX, s.CometCropY, s.CometCropW, s.CometCropH, s.Width, s.Height)
+		}
 	}
 	if err := p.renderCover(ctx, object, path.Join("stacks", object), linear); err != nil {
 		slog.Warn("Could not render the cover", "object", object, "error", err)
