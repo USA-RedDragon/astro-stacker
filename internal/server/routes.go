@@ -12,6 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
+	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
 )
@@ -359,7 +360,8 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 	// targets imaged outside it can be listed too. A target counts as
 	// scheduled only when Target Scheduler has a record for at least half
 	// its lights: the TS5 upgrade dropped every earlier record, so targets
-	// imaged mostly before it are listed with the others.
+	// imaged mostly before it are listed with the others. Panels of a
+	// mosaic never are.
 	r.GET("/objects", func(c *gin.Context) {
 		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
 		ctx := c.Request.Context()
@@ -395,6 +397,13 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		for _, t := range scheduled {
 			acquired[t.Name] += t.Acquired
 		}
+		// A mosaic's panels show in its mosaic, built from their files
+		// whatever Target Scheduler recorded.
+		panels, err := stacking.MosaicPanels(ctx, di.SchedulerDBStore.DB())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		type object struct {
 			Name       string  `json:"name"`
 			Lights     int     `json:"lights"`
@@ -414,7 +423,7 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		out := make([]object, 0, len(rows))
 		for _, r := range rows {
 			out = append(out, object{Name: r.Object, Lights: r.Lights, Stacked: r.Stacked, Nights: r.Nights,
-				FirstNight: day(r.FirstNight), LastNight: day(r.LastNight), Scheduled: 2*acquired[r.Object] >= r.Lights})
+				FirstNight: day(r.FirstNight), LastNight: day(r.LastNight), Scheduled: panels[r.Object] || 2*acquired[r.Object] >= r.Lights})
 		}
 		c.JSON(http.StatusOK, out)
 	})
