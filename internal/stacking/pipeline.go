@@ -385,7 +385,7 @@ func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 		return err
 	}
 	switch sf.Status {
-	case app.StackStatusCalibration:
+	case app.StackStatusCalibration, app.StackStatusLowScore, app.StackStatusNoMetadata:
 		next := sf.ProcessedAt.Add(p.opts.RetryAfter)
 		sf.NextAttemptAt = &next
 	case app.StackStatusFailed, app.StackStatusRegistration:

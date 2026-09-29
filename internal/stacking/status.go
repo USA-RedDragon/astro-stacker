@@ -121,11 +121,17 @@ func lights(db *gorm.DB) *gorm.DB {
 		Where("frames.type = ? AND frames.index_error IS NULL AND frames.object <> '' AND frames.filter <> ''", "LIGHT")
 }
 
+// retried are the statuses a light is looked at again after RetryAfter:
+// missing calibration and scores can arrive later, and a low score is
+// relative to the target's best, which changes as it is imaged.
+var retried = []string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration,
+	app.StackStatusLowScore, app.StackStatusNoMetadata}
+
 // pendingLights are lights not yet decided, or due for a retry.
 func (p *Pipeline) pendingLights(db *gorm.DB, now time.Time) *gorm.DB {
 	return lights(db).
 		Joins("LEFT JOIN stack_frames sf ON sf.frame_id = frames.id").
 		// Rows from before next_attempt_at existed wait RetryAfter.
 		Where("sf.id IS NULL OR (sf.status IN ? AND (sf.next_attempt_at < ? OR (sf.next_attempt_at IS NULL AND sf.processed_at < ?)))",
-			[]string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration}, now, now.Add(-p.opts.RetryAfter))
+			retried, now, now.Add(-p.opts.RetryAfter))
 }
