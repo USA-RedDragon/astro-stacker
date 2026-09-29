@@ -30,7 +30,7 @@ type Server struct {
 
 const defTimeout = 5 * time.Second
 
-func NewServer(config *config.Config, appStore store.Store, schedulerDBStore store.Store, signer *previewer.Signer, broker *events.Broker, version string) *Server {
+func NewServer(config *config.Config, appStore store.Store, schedulerDBStore store.Store, signer *previewer.Signer, broker *events.Broker, restacker middleware.Restacker, version string) *Server {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -40,7 +40,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 		writeTimeout = 60 * time.Second
 	}
 
-	applyMiddleware(r, config, appStore, schedulerDBStore, version)
+	applyMiddleware(r, config, appStore, schedulerDBStore, version, restacker)
 	applyRoutes(r, signer, broker)
 
 	var metricsServer *http.Server
@@ -48,7 +48,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 
 	if config.Metrics.Enabled {
 		metricsRouter := gin.New()
-		applyMiddleware(metricsRouter, config, appStore, schedulerDBStore, version)
+		applyMiddleware(metricsRouter, config, appStore, schedulerDBStore, version, nil)
 
 		metricsRouter.GET("/metrics", gin.WrapH(promhttp.Handler()))
 		metricsServer = &http.Server{
@@ -61,7 +61,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 
 	if config.PProf.Enabled {
 		pprofRouter := gin.New()
-		applyMiddleware(pprofRouter, config, appStore, schedulerDBStore, version)
+		applyMiddleware(pprofRouter, config, appStore, schedulerDBStore, version, nil)
 		pprof.Register(pprofRouter)
 		pprofServer = &http.Server{
 			Addr:              fmt.Sprintf("%s:%d", config.PProf.Bind, config.PProf.Port),
@@ -84,7 +84,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	}
 }
 
-func applyMiddleware(r *gin.Engine, config *config.Config, appStore store.Store, schedulerDBStore store.Store, version string) {
+func applyMiddleware(r *gin.Engine, config *config.Config, appStore store.Store, schedulerDBStore store.Store, version string, restacker middleware.Restacker) {
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
 
@@ -100,6 +100,7 @@ func applyMiddleware(r *gin.Engine, config *config.Config, appStore store.Store,
 		AppStore:         appStore,
 		SchedulerDBStore: schedulerDBStore,
 		Version:          version,
+		Restacker:        restacker,
 	}
 
 	r.Use(middleware.Inject(di))

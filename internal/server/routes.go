@@ -342,6 +342,21 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		c.JSON(http.StatusOK, out)
 	})
 
+	// Stack a target again from scratch, with a new registration reference.
+	r.POST("/targets/restack", func(c *gin.Context) {
+		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+		object := c.Query("object")
+		if di.Restacker == nil || object == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "stacking is off or no object given"})
+			return
+		}
+		if err := di.Restacker.Restack(c.Request.Context(), object); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{"object": object})
+	})
+
 	// Dark library capture list: ladder setpoints lights need but no darks cover.
 	r.GET("/coverage/dark-gaps", func(c *gin.Context) {
 		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)

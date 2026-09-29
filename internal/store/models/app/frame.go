@@ -31,6 +31,13 @@ type Frame struct {
 	MountDec     *float64
 	PointingRead bool
 	Night        *time.Time `gorm:"type:date;index"`
+	// SkyADU, StarHFR and StarCount are measured from the pixels of lights
+	// Target Scheduler has no record of, so they can be scored like the
+	// rest; MeasuredAt is nil until then.
+	SkyADU     *float64
+	StarHFR    *float64
+	StarCount  *int
+	MeasuredAt *time.Time
 	// LightLeak is the large-scale spread, in ADU, of a dark left out of
 	// its master because light reached the sensor; nil when it's clean or
 	// unchecked.

@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"context"
+
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/gin-gonic/gin"
@@ -11,6 +13,13 @@ type DepInjection struct {
 	AppStore         store.Store
 	SchedulerDBStore store.Store
 	Version          string
+	// Restacker is the stacking pipeline, nil when stacking is off.
+	Restacker Restacker
+}
+
+// Restacker stacks a target again from scratch.
+type Restacker interface {
+	Restack(ctx context.Context, object string) error
 }
 
 const DepInjectionKey = "DepInjection"

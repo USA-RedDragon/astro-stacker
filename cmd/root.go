@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
+	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/configulator"
 	"github.com/lmittmann/tint"
@@ -84,6 +85,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	indexCtx, stopIndexer := context.WithCancel(context.Background())
 	defer stopIndexer()
 	var signer *previewer.Signer
+	var restacker middleware.Restacker
 	broker := events.NewBroker()
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled {
 		creds := credentials(cfg)
@@ -114,12 +116,13 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if cfg.Stacking.Enabled {
 			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
 			p.Events = broker
+			restacker = p
 			go p.Run(indexCtx, time.Duration(cfg.Stacking.IntervalSeconds)*time.Second)
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir)
 		}
 	}
 
-	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, cmd.Annotations["version"])
+	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"])
 	if err := server.Start(); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
