@@ -27,9 +27,13 @@ type Frame struct {
 	// MountRA and MountDec are where the mount pointed, in degrees, from
 	// the header; PointingRead is set once the header has been checked for
 	// them, so frames indexed before these existed get them backfilled.
+	// Without RA and DEC keywords the pointing is the centre of the plate
+	// solution in the header; PointingWCS is set once that has been read,
+	// so frames indexed before it get theirs too.
 	MountRA      *float64
 	MountDec     *float64
 	PointingRead bool
+	PointingWCS  bool
 	Night        *time.Time `gorm:"type:date;index"`
 	// SkyADU, StarHFR and StarCount are measured from the pixels of lights
 	// Target Scheduler has no record of, so they can be scored like the

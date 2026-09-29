@@ -81,10 +81,7 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
 // frames recorded it, a ranged read of each header.
 func (ix *Indexer) BackfillPointing(ctx context.Context) (int, error) {
 	var frames []app.Frame
-	if err := ix.db.WithContext(ctx).Select("id", "key", "size").
-		// Frames indexed before the column existed have it NULL.
-		Where("type = ? AND index_error IS NULL AND (pointing_read IS NULL OR pointing_read = ?)", "LIGHT", false).
-		Find(&frames).Error; err != nil {
+	if err := pointingUnread(ix.db.WithContext(ctx)).Select("id", "key", "size").Find(&frames).Error; err != nil {
 		return 0, err
 	}
 	work := make(chan app.Frame)
@@ -103,7 +100,7 @@ func (ix *Indexer) BackfillPointing(ctx context.Context) (int, error) {
 				}
 				h := frameheader.FromKeywords(kw)
 				if err := ix.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).Updates(map[string]any{
-					"mount_ra": ptr(h.RA), "mount_dec": ptr(h.Dec), "pointing_read": true,
+					"mount_ra": ptr(h.RA), "mount_dec": ptr(h.Dec), "pointing_read": true, "pointing_wcs": true,
 				}).Error; err != nil {
 					slog.Debug("Could not save pointing", "key", f.Key, "error", err)
 					continue
@@ -126,6 +123,15 @@ func (ix *Indexer) BackfillPointing(ctx context.Context) (int, error) {
 	close(work)
 	wg.Wait()
 	return done, ctx.Err()
+}
+
+// pointingUnread are the lights whose header hasn't been read for where
+// they pointed: indexed before frames recorded it, or, lacking RA and DEC,
+// before the plate solution was read for it. Frames indexed before the
+// columns existed have them NULL.
+func pointingUnread(db *gorm.DB) *gorm.DB {
+	return db.Model(&app.Frame{}).Where("type = ? AND index_error IS NULL", "LIGHT").
+		Where("pointing_read IS NULL OR pointing_read = ? OR (mount_ra IS NULL AND (pointing_wcs IS NULL OR pointing_wcs = ?))", false, false)
 }
 
 // MeasureUnrecorded measures the sky and stars of lights the stacker found
@@ -385,7 +391,7 @@ func fillFrame(dst *app.Frame, f frameheader.Frame) {
 	dst.Rotator = ptr(f.Rotator)
 	dst.Camera = f.Camera
 	dst.MountRA, dst.MountDec = ptr(f.RA), ptr(f.Dec)
-	dst.PointingRead = true
+	dst.PointingRead, dst.PointingWCS = true, true
 	if f.HasDate {
 		d := f.DateObs
 		dst.DateObs = &d
