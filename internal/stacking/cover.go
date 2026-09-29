@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"math"
 	"path"
+	"regexp"
 	"slices"
 	"time"
 
@@ -44,7 +45,10 @@ func (p palette) filters() []string {
 	return out
 }
 
-// palettes in order of preference for a cover.
+// shoSubject matches a target or project shot for the SHO palette.
+var shoSubject = regexp.MustCompile(`\bSHO\b`)
+
+// palettes a cover can use; choosePalette orders them.
 var palettes = []palette{
 	{Name: "RGB+Ha", R: "Red", G: "Green", B: "Blue", HaRed: true},
 	{Name: "RGB", R: "Red", G: "Green", B: "Blue"},
@@ -106,11 +110,12 @@ const haFloor = 2.0
 // choosePalette picks the first palette whose filters all have a linear
 // preview and comparable data: every channel at least minShare of the
 // best one. RGB+Ha needs H-a at minShare of the average of R, G and B.
-// Narrowband palettes come first when H-a, O-III and S-II together hold
-// more effective exposure than red, green and blue: a target shot mostly
-// in narrowband (Dolphin Head, the Cygnus Loop) shows its nebula in HOO or
-// SHO rather than as a little H-a in a star field.
-func choosePalette(have map[string]layer) (palette, bool) {
+// HOO comes first when H-a, O-III and S-II together hold more effective
+// exposure than red, green and blue: a target shot mostly in narrowband
+// (Dolphin Head, the Cygnus Loop) shows its nebula rather than a little H-a
+// in a star field. SHO is the last resort, but for a subject shot for it
+// (sho: "SHO" in its name, as Heart and Soul Nebula SHO).
+func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 	var narrow, broad float64
 	for _, f := range []string{"H-a", "O-III", "S-II"} {
 		narrow += have[f].Effective
@@ -118,19 +123,20 @@ func choosePalette(have map[string]layer) (palette, bool) {
 	for _, f := range []string{"Red", "Green", "Blue"} {
 		broad += have[f].Effective
 	}
-	order := palettes
-	if narrow > broad {
-		order = nil
-		for _, p := range palettes {
-			if !p.HaRed && p.R != "Red" {
-				order = append(order, p)
-			}
-		}
-		for _, p := range palettes {
-			if p.HaRed || p.R == "Red" {
-				order = append(order, p)
-			}
-		}
+	byName := map[string]palette{}
+	for _, p := range palettes {
+		byName[p.Name] = p
+	}
+	names := []string{"RGB+Ha", "RGB", "HOO", "SHO"}
+	switch {
+	case sho:
+		names = []string{"SHO", "HOO", "RGB+Ha", "RGB"}
+	case narrow > broad:
+		names = []string{"HOO", "RGB+Ha", "RGB", "SHO"}
+	}
+	order := make([]palette, 0, len(names))
+	for _, n := range names {
+		order = append(order, byName[n])
 	}
 	for _, p := range order {
 		channels := []string{p.R, p.G, p.B}
@@ -169,7 +175,7 @@ func choosePalette(have map[string]layer) (palette, bool) {
 // stores it at prefix/color.jpg. Without a full palette it clears the cover,
 // and the mono preview is used.
 func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, linear map[string]layer) error {
-	pal, ok := choosePalette(linear)
+	pal, ok := choosePalette(linear, shoSubject.MatchString(subject))
 	if !ok {
 		metrics.Covers.WithLabelValues("mono").Inc()
 		return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
@@ -432,8 +438,9 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // CoverVersion is how covers are composed; older ones are rendered again at
 // startup. 1: pixels missing any channel are black. 2: H-a goes into red
 // only above the noise (haFloor). 3: narrowband palettes first when
-// narrowband holds more exposure.
-const CoverVersion = 3
+// narrowband holds more exposure. 4: SHO only for subjects named for it,
+// or when nothing else fits.
+const CoverVersion = 4
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or
