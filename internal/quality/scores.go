@@ -57,8 +57,11 @@ type Measured struct {
 	Exposure float64
 	SkyADU   float64
 	Offset   float64 // camera offset, 0 when unknown
-	HFR      float64
-	Stars    int
+	// Calibrated subs came calibrated (Telescope.live), their pedestal
+	// already taken off.
+	Calibrated bool
+	HFR        float64
+	Stars      int
 }
 
 // LoadScores reads every acquired image from the scheduler database and
@@ -118,7 +121,11 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measured []M
 			continue
 		}
 		g := group{filter: m.Filter, exposure: math.Round(m.Exposure)}
-		raw := RawWeight(Sky(m.SkyADU, PedestalAt(pedestal, m.Offset)), m.HFR)
+		ped := PedestalAt(pedestal, m.Offset)
+		if m.Calibrated {
+			ped = 0
+		}
+		raw := RawWeight(Sky(m.SkyADU, ped), m.HFR)
 		items = append(items, item{
 			s:      SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars},
 			raw:    raw,

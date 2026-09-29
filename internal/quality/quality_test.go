@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestParseMetadataHandlesNaNStrings(t *testing.T) {
@@ -87,4 +89,37 @@ func TestPedestalAt(t *testing.T) {
 			t.Errorf("PedestalAt(506, %v) = %v, want %v", c.offset, got, c.want)
 		}
 	}
+}
+
+// Subs that came calibrated have no pedestal left to take off their sky.
+func TestCalibratedSubsScore(t *testing.T) {
+	t.Parallel()
+	scores, err := quality.LoadScores(t.Context(), emptyScheduler(t), 506, []quality.Measured{
+		{File: "a_cal.fits", Target: "Crescent", Filter: "H-a", Exposure: 600, SkyADU: 177, HFR: 2.5, Calibrated: true},
+		{File: "b_cal.fits", Target: "Crescent", Filter: "H-a", Exposure: 600, SkyADU: 180, HFR: 2.6, Calibrated: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := scores["a_cal.fits"]; !(s.Score > 0) {
+		t.Errorf("calibrated sub scored %+v, want above 0", s)
+	}
+}
+
+// emptyScheduler is a scheduler database without acquired images.
+func emptyScheduler(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`CREATE TABLE target ("Id" integer, name text)`,
+		`CREATE TABLE acquiredimage ("Id" integer, "targetId" integer, "gradingStatus" integer, metadata text)`,
+	} {
+		if err := db.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
 }

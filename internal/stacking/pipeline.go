@@ -156,6 +156,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	var wg sync.WaitGroup
 	wg.Go(func() { p.reportStatus(ctx) })
 	wg.Go(func() {
+		p.requeueWeightless(ctx)
 		// Recropping re-renders covers of the masters it touches.
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
@@ -405,6 +406,11 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 	switch {
 	case s.GradingStatus == quality.GradingRejected:
 		return c, app.StackStatusRejected
+	case !(s.Score > 0):
+		// Unmeasurable (no sky above the pedestal, no stars): a weight of 0
+		// would add nothing, and a master of nothing but such subs is
+		// black.
+		return c, app.StackStatusLowScore
 	case s.Score < p.opts.MinScore*s.TargetBest:
 		// Against the target's best rather than MinScore alone: a panel
 		// imaged only under the moon is better stacked, weighted low as its
@@ -427,6 +433,29 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		return c, app.StackStatusCalibration
 	}
 	return c, ""
+}
+
+// requeueWeightless sends subs stacked with a weight of 0, which added
+// nothing, back to be scored again, and marks their masters for a rebuild.
+func (p *Pipeline) requeueWeightless(ctx context.Context) {
+	now := time.Now()
+	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var stacks []int
+		if err := tx.Model(&app.StackFrame{}).Where("status = ? AND NOT (weight > 0) AND stack_id IS NOT NULL", app.StackStatusAdded).
+			Distinct("stack_id").Pluck("stack_id", &stacks).Error; err != nil || len(stacks) == 0 {
+			return err
+		}
+		res := tx.Model(&app.StackFrame{}).Where("status = ? AND NOT (weight > 0)", app.StackStatusAdded).
+			UpdateColumns(map[string]any{"status": app.StackStatusLowScore, "next_attempt_at": now})
+		if res.Error != nil {
+			return res.Error
+		}
+		slog.Info("Scoring again subs stacked with no weight", "subs", res.RowsAffected, "masters", len(stacks))
+		return tx.Model(&app.Stack{}).Where("id IN ?", stacks).UpdateColumn("needs_rebuild", true).Error
+	})
+	if err != nil && ctx.Err() == nil {
+		slog.Error("Requeueing weightless subs failed", "error", err)
+	}
 }
 
 // precalibrated reports whether a light came calibrated, as Telescope.live
@@ -452,6 +481,7 @@ func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error)
 		out = append(out, quality.Measured{
 			File: path.Base(f.Key), Target: f.Object, Filter: f.Filter, Exposure: val(f.Exposure),
 			SkyADU: val(f.SkyADU), Offset: val(f.Offset), HFR: val(f.StarHFR), Stars: intVal(f.StarCount),
+			Calibrated: precalibrated(f),
 		})
 	}
 	return out, nil
