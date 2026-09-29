@@ -10,8 +10,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
 func TestChoosePalette(t *testing.T) {
@@ -184,5 +186,47 @@ func TestCoverNeedsEveryChannel(t *testing.T) {
 	}
 	if _, g, _, _ := img.At(w/4, h/2).RGBA(); g>>8 < 16 {
 		t.Errorf("pixel with every channel is black")
+	}
+}
+
+// A comet's cover uses its comet masters only when every filter's was made
+// by the current method; while some are still being made, the cover is
+// kept as it is.
+func TestCometCover(t *testing.T) {
+	t.Parallel()
+	key, old, now := "k", cometMethod-1, cometMethod
+	master := func(filter string, method *int, done bool) app.Stack {
+		s := app.Stack{Filter: filter, Subs: 20, MasterKey: &key, UpdatedAt: time.Unix(1_700_000_000, 0)}
+		if method != nil {
+			s.CometLinearKey = &key
+		}
+		s.CometMethod = method
+		if done {
+			s.CometSignature = cometSignature(&s)
+		}
+		return s
+	}
+	for _, c := range []struct {
+		name        string
+		stacks      []app.Stack
+		comet, wait bool
+	}{
+		{"every filter current", []app.Stack{master("Red", &now, true), master("Green", &now, true)}, true, false},
+		{"restack under way", []app.Stack{master("Red", &now, true), master("Green", &old, false)}, false, true},
+		{"new filter without one yet", []app.Stack{master("Red", &now, true), {Filter: "Blue", Subs: 20, MasterKey: &key}}, false, true},
+		{"new filter too small for one", []app.Stack{master("Red", &now, true), {Filter: "Blue", Subs: 2, MasterKey: &key}}, false, false},
+		{"old one left, nothing coming", []app.Stack{master("Red", &now, true), master("Green", &old, true)}, false, false},
+		{"not a comet", []app.Stack{{Filter: "Red", Subs: 20, MasterKey: &key}}, false, false},
+	} {
+		comet, wait := cometCover(c.stacks)
+		if comet != c.comet || wait != c.wait {
+			t.Errorf("%s: comet %v wait %v, want %v %v", c.name, comet, wait, c.comet, c.wait)
+		}
+	}
+	// Comet masters from before the method was recorded are old ones.
+	pre := master("Green", &now, false)
+	pre.CometMethod = nil
+	if comet, wait := cometCover([]app.Stack{master("Red", &now, true), pre}); comet || !wait {
+		t.Errorf("a comet master of unknown method: comet %v wait %v, want false true", comet, wait)
 	}
 }

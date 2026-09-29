@@ -988,11 +988,12 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 		"comet_key": keys["comet.fit"], "comet_xisf_key": keys["comet.xisf"], "comet_preview_key": keys["comet.jpg"],
 		"comet_linear_key": keys["comet-linear.bin"], "comet_subs": subs,
 		"comet_crop_x": r.X, "comet_crop_y": r.Y, "comet_crop_w": r.W, "comet_crop_h": r.H,
-		"comet_signature": cometSignature(stack), "comet_error": nil,
+		"comet_signature": cometSignature(stack), "comet_error": nil, "comet_method": cometMethod,
 	}).Error; err != nil {
 		return err
 	}
 	stack.CometLinearKey = ptrTo(keys["comet-linear.bin"])
+	stack.CometMethod = ptrTo(cometMethod)
 	stack.CometCropX, stack.CometCropY, stack.CometCropW, stack.CometCropH = r.X, r.Y, r.W, r.H
 	p.refreshCover(ctx, stack.Object)
 	p.Events.Publish(events.Event{Type: events.TypeMaster, Object: stack.Object, Filter: stack.Filter})
