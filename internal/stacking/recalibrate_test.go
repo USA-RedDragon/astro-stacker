@@ -57,6 +57,7 @@ func TestRecalReason(t *testing.T) {
 	dark := func(temp float64, count int) *calmatch.Set {
 		return &calmatch.Set{Type: "DARK", Exposure: 600, Gain: 0, Offset: 50, SetTemp: temp, BinX: 1, Count: count}
 	}
+	g := calmatch.Group{Exposure: 600, Gain: 0, Offset: 50, SetTemp: -8, BinX: 1, Rotator: math.NaN()}
 	now := calmatch.Match{Set: dark(-5, 25)}
 	for _, c := range []struct {
 		name string
@@ -67,14 +68,45 @@ func TestRecalReason(t *testing.T) {
 		{"part of the set", darkHistory{used: dark(-5, 8)}, recalGrown},
 		{"the whole set", darkHistory{used: dark(-5, 25)}, ""},
 		{"a bigger set elsewhere", darkHistory{used: dark(-5, 30)}, ""},
-		{"not recorded", darkHistory{}, ""},
+		{"not recorded, nothing before", darkHistory{}, ""},
+		{"a dark 8 °C off, now 3", darkHistory{used: dark(0, 30)}, recalCloser},
+		{"a dark 4 °C off, now 3", darkHistory{used: dark(-12, 30)}, ""},
+		{"likely 8 °C off", darkHistory{likely: dark(0, 30)}, recalCloser},
+		// Unrecorded lights are never taken back for a set that grew.
+		{"likely the same setup", darkHistory{likely: dark(-5, 8)}, ""},
 	} {
-		if got := recalReason(c.h, now); got != c.want {
+		if got := recalReason(g, c.h, now); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
-	if got := recalReason(darkHistory{noDark: true}, calmatch.Match{}); got != "" {
+	if got := recalReason(g, darkHistory{noDark: true}, calmatch.Match{}); got != "" {
 		t.Errorf("no dark now: %q", got)
+	}
+	// Without a setpoint on the lights no dark is closer than another.
+	g.SetTemp = math.NaN()
+	if got := recalReason(g, darkHistory{used: dark(0, 30)}, now); got != "" {
+		t.Errorf("unknown setpoint: %q", got)
+	}
+}
+
+// A light stacked before masters were recorded is taken to have the dark
+// that best matched it among the sets complete when it was stacked.
+func TestInferDark(t *testing.T) {
+	t.Parallel()
+	g := calmatch.Group{Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5, BinX: 1, Rotator: math.NaN()}
+	day := func(d int) time.Time { return time.Date(2026, 9, d, 0, 0, 0, 0, time.UTC) }
+	sets := []calmatch.Set{
+		{Type: "DARK", Exposure: 600, Gain: 0, Offset: 50, SetTemp: 0, BinX: 1, Uploaded: day(1)},
+		{Type: "DARK", Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5, BinX: 1, Uploaded: day(20)},
+	}
+	if s := inferDark(g, sets, day(19)); s == nil || s.SetTemp != 0 {
+		t.Errorf("stacked while the -5 °C darks came: %+v", s)
+	}
+	if s := inferDark(g, sets, day(21)); s == nil || s.SetTemp != -5 {
+		t.Errorf("stacked after: %+v", s)
+	}
+	if s := inferDark(g, sets, day(1)); s != nil {
+		t.Errorf("stacked before any: %+v", s)
 	}
 }
 
@@ -140,13 +172,36 @@ func TestRecalibrateDarks(t *testing.T) {
 	whole := light("c.xisf", app.StackFrame{DarkMaster: s("whole")})
 	unknown := light("d.xisf", app.StackFrame{})
 	calibrated := light("e_cal.fits", app.StackFrame{})
+	// A 0 °C library from 2025, and lights stacked before masters were
+	// recorded: one while the -5 °C darks came, one after.
+	old := time.Date(2025, 2, 6, 20, 0, 0, 0, time.UTC)
+	oldNight := time.Date(2025, 2, 6, 0, 0, 0, 0, time.UTC)
+	for i := range 20 {
+		d := old.Add(time.Duration(i) * 10 * time.Minute)
+		if err := db.Create(&app.Frame{Key: fmt.Sprintf("old-dark-%d", i), Type: "DARK", Exposure: fp(600), Gain: fp(0),
+			Offset: fp(50), SetTemp: fp(0), BinX: fp(1), Night: &oldNight, DateObs: &d, LastModified: d}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	during := light("f.xisf", app.StackFrame{ProcessedAt: time.Date(2026, 9, 29, 6, 0, 0, 0, time.UTC)})
+	after := light("g.xisf", app.StackFrame{ProcessedAt: time.Date(2026, 9, 30, 6, 0, 0, 0, time.UTC)})
+	recorded := light("h.xisf", app.StackFrame{DarkMaster: s("old"), ProcessedAt: time.Date(2026, 9, 30, 6, 0, 0, 0, time.UTC)})
+	if err := db.Create(&app.CalibrationMaster{SetKey: "old", Type: "DARK", ObjectKey: "z", Frames: 20,
+		Exposure: fp(600), Gain: fp(0), Offset: fp(50), SetTemp: fp(0), BinX: fp(1)}).Error; err != nil {
+		t.Fatal(err)
+	}
 
+	// Lights stacked before no_dark existed have it NULL.
+	if err := db.Model(&app.StackFrame{}).Where("id = ?", unknown).Update("no_dark", gorm.Expr("NULL")).Error; err != nil {
+		t.Fatal(err)
+	}
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions)
 	if err := p.recalibrateDarks(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	for id, want := range map[int]string{noDark: app.StackStatusRecalibrate, partial: app.StackStatusRecalibrate,
-		whole: app.StackStatusAdded, unknown: app.StackStatusAdded, calibrated: app.StackStatusAdded} {
+		whole: app.StackStatusAdded, unknown: app.StackStatusAdded, calibrated: app.StackStatusAdded,
+		during: app.StackStatusRecalibrate, after: app.StackStatusAdded, recorded: app.StackStatusRecalibrate} {
 		var sf app.StackFrame
 		db.First(&sf, id)
 		if sf.Status != want {

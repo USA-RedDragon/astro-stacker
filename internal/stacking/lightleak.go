@@ -58,8 +58,8 @@ func darkSpread(d []float32, w, h int) (spread, noise float64) {
 }
 
 // dropLeakyDarks checks each downloaded dark for light and removes the
-// leaky ones from files, recording them on their frames. It returns how
-// many are left.
+// leaky ones from files, recording the measure on every frame and the leak
+// on the leaky ones. It returns how many are left.
 func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files []string) (int, error) {
 	left := 0
 	for i, f := range frames {
@@ -82,7 +82,8 @@ func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files
 		} else {
 			left++
 		}
-		if err := p.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).UpdateColumn("light_leak", leak).Error; err != nil {
+		if err := p.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).
+			UpdateColumns(map[string]any{"light_leak": leak, "dark_spread": spread}).Error; err != nil {
 			return 0, err
 		}
 	}

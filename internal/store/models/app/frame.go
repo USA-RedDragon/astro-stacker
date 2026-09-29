@@ -42,6 +42,11 @@ type Frame struct {
 	// its master because light reached the sensor; nil when it's clean or
 	// unchecked.
 	LightLeak *float64
+	// DarkSpread is the same measure for every dark checked, clean or
+	// leaky, so a clean dark can be told from one never checked (nil):
+	// darks are checked only when a master is built from them, and those
+	// checked before this was recorded have nil.
+	DarkSpread *float64
 
 	// IndexError is set when the header could not be read; the frame is
 	// retried when its ETag changes.
