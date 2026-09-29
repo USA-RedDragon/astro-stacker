@@ -3,6 +3,7 @@ package stacking
 import (
 	"bytes"
 	"compress/gzip"
+	"image/jpeg"
 	"io"
 	"os"
 	"path/filepath"
@@ -142,5 +143,39 @@ func TestCoverFromFiles(t *testing.T) {
 	t.Logf("%s, %dx%d", pal.Name, w, h)
 	if err := os.WriteFile(filepath.Join(dir, "cover.jpg"), jpg, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A mosaic panel with green and blue but no red yet is left black, not cyan.
+func TestCoverNeedsEveryChannel(t *testing.T) {
+	t.Parallel()
+	const w, h = 64, 32
+	plane := func(fill func(x int) float32) *linearImage {
+		d := make([]float32, w*h)
+		for i := range d {
+			d[i] = fill(i % w)
+		}
+		return &linearImage{W: w, H: h, Data: d}
+	}
+	sky := func(x int) float32 { return 0.01 + float32(x%7)*1e-4 }
+	planes := map[string]*linearImage{
+		"Red":   plane(func(x int) float32 { return map[bool]float32{true: sky(x), false: 0}[x < w/2] }),
+		"Green": plane(sky),
+		"Blue":  plane(sky),
+	}
+	jpg, err := composeCover(palettes[1], planes, w, h) // RGB
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := jpeg.Decode(bytes.NewReader(jpg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := img.At(w*3/4, h/2).RGBA()
+	if r>>8 > 8 || g>>8 > 8 || b>>8 > 8 {
+		t.Errorf("pixel without red = %d,%d,%d, want black", r>>8, g>>8, b>>8)
+	}
+	if _, g, _, _ := img.At(w/4, h/2).RGBA(); g>>8 < 16 {
+		t.Errorf("pixel with every channel is black")
 	}
 }
