@@ -132,3 +132,17 @@ func TestPrecalibratedNeedsNoCalibration(t *testing.T) {
 		}
 	}
 }
+
+// A sub that can't be scored (0) stays out even when the target's best is
+// also 0: a master of weightless subs is black.
+func TestZeroScoreStaysOut(t *testing.T) {
+	t.Parallel()
+	exp := 600.0
+	night := time.Date(2021, 5, 23, 0, 0, 0, 0, time.UTC)
+	key := "Telescope.live/Crescent/x_cal.fits"
+	f := app.Frame{Key: key, Object: "Crescent Nebula", Filter: "H-a", Exposure: &exp, Night: &night}
+	scores := map[string]quality.SubScore{"x_cal.fits": {Score: 0, TargetBest: 0}}
+	if _, status := (&Pipeline{}).classify(f, scores, nil, nil); status != app.StackStatusLowScore {
+		t.Errorf("status %q, want low_score", status)
+	}
+}
