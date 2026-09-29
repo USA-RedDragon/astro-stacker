@@ -118,7 +118,17 @@ type Stack struct {
 	FitOffset    float64
 	FitScale     float64
 	FitSignature string
-	UpdatedAt    time.Time
+	// Comet* are a comet target's master aligned on the comet instead of
+	// the stars; CometSignature identifies the master it was stacked from.
+	CometKey                                       *string
+	CometXISFKey                                   *string
+	CometPreviewKey                                *string
+	CometLinearKey                                 *string
+	CometSubs                                      int
+	CometCropX, CometCropY, CometCropW, CometCropH int
+	CometSignature                                 string
+	CometError                                     *string `gorm:"type:text"`
+	UpdatedAt                                      time.Time
 }
 
 // Why a light is or isn't in a master.

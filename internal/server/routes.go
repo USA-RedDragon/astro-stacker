@@ -46,6 +46,10 @@ type Master struct {
 	// target has other colour or other narrowband filters.
 	FittedURL    string `json:"fitted_url,omitempty"`
 	FitReference string `json:"fit_reference,omitempty"`
+	// Comet* are a comet's master aligned on the comet, when there is one.
+	CometPreviewURL string `json:"comet_preview_url,omitempty"`
+	CometURL        string `json:"comet_url,omitempty"`
+	CometXISFURL    string `json:"comet_xisf_url,omitempty"`
 }
 
 // Crop is the well-covered part of an image as fractions of its width and
@@ -328,6 +332,15 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 			base := strings.TrimSuffix(name, "master.fit")
 			if err == nil && s.XISFKey != nil {
 				m.XISFURL, err = signer.DownloadURL(ctx, *s.XISFKey, base+"master.xisf")
+			}
+			if err == nil && s.CometPreviewKey != nil && s.CometKey != nil && s.CometXISFKey != nil {
+				m.CometPreviewURL, err = signer.URL(ctx, *s.CometPreviewKey)
+				if err == nil {
+					m.CometURL, err = signer.DownloadURL(ctx, *s.CometKey, base+"comet.fit")
+				}
+				if err == nil {
+					m.CometXISFURL, err = signer.DownloadURL(ctx, *s.CometXISFKey, base+"comet.xisf")
+				}
 			}
 			if err == nil && s.FittedKey != nil {
 				m.FitReference = s.FitReference
