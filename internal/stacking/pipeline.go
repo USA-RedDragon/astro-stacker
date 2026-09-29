@@ -373,7 +373,7 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 // Scheduler has no record of them.
 func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error) {
 	var frames []app.Frame
-	if err := p.db.WithContext(ctx).Select("key", "object", "filter", "exposure", "sky_adu", "star_hfr", "star_count").
+	if err := p.db.WithContext(ctx).Select("key", "object", "filter", "exposure", "offset", "sky_adu", "star_hfr", "star_count").
 		Where("measured_at IS NOT NULL AND star_hfr > 0").Find(&frames).Error; err != nil {
 		return nil, fmt.Errorf("load measured lights: %w", err)
 	}
