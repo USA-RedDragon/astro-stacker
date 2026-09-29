@@ -11,6 +11,7 @@ import (
 	"image/jpeg"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -29,6 +30,10 @@ import (
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
+
+// mosaicMethod is part of every mosaic's signature, so a change to how
+// they are assembled builds them all again. 2: panels flattened first.
+const mosaicMethod = 2
 
 // StageAssembling is reported while a mosaic is being built.
 const StageAssembling = "assembling"
@@ -84,6 +89,22 @@ func mosaicGroups(ctx context.Context, sched *gorm.DB) ([]mosaicGroup, error) {
 		out = append(out, mosaicGroup{Project: project, Panels: panels})
 	}
 	slices.SortFunc(out, func(a, b mosaicGroup) int { return strings.Compare(a.Project, b.Project) })
+	return out, nil
+}
+
+// MosaicPanels names the targets that are panels of a mosaic project, as
+// the mosaics are built from.
+func MosaicPanels(ctx context.Context, sched *gorm.DB) (map[string]bool, error) {
+	groups, err := mosaicGroups(ctx, sched)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, g := range groups {
+		for _, p := range g.Panels {
+			out[p.Object] = true
+		}
+	}
 	return out, nil
 }
 
@@ -149,6 +170,7 @@ func (p *Pipeline) MosaicsOnce(ctx context.Context) error {
 func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string, masters []app.Stack) error {
 	slices.SortFunc(masters, func(a, b app.Stack) int { return strings.Compare(a.Object, b.Object) })
 	h := sha256.New()
+	fmt.Fprintf(h, "%d\x00", mosaicMethod)
 	var newest time.Time
 	for _, m := range masters {
 		fmt.Fprintf(h, "%s\x00%d\x00", m.Object, m.UpdatedAt.UnixNano())
@@ -237,6 +259,14 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 		}
 		if err := p.solvePanel(ctx, dir, i+1, positions[m.Object], focal, pixel); err != nil {
 			return fmt.Errorf("%s: %w", m.Object, err)
+		}
+	}
+	// Each panel's own sky gradient (moon, horizon glow, a different one
+	// every night) would show in the mosaic as a colour cast per panel:
+	// matching levels on the overlaps can't take a slope out.
+	for i := range masters {
+		if err := flattenPanel(filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", i+1)), p.opts.Stack.SaturationLevel); err != nil {
+			return fmt.Errorf("%s: flatten: %w", masters[i].Object, err)
 		}
 	}
 	// The download: with two or more panels, Siril's full-resolution stack
@@ -377,6 +407,117 @@ func encodeGray(v []float32, w, h int) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// flattenPanel takes a plane fitted to the sky out of a panel master,
+// keeping its mean level and its header. The sky is sampled on a grid and
+// fitted again without samples more than 2.5σ off, which are stars,
+// galaxies and nebulosity. A plane can't follow nebulosity the way a
+// higher-order surface would.
+func flattenPanel(file string, sat float32) error {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	im, err := imagedata.Decode(b)
+	if err != nil {
+		return err
+	}
+	if im.C != 1 {
+		return fmt.Errorf("%d channels", im.C)
+	}
+	all, err := frameheader.ParseCards(b)
+	if err != nil {
+		return err
+	}
+	var cards []imagedata.Card
+	for _, c := range all {
+		switch {
+		case c.Name == "SIMPLE", c.Name == "BITPIX", c.Name == "EXTEND", c.Name == "BZERO", c.Name == "BSCALE",
+			strings.HasPrefix(c.Name, "NAXIS"):
+		default:
+			cards = append(cards, imageCard(c))
+		}
+	}
+	data := im.Plane(0)
+	_, bx, by, ok := fitSkyPlane(data, im.W, im.H, sat)
+	if !ok {
+		return nil
+	}
+	for y := range im.H {
+		ny := float64(y)/float64(im.H) - 0.5
+		for x := range im.W {
+			i := y*im.W + x
+			if v := data[i]; v != 0 && v < sat {
+				nx := float64(x)/float64(im.W) - 0.5
+				data[i] = v - float32(bx*nx+by*ny)
+				if data[i] <= 0 {
+					data[i] = 1e-7 // 0 marks no data
+				}
+			}
+		}
+	}
+	return writeFITSFile(file, im.W, im.H, 1, data, cards)
+}
+
+// fitSkyPlane fits a + bx·x + by·y, x and y running -0.5 to 0.5 across the
+// frame, to the sky of a frame.
+func fitSkyPlane(data []float32, w, h int, sat float32) (a, bx, by float64, ok bool) {
+	stride := max(1, int(math.Sqrt(float64(w*h)/40_000)))
+	type sample struct{ x, y, v float64 }
+	var s []sample
+	for y := stride / 2; y < h; y += stride {
+		for x := stride / 2; x < w; x += stride {
+			if v := data[y*w+x]; v != 0 && v < sat {
+				s = append(s, sample{float64(x)/float64(w) - 0.5, float64(y)/float64(h) - 0.5, float64(v)})
+			}
+		}
+	}
+	for range 5 {
+		if len(s) < 100 {
+			return 0, 0, 0, false
+		}
+		// Least squares for three unknowns, by the normal equations.
+		var n, sx, sy, sxx, syy, sxy, sv, sxv, syv float64
+		for _, p := range s {
+			n++
+			sx, sy, sxx, syy, sxy = sx+p.x, sy+p.y, sxx+p.x*p.x, syy+p.y*p.y, sxy+p.x*p.y
+			sv, sxv, syv = sv+p.v, sxv+p.x*p.v, syv+p.y*p.v
+		}
+		m := [3][4]float64{{n, sx, sy, sv}, {sx, sxx, sxy, sxv}, {sy, sxy, syy, syv}}
+		for c := range 3 {
+			piv := m[c][c]
+			if math.Abs(piv) < 1e-12 {
+				return 0, 0, 0, false
+			}
+			for r := range 3 {
+				if r == c {
+					continue
+				}
+				f := m[r][c] / piv
+				for k := c; k < 4; k++ {
+					m[r][k] -= f * m[c][k]
+				}
+			}
+		}
+		a, bx, by = m[0][3]/m[0][0], m[1][3]/m[1][1], m[2][3]/m[2][2]
+		res := make([]float64, len(s))
+		for i, p := range s {
+			res[i] = math.Abs(p.v - a - bx*p.x - by*p.y)
+		}
+		limit := 2.5 * madToSigma * median(res)
+		kept := s[:0:0]
+		for i, p := range s {
+			if res[i] <= limit {
+				kept = append(kept, p)
+			}
+		}
+		if len(kept) == len(s) {
+			break
+		}
+		s = kept
+	}
+	return a, bx, by, true
 }
 
 // solvePanel plate solves panel n from its target's position and the

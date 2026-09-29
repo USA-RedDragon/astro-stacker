@@ -48,3 +48,22 @@ func TestMosaicGroupsFromSchedulerProjects(t *testing.T) {
 		t.Errorf("panel 1 at %v, %v", first.RA, first.Dec)
 	}
 }
+
+// A panel's sky plane is found under stars and taken out, keeping the level.
+func TestFitSkyPlane(t *testing.T) {
+	t.Parallel()
+	const w, h = 400, 300
+	data := make([]float32, w*h)
+	for y := range h {
+		for x := range w {
+			data[y*w+x] = float32(0.01 + 0.004*(float64(x)/w-0.5) - 0.002*(float64(y)/h-0.5))
+		}
+	}
+	for i := 0; i < len(data); i += 97 {
+		data[i] += 0.3 // stars
+	}
+	a, bx, by, ok := fitSkyPlane(data, w, h, 0.9)
+	if !ok || math.Abs(a-0.01) > 1e-5 || math.Abs(bx-0.004) > 1e-5 || math.Abs(by+0.002) > 1e-5 {
+		t.Errorf("plane %v %v %v %v, want 0.01 0.004 -0.002", a, bx, by, ok)
+	}
+}
