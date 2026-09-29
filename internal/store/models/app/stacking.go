@@ -38,6 +38,10 @@ type TargetReference struct {
 	WCS           *string `gorm:"type:text"`
 	SolveAttempts int
 	SolveError    *string `gorm:"type:text"`
+	// Registration is how subs are registered to it (see
+	// stacking.registrationStars); "" for references from before it was
+	// recorded, all registered by matching stars.
+	Registration string `gorm:"not null;default:''"`
 }
 
 // Stack is the running master for one target and filter.

@@ -51,10 +51,22 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	}
 	defer os.RemoveAll(dir)
 
-	ref, err := p.reference(ctx, object, sets, scores, positions)
+	ref, tr, err := p.reference(ctx, object, sets, scores, positions)
 	if err != nil {
 		return fmt.Errorf("reference for %s: %w", object, err)
 	}
+	// The reference's light may have left the bucket; its calibrated copy
+	// is still the reference, registered by stars.
+	var refFrame app.Frame
+	if err := p.db.WithContext(ctx).First(&refFrame, tr.FrameID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("reference frame for %s: %w", object, err)
+	}
+	if tr.Registration == "" && precalibrated(refFrame) {
+		// Missed at startup (reregisterPrecalibrated) while being stacked.
+		slog.Warn("Restacking target to register its calibrated subs with the optics' distortion", "object", object)
+		return p.restack(ctx, object, nil)
+	}
+	disto := registerWithDistortion(tr, refFrame, batch)
 
 	p.progress(object, filter, StageCalibrating, 0, len(batch))
 	cals, err := p.calibrate(ctx, dir, batch, sets)
@@ -62,7 +74,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 		return err
 	}
 	p.progress(object, filter, StageRegistering, 0, len(cals))
-	registered, err := p.register(ctx, dir, ref, cals)
+	registered, err := p.register(ctx, dir, ref, cals, disto)
 	if err != nil {
 		return err
 	}
@@ -264,7 +276,9 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 
 // register aligns the calibrated subs to the target reference in one Siril
 // run. It returns each sub's registered file, or "" if it didn't register.
-func (p *Pipeline) register(ctx context.Context, dir, ref string, cals []calibrated) ([]string, error) {
+// With disto, star positions are matched and the subs resampled free of the
+// distortion in the reference's plate solution (see registerWithDistortion).
+func (p *Pipeline) register(ctx context.Context, dir, ref string, cals []calibrated, disto bool) ([]string, error) {
 	reg := filepath.Join(dir, "reg")
 	if err := os.Mkdir(reg, 0o700); err != nil {
 		return nil, err
@@ -279,7 +293,7 @@ func (p *Pipeline) register(ctx context.Context, dir, ref string, cals []calibra
 	}
 	// Registered subs are stored as 16-bit: calibrated data comes from a
 	// 16-bit sensor, and the rounding is far below the noise.
-	script := p.sirilPreamble(false) + "cd reg\nsetref seq_ 1\nregister seq_ -prefix=r_\n"
+	script := p.sirilPreamble(false) + "cd reg\nsetref seq_ 1\n" + registerCommand(disto)
 	if res, err := p.siril.Run(ctx, dir, script); err != nil {
 		// When no sub matches the reference, Siril fails the whole script.
 		// Those subs are recorded as unregistered like any other failure.
@@ -299,26 +313,27 @@ func (p *Pipeline) register(ctx context.Context, dir, ref string, cals []calibra
 }
 
 // reference returns the calibrated frame a target's subs are registered to,
-// choosing it from all of the target's usable lights the first time.
-func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch.Set, scores map[string]quality.SubScore, positions map[string][2]float64) (string, error) {
+// choosing it from all of the target's usable lights the first time, and
+// its record.
+func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch.Set, scores map[string]quality.SubScore, positions map[string][2]float64) (string, app.TargetReference, error) {
 	h := sha256.Sum256([]byte(object))
 	local := filepath.Join(p.workDir, "references", hex.EncodeToString(h[:8])+".fit")
-	if _, err := os.Stat(local); err == nil {
-		return local, nil
-	}
 	var tr app.TargetReference
 	err := p.db.WithContext(ctx).Where("object = ?", object).First(&tr).Error
 	if err == nil {
-		return local, p.download(ctx, p.dest, tr.ObjectKey, local)
+		if _, err := os.Stat(local); err == nil {
+			return local, tr, nil
+		}
+		return local, tr, p.download(ctx, p.dest, tr.ObjectKey, local)
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return "", err
+		return "", tr, err
 	}
 
 	var frames []app.Frame
 	if err := p.db.WithContext(ctx).Where("type = ? AND object = ? AND index_error IS NULL AND filter <> ''", "LIGHT", object).
 		Find(&frames).Error; err != nil {
-		return "", fmt.Errorf("load lights: %w", err)
+		return "", tr, fmt.Errorf("load lights: %w", err)
 	}
 	var usable []candidate
 	for _, f := range frames {
@@ -330,34 +345,45 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 	// reference comes from the framing most subs share.
 	best, ok := pickReference(mainFraming(usable))
 	if !ok {
-		return "", fmt.Errorf("no usable lights")
+		return "", tr, fmt.Errorf("no usable lights")
 	}
 	dir, err := os.MkdirTemp(p.workDir, "ref-")
 	if err != nil {
-		return "", err
+		return "", tr, err
 	}
 	defer os.RemoveAll(dir)
 	cals, err := p.calibrate(ctx, dir, []candidate{best}, sets)
 	if err != nil {
-		return "", err
+		return "", tr, err
+	}
+	file, registration := cals[0].path, registrationStars
+	if precalibrated(best.frame) {
+		// Subs that come calibrated are from remote telescopes, pointed
+		// far apart: they are registered with the optics' distortion,
+		// which the reference's plate solution gives.
+		if solved, err := p.solveReference(ctx, dir, file, best.frame); err != nil {
+			slog.Warn("Could not solve the reference for its distortion; registering by stars", "object", object, "error", err)
+		} else {
+			file, registration = solved, registrationDistortion
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
-		return "", err
+		return "", tr, err
 	}
-	if err := os.Rename(cals[0].path, local); err != nil {
-		return "", err
+	if err := os.Rename(file, local); err != nil {
+		return "", tr, err
 	}
 	key := path.Join("stacks", object, "reference.fit")
 	if err := p.upload(ctx, local, key, "application/fits"); err != nil {
-		return "", err
+		return "", tr, err
 	}
-	tr = app.TargetReference{Object: object, FrameID: best.frame.ID, ObjectKey: key, CreatedAt: time.Now()}
+	tr = app.TargetReference{Object: object, FrameID: best.frame.ID, ObjectKey: key, CreatedAt: time.Now(), Registration: registration}
 	if err := p.db.WithContext(ctx).Create(&tr).Error; err != nil {
-		return "", err
+		return "", tr, err
 	}
 	slog.Info("Chose registration reference", "object", object, "frame", best.frame.Key,
-		"hfr", best.score.HFR, "stars", best.score.Stars, "score", best.score.Score)
-	return local, nil
+		"hfr", best.score.HFR, "stars", best.score.Stars, "score", best.score.Score, "registration", registration)
+	return local, tr, nil
 }
 
 // pickReference chooses the sharpest sub among those with plenty of stars.
