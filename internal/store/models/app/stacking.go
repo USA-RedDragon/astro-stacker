@@ -13,6 +13,16 @@ type CalibrationMaster struct {
 	ObjectKey string `gorm:"not null"`
 	Frames    int    `gorm:"not null"`
 	BuiltAt   time.Time
+	// The setup of the set it was built from, so a light's master can be
+	// compared with the set that matches it now (recalibrateDarks). Masters
+	// built before these existed have them filled in when next used.
+	Night    *time.Time `gorm:"type:date"`
+	Filter   string
+	Exposure *float64
+	Gain     *float64
+	Offset   *float64
+	SetTemp  *float64
+	BinX     *float64
 }
 
 // TargetReference is the frame every sub of a target is registered to, so
@@ -145,7 +155,7 @@ const (
 	StackStatusFailed       = "failed"
 	StackStatusDead         = "dead"        // failed MaxAttempts times; left out until reset
 	StackStatusOffTarget    = "off_target"  // the mount pointed elsewhere
-	StackStatusRecalibrate  = "recalibrate" // stacked without a dark; one has come
+	StackStatusRecalibrate  = "recalibrate" // stacked with no dark or a worse one than now matches
 	StackStatusMoon         = "moon"        // breaks its filter's moon avoidance
 )
 
@@ -171,4 +181,12 @@ type StackFrame struct {
 	NextAttemptAt *time.Time `gorm:"index"`
 	// NoDark is set when it was calibrated without a dark, none matching.
 	NoDark bool
+	// BiasMaster, DarkMaster and FlatMaster are the masters it was
+	// calibrated with: calibration_masters.set_key, or an imported master's
+	// key. They are nil for a light calibrated before they were recorded
+	// (it is not known which), and DarkMaster for one calibrated without a
+	// dark or delivered calibrated.
+	BiasMaster *string
+	DarkMaster *string
+	FlatMaster *string
 }

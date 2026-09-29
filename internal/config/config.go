@@ -29,19 +29,21 @@ type Config struct {
 }
 
 type Stacking struct {
-	Enabled         bool    `name:"enabled" description:"Stack good lights into masters as they arrive"`
-	IntervalSeconds int     `name:"interval-seconds" description:"Seconds between checks for new lights when idle" default:"120"`
-	MinScore        float64 `name:"min-score" description:"Lowest sub score (0-1) that goes into a master" default:"0.3"`
-	BatchSize       int     `name:"batch-size" description:"Subs calibrated and registered per Siril run" default:"12"`
-	WorkDir         string  `name:"work-dir" description:"Scratch space for downloads, masters and Siril output" default:"/tmp/stacking"`
-	SirilCommand    string  `name:"siril-command" description:"siril-cli, or an extracted Siril AppImage's AppRun" default:"siril-cli"`
-	SirilThreads    int     `name:"siril-threads" description:"Threads Siril may use" default:"4"`
-	SirilMemory     float64 `name:"siril-memory" description:"Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread" default:"0.5"`
-	Workers         int     `name:"workers" description:"Targets stacked at once; each holds up to about 1.5 GB besides Siril" default:"1"`
-	MosaicMinutes   int     `name:"mosaic-minutes" description:"Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off" default:"10"`
-	MosaicQuiet     int     `name:"mosaic-quiet-minutes" description:"Minutes a mosaic's panel masters must be unchanged before it is rebuilt" default:"30"`
-	Pedestal        float64 `name:"pedestal" description:"Camera pedestal in ADU, for scoring subs" default:"506"`
-	DrainSeconds    int     `name:"drain-seconds" description:"On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it" default:"1200"`
+	Enabled           bool    `name:"enabled" description:"Stack good lights into masters as they arrive"`
+	IntervalSeconds   int     `name:"interval-seconds" description:"Seconds between checks for new lights when idle" default:"120"`
+	MinScore          float64 `name:"min-score" description:"Lowest sub score (0-1) that goes into a master" default:"0.3"`
+	BatchSize         int     `name:"batch-size" description:"Subs calibrated and registered per Siril run" default:"12"`
+	WorkDir           string  `name:"work-dir" description:"Scratch space for downloads, masters and Siril output" default:"/tmp/stacking"`
+	SirilCommand      string  `name:"siril-command" description:"siril-cli, or an extracted Siril AppImage's AppRun" default:"siril-cli"`
+	SirilThreads      int     `name:"siril-threads" description:"Threads Siril may use" default:"4"`
+	SirilMemory       float64 `name:"siril-memory" description:"Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread" default:"0.5"`
+	Workers           int     `name:"workers" description:"Targets stacked at once; each holds up to about 1.5 GB besides Siril" default:"1"`
+	MosaicMinutes     int     `name:"mosaic-minutes" description:"Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off" default:"10"`
+	MosaicQuiet       int     `name:"mosaic-quiet-minutes" description:"Minutes a mosaic's panel masters must be unchanged before it is rebuilt" default:"30"`
+	Pedestal          float64 `name:"pedestal" description:"Camera pedestal in ADU, for scoring subs" default:"506"`
+	CalibrationSettle int     `name:"calibration-settle-minutes" description:"Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile" default:"180"`
+	RecalibrateLimit  int     `name:"recalibrate-limit" description:"Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear" default:"300"`
+	DrainSeconds      int     `name:"drain-seconds" description:"On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it" default:"1200"`
 }
 
 type Previews struct {

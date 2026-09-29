@@ -26,39 +26,51 @@ import (
 // masters are rebuilt instead of reused.
 const masterVersion = "2"
 
-// masterFor returns a local path to the master for a calibration set,
-// building it from the raw frames the first time. Darks and flats are
+// masterFor returns a local path to the master for a calibration set, and
+// its key, building it from the raw frames the first time. Darks and flats are
 // calibrated with the bias matched to their own gain and offset before
 // stacking: Siril computes light - bias - k·dark, so the master dark must
 // hold only the thermal signal.
-func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmatch.Set) (string, error) {
+func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmatch.Set) (string, string, error) {
 	if set.Master != "" {
 		return p.importedMaster(ctx, set, all)
 	}
 	frames, err := coverage.SetFrames(ctx, p.db, set)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if len(frames) < 3 {
-		return "", fmt.Errorf("%s set has %d frames, need at least 3", set.Type, len(frames))
+		return "", "", fmt.Errorf("%s set has %d frames, need at least 3", set.Type, len(frames))
 	}
 	key := setKey(set.Type, frames)
 	defer p.lockKey(key)()
 	local := filepath.Join(p.workDir, "masters", key+".fit")
-	if _, err := os.Stat(local); err == nil {
-		return local, nil
-	}
 
 	var cm app.CalibrationMaster
 	err = p.db.WithContext(ctx).Where("set_key = ?", key).First(&cm).Error
 	switch {
 	case err == nil:
-		if err := p.download(ctx, p.dest, cm.ObjectKey, local); err != nil {
-			return "", err
+		if cm.Exposure == nil && !math.IsNaN(set.Exposure) {
+			// Built before masters recorded their setup.
+			if err := p.db.WithContext(ctx).Model(&cm).UpdateColumns(masterSetup(set)).Error; err != nil {
+				return "", "", fmt.Errorf("record master setup: %w", err)
+			}
 		}
-		return local, nil
+		if _, err := os.Stat(local); err == nil {
+			return local, key, nil
+		}
+		if err := p.download(ctx, p.dest, cm.ObjectKey, local); err != nil {
+			return "", "", err
+		}
+		return local, key, nil
 	case !errors.Is(err, gorm.ErrRecordNotFound):
-		return "", err
+		return "", "", err
+	}
+	// Lights matched to a set still arriving wait for it (classify); this
+	// catches the rest, such as the bias a flat or dark is calibrated with.
+	if !p.settled(set, time.Now()) {
+		return "", "", fmt.Errorf("%s set of %d frames is still arriving, the last uploaded %s",
+			strings.ToLower(set.Type), len(frames), set.Uploaded.UTC().Format(time.RFC3339))
 	}
 
 	var bias string
@@ -68,41 +80,69 @@ func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmat
 			Offset: set.Offset, SetTemp: set.SetTemp, BinX: set.BinX, Rotator: set.Rotator,
 		}, all).Bias
 		if m.Set == nil {
-			return "", fmt.Errorf("no bias for %s at gain %v offset %v", strings.ToLower(set.Type), set.Gain, set.Offset)
+			return "", "", fmt.Errorf("no bias for %s at gain %v offset %v", strings.ToLower(set.Type), set.Gain, set.Offset)
 		}
-		if bias, err = p.masterFor(ctx, *m.Set, all); err != nil {
-			return "", fmt.Errorf("bias for %s: %w", strings.ToLower(set.Type), err)
+		if bias, _, err = p.masterFor(ctx, *m.Set, all); err != nil {
+			return "", "", fmt.Errorf("bias for %s: %w", strings.ToLower(set.Type), err)
 		}
 	}
 
 	start := time.Now()
 	if err := p.buildMaster(ctx, set.Type, frames, bias, local); err != nil {
-		return "", err
+		return "", "", err
 	}
 	objectKey := path.Join("calibration", strings.ToLower(set.Type), key+".fit")
 	if err := p.upload(ctx, local, objectKey, "application/fits"); err != nil {
-		return "", err
+		return "", "", err
 	}
 	cm = app.CalibrationMaster{SetKey: key, Type: set.Type, ObjectKey: objectKey, Frames: len(frames), BuiltAt: time.Now()}
 	if err := p.db.WithContext(ctx).Create(&cm).Error; err != nil {
-		return "", fmt.Errorf("record master: %w", err)
+		return "", "", fmt.Errorf("record master: %w", err)
+	}
+	if err := p.db.WithContext(ctx).Model(&cm).UpdateColumns(masterSetup(set)).Error; err != nil {
+		return "", "", fmt.Errorf("record master setup: %w", err)
 	}
 	slog.Info("Built calibration master", "type", set.Type, "night", set.Night.Format("2006-01-02"),
 		"filter", set.Filter, "frames", len(frames), "duration", time.Since(start).Round(time.Second))
-	return local, nil
+	return local, key, nil
+}
+
+// masterSetup is the columns describing the set a master is built from.
+func masterSetup(set calmatch.Set) map[string]any {
+	num := func(v float64) *float64 {
+		if math.IsNaN(v) {
+			return nil
+		}
+		return &v
+	}
+	return map[string]any{
+		"night": set.Night, "filter": set.Filter, "exposure": num(set.Exposure), "gain": num(set.Gain),
+		"offset": num(set.Offset), "set_temp": num(set.SetTemp), "bin_x": num(set.BinX),
+	}
+}
+
+// importedKey names a master made elsewhere (coverage.Imported) in the
+// work directory and on the lights calibrated with it.
+func importedKey(set calmatch.Set) string {
+	h := sha256.Sum256([]byte(masterVersion + "\x00" + set.Type + "\x00" + set.Master))
+	return "imported-" + hex.EncodeToString(h[:16])
 }
 
 // importedMaster returns a local FITS copy of a master made elsewhere
 // (coverage.Imported). A dark has the bias taken out, as the darks built
 // here do: WBPP's master darks keep it.
-func (p *Pipeline) importedMaster(ctx context.Context, set calmatch.Set, all []calmatch.Set) (string, error) {
-	h := sha256.Sum256([]byte(masterVersion + "\x00" + set.Type + "\x00" + set.Master))
-	key := "imported-" + hex.EncodeToString(h[:16])
+func (p *Pipeline) importedMaster(ctx context.Context, set calmatch.Set, all []calmatch.Set) (string, string, error) {
+	key := importedKey(set)
 	defer p.lockKey(key)()
 	local := filepath.Join(p.workDir, "masters", key+".fit")
 	if _, err := os.Stat(local); err == nil {
-		return local, nil
+		return local, key, nil
 	}
+	file, err := p.importMaster(ctx, set, all, local)
+	return file, key, err
+}
+
+func (p *Pipeline) importMaster(ctx context.Context, set calmatch.Set, all []calmatch.Set, local string) (string, error) {
 	dir, err := os.MkdirTemp(p.workDir, "imported-")
 	if err != nil {
 		return "", err
@@ -124,7 +164,7 @@ func (p *Pipeline) importedMaster(ctx context.Context, set calmatch.Set, all []c
 		if m.Set == nil {
 			return "", fmt.Errorf("no bias for dark at gain %v offset %v", set.Gain, set.Offset)
 		}
-		biasFile, err := p.masterFor(ctx, *m.Set, all)
+		biasFile, _, err := p.masterFor(ctx, *m.Set, all)
 		if err != nil {
 			return "", fmt.Errorf("bias for dark: %w", err)
 		}
