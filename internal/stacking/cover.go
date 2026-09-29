@@ -98,6 +98,11 @@ func commonCrop(layers []layer, w, h int) Rect {
 // each channel's noise, as in the browser's palette mixer.
 const haBlend = 0.6
 
+// haFloor is how far, in noise, H-a must stand over red before any of it
+// goes into red. Taking every excess, noise alone reddened the sky, the more
+// the fewer H-a subs: a mosaic's shallow panels came out as red patches.
+const haFloor = 2.0
+
 // choosePalette picks the first palette whose filters all have a linear
 // preview and comparable data: every channel at least minShare of the
 // best one. RGB+Ha needs H-a at minShare of the average of R, G and B.
@@ -349,7 +354,7 @@ func blendHa(red, ha []float32) []float32 {
 		}
 		r := (float64(v) - rm) / rs
 		h := (float64(ha[i]) - hm) / hs
-		out[i] = float32((r+haBlend*math.Max(0, h-r))*rs + rm)
+		out[i] = float32((r+haBlend*math.Max(0, h-r-haFloor))*rs + rm)
 	}
 	return out
 }
@@ -400,8 +405,9 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 }
 
 // CoverVersion is how covers are composed; older ones are rendered again at
-// startup. 1: pixels missing any channel are black.
-const CoverVersion = 1
+// startup. 1: pixels missing any channel are black. 2: H-a goes into red
+// only above the noise (haFloor).
+const CoverVersion = 2
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or
