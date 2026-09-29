@@ -102,7 +102,8 @@ func Sets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, error) {
 		Group(groupBy).Scan(&cal).Error; err != nil {
 		return nil, fmt.Errorf("load calibration sets: %w", err)
 	}
-	sets := make([]calmatch.Set, 0, len(cal))
+	sets := make([]calmatch.Set, 0, len(cal)+len(Imported))
+	sets = append(sets, Imported...)
 	for _, c := range cal {
 		sets = append(sets, calmatch.Set{
 			Type: c.Type, Night: c.Night, Object: c.Object, Filter: c.Filter, Exposure: val(c.Exposure),
@@ -112,6 +113,31 @@ func Sets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, error) {
 	}
 	return sets, nil
 }
+
+// Imported are masters WBPP made for the offset-240 lights of December 2024
+// to February 2025, whose raw bias and darks were never uploaded. Their
+// headers carry no gain, offset or temperature; the offset is the folder's,
+// the setpoint the file name's, and the gains the lights': 300 s at gain 0,
+// 600 s at gain 100. The 600 s dark has the stronger hot pixels, as gain 100
+// gives. One bias serves both gains: the offset sets the pedestal.
+var Imported = func() []calmatch.Set {
+	const dir = "offset240/masters/"
+	bias := dir + "masterBias_BIN-1_6248x4176.xisf"
+	night := func(s string) time.Time {
+		t, _ := time.Parse("2006-01-02", s)
+		return t
+	}
+	set := func(typ, key, date string, gain, exposure, temp float64) calmatch.Set {
+		return calmatch.Set{Type: typ, Night: night(date), Exposure: exposure, Gain: gain, Offset: 240,
+			SetTemp: temp, BinX: 1, Rotator: math.NaN(), Master: key}
+	}
+	return []calmatch.Set{
+		set("BIAS", bias, "2025-01-19", 0, 0, math.NaN()),
+		set("BIAS", bias, "2025-01-19", 100, 0, math.NaN()),
+		set("DARK", dir+"masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-300.00s.xisf", "2025-01-21", 0, 300, -20),
+		set("DARK", dir+"masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-600.00s.xisf", "2025-01-21", 100, 600, -20),
+	}
+}()
 
 // SetFrames returns the frames that make up a set, matching the grouping in
 // Sets exactly, with missing values matched as NULL.

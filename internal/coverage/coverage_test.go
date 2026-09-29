@@ -143,6 +143,14 @@ func TestSetFramesMatchesGrouping(t *testing.T) {
 		t.Fatal(err)
 	}
 	counts := map[int]int{}
+	built := sets[:0]
+	for _, s := range sets {
+		if s.Master != "" {
+			continue // made elsewhere, no frames (coverage.Imported)
+		}
+		built = append(built, s)
+	}
+	sets = built
 	for _, s := range sets {
 		frames, err := coverage.SetFrames(context.Background(), db, s)
 		if err != nil {

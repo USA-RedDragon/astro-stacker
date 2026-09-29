@@ -32,6 +32,9 @@ const masterVersion = "2"
 // stacking: Siril computes light - bias - k·dark, so the master dark must
 // hold only the thermal signal.
 func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmatch.Set) (string, error) {
+	if set.Master != "" {
+		return p.importedMaster(ctx, set, all)
+	}
 	frames, err := coverage.SetFrames(ctx, p.db, set)
 	if err != nil {
 		return "", err
@@ -87,6 +90,64 @@ func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmat
 	slog.Info("Built calibration master", "type", set.Type, "night", set.Night.Format("2006-01-02"),
 		"filter", set.Filter, "frames", len(frames), "duration", time.Since(start).Round(time.Second))
 	return local, nil
+}
+
+// importedMaster returns a local FITS copy of a master made elsewhere
+// (coverage.Imported). A dark has the bias taken out, as the darks built
+// here do: WBPP's master darks keep it.
+func (p *Pipeline) importedMaster(ctx context.Context, set calmatch.Set, all []calmatch.Set) (string, error) {
+	h := sha256.Sum256([]byte(masterVersion + "\x00" + set.Type + "\x00" + set.Master))
+	key := "imported-" + hex.EncodeToString(h[:16])
+	defer p.lockKey(key)()
+	local := filepath.Join(p.workDir, "masters", key+".fit")
+	if _, err := os.Stat(local); err == nil {
+		return local, nil
+	}
+	dir, err := os.MkdirTemp(p.workDir, "imported-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	src := filepath.Join(dir, "master"+strings.ToLower(path.Ext(set.Master)))
+	if err := p.download(ctx, p.source, set.Master, src); err != nil {
+		return "", err
+	}
+	data, w, h2, err := readSub(src)
+	if err != nil {
+		return "", err
+	}
+	if set.Type == "DARK" {
+		m := calmatch.Choose(calmatch.Group{
+			Night: set.Night, Exposure: set.Exposure, Gain: set.Gain, Offset: set.Offset,
+			SetTemp: set.SetTemp, BinX: set.BinX, Rotator: set.Rotator,
+		}, all).Bias
+		if m.Set == nil {
+			return "", fmt.Errorf("no bias for dark at gain %v offset %v", set.Gain, set.Offset)
+		}
+		biasFile, err := p.masterFor(ctx, *m.Set, all)
+		if err != nil {
+			return "", fmt.Errorf("bias for dark: %w", err)
+		}
+		bias, bw, bh, err := readSub(biasFile)
+		if err != nil {
+			return "", err
+		}
+		if bw != w || bh != h2 {
+			return "", fmt.Errorf("bias is %dx%d, dark %dx%d", bw, bh, w, h2)
+		}
+		for i := range data {
+			data[i] -= bias[i]
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
+		return "", err
+	}
+	tmp := local + ".tmp"
+	if err := writeFITSFile(tmp, w, h2, 1, data, nil); err != nil {
+		return "", err
+	}
+	slog.Info("Imported calibration master", "type", set.Type, "key", set.Master, "gain", set.Gain)
+	return local, os.Rename(tmp, local)
 }
 
 // setKey identifies a set by its frames' keys and ETags.
