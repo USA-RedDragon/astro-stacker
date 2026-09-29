@@ -111,24 +111,30 @@ func Choose(g Group, sets []Set) Result {
 	}
 }
 
-// Flats must match filter, binning, gain and offset: the flat's shape
-// changes little with gain, but its pedestal does. Rotation is preferred but
-// not required. The rotator turns the camera and filter wheel together, so
-// dust on the sensor window and filters stays put relative to the pixels;
-// only the dimmer, rotation-symmetric vignetting and dust on the optics in
-// front of the rotator move. A flat at another angle is a fallback.
+// Flats must match filter and binning. The same gain and offset are
+// preferred but not required: a master flat is calibrated with the bias
+// for its own gain and offset and then normalized, which leaves only the
+// illumination's shape, and that doesn't depend on gain. Rotation is
+// preferred but not required either. The rotator turns the camera and
+// filter wheel together, so dust on the sensor window and filters stays put
+// relative to the pixels; only the dimmer, rotation-symmetric vignetting and
+// dust on the optics in front of the rotator move. A flat at another gain
+// or angle is a fallback.
 func chooseFlat(g Group, sets []Set) Match {
 	var cands []Set
 	for _, s := range sets {
-		if s.Type == "FLAT" && s.Filter == g.Filter && same(s.BinX, g.BinX) &&
-			same(s.Gain, g.Gain) && same(s.Offset, g.Offset) {
+		if s.Type == "FLAT" && s.Filter == g.Filter && same(s.BinX, g.BinX) {
 			cands = append(cands, s)
 		}
 	}
 	if len(cands) == 0 {
 		return Match{Quality: Missing}
 	}
+	sameGain := func(s Set) bool { return same(s.Gain, g.Gain) && same(s.Offset, g.Offset) }
 	sort.SliceStable(cands, func(i, j int) bool {
+		if gi, gj := sameGain(cands[i]), sameGain(cands[j]); gi != gj {
+			return gi
+		}
 		di, dj := days(g.Night, cands[i].Night), days(g.Night, cands[j].Night)
 		if di != dj {
 			return di < dj
@@ -142,7 +148,7 @@ func chooseFlat(g Group, sets []Set) Match {
 	best := cands[0]
 	m := Match{Set: &best, AgeDays: days(g.Night, best.Night), Quality: Fallback,
 		RotationMismatch: !rotationOK(best.Rotator, g.Rotator)}
-	if m.AgeDays == 0 && !m.RotationMismatch {
+	if m.AgeDays == 0 && !m.RotationMismatch && sameGain(best) {
 		m.Quality = Exact
 	}
 	return m
