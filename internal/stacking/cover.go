@@ -106,8 +106,33 @@ const haFloor = 2.0
 // choosePalette picks the first palette whose filters all have a linear
 // preview and comparable data: every channel at least minShare of the
 // best one. RGB+Ha needs H-a at minShare of the average of R, G and B.
+// Narrowband palettes come first when H-a, O-III and S-II together hold
+// more effective exposure than red, green and blue: a target shot mostly
+// in narrowband (Dolphin Head, the Cygnus Loop) shows its nebula in HOO or
+// SHO rather than as a little H-a in a star field.
 func choosePalette(have map[string]layer) (palette, bool) {
-	for _, p := range palettes {
+	var narrow, broad float64
+	for _, f := range []string{"H-a", "O-III", "S-II"} {
+		narrow += have[f].Effective
+	}
+	for _, f := range []string{"Red", "Green", "Blue"} {
+		broad += have[f].Effective
+	}
+	order := palettes
+	if narrow > broad {
+		order = nil
+		for _, p := range palettes {
+			if !p.HaRed && p.R != "Red" {
+				order = append(order, p)
+			}
+		}
+		for _, p := range palettes {
+			if p.HaRed || p.R == "Red" {
+				order = append(order, p)
+			}
+		}
+	}
+	for _, p := range order {
 		channels := []string{p.R, p.G, p.B}
 		ok := true
 		best, sum := 0.0, 0.0
@@ -406,8 +431,9 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 
 // CoverVersion is how covers are composed; older ones are rendered again at
 // startup. 1: pixels missing any channel are black. 2: H-a goes into red
-// only above the noise (haFloor).
-const CoverVersion = 2
+// only above the noise (haFloor). 3: narrowband palettes first when
+// narrowband holds more exposure.
+const CoverVersion = 3
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or

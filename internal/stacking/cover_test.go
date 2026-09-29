@@ -34,6 +34,10 @@ func TestChoosePalette(t *testing.T) {
 		// California Nebula Panel 2: 1 S-II sub against 5 H-a.
 		{"thin S-II", hours("S-II", 0.1, "H-a", 0.8, "O-III", 0.3), "HOO"},
 		{"H-a only", hours("H-a", 5.0), ""},
+		// Dolphin Head: 7.7 h H-a and 5 h O-III against under an hour of
+		// each colour.
+		{"mostly narrowband", hours("Red", 0.5, "Green", 0.25, "Blue", 0.4, "H-a", 7.7, "O-III", 5.0), "HOO"},
+		{"narrowband with S-II", hours("Red", 1.0, "Green", 1.0, "Blue", 1.0, "S-II", 3.0, "H-a", 4.0, "O-III", 3.0), "SHO"},
 	} {
 		p, ok := choosePalette(c.have)
 		if got := map[bool]string{true: p.Name, false: ""}[ok]; got != c.want {
