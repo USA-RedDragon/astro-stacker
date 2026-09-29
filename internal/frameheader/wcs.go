@@ -2,6 +2,7 @@ package frameheader
 
 import (
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -9,7 +10,8 @@ const deg = math.Pi / 180
 
 // pointing is where a frame was pointed, in degrees: RA and DEC as NINA
 // writes them, or else the centre of the plate solution remote telescopes
-// (Telescope.live) write instead. NaN when the header has neither.
+// (Telescope.live) write instead, or else the target's position some of
+// theirs carry alone (OBJCTRA, OBJCTDEC). NaN when the header has none.
 func pointing(k Keywords) (ra, dec float64) {
 	ra, dec = k.Float("RA"), k.Float("DEC")
 	if !math.IsNaN(ra) && !math.IsNaN(dec) {
@@ -18,7 +20,43 @@ func pointing(k Keywords) (ra, dec float64) {
 	if ra, dec, ok := WCSCentre(k); ok {
 		return ra, dec
 	}
+	if ra, dec, ok := ObjectPosition(k); ok {
+		return ra, dec
+	}
 	return math.NaN(), math.NaN()
+}
+
+// ObjectPosition is the target's position from OBJCTRA and OBJCTDEC,
+// sexagesimal hours and degrees ("14 39 29.71", "-60 49 55.99"), in
+// degrees.
+func ObjectPosition(k Keywords) (ra, dec float64, ok bool) {
+	h, ok1 := sexagesimal(k.String("OBJCTRA"))
+	d, ok2 := sexagesimal(k.String("OBJCTDEC"))
+	if !ok1 || !ok2 || h < 0 || h >= 24 || d < -90 || d > 90 {
+		return 0, 0, false
+	}
+	return h * 15, d, true
+}
+
+// sexagesimal reads "d m s", "d:m:s" or "d" into a number.
+func sexagesimal(s string) (float64, bool) {
+	f := strings.FieldsFunc(strings.TrimSpace(s), func(r rune) bool { return r == ' ' || r == ':' })
+	if len(f) == 0 || len(f) > 3 {
+		return 0, false
+	}
+	neg := strings.HasPrefix(f[0], "-")
+	var v float64
+	for i, part := range f {
+		x, err := strconv.ParseFloat(strings.TrimPrefix(strings.TrimPrefix(part, "-"), "+"), 64)
+		if err != nil || x < 0 {
+			return 0, false
+		}
+		v += x / math.Pow(60, float64(i))
+	}
+	if neg {
+		v = -v
+	}
+	return v, true
 }
 
 // WCSCentre is the sky position of the middle of the image by its plate

@@ -42,6 +42,10 @@ type TargetReference struct {
 	// stacking.registrationStars); "" for references from before it was
 	// recorded, all registered by matching stars.
 	Registration string `gorm:"not null;default:''"`
+	// SolveRevision is the stacking.solveRevision the reference was last
+	// solved for distortion at; a reference that fell back to stars under an
+	// older one is tried again.
+	SolveRevision int
 }
 
 // Stack is the running master for one target and filter.

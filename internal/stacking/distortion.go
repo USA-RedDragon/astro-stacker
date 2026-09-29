@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -36,6 +37,24 @@ import (
 // its subs share its pixel grid undistorted rather than as it was shot. It
 // is used for subs from the reference's camera that come calibrated; our
 // own subs are registered by stars as they always were.
+
+// solveRevision counts the ways a calibrated reference can be solved for
+// its distortion: 1, from its plate solution or RA/DEC; 2, also from the
+// target's position (OBJCTRA) and the optics of another sub of its
+// telescope. A reference that fell back to stars is tried again when it
+// goes up.
+const solveRevision = 2
+
+// retrySolve reports whether a target's reference should be chosen and
+// solved again: its sub came calibrated and it was registered by stars
+// before the current solveRevision, or before registration could use the
+// distortion at all.
+func retrySolve(tr app.TargetReference, ref app.Frame) bool {
+	if !precalibrated(ref) {
+		return false
+	}
+	return tr.Registration == "" || (tr.Registration == registrationStars && tr.SolveRevision < solveRevision)
+}
 
 // How subs are registered to a target's reference (TargetReference.
 // Registration).
@@ -68,6 +87,9 @@ func (p *Pipeline) solveReference(ctx context.Context, dir, file string, f app.F
 		focal, pixel = solutionOptics(kw, pixel)
 	}
 	if !(focal > 0) || !(pixel > 0) {
+		focal, pixel = p.telescopeOptics(ctx, f, pixel)
+	}
+	if !(focal > 0) || !(pixel > 0) {
 		return "", fmt.Errorf("%s has no optics", f.Key)
 	}
 	name := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
@@ -89,6 +111,41 @@ func (p *Pipeline) solveReference(ctx context.Context, dir, file string, f app.F
 		return "", fmt.Errorf("the solution has no distortion terms")
 	}
 	return solved, nil
+}
+
+// telescopeOptics finds the optics of a calibrated sub that carries
+// neither a focal length nor a plate solution from another sub of the same
+// telescope that has a solution. Telescope.live names each sub after its
+// telescope ("AUS-2-CCD_2021-06-15T…"), and a telescope's pixel scale
+// doesn't change. pixel is the sub's own pixel size, if it has one.
+func (p *Pipeline) telescopeOptics(ctx context.Context, f app.Frame, pixel float64) (focal, px float64) {
+	scope, _, ok := strings.Cut(path.Base(f.Key), "_")
+	if !ok || scope == "" {
+		return 0, 0
+	}
+	var others []app.Frame
+	if err := p.db.WithContext(ctx).Where("type = ? AND id <> ? AND key LIKE ?", "LIGHT", f.ID, "%/"+scope+"%").
+		Order("id").Limit(20).Find(&others).Error; err != nil {
+		return 0, 0
+	}
+	for _, o := range others {
+		if !strings.HasPrefix(path.Base(o.Key), scope+"_") {
+			continue
+		}
+		kw, err := indexer.ReadHeader(ctx, p.s3, p.source, minio.ObjectInfo{Key: o.Key, Size: o.Size})
+		if err != nil {
+			continue
+		}
+		own := pixel
+		if !(own > 0) {
+			own = kw.Float("XPIXSZ")
+		}
+		if focal, px = solutionOptics(kw, own); focal > 0 && px > 0 {
+			slog.Info("Optics from another sub of the telescope", "sub", f.Key, "from", o.Key, "focal", math.Round(focal))
+			return focal, px
+		}
+	}
+	return 0, 0
 }
 
 // hasDistortion reports whether a FITS file's plate solution has SIP
@@ -145,11 +202,16 @@ func registerCommand(disto bool) string {
 // is chosen from the pointing their plate solutions now give).
 func (p *Pipeline) reregisterPrecalibrated(ctx context.Context) {
 	var refs []struct {
-		Object string
-		Key    string
+		Object        string
+		Key           string
+		Registration  string
+		SolveRevision int
 	}
-	if err := p.db.WithContext(ctx).Table("target_references tr").Select("tr.object, f.key").
-		Joins("JOIN frames f ON f.id = tr.frame_id").Where("tr.registration = ''").Scan(&refs).Error; err != nil {
+	if err := p.db.WithContext(ctx).Table("target_references tr").
+		Select("tr.object, f.key, tr.registration, COALESCE(tr.solve_revision, 0) AS solve_revision").
+		Joins("JOIN frames f ON f.id = tr.frame_id").
+		Where("tr.registration = '' OR (tr.registration = ? AND COALESCE(tr.solve_revision, 0) < ?)", registrationStars, solveRevision).
+		Scan(&refs).Error; err != nil {
 		slog.Warn("Could not find references to register again", "error", err)
 		return
 	}
@@ -157,7 +219,8 @@ func (p *Pipeline) reregisterPrecalibrated(ctx context.Context) {
 		if p.stopping(ctx) {
 			return
 		}
-		if !precalibrated(app.Frame{Key: r.Key}) || !p.hold(r.Object) {
+		tr := app.TargetReference{Registration: r.Registration, SolveRevision: r.SolveRevision}
+		if !retrySolve(tr, app.Frame{Key: r.Key}) || !p.hold(r.Object) {
 			continue
 		}
 		slog.Warn("Restacking target to register its calibrated subs with the optics' distortion", "object", r.Object)

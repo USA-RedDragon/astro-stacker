@@ -15,10 +15,13 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
+	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
 
@@ -61,7 +64,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	if err := p.db.WithContext(ctx).First(&refFrame, tr.FrameID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("reference frame for %s: %w", object, err)
 	}
-	if tr.Registration == "" && precalibrated(refFrame) {
+	if retrySolve(tr, refFrame) {
 		// Missed at startup (reregisterPrecalibrated) while being stacked.
 		slog.Warn("Restacking target to register its calibrated subs with the optics' distortion", "object", object)
 		return p.restack(ctx, object, nil)
@@ -341,6 +344,7 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 			usable = append(usable, c)
 		}
 	}
+	p.readPointings(ctx, usable)
 	// Subs framed differently register poorly against each other, so the
 	// reference comes from the framing most subs share.
 	best, ok := pickReference(mainFraming(usable))
@@ -356,15 +360,16 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 	if err != nil {
 		return "", tr, err
 	}
-	file, registration := cals[0].path, registrationStars
+	file, registration, solved := cals[0].path, registrationStars, 0
 	if precalibrated(best.frame) {
+		solved = solveRevision
 		// Subs that come calibrated are from remote telescopes, pointed
 		// far apart: they are registered with the optics' distortion,
 		// which the reference's plate solution gives.
-		if solved, err := p.solveReference(ctx, dir, file, best.frame); err != nil {
+		if solvedFile, err := p.solveReference(ctx, dir, file, best.frame); err != nil {
 			slog.Warn("Could not solve the reference for its distortion; registering by stars", "object", object, "error", err)
 		} else {
-			file, registration = solved, registrationDistortion
+			file, registration = solvedFile, registrationDistortion
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
@@ -377,13 +382,33 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 	if err := p.upload(ctx, local, key, "application/fits"); err != nil {
 		return "", tr, err
 	}
-	tr = app.TargetReference{Object: object, FrameID: best.frame.ID, ObjectKey: key, CreatedAt: time.Now(), Registration: registration}
+	tr = app.TargetReference{Object: object, FrameID: best.frame.ID, ObjectKey: key, CreatedAt: time.Now(),
+		Registration: registration, SolveRevision: solved}
 	if err := p.db.WithContext(ctx).Create(&tr).Error; err != nil {
 		return "", tr, err
 	}
 	slog.Info("Chose registration reference", "object", object, "frame", best.frame.Key,
 		"hfr", best.score.HFR, "stars", best.score.Stars, "score", best.score.Score, "registration", registration)
 	return local, tr, nil
+}
+
+// readPointings reads the pointing of calibrated subs that have none
+// recorded from their headers, so the reference is chosen by framing even
+// before the indexer's backfill has reached them.
+func (p *Pipeline) readPointings(ctx context.Context, cands []candidate) {
+	for i := range cands {
+		f := &cands[i].frame
+		if f.MountRA != nil || !precalibrated(*f) {
+			continue
+		}
+		kw, err := indexer.ReadHeader(ctx, p.s3, p.source, minio.ObjectInfo{Key: f.Key, Size: f.Size})
+		if err != nil {
+			continue
+		}
+		if h := frameheader.FromKeywords(kw); !math.IsNaN(h.RA) && !math.IsNaN(h.Dec) {
+			f.MountRA, f.MountDec = &h.RA, &h.Dec
+		}
+	}
 }
 
 // pickReference chooses the sharpest sub among those with plenty of stars.
