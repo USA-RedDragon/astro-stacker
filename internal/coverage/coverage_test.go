@@ -138,6 +138,26 @@ func TestSetFramesMatchesGrouping(t *testing.T) {
 	other.Filter = "Green"
 	add(other, 7)
 
+	// Darks, one every 10 minutes from dark(start): a library shot across
+	// local noon, so over two nights, with some frames named for a filter,
+	// is one set; the same setup a week later is another.
+	dark := func(start time.Time, count int, night, filter string) {
+		for i := range count {
+			d := start.Add(time.Duration(i) * 10 * time.Minute)
+			add(app.Frame{Type: "DARK", Filter: filter, Exposure: f(600), Gain: f(100), Offset: f(50), SetTemp: f(5),
+				BinX: f(1), Night: day(night), DateObs: &d}, 1)
+		}
+	}
+	noon := time.Date(2026, 9, 29, 18, 30, 0, 0, time.UTC)
+	dark(noon.Add(-80*time.Minute), 8, "2026-09-28", "")
+	dark(noon.Add(time.Minute), 12, "2026-09-29", "")
+	dark(noon.Add(121*time.Minute), 5, "2026-09-29", "L")
+	dark(noon.AddDate(0, 0, 7), 20, "2026-10-06", "")
+	// The same session's bias: its own set, by type.
+	b := noon.Add(5 * time.Hour)
+	add(app.Frame{Type: "BIAS", Exposure: f(0.00003), Gain: f(100), Offset: f(50), SetTemp: f(5), BinX: f(1),
+		Night: day("2026-09-29"), DateObs: &b}, 40)
+
 	sets, err := coverage.Sets(context.Background(), db)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +181,18 @@ func TestSetFramesMatchesGrouping(t *testing.T) {
 		}
 		counts[s.Count]++
 	}
-	if len(sets) != 3 || counts[30] != 1 || counts[5] != 1 || counts[7] != 1 {
+	if len(sets) != 6 || counts[30] != 1 || counts[5] != 1 || counts[7] != 1 || counts[25] != 1 ||
+		counts[20] != 1 || counts[40] != 1 {
 		t.Errorf("sets %+v", sets)
+	}
+	for _, s := range sets {
+		if s.Type == "DARK" && s.Count == 25 {
+			if got := s.Night.Format("2006-01-02"); got != "2026-09-29" {
+				t.Errorf("a library's night is its newest frame's, got %s", got)
+			}
+			if s.From != noon.Add(-80*time.Minute) || s.To != noon.Add(161*time.Minute) {
+				t.Errorf("library spans %v to %v", s.From, s.To)
+			}
+		}
 	}
 }
