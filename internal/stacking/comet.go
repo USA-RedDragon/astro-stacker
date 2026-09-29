@@ -17,8 +17,11 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
@@ -117,25 +120,42 @@ func horizons(ctx context.Context, designation string, from, to time.Time, lon, 
 	} {
 		q.Set(k, v)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, horizonsURL+"?"+q.Encode(), nil)
-	if err != nil {
-		return ephemeris{}, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return ephemeris{}, fmt.Errorf("horizons: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	if err != nil {
-		return ephemeris{}, err
+	// Horizons turns requests away with 503 when busy; a failure here is
+	// kept until the master changes, so it is worth waiting for.
+	var body []byte
+	var status string
+	for attempt := range 5 {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ephemeris{}, ctx.Err()
+			case <-time.After(time.Duration(attempt*attempt) * 5 * time.Second):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, horizonsURL+"?"+q.Encode(), nil)
+		if err != nil {
+			return ephemeris{}, err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return ephemeris{}, fmt.Errorf("horizons: %w", err)
+		}
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+		resp.Body.Close()
+		if err != nil {
+			return ephemeris{}, err
+		}
+		status = resp.Status
+		if resp.StatusCode < 500 {
+			break
+		}
 	}
 	var r struct {
 		Result string `json:"result"`
 		Error  string `json:"error"`
 	}
 	if err := json.Unmarshal(body, &r); err != nil {
-		return ephemeris{}, fmt.Errorf("horizons: %s: %w", resp.Status, err)
+		return ephemeris{}, fmt.Errorf("horizons: %s: %w", status, err)
 	}
 	if r.Error != "" {
 		return ephemeris{}, fmt.Errorf("horizons: %s", r.Error)
@@ -218,8 +238,12 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 	return nil
 }
 
+// cometMethod is part of every comet master's signature, so a change to how
+// they are made stacks them all again.
+const cometMethod = 2 // stars taken out before stacking on the comet
+
 func cometSignature(s *app.Stack) string {
-	h := sha256.Sum256(fmt.Appendf(nil, "%d\x00%d", s.Subs, s.UpdatedAt.UnixNano()))
+	h := sha256.Sum256(fmt.Appendf(nil, "%d\x00%d\x00%d", s.Subs, s.UpdatedAt.UnixNano(), cometMethod))
 	return hex.EncodeToString(h[:16])
 }
 
@@ -316,12 +340,13 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 		return err
 	}
 	shifts := make([][2]float64, len(subs))
+	track := make([][2]float64, len(subs))
 	for i, s := range subs {
 		x, y, err := cometAt(s.mid)
 		if err != nil {
 			return err
 		}
-		shifts[i] = [2]float64{x0 - x, y0 - y}
+		shifts[i], track[i] = [2]float64{x0 - x, y0 - y}, [2]float64{x, y}
 	}
 	first, last := shifts[0], shifts[len(shifts)-1]
 	slog.Info("Stacking comet master", "object", stack.Object, "filter", stack.Filter, "subs", len(subs),
@@ -333,56 +358,504 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 		return err
 	}
 	defer os.RemoveAll(dir)
+	defer p.finished(stack.Object)
 	stored := make([]storedSub, len(subs))
 	for i, s := range subs {
 		stored[i] = s.stored
 	}
-	load := func(i int, s storedSub) ([]float32, int, int, error) {
-		local := filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
-		if err := p.download(ctx, p.dest, s.key, local); err != nil {
-			return nil, 0, 0, err
+	// Each sub is read by several passes, so it is fetched once.
+	files := make([]string, len(stored))
+	for i, s := range stored {
+		p.progress(stack.Object, stack.Filter, StageComet, i, len(stored))
+		files[i] = filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
+		if err := p.download(ctx, p.dest, s.key, files[i]); err != nil {
+			return err
 		}
-		defer os.Remove(local)
-		sub, w, h, err := readSub(local)
-		if err != nil {
-			return nil, 0, 0, err
-		}
-		return shiftImage(sub, w, h, shifts[i][0], shifts[i][1]), w, h, nil
 	}
-	var acc *Accumulator
-	if len(stored) <= cometMedianMax {
-		// When the comet moves little between subs, each star lands on the
-		// same pixels in a few of them, which hold each other up against
-		// the mean; the per-pixel median ignores them.
-		all := make([]memSub, 0, len(stored))
-		var w, h int
-		for i, s := range stored {
-			p.progress(stack.Object, stack.Filter, StageComet, i, len(stored))
-			sub, sw, sh, err := load(i, s)
-			if err != nil {
-				p.finished(stack.Object)
-				return err
-			}
-			w, h = sw, sh
-			all = append(all, toMemSub(sub, s.exposure, s.weight, p.opts.Stack.SaturationLevel))
-		}
-		acc = medianAnchored(all, w, h, cometOptions(p.opts.Stack))
-	} else {
-		passes := 2
-		loaded := 0
-		// Long sessions: each star crosses a pixel in about one sub, and
-		// growing rejections catches the faint edges of its trail.
-		acc, err = streamStack(stored, passes, p.opts.Stack, func(i int, s storedSub) ([]float32, int, int, error) {
-			p.progress(stack.Object, stack.Filter, StageComet, loaded, passes*len(stored))
-			loaded++
-			return load(i, s)
-		})
+	master, _, err := p.loadMaster(ctx, dir, stack)
+	if err != nil {
+		return fmt.Errorf("star-aligned master: %w", err)
 	}
-	p.finished(stack.Object)
+	stars := starMask(master.Data, master.W, master.H)
+	master = nil
+	layers, err := separateComet(stored, shifts, track, stars, p.opts.Stack, func(i int) ([]float32, int, int, error) {
+		return readSub(files[i])
+	}, func(done, total int) {
+		p.progress(stack.Object, stack.Filter, StageComet, done, total)
+	})
 	if err != nil {
 		return err
 	}
-	return p.publishComet(ctx, stack, acc, refTime, len(subs))
+	return p.publishComet(ctx, stack, layers, refTime, len(subs))
+}
+
+// cometLayers are a comet master's two layers, on the reference sub's
+// pixels: the comet alone, with the stars and everything else fixed on the
+// sky taken out, and those stars without the comet.
+type cometLayers struct {
+	comet, stars *Accumulator
+	// add is the stars' signal per second to add back to the comet.
+	add []float32
+}
+
+// starsToAdd is the stars layer to add back to the comet: only what is as
+// small as a star, over the layer's median level, the glow of stars too
+// faint to resolve. Wider structure in the layer is what's left of the
+// comet's head, which would show round it as a disc.
+func starsToAdd(layer *Accumulator) []float32 {
+	local := medianFilter(layer.Mean, layer.W, layer.H, 7)
+	stride := max(1, len(local)/200_000)
+	var sample []float64
+	for i := 0; i < len(local); i += stride {
+		if layer.Mean[i] != 0 {
+			sample = append(sample, float64(local[i]))
+		}
+	}
+	var glow float32
+	if len(sample) > 0 {
+		glow = float32(median(sample))
+	}
+	add := make([]float32, len(local))
+	for i, v := range layer.Mean {
+		switch {
+		case v != 0:
+			add[i] = v - local[i] + glow
+		case layer.Weight[i] > 0: // under the comet's head (thinTrack)
+			add[i] = glow
+		}
+	}
+	return add
+}
+
+// separateComet stacks the comet and the stars apart. Stacked on the comet,
+// the stars trail through the frame and rejection removes them only where a
+// sub shows them well above its noise: faint stars, and the wings of bright
+// ones, add up to dashed trails. So there are three stacks: (1) on the
+// comet, with rejection; (2) on the stars, with that comet taken out of
+// every sub, which leaves the stars and nebulosity without the comet; (3)
+// on the comet again, with those stars taken out of every sub at its
+// transparency, which leaves rejection only noise and seeing to deal with.
+// read returns sub i as registered on the stars; shifts move it onto the
+// comet; track is where the comet was in each. stars marks the pixels of
+// the star-aligned master with stars on them (starMask), which the first
+// stack leaves out but for the comet itself, so its comet holds no trails
+// for the second to take out of the stars.
+func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, opts Options, read func(int) ([]float32, int, int, error), progress func(done, total int)) (cometLayers, error) {
+	reads := 1 // per sub and stack
+	if len(subs) > cometMedianMax {
+		reads = 2
+	}
+	done, total := 0, 3*reads*len(subs)
+	sat := opts.SaturationLevel
+	stackAll := func(opts Options, prep func(i int, sub []float32, w, h int) []float32) (*Accumulator, error) {
+		load := func(i int) ([]float32, int, int, error) {
+			progress(done, total)
+			done++
+			sub, w, h, err := read(i)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			return prep(i, sub, w, h), w, h, nil
+		}
+		if len(subs) > cometMedianMax {
+			// Long sessions: each star crosses a pixel in about one sub,
+			// and growing rejections catches the faint edges of its trail.
+			return streamStack(subs, 2, opts, func(i int, _ storedSub) ([]float32, int, int, error) { return load(i) })
+		}
+		// When the comet moves little between subs, each star lands on the
+		// same pixels in a few of them, which hold each other up against
+		// the mean; the per-pixel median ignores them.
+		all := make([]memSub, 0, len(subs))
+		var w, h int
+		for i, s := range subs {
+			sub, sw, sh, err := load(i)
+			if err != nil {
+				return nil, err
+			}
+			if i > 0 && (sw != w || sh != h) {
+				return nil, fmt.Errorf("sub %s is %dx%d, expected %dx%d", s.key, sw, sh, w, h)
+			}
+			w, h = sw, sh
+			all = append(all, toMemSub(sub, s.exposure, s.weight, sat))
+		}
+		return medianAnchored(all, w, h, cometOptions(opts)), nil
+	}
+	onComet := func(i int, sub []float32, w, h int) []float32 {
+		return shiftImage(sub, w, h, shifts[i][0], shifts[i][1])
+	}
+
+	first, err := stackAll(opts, func(i int, sub []float32, w, h int) []float32 {
+		if len(stars) == len(sub) {
+			cx, cy := track[i][0], track[i][1]
+			for j, star := range stars {
+				if star && math.Hypot(float64(j%w)-cx, float64(j/w)-cy) > cometKeep {
+					sub[j] = 0
+				}
+			}
+		}
+		return onComet(i, sub, w, h)
+	})
+	if err != nil {
+		return cometLayers{}, err
+	}
+	comet := first.Mean // per second, without the sky
+	first = nil
+	layer, err := stackAll(opts, func(i int, sub []float32, w, h int) []float32 {
+		back := shiftImage(comet, w, h, -shifts[i][0], -shifts[i][1])
+		subtractSignal(sub, back, subs[i].exposure, sat)
+		if track != nil {
+			emptyDisc(sub, w, h, track[i], cometClear)
+		}
+		return sub
+	})
+	if err != nil {
+		return cometLayers{}, err
+	}
+	comet = nil
+	thinTrack(layer, track, len(subs))
+	apertures := starApertures(layer)
+	starless := func(i int, sub []float32, w int) {
+		subtractSignal(sub, layer.Mean, starScale(sub, layer.Mean, w, apertures, subs[i].exposure, sat), sat)
+	}
+	final, err := stackAll(opts, func(i int, sub []float32, w, h int) []float32 {
+		starless(i, sub, w)
+		maskSpikes(sub, w, h, sat)
+		return onComet(i, sub, w, h)
+	})
+	if err != nil {
+		return cometLayers{}, err
+	}
+	progress(total, total)
+	return cometLayers{comet: final, stars: layer, add: starsToAdd(layer)}, nil
+}
+
+// maskSpikes empties a sub's isolated spikes of at least 5σ, and the
+// pixels around them: hot pixels the dark missed and cosmic rays. Hot pixels
+// stay put on the sensor, so on the comet they trail like stars, and
+// registration and the comet's shift spread each over a few pixels too
+// faint for rejection. The stars must be out of the sub already: the pixels
+// two away from a spike are at the sky, which around a star they aren't.
+func maskSpikes(sub []float32, w, h int, sat float32) int {
+	bg, noise := float32(background(sub, sat)), float32(noiseLevel(sub, sat))
+	var found []int
+	for y := 2; y < h-2; y++ {
+		for x := 2; x < w-2; x++ {
+			i := y*w + x
+			v := sub[i]
+			if v == 0 || v-bg < 5*noise {
+				continue
+			}
+			spike := true
+			for dy := -2; dy <= 2 && spike; dy++ {
+				for dx := -2; dx <= 2; dx++ {
+					u := sub[i+dy*w+dx]
+					if max(abs(dx), abs(dy)) == 2 {
+						spike = u-bg <= 3*noise
+					} else if dx != 0 || dy != 0 {
+						spike = u <= v
+					}
+					if !spike {
+						break
+					}
+				}
+			}
+			if spike {
+				found = append(found, i)
+			}
+		}
+	}
+	for _, i := range found {
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				sub[i+dy*w+dx] = 0
+			}
+		}
+	}
+	return len(found)
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// starMask marks the stars of a star-aligned master: pixels standing 3σ
+// above the median of the 7×7 around them, and those within 3 pixels of
+// one. The comet's path shows up too; separateComet keeps the comet's place
+// in each sub.
+func starMask(master []float32, w, h int) []bool {
+	local := medianFilter(master, w, h, 3)
+	diff := make([]float32, len(master))
+	for i, v := range master {
+		if v != 0 {
+			diff[i] = v - local[i]
+		}
+	}
+	sigma := float32(noiseLevel(diff, math.MaxFloat32))
+	const grow = 3
+	mask := make([]bool, len(master))
+	for y := range h {
+		for x := range w {
+			if diff[y*w+x] <= 3*sigma {
+				continue
+			}
+			for yy := max(0, y-grow); yy <= min(h-1, y+grow); yy++ {
+				for xx := max(0, x-grow); xx <= min(w-1, x+grow); xx++ {
+					mask[yy*w+xx] = true
+				}
+			}
+		}
+	}
+	return mask
+}
+
+// cometClear is the radius around the comet, in pixels, left out of each
+// sub for the stars layer. No comet model matches every sub's head
+// (transparency, seeing, the ephemeris to a fraction of a pixel); what's
+// left of it in the layer would come back on the comet as a band through
+// its head. The subs taken with the comet elsewhere fill the stars in.
+const cometClear = 100
+
+// emptyDisc empties the pixels within r of c.
+func emptyDisc(sub []float32, w, h int, c [2]float64, r int) {
+	for y := max(0, int(c[1])-r); y <= min(h-1, int(c[1])+r); y++ {
+		for x := max(0, int(c[0])-r); x <= min(w-1, int(c[0])+r); x++ {
+			if math.Hypot(float64(x)-c[0], float64(y)-c[1]) <= float64(r) {
+				sub[y*w+x] = 0
+			}
+		}
+	}
+}
+
+// thinTrack empties the stars layer on the comet's path where fewer than a
+// third of the subs had the comet elsewhere. There too few samples hold it,
+// without rejection, to take out of the subs. It keeps a token weight there:
+// with none the layer's master would take those pixels for saturated star
+// cores and fill them white. A comet that moved less than its head leaves a
+// patch without stars, under the head.
+func thinTrack(layer *Accumulator, track [][2]float64, subs int) {
+	w, h := layer.W, layer.H
+	least := float32(max(3, subs/3))
+	for k, c := range track {
+		if k > 0 && math.Hypot(c[0]-track[k-1][0], c[1]-track[k-1][1]) < 2 {
+			continue
+		}
+		for y := max(0, int(c[1])-cometClear); y <= min(h-1, int(c[1])+cometClear); y++ {
+			for x := max(0, int(c[0])-cometClear); x <= min(w-1, int(c[0])+cometClear); x++ {
+				i := y*w + x
+				if layer.Count[i] < least && math.Hypot(float64(x)-c[0], float64(y)-c[1]) <= cometClear {
+					layer.Mean[i] = 0
+					layer.Weight[i] = math.SmallestNonzeroFloat32
+				}
+			}
+		}
+	}
+}
+
+// cometKeep is the radius around the comet, in pixels, that the star mask
+// leaves in each sub.
+const cometKeep = 40
+
+// medianFilter replaces each pixel with the median of the (2r+1)² around
+// it that have data; pixels without data stay 0.
+func medianFilter(p []float32, w, h, r int) []float32 {
+	out := make([]float32, len(p))
+	rows := make(chan int, h)
+	for y := range h {
+		rows <- y
+	}
+	close(rows)
+	var wg sync.WaitGroup
+	for range runtime.GOMAXPROCS(0) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			win := make([]float32, 0, (2*r+1)*(2*r+1))
+			for y := range rows {
+				for x := range w {
+					i := y*w + x
+					if p[i] == 0 {
+						continue
+					}
+					win = win[:0]
+					for yy := max(0, y-r); yy <= min(h-1, y+r); yy++ {
+						for xx := max(0, x-r); xx <= min(w-1, x+r); xx++ {
+							if v := p[yy*w+xx]; v != 0 {
+								win = append(win, v)
+							}
+						}
+					}
+					slices.Sort(win)
+					out[i] = win[len(win)/2]
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
+// subtractSignal takes scale × model out of a sub in place. Empty and
+// saturated pixels, and those the model has nothing for, stay as they are.
+func subtractSignal(sub, model []float32, scale float64, sat float32) {
+	k := float32(scale)
+	for i, v := range sub {
+		m := model[i]
+		if v == 0 || v >= sat || m == 0 {
+			continue
+		}
+		if r := v - k*m; r != 0 {
+			sub[i] = r
+		} else {
+			sub[i] = 1e-9 // 0 would mark it empty
+		}
+	}
+}
+
+// starApertures are the brightest isolated stars of a stars layer (per
+// second, sky-free), at least starBox from the edges, whose flux measures
+// each sub's share of the layer.
+func starApertures(stars *Accumulator) []int {
+	const box = starBox
+	w, h := stars.W, stars.H
+	var sigma float64
+	{
+		stride := max(1, len(stars.Mean)/200_000)
+		var dev []float64
+		for i := 0; i < len(stars.Mean); i += stride {
+			if stars.Weight[i] > 0 {
+				dev = append(dev, math.Abs(float64(stars.Mean[i])))
+			}
+		}
+		if len(dev) == 0 {
+			return nil
+		}
+		sigma = median(dev) * madToSigma
+	}
+	type peak struct {
+		i int
+		v float32
+	}
+	var peaks []peak
+	for y := box; y < h-box; y++ {
+		for x := box; x < w-box; x++ {
+			i := y*w + x
+			v := stars.Mean[i]
+			if float64(v) < 30*sigma {
+				continue
+			}
+			top, clean := true, true
+			for dy := -box; dy <= box && top && clean; dy++ {
+				for dx := -box; dx <= box; dx++ {
+					j := i + dy*w + dx
+					if stars.Weight[j] == 0 {
+						clean = false // saturated core or border
+						break
+					}
+					if (dx != 0 || dy != 0) && stars.Mean[j] >= v {
+						top = false
+						break
+					}
+				}
+			}
+			if top && clean {
+				peaks = append(peaks, peak{i, v})
+			}
+		}
+	}
+	slices.SortFunc(peaks, func(a, b peak) int { return cmpFloat32(b.v, a.v) })
+	out := make([]int, 0, min(len(peaks), 500))
+	for _, p := range peaks[:min(len(peaks), 500)] {
+		out = append(out, p.i)
+	}
+	return out
+}
+
+func cmpFloat32(a, b float32) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	}
+	return 0
+}
+
+// starBox is the half-width of the box a star's flux is measured in: a disc
+// of radius starAperture with the sky from the box's corners.
+const (
+	starBox      = 12
+	starAperture = 6
+)
+
+// starScale is how much of stars, a stack's signal per second, a sub holds:
+// its exposure times its transparency against the stack's. It is the median
+// ratio of the stars' fluxes, which unlike their peaks doesn't depend on the
+// seeing, or the exposure when too few stars can be measured.
+func starScale(sub, stars []float32, w int, apertures []int, exposure float64, sat float32) float64 {
+	var ratios []float64
+	var ringS, ringM []float64
+	for _, c := range apertures {
+		var fs, fm float64
+		n := 0
+		ringS, ringM = ringS[:0], ringM[:0]
+		ok := true
+		for dy := -starBox; dy <= starBox && ok; dy++ {
+			for dx := -starBox; dx <= starBox; dx++ {
+				j := c + dy*w + dx
+				v := sub[j]
+				if v == 0 || v >= sat {
+					ok = false
+					break
+				}
+				switch r2 := dx*dx + dy*dy; {
+				case r2 <= starAperture*starAperture:
+					fs += float64(v)
+					fm += float64(stars[j])
+					n++
+				case r2 > (starAperture+2)*(starAperture+2):
+					ringS = append(ringS, float64(v))
+					ringM = append(ringM, float64(stars[j]))
+				}
+			}
+		}
+		if !ok {
+			continue
+		}
+		fs -= float64(n) * median(ringS)
+		fm -= float64(n) * median(ringM)
+		if fm > 0 {
+			ratios = append(ratios, fs/fm)
+		}
+	}
+	if len(ratios) < 20 {
+		return exposure
+	}
+	if k := median(ratios); k > 0 {
+		return k
+	}
+	return exposure
+}
+
+// addStars adds the stars' layer, scaled to one sub of scaleExposure
+// seconds, to a comet master. Cores saturated in every sub come out at full
+// scale; pixels either layer has no data for are left as the comet's.
+func addStars(comet []float32, stars *Accumulator, add []float32, scaleExposure float64) []float32 {
+	out := slices.Clone(comet)
+	full := stars.Master(scaleExposure) // 1 in saturated cores
+	s := float32(scaleExposure)
+	for i, c := range comet {
+		switch {
+		case c == 0:
+		case stars.Weight[i] > 0:
+			out[i] = min(1, max(1e-7, c+add[i]*s))
+		case full[i] == 1:
+			out[i] = 1
+		}
+	}
+	return out
 }
 
 // shiftImage moves an image by (dx, dy) pixels with bilinear resampling.
@@ -431,14 +904,18 @@ func maxTime(a, b time.Time) time.Time {
 }
 
 // publishComet writes the comet master beside the star-aligned one: FITS,
-// XISF, a cropped preview and a linear preview for covers.
-func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, acc *Accumulator, refTime time.Time, subs int) error {
+// XISF, a cropped preview and a linear preview for covers. The master is the
+// comet with the stars added back sharp; the comet alone is kept beside it
+// as comet-starless.{fit,xisf}.
+func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers cometLayers, refTime time.Time, subs int) error {
 	dir, err := os.MkdirTemp(p.workDir, "comet-publish-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	master := acc.Master(stack.ScaleExposure)
+	acc := layers.comet
+	starless := acc.Master(stack.ScaleExposure)
+	master := addStars(starless, layers.stars, layers.add, stack.ScaleExposure)
 	own := []imagedata.Card{
 		imagedata.StringCard("OBJECT", stack.Object, "target"),
 		imagedata.StringCard("FILTER", stack.Filter, "filter"),
@@ -449,13 +926,13 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, acc *Accu
 		imagedata.StringCard("DATE", time.Now().UTC().Format("2006-01-02T15:04:05"), "file written"),
 		imagedata.StringCard("SWCREATE", "astro-stacker (Siril 1.4 calibration)", ""),
 	}
-	// The stars are rejected and the frame follows the comet, so the
-	// plate solution no longer describes it.
-	header := p.masterHeader(ctx, stack, own, dir, "")
-	cards := header[:0:0]
-	for _, c := range header {
+	// The stars are where they were in the reference sub, so the plate
+	// solution still describes the master; the starless comet has none.
+	cards := p.masterHeader(ctx, stack, own, dir, "")
+	starlessCards := cards[:0:0]
+	for _, c := range cards {
 		if !wcsKey.MatchString(c.Key) {
-			cards = append(cards, c)
+			starlessCards = append(starlessCards, c)
 		}
 	}
 	fitsFile, xisfFile := filepath.Join(dir, "comet.fit"), filepath.Join(dir, "comet.xisf")
@@ -463,6 +940,13 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, acc *Accu
 		return err
 	}
 	if err := writeXISFFile(xisfFile, acc.W, acc.H, master, cards); err != nil {
+		return err
+	}
+	starlessFITS, starlessXISF := filepath.Join(dir, "comet-starless.fit"), filepath.Join(dir, "comet-starless.xisf")
+	if err := writeFITSFile(starlessFITS, acc.W, acc.H, 1, starless, starlessCards); err != nil {
+		return err
+	}
+	if err := writeXISFFile(starlessXISF, acc.W, acc.H, starless, starlessCards); err != nil {
 		return err
 	}
 	r := coverageCrop(acc)
@@ -477,8 +961,12 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, acc *Accu
 	prefix := stackPrefix(stack)
 	keys := map[string]string{}
 	for name, up := range map[string]func(string) error{
-		"comet.fit":  func(k string) error { return p.upload(ctx, fitsFile, k, "application/fits") },
-		"comet.xisf": func(k string) error { return p.upload(ctx, xisfFile, k, "application/octet-stream") },
+		"comet.fit":          func(k string) error { return p.upload(ctx, fitsFile, k, "application/fits") },
+		"comet.xisf":         func(k string) error { return p.upload(ctx, xisfFile, k, "application/octet-stream") },
+		"comet-starless.fit": func(k string) error { return p.upload(ctx, starlessFITS, k, "application/fits") },
+		"comet-starless.xisf": func(k string) error {
+			return p.upload(ctx, starlessXISF, k, "application/octet-stream")
+		},
 		"comet.jpg": func(k string) error {
 			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"})
 		},

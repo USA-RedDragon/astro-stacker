@@ -177,3 +177,82 @@ func TestCometStackShortDrift(t *testing.T) {
 		t.Errorf("comet peak %.3f, want about 0.05", peak)
 	}
 }
+
+// Faint stars stand only a little above each sub's noise, so rejection
+// can't tell them from it and their trails survive a comet-aligned stack.
+// Taking the stars out of every sub first removes them.
+func TestSeparateCometFaintStars(t *testing.T) {
+	t.Parallel()
+	const w, h, n = 240, 120, 40
+	r := rand.New(rand.NewPCG(9, 9))
+	type star struct{ x, y, f float64 }
+	var stars []star
+	for range 120 {
+		stars = append(stars, star{10 + r.Float64()*220, 10 + r.Float64()*100, 0.001 + 0.2*math.Pow(r.Float64(), 4)})
+	}
+	blob := func(img []float32, cx, cy, f, s float64) {
+		for y := int(cy) - 8; y <= int(cy)+8; y++ {
+			for x := int(cx) - 8; x <= int(cx)+8; x++ {
+				if x >= 0 && y >= 0 && x < w && y < h {
+					dx, dy := float64(x)-cx, float64(y)-cy
+					img[y*w+x] += float32(f * math.Exp(-(dx*dx+dy*dy)/(2*s*s)))
+				}
+			}
+		}
+	}
+	subs := make([][]float32, n)
+	shifts := make([][2]float64, n)
+	stored := make([]storedSub, n)
+	for i := range subs {
+		img := make([]float32, w*h)
+		for j := range img {
+			img[j] = float32(0.01 + 0.0005*r.NormFloat64())
+		}
+		transparency := 0.9 + 0.2*r.Float64()
+		for _, s := range stars {
+			blob(img, s.x, s.y, s.f*transparency, 1.5)
+		}
+		drift := 2 * float64(i)
+		blob(img, 60+drift, 60, 0.02*transparency, 4)
+		subs[i] = img
+		shifts[i] = [2]float64{-drift, 0}
+		stored[i] = storedSub{exposure: 10, weight: 10}
+	}
+	read := func(i int) ([]float32, int, int, error) { return slices.Clone(subs[i]), w, h, nil }
+	layers, err := separateComet(stored, shifts, nil, nil, DefaultOptions, read, func(int, int) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := layers.comet.Master(10)
+	bg := slices.Clone(m)
+	slices.Sort(bg)
+	sky := bg[len(bg)/2]
+	// The trails' leftovers, in units of the stack's noise.
+	var dev []float64
+	worst := float32(0)
+	for y := 10; y < h-10; y++ {
+		for x := 10; x < w-90; x++ {
+			if math.Hypot(float64(x-60), float64(y-60)) < 16 {
+				continue
+			}
+			dev = append(dev, math.Abs(float64(m[y*w+x]-sky)))
+			worst = max(worst, m[y*w+x]-sky)
+		}
+	}
+	sigma := median(dev) * madToSigma
+	if float64(worst) > 5*sigma {
+		t.Errorf("a star survives at %.1fσ above sky", float64(worst)/sigma)
+	}
+	if peak := m[60*w+60] - sky; peak < 0.017 {
+		t.Errorf("comet peak %.4f, want about 0.02", peak)
+	}
+	// With the stars added back they are sharp where they were.
+	full := addStars(m, layers.stars, layers.add, 10)
+	for _, s := range stars {
+		if s.f > 0.05 && s.x > 20 && s.x < 220 {
+			if v := full[int(math.Round(s.y))*w+int(math.Round(s.x))] - sky; v < 0.7*float32(s.f) {
+				t.Errorf("star at (%.0f,%.0f) is %.3f with the stars added back, want about %.3f", s.x, s.y, v, s.f)
+			}
+		}
+	}
+}
