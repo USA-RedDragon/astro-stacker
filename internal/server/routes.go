@@ -356,7 +356,10 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 	})
 
 	// Every target with lights, and whether Target Scheduler knows it, so
-	// targets imaged outside it can be listed too.
+	// targets imaged outside it can be listed too. A target counts as
+	// scheduled only when Target Scheduler has a record for at least half
+	// its lights: the TS5 upgrade dropped every earlier record, so targets
+	// imaged mostly before it are listed with the others.
 	r.GET("/objects", func(c *gin.Context) {
 		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
 		ctx := c.Request.Context()
@@ -377,14 +380,20 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		var scheduled []string
-		if err := di.SchedulerDBStore.DB().WithContext(ctx).Table("target").Pluck("name", &scheduled).Error; err != nil {
+		var scheduled []struct {
+			Name     string
+			Acquired int
+		}
+		if err := di.SchedulerDBStore.DB().WithContext(ctx).Table("target t").
+			Select(`t.name, COUNT(a."Id") AS acquired`).
+			Joins(`LEFT JOIN acquiredimage a ON a."targetId" = t."Id"`).
+			Group("t.name").Scan(&scheduled).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		known := map[string]bool{}
-		for _, n := range scheduled {
-			known[n] = true
+		acquired := map[string]int{}
+		for _, t := range scheduled {
+			acquired[t.Name] += t.Acquired
 		}
 		type object struct {
 			Name       string  `json:"name"`
@@ -405,7 +414,7 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		out := make([]object, 0, len(rows))
 		for _, r := range rows {
 			out = append(out, object{Name: r.Object, Lights: r.Lights, Stacked: r.Stacked, Nights: r.Nights,
-				FirstNight: day(r.FirstNight), LastNight: day(r.LastNight), Scheduled: known[r.Object]})
+				FirstNight: day(r.FirstNight), LastNight: day(r.LastNight), Scheduled: 2*acquired[r.Object] >= r.Lights})
 		}
 		c.JSON(http.StatusOK, out)
 	})
