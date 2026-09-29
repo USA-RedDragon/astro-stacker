@@ -146,6 +146,7 @@ const (
 	StackStatusDead         = "dead"        // failed MaxAttempts times; left out until reset
 	StackStatusOffTarget    = "off_target"  // the mount pointed elsewhere
 	StackStatusRecalibrate  = "recalibrate" // stacked without a dark; one has come
+	StackStatusMoon         = "moon"        // breaks its filter's moon avoidance
 )
 
 // StackFrame records what happened to one light.
