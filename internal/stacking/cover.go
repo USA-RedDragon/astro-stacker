@@ -361,12 +361,18 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 		slog.Warn("Could not load masters for the cover", "object", object, "error", err)
 		return
 	}
+	// A comet is shown as its comet masters see it, sharp, but only once
+	// every filter has one: comet-aligned and star-aligned channels put the
+	// comet and the stars in different places.
+	comet := len(stacks) > 0
+	for _, s := range stacks {
+		comet = comet && s.CometLinearKey != nil
+	}
 	linear := map[string]layer{}
 	for _, s := range stacks {
 		linear[s.Filter] = fracCrop(layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds},
 			s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height)
-		if s.CometLinearKey != nil {
-			// A comet is shown as the comet master sees it, sharp.
+		if comet {
 			linear[s.Filter] = fracCrop(layer{Key: *s.CometLinearKey, Effective: s.EffectiveSeconds},
 				s.CometCropX, s.CometCropY, s.CometCropW, s.CometCropH, s.Width, s.Height)
 		}
