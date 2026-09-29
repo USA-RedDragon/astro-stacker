@@ -56,8 +56,12 @@ func (p *Pipeline) reportStatus(ctx context.Context) {
 	var backlog events.Backlog
 	var counted time.Time
 	for {
+		// It stops with the rest on a drain, or Run waits for it until
+		// the drain's limit with nothing left to do.
 		select {
 		case <-ctx.Done():
+			return
+		case <-p.drain:
 			return
 		case <-tick.C:
 		}
