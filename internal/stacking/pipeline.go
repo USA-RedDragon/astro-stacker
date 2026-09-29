@@ -170,6 +170,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	var wg sync.WaitGroup
 	wg.Go(func() { p.reportStatus(ctx) })
 	wg.Go(func() {
+		p.reregisterPrecalibrated(ctx)
 		p.requeueWeightless(ctx)
 		// Recropping re-renders covers of the masters it touches.
 		p.recropMasters(ctx)
