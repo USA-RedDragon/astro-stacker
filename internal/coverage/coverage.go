@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
@@ -94,24 +96,104 @@ const (
 	groupBy   = `type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, ROUND(rotator)`
 )
 
-// Sets loads every flat, dark and bias set.
+// SessionGap is the longest pause between two frames of one dark or bias
+// set. A dark or bias library is not tied to a night: it is shot in one
+// sitting, often across local noon when the night changes, or over a few
+// nights while the camera is idle, and serves every night until the next
+// one. Frames of the same type, exposure, gain, offset, setpoint and binning
+// belong to one set as long as each came within SessionGap of the one
+// before it; a longer pause starts a new set, a new library.
+const SessionGap = 36 * time.Hour
+
+// calFrame is what grouping frames into sets needs of each.
+type calFrame struct {
+	Type         string
+	Night        time.Time
+	Object       string
+	Filter       string
+	Exposure     *float64
+	Gain         *float64
+	Offset       *float64
+	SetTemp      *float64
+	BinX         *float64
+	Rotator      *float64
+	DateObs      *time.Time
+	LastModified time.Time
+}
+
+// Sets loads every flat, dark and bias set. Flats are grouped per night,
+// object, filter and rotator angle, as frames taken for one session's
+// lights; darks and bias by their setup and SessionGap.
 func Sets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, error) {
-	var cal []groupRow
-	if err := db.WithContext(ctx).Table("frames").Select(groupCols).
+	var frames []calFrame
+	if err := db.WithContext(ctx).Table("frames").
+		Select(`type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, rotator, date_obs, last_modified`).
 		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL", []string{"FLAT", "DARK", "BIAS"}).
-		Group(groupBy).Scan(&cal).Error; err != nil {
-		return nil, fmt.Errorf("load calibration sets: %w", err)
+		Scan(&frames).Error; err != nil {
+		return nil, fmt.Errorf("load calibration frames: %w", err)
 	}
-	sets := make([]calmatch.Set, 0, len(cal)+len(Imported))
+	sort.SliceStable(frames, func(i, j int) bool {
+		return takenAt(frames[i].DateObs, frames[i].Night).Before(takenAt(frames[j].DateObs, frames[j].Night))
+	})
+	sets := make([]calmatch.Set, 0, len(Imported)+64)
 	sets = append(sets, Imported...)
-	for _, c := range cal {
-		sets = append(sets, calmatch.Set{
-			Type: c.Type, Night: c.Night, Object: c.Object, Filter: c.Filter, Exposure: val(c.Exposure),
-			Gain: val(c.Gain), Offset: val(c.Offset), SetTemp: val(c.SetTemp),
-			BinX: val(c.BinX), Rotator: val(c.Rotator), Count: c.N,
-		})
+	byKey := map[string][]int{} // group key -> indexes into sets, oldest session first
+	for _, f := range frames {
+		s := calmatch.Set{
+			Type: f.Type, Night: f.Night, Exposure: val(f.Exposure), Gain: val(f.Gain), Offset: val(f.Offset),
+			SetTemp: val(f.SetTemp), BinX: val(f.BinX), Rotator: math.NaN(),
+		}
+		at := takenAt(f.DateObs, f.Night)
+		if library(f.Type) {
+			s.From, s.To = at, at
+		} else {
+			s.Object, s.Filter, s.Rotator = f.Object, f.Filter, math.Round(val(f.Rotator))
+		}
+		k := groupKey(s)
+		idx := byKey[k]
+		// Frames come in the order they were taken, so a frame joins the latest
+		// session of its setup or starts the next one.
+		if n := len(idx); n > 0 && (!library(f.Type) || at.Sub(sets[idx[n-1]].To) <= SessionGap) {
+			cur := &sets[idx[n-1]]
+			cur.Count++
+			if library(f.Type) {
+				cur.To = at
+				cur.Night = f.Night
+			}
+			if f.LastModified.After(cur.Uploaded) {
+				cur.Uploaded = f.LastModified
+			}
+			continue
+		}
+		s.Count, s.Uploaded = 1, f.LastModified
+		sets = append(sets, s)
+		byKey[k] = append(idx, len(sets)-1)
 	}
 	return sets, nil
+}
+
+// takenAt is when a frame was taken, for placing it in a session: its
+// DATE-OBS, or the start of its night for the odd frame without one.
+func takenAt(dateObs *time.Time, night time.Time) time.Time {
+	if dateObs != nil {
+		return *dateObs
+	}
+	return night
+}
+
+// library reports whether frames of a type make sets that span nights (see
+// SessionGap).
+func library(typ string) bool { return typ == "DARK" || typ == "BIAS" }
+
+// groupKey is what frames of one set share, besides a library's session.
+// Missing values format as NaN and so group together, as NULLs do in SQL.
+func groupKey(s calmatch.Set) string {
+	num := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+	k := strings.Join([]string{s.Type, num(s.Exposure), num(s.Gain), num(s.Offset), num(s.SetTemp), num(s.BinX)}, "\x00")
+	if !library(s.Type) {
+		k += "\x00" + strings.Join([]string{s.Night.Format("2006-01-02"), s.Object, s.Filter, num(s.Rotator)}, "\x00")
+	}
+	return k
 }
 
 // Imported are masters WBPP made for the offset-240 lights of December 2024
@@ -142,8 +224,15 @@ var Imported = func() []calmatch.Set {
 // SetFrames returns the frames that make up a set, matching the grouping in
 // Sets exactly, with missing values matched as NULL.
 func SetFrames(ctx context.Context, db *gorm.DB, s calmatch.Set) ([]app.Frame, error) {
-	q := db.WithContext(ctx).Where("type = ? AND night = ? AND object = ? AND filter = ? AND index_error IS NULL",
-		s.Type, s.Night, s.Object, s.Filter)
+	q := db.WithContext(ctx).Where("type = ? AND night IS NOT NULL AND index_error IS NULL", s.Type)
+	if !library(s.Type) {
+		q = q.Where("night = ? AND object = ? AND filter = ?", s.Night, s.Object, s.Filter)
+		if math.IsNaN(s.Rotator) {
+			q = q.Where("rotator IS NULL")
+		} else {
+			q = q.Where("ROUND(rotator) = ?", s.Rotator)
+		}
+	}
 	for col, v := range map[string]float64{
 		"exposure": s.Exposure, "gain": s.Gain, `"offset"`: s.Offset, "set_temp": s.SetTemp, "bin_x": s.BinX,
 	} {
@@ -153,14 +242,22 @@ func SetFrames(ctx context.Context, db *gorm.DB, s calmatch.Set) ([]app.Frame, e
 			q = q.Where(col+" = ?", v)
 		}
 	}
-	if math.IsNaN(s.Rotator) {
-		q = q.Where("rotator IS NULL")
-	} else {
-		q = q.Where("ROUND(rotator) = ?", s.Rotator)
-	}
 	var frames []app.Frame
 	if err := q.Order("key").Find(&frames).Error; err != nil {
 		return nil, fmt.Errorf("load frames of %s set: %w", s.Type, err)
+	}
+	if library(s.Type) {
+		// A session is every frame of its setup from its first to its
+		// last: sessions of one setup are more than SessionGap apart.
+		// Compared here rather than in SQL, where SQLite compares times as
+		// text.
+		in := frames[:0]
+		for _, f := range frames {
+			if at := takenAt(f.DateObs, *f.Night); !at.Before(s.From) && !at.After(s.To) {
+				in = append(in, f)
+			}
+		}
+		frames = in
 	}
 	return frames, nil
 }

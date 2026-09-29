@@ -44,7 +44,9 @@ type Group struct {
 
 // Set is a candidate calibration set: frames of one type taken together.
 type Set struct {
-	Type     string // FLAT, DARK, BIAS
+	Type string // FLAT, DARK, BIAS
+	// Night is a flat set's night; for dark and bias sets, which may span
+	// nights, it is the night of the newest frame.
 	Night    time.Time
 	Object   string // Target Scheduler names flats after their target
 	Filter   string
@@ -55,6 +57,12 @@ type Set struct {
 	BinX     float64
 	Rotator  float64
 	Count    int
+	// From and To are the DATE-OBS of the first and last frame of a dark or
+	// bias set (coverage.Sets); zero for flats, which go by night.
+	From, To time.Time
+	// Uploaded is when the set's newest frame was uploaded; zero when
+	// unknown.
+	Uploaded time.Time
 	// Master is the key, in the source bucket, of a master made elsewhere
 	// for a set whose frames were never uploaded. Empty for sets built from
 	// their frames.
