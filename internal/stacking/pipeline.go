@@ -381,7 +381,7 @@ func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error)
 	for _, f := range frames {
 		out = append(out, quality.Measured{
 			File: path.Base(f.Key), Target: f.Object, Filter: f.Filter, Exposure: val(f.Exposure),
-			SkyADU: val(f.SkyADU), HFR: val(f.StarHFR), Stars: intVal(f.StarCount),
+			SkyADU: val(f.SkyADU), Offset: val(f.Offset), HFR: val(f.StarHFR), Stars: intVal(f.StarCount),
 		})
 	}
 	return out, nil

@@ -56,6 +56,7 @@ type Measured struct {
 	Filter   string
 	Exposure float64
 	SkyADU   float64
+	Offset   float64 // camera offset, 0 when unknown
 	HFR      float64
 	Stars    int
 }
@@ -87,7 +88,7 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measured []M
 			continue
 		}
 		g := group{filter: m.FilterName, exposure: math.Round(float64(m.ExposureDuration))}
-		raw := RawWeight(Sky(float64(m.ADUMedian), pedestal), float64(m.HFR))
+		raw := RawWeight(Sky(float64(m.ADUMedian), PedestalAt(pedestal, float64(m.Offset))), float64(m.HFR))
 		it := item{
 			s: SubScore{
 				File:          m.FileName[strings.LastIndexAny(m.FileName, `\/`)+1:],
@@ -117,7 +118,7 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measured []M
 			continue
 		}
 		g := group{filter: m.Filter, exposure: math.Round(m.Exposure)}
-		raw := RawWeight(Sky(m.SkyADU, pedestal), m.HFR)
+		raw := RawWeight(Sky(m.SkyADU, PedestalAt(pedestal, m.Offset)), m.HFR)
 		items = append(items, item{
 			s:      SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars},
 			raw:    raw,
