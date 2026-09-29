@@ -86,6 +86,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	defer stopIndexer()
 	var signer *previewer.Signer
 	var restacker middleware.Restacker
+	drainStacker := func() {}
 	broker := events.NewBroker()
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled {
 		creds := credentials(cfg)
@@ -117,7 +118,31 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
 			p.Events = broker
 			restacker = p
-			go p.Run(indexCtx, time.Duration(cfg.Stacking.IntervalSeconds)*time.Second)
+			// Its own context: on shutdown it drains first, and is only
+			// cancelled if that takes too long.
+			stackCtx, cancelStack := context.WithCancel(context.Background())
+			stackDone := make(chan struct{})
+			go func() {
+				p.Run(stackCtx, time.Duration(cfg.Stacking.IntervalSeconds)*time.Second)
+				close(stackDone)
+			}()
+			drainStacker = func() {
+				limit := time.Duration(cfg.Stacking.DrainSeconds) * time.Second
+				slog.Info("Draining the stacker", "limit", limit)
+				p.Drain()
+				select {
+				case <-stackDone:
+					slog.Info("Stacker drained")
+				case <-time.After(limit):
+					slog.Warn("Stacker still busy; cancelling its work", "limit", limit)
+					cancelStack()
+					select {
+					case <-stackDone:
+					case <-time.After(30 * time.Second):
+					}
+				}
+				cancelStack()
+			}
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir)
 		}
 	}
@@ -133,6 +158,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		fmt.Println("")
 
 		slog.Info("Received signal", "signal", sig)
+		drainStacker()
 		stopIndexer()
 
 		err := server.Stop()

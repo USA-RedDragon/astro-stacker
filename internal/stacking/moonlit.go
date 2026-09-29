@@ -194,6 +194,9 @@ func (p *Pipeline) moonSweep(ctx context.Context) error {
 		return err
 	}
 	for _, id := range due {
+		if p.stopping(ctx) {
+			return nil
+		}
 		if err := p.restackWithout(ctx, id); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

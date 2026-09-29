@@ -464,7 +464,7 @@ func (p *Pipeline) backfillCovers(ctx context.Context) {
 	}
 	done := map[string]bool{}
 	for _, s := range stacks {
-		if done[s.Object] || s.UpdatedAt.Before(covers[s.Object]) || ctx.Err() != nil {
+		if done[s.Object] || s.UpdatedAt.Before(covers[s.Object]) || p.stopping(ctx) {
 			continue
 		}
 		done[s.Object] = true
@@ -475,7 +475,7 @@ func (p *Pipeline) backfillCovers(ctx context.Context) {
 		return
 	}
 	for _, m := range mosaics {
-		if done[app.MosaicSubject(m.Project)] || m.UpdatedAt.Before(covers[app.MosaicSubject(m.Project)]) || ctx.Err() != nil {
+		if done[app.MosaicSubject(m.Project)] || m.UpdatedAt.Before(covers[app.MosaicSubject(m.Project)]) || p.stopping(ctx) {
 			continue
 		}
 		done[app.MosaicSubject(m.Project)] = true

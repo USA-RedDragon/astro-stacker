@@ -215,6 +215,9 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 		return err
 	}
 	for i := range stacks {
+		if p.stopping(ctx) {
+			return nil
+		}
 		s := &stacks[i]
 		des, ok := cometDesignation(s.Object)
 		if !ok || s.CometSignature == cometSignature(s) || time.Since(s.UpdatedAt) < p.opts.MosaicQuiet {
