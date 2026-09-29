@@ -1,12 +1,17 @@
 package stacking
 
 import (
+	"context"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/siril"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 // TestDarkStats prints the light-leak measure of real darks in DARK_DIR.
@@ -27,12 +32,12 @@ func TestDarkStats(t *testing.T) {
 	}
 }
 
-func TestLightLeak(t *testing.T) {
-	t.Parallel()
-	const w, h = 640, 480
+// testDarks are a clean dark and one with light reaching the sensor.
+func testDarks() (clean, leak []float32, w, h int) {
+	w, h = 640, 480
 	r := rand.New(rand.NewPCG(5, 5))
-	clean := make([]float32, w*h)
-	leak := make([]float32, w*h)
+	clean = make([]float32, w*h)
+	leak = make([]float32, w*h)
 	for y := range h {
 		for x := range w {
 			n := 500 + 5*r.NormFloat64()
@@ -40,10 +45,60 @@ func TestLightLeak(t *testing.T) {
 			leak[y*w+x] = float32((n + 150*float64(w-x+h-y)/float64(w+h)) / 65535) // brighter towards the top left
 		}
 	}
+	return clean, leak, w, h
+}
+
+func TestLightLeak(t *testing.T) {
+	t.Parallel()
+	clean, leak, w, h := testDarks()
 	if s, n := darkSpread(clean, w, h); leaky(s, n) {
 		t.Errorf("clean dark: spread %v noise %v called leaky", s, n)
 	}
 	if s, n := darkSpread(leak, w, h); !leaky(s, n) {
 		t.Errorf("leaky dark: spread %v noise %v called clean", s, n)
+	}
+}
+
+// Every dark checked records its measure, so a clean one can be told from
+// one never checked; only the leaky one is left out.
+func TestDropLeakyDarksRecordsClean(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.Frame{}); err != nil {
+		t.Fatal(err)
+	}
+	clean, leak, w, h := testDarks()
+	dir := t.TempDir()
+	var frames []app.Frame
+	var files []string
+	for i, data := range [][]float32{clean, leak} {
+		f := app.Frame{Key: []string{"clean.fit", "leak.fit"}[i], Type: "DARK"}
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+		frames = append(frames, f)
+		files = append(files, filepath.Join(dir, f.Key))
+		if err := writeFITSFile(files[i], w, h, 1, data, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, dir, DefaultPipelineOptions)
+	left, err := p.dropLeakyDarks(context.Background(), frames, files)
+	if err != nil || left != 1 {
+		t.Fatalf("%d left, %v", left, err)
+	}
+	var got []app.Frame
+	db.Order("id").Find(&got)
+	if got[0].DarkSpread == nil || got[0].LightLeak != nil {
+		t.Errorf("clean dark: spread %v, leak %v", got[0].DarkSpread, got[0].LightLeak)
+	}
+	if got[1].DarkSpread == nil || got[1].LightLeak == nil || *got[1].LightLeak != *got[1].DarkSpread {
+		t.Errorf("leaky dark: spread %v, leak %v", got[1].DarkSpread, got[1].LightLeak)
+	}
+	if _, err := os.Stat(files[1]); !os.IsNotExist(err) {
+		t.Error("leaky dark not removed")
 	}
 }

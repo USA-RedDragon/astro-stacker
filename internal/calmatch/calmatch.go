@@ -189,7 +189,7 @@ func chooseDark(g Group, sets []Set) Match {
 		if s.Type != "DARK" || !same(s.Gain, g.Gain) || !same(s.Offset, g.Offset) || !same(s.BinX, g.BinX) {
 			continue
 		}
-		if tempOff(g, s) > SetTempScaleMaxC || !(s.Exposure > 0) {
+		if TempOff(g, s) > SetTempScaleMaxC || !(s.Exposure > 0) {
 			continue
 		}
 		cands = append(cands, s)
@@ -198,7 +198,7 @@ func chooseDark(g Group, sets []Set) Match {
 		return Match{Quality: Missing}
 	}
 	sort.SliceStable(cands, func(i, j int) bool {
-		ti, tj := tempOff(g, cands[i]), tempOff(g, cands[j])
+		ti, tj := TempOff(g, cands[i]), TempOff(g, cands[j])
 		if ti != tj {
 			return ti < tj
 		}
@@ -212,7 +212,7 @@ func chooseDark(g Group, sets []Set) Match {
 		return days(g.Night, cands[i].Night) < days(g.Night, cands[j].Night)
 	})
 	best := cands[0]
-	m := Match{Set: &best, AgeDays: days(g.Night, best.Night), TempOff: tempOff(g, best), Quality: Fallback}
+	m := Match{Set: &best, AgeDays: days(g.Night, best.Night), TempOff: TempOff(g, best), Quality: Fallback}
 	m.Scaled = m.TempOff > SetTempExactC || !sameExposure(g, best)
 	if !m.Scaled {
 		m.Quality = Exact
@@ -224,7 +224,8 @@ func sameExposure(g Group, s Set) bool {
 	return math.Abs(s.Exposure-g.Exposure) <= ExposureTolerance*g.Exposure
 }
 
-func tempOff(g Group, s Set) float64 {
+// TempOff is how far a dark's setpoint is from the lights', in °C.
+func TempOff(g Group, s Set) float64 {
 	if math.IsNaN(g.SetTemp) || math.IsNaN(s.SetTemp) {
 		// Unknown temperature can never be an exact match, but is usable.
 		return SetTempScaleMaxC
