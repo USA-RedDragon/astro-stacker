@@ -26,20 +26,23 @@ func TestChoosePalette(t *testing.T) {
 		name string
 		have map[string]layer
 		want string
+		sho  bool
 	}{
-		{"all RGB and H-a", hours("Red", 3.0, "Green", 3.0, "Blue", 3.0, "H-a", 2.0), "RGB+Ha"},
+		{"all RGB and H-a", hours("Red", 3.0, "Green", 3.0, "Blue", 3.0, "H-a", 2.0), "RGB+Ha", false},
 		// Crab Nebula: 2 H-a subs against 38 of each colour.
-		{"too little H-a", hours("Red", 3.0, "Green", 3.0, "Blue", 3.0, "H-a", 0.3), "RGB"},
-		{"one colour thin", hours("Red", 3.0, "Green", 3.0, "Blue", 0.5, "S-II", 2.0, "H-a", 3.0, "O-III", 2.5), "SHO"},
+		{"too little H-a", hours("Red", 3.0, "Green", 3.0, "Blue", 3.0, "H-a", 0.3), "RGB", false},
+		{"one colour thin", hours("Red", 3.0, "Green", 3.0, "Blue", 0.5, "S-II", 2.0, "H-a", 3.0, "O-III", 2.5), "HOO", false},
+		{"shot for SHO", hours("S-II", 2.1, "H-a", 2.3, "O-III", 1.9), "SHO", true},
 		// California Nebula Panel 2: 1 S-II sub against 5 H-a.
-		{"thin S-II", hours("S-II", 0.1, "H-a", 0.8, "O-III", 0.3), "HOO"},
-		{"H-a only", hours("H-a", 5.0), ""},
+		{"thin S-II", hours("S-II", 0.1, "H-a", 0.8, "O-III", 0.3), "HOO", false},
+		{"H-a only", hours("H-a", 5.0), "", false},
 		// Dolphin Head: 7.7 h H-a and 5 h O-III against under an hour of
 		// each colour.
-		{"mostly narrowband", hours("Red", 0.5, "Green", 0.25, "Blue", 0.4, "H-a", 7.7, "O-III", 5.0), "HOO"},
-		{"narrowband with S-II", hours("Red", 1.0, "Green", 1.0, "Blue", 1.0, "S-II", 3.0, "H-a", 4.0, "O-III", 3.0), "SHO"},
+		{"mostly narrowband", hours("Red", 0.5, "Green", 0.25, "Blue", 0.4, "H-a", 7.7, "O-III", 5.0), "HOO", false},
+		// Cygnus Loop: S-II too, but SHO only when asked for.
+		{"narrowband with S-II", hours("Red", 1.0, "Green", 1.0, "Blue", 1.0, "S-II", 3.0, "H-a", 4.0, "O-III", 3.0), "HOO", false},
 	} {
-		p, ok := choosePalette(c.have)
+		p, ok := choosePalette(c.have, c.sho)
 		if got := map[bool]string{true: p.Name, false: ""}[ok]; got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
@@ -135,7 +138,7 @@ func TestCoverFromFiles(t *testing.T) {
 		// Assume equal data; this test is about how the cover looks.
 		have[name], planes[name] = layer{Key: f, Effective: 1}, img
 	}
-	pal, ok := choosePalette(have)
+	pal, ok := choosePalette(have, false)
 	if !ok {
 		t.Fatal("no palette")
 	}
