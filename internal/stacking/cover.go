@@ -191,18 +191,22 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	c.Subject, c.Palette, c.PreviewKey, c.UpdatedAt = subject, pal.Name, key, time.Now()
+	c.Subject, c.Palette, c.PreviewKey, c.UpdatedAt, c.Version = subject, pal.Name, key, time.Now(), CoverVersion
 	metrics.Covers.WithLabelValues("colour").Inc()
 	return p.db.WithContext(ctx).Save(&c).Error
 }
 
 // composeCover stretches each channel on its own and encodes a JPEG.
 func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte, error) {
-	red := planes[pal.R].Data
+	// Only where every channel has data: a mosaic panel missing a filter,
+	// or a master's edge another doesn't reach, would otherwise show in the
+	// remaining channels' colours. H-a only adds to red, so it isn't needed.
+	rawR, rawG, rawB := commonData(planes[pal.R].Data, planes[pal.G].Data, planes[pal.B].Data)
+	red := rawR
 	if pal.HaRed {
 		red = blendHa(red, planes["H-a"].Data)
 	}
-	r, g, b := stretchNonZero(red), stretchNonZero(planes[pal.G].Data), stretchNonZero(planes[pal.B].Data)
+	r, g, b := stretchNonZero(red), stretchNonZero(rawG), stretchNonZero(rawB)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for i := range r {
 		img.Pix[4*i] = to8(r[i])
@@ -215,6 +219,26 @@ func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// commonData returns copies of the planes with every pixel that is empty
+// (0) in any of them emptied in all.
+func commonData(planes ...[]float32) (r, g, b []float32) {
+	out := make([][]float32, len(planes))
+	for k, p := range planes {
+		out[k] = slices.Clone(p)
+	}
+	for i := range out[0] {
+		for _, p := range planes {
+			if p[i] == 0 {
+				for _, o := range out {
+					o[i] = 0
+				}
+				break
+			}
+		}
+	}
+	return out[0], out[1], out[2]
 }
 
 func to8(v float32) uint8 {
@@ -364,8 +388,13 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 	}
 }
 
+// CoverVersion is how covers are composed; older ones are rendered again at
+// startup. 1: pixels missing any channel are black.
+const CoverVersion = 1
+
 // backfillCovers renders covers for targets and projects whose masters are
-// newer than their cover, such as those stacked before covers existed.
+// newer than their cover, such as those stacked before covers existed, or
+// whose cover was composed by an older CoverVersion.
 func (p *Pipeline) backfillCovers(ctx context.Context) {
 	covers := map[string]time.Time{}
 	var cs []app.Cover
@@ -374,7 +403,9 @@ func (p *Pipeline) backfillCovers(ctx context.Context) {
 		return
 	}
 	for _, c := range cs {
-		covers[c.Subject] = c.UpdatedAt
+		if c.Version >= CoverVersion {
+			covers[c.Subject] = c.UpdatedAt
+		}
 	}
 	var stacks []app.Stack
 	if err := p.db.WithContext(ctx).Where("linear_key IS NOT NULL").Find(&stacks).Error; err != nil {

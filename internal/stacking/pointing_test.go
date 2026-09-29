@@ -109,3 +109,25 @@ func TestReReferenceRestacksTheTargetAtMostTwice(t *testing.T) {
 		t.Error("one failure replaced the reference")
 	}
 }
+
+// A sub is judged against the best its target has in that filter: under the
+// moon-only panel's best it would all be low score.
+func TestLowScoreIsRelativeToTheTarget(t *testing.T) {
+	p := &Pipeline{opts: PipelineOptions{MinScore: 0.3}}
+	f := app.Frame{Key: "LIGHT/a.xisf"}
+	for _, c := range []struct {
+		score, best float64
+		low         bool
+	}{
+		{0.2, 1, true},     // a good target's poor sub
+		{0.5, 1, false},    // a good target's fine sub
+		{0.1, 0.15, false}, // a moonlit-only panel's typical sub
+		{0.03, 0.15, true}, // and its worst
+	} {
+		scores := map[string]quality.SubScore{"a.xisf": {Score: c.score, TargetBest: c.best}}
+		_, status := p.classify(f, scores, nil, nil)
+		if (status == app.StackStatusLowScore) != c.low {
+			t.Errorf("score %v of best %v: status %q", c.score, c.best, status)
+		}
+	}
+}

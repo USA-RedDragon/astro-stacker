@@ -38,6 +38,7 @@ type Cover struct {
 	Subject    string `gorm:"not null;uniqueIndex"`
 	Palette    string // RGB+Ha, RGB, SHO or HOO
 	PreviewKey string
+	Version    int // stacking.CoverVersion it was composed by
 	UpdatedAt  time.Time
 }
 

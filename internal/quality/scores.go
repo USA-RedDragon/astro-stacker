@@ -26,6 +26,10 @@ type SubScore struct {
 	// filter and exposure across all targets, capped at 1. 0 when the
 	// metadata can't be scored.
 	Score float64
+	// TargetBest is the best Score among its target's subs in the same
+	// filter, so a target imaged only on poor nights can be judged against
+	// what it has.
+	TargetBest float64
 	// HFR and Stars are NINA's star measurements, used to pick a sharp
 	// registration reference.
 	HFR          float64
@@ -40,6 +44,7 @@ type group struct {
 
 type row struct {
 	GradingStatus int
+	TargetID      int
 	Metadata      string
 }
 
@@ -48,14 +53,15 @@ type row struct {
 func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]SubScore, error) {
 	var rows []row
 	if err := db.WithContext(ctx).Table("acquiredimage").
-		Select(`"gradingStatus" as grading_status, metadata`).Scan(&rows).Error; err != nil {
+		Select(`"gradingStatus" as grading_status, "targetId" as target_id, metadata`).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load acquired images: %w", err)
 	}
 
 	type item struct {
-		s   SubScore
-		raw float64
-		g   group
+		s      SubScore
+		raw    float64
+		g      group
+		target int
 	}
 	items := make([]item, 0, len(rows))
 	byGroup := map[group][]float64{}
@@ -76,8 +82,9 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]
 				Stars:         int(m.DetectedStars),
 				Eccentricity:  float64(m.Eccentricity),
 			},
-			raw: raw,
-			g:   g,
+			raw:    raw,
+			g:      g,
+			target: r.TargetID,
 		}
 		items = append(items, it)
 		if r.GradingStatus != GradingRejected {
@@ -89,11 +96,22 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]
 	for g, ws := range byGroup {
 		refs[g] = Reference(ws)
 	}
-	out := make(map[string]SubScore, len(items))
-	for _, it := range items {
+	type targetFilter struct {
+		target int
+		filter string
+	}
+	best := map[targetFilter]float64{}
+	for i := range items {
+		it := &items[i]
 		if it.s.GradingStatus != GradingRejected {
 			it.s.Score = Score(it.raw, refs[it.g])
+			k := targetFilter{it.target, it.s.Filter}
+			best[k] = math.Max(best[k], it.s.Score)
 		}
+	}
+	out := make(map[string]SubScore, len(items))
+	for _, it := range items {
+		it.s.TargetBest = best[targetFilter{it.target, it.s.Filter}]
 		out[it.s.File] = it.s
 	}
 	return out, nil

@@ -340,7 +340,10 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 	switch {
 	case s.GradingStatus == quality.GradingRejected:
 		return c, app.StackStatusRejected
-	case s.Score < p.opts.MinScore:
+	case s.Score < p.opts.MinScore*s.TargetBest:
+		// Against the target's best rather than MinScore alone: a panel
+		// imaged only under the moon is better stacked, weighted low as its
+		// score says, than a hole in the mosaic.
 		return c, app.StackStatusLowScore
 	case f.Exposure == nil || *f.Exposure <= 0 || f.Night == nil:
 		return c, app.StackStatusNoMetadata
