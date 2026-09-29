@@ -118,7 +118,29 @@ func (p *Pipeline) maybeReReference(ctx context.Context, object string) (bool, e
 	}
 	slog.Warn("Replacing registration reference; restacking target", "object", object,
 		"failed", counts.Failed, "added", counts.Added, "reset", reset.Count+1)
-	err = p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	reset.Object, reset.Count, reset.At = object, reset.Count+1, time.Now()
+	if err := p.restack(ctx, object, &reset); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Restack forgets a target's masters, registration reference and every
+// decision about its lights, so it is stacked again from scratch with a
+// reference chosen afresh. It does nothing while a worker is stacking it.
+func (p *Pipeline) Restack(ctx context.Context, object string) error {
+	if !p.hold(object) {
+		return fmt.Errorf("%s is being stacked; try again shortly", object)
+	}
+	defer p.release(object)
+	slog.Warn("Restacking target on request", "object", object)
+	return p.restack(ctx, object, nil)
+}
+
+// restack does Restack's work, saving reset (the automatic re-reference
+// count) with it when given.
+func (p *Pipeline) restack(ctx context.Context, object string, reset *app.ReferenceReset) error {
+	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("frame_id IN (?)", tx.Model(&app.Frame{}).Select("id").Where("object = ?", object)).
 			Delete(&app.StackFrame{}).Error; err != nil {
 			return err
@@ -129,13 +151,15 @@ func (p *Pipeline) maybeReReference(ctx context.Context, object string) (bool, e
 		if err := tx.Where("object = ?", object).Delete(&app.TargetReference{}).Error; err != nil {
 			return err
 		}
-		reset.Object, reset.Count, reset.At = object, reset.Count+1, time.Now()
-		return tx.Save(&reset).Error
+		if reset != nil {
+			return tx.Save(reset).Error
+		}
+		return nil
 	})
 	if err != nil {
-		return false, err
+		return err
 	}
 	h := sha256.Sum256([]byte(object))
 	_ = os.Remove(filepath.Join(p.workDir, "references", hex.EncodeToString(h[:8])+".fit"))
-	return true, nil
+	return nil
 }

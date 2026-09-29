@@ -44,16 +44,32 @@ type group struct {
 
 type row struct {
 	GradingStatus int
-	TargetID      int
+	Target        string
 	Metadata      string
+}
+
+// Measured is a sub without a Target Scheduler record, measured from its
+// pixels (ADU median and half-flux radius, as NINA measures them).
+type Measured struct {
+	File     string
+	Target   string
+	Filter   string
+	Exposure float64
+	SkyADU   float64
+	HFR      float64
+	Stars    int
 }
 
 // LoadScores reads every acquired image from the scheduler database and
 // scores it the same way astro-processing does.
-func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]SubScore, error) {
+//
+// measured subs, which Target Scheduler has no record of, are scored in the
+// same groups from their own measurements.
+func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measured []Measured) (map[string]SubScore, error) {
 	var rows []row
 	if err := db.WithContext(ctx).Table("acquiredimage").
-		Select(`"gradingStatus" as grading_status, "targetId" as target_id, metadata`).Scan(&rows).Error; err != nil {
+		Select(`acquiredimage."gradingStatus" as grading_status, target.name as target, acquiredimage.metadata`).
+		Joins(`LEFT JOIN target ON target."Id" = acquiredimage."targetId"`).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load acquired images: %w", err)
 	}
 
@@ -61,7 +77,7 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]
 		s      SubScore
 		raw    float64
 		g      group
-		target int
+		target string
 	}
 	items := make([]item, 0, len(rows))
 	byGroup := map[group][]float64{}
@@ -84,7 +100,7 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]
 			},
 			raw:    raw,
 			g:      g,
-			target: r.TargetID,
+			target: r.Target,
 		}
 		items = append(items, it)
 		if r.GradingStatus != GradingRejected {
@@ -92,12 +108,31 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64) (map[string]
 		}
 	}
 
+	recorded := make(map[string]bool, len(items))
+	for _, it := range items {
+		recorded[it.s.File] = true
+	}
+	for _, m := range measured {
+		if recorded[m.File] {
+			continue
+		}
+		g := group{filter: m.Filter, exposure: math.Round(m.Exposure)}
+		raw := RawWeight(Sky(m.SkyADU, pedestal), m.HFR)
+		items = append(items, item{
+			s:      SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars},
+			raw:    raw,
+			g:      g,
+			target: m.Target,
+		})
+		byGroup[g] = append(byGroup[g], raw)
+	}
+
 	refs := make(map[group]float64, len(byGroup))
 	for g, ws := range byGroup {
 		refs[g] = Reference(ws)
 	}
 	type targetFilter struct {
-		target int
+		target string
 		filter string
 	}
 	best := map[targetFilter]float64{}

@@ -181,7 +181,11 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 		return 0, fmt.Errorf("load lights: %w", err)
 	}
 
-	scores, err := quality.LoadScores(ctx, p.sched, p.opts.Pedestal)
+	measured, err := p.measuredSubs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	scores, err := quality.LoadScores(ctx, p.sched, p.opts.Pedestal, measured)
 	if err != nil {
 		return 0, err
 	}
@@ -362,6 +366,31 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 // Failures (failed, registration) count attempts and are retried with a
 // doubling backoff until MaxAttempts, when the sub is dead. Missing
 // calibration is rechecked every RetryAfter, as new frames may arrive.
+// measuredSubs are the lights measured from their pixels because Target
+// Scheduler has no record of them.
+func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error) {
+	var frames []app.Frame
+	if err := p.db.WithContext(ctx).Select("key", "object", "filter", "exposure", "sky_adu", "star_hfr", "star_count").
+		Where("measured_at IS NOT NULL AND star_hfr > 0").Find(&frames).Error; err != nil {
+		return nil, fmt.Errorf("load measured lights: %w", err)
+	}
+	out := make([]quality.Measured, 0, len(frames))
+	for _, f := range frames {
+		out = append(out, quality.Measured{
+			File: path.Base(f.Key), Target: f.Object, Filter: f.Filter, Exposure: val(f.Exposure),
+			SkyADU: val(f.SkyADU), HFR: val(f.StarHFR), Stars: intVal(f.StarCount),
+		})
+	}
+	return out, nil
+}
+
+func intVal(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
 // missingCalibration names the calibration frames a light has no match for.
 func missingCalibration(m calmatch.Result) *string {
 	var missing []string

@@ -17,6 +17,8 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -61,6 +63,11 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
 			slog.Error("Reading mount pointing failed", "error", err)
 		} else if n > 0 {
 			slog.Info("Read mount pointing", "lights", n)
+		}
+		if n, err := ix.MeasureUnrecorded(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("Measuring lights failed", "error", err)
+		} else if n > 0 {
+			slog.Info("Measured lights without a scheduler record", "lights", n)
 		}
 		select {
 		case <-ctx.Done():
@@ -119,6 +126,75 @@ func (ix *Indexer) BackfillPointing(ctx context.Context) (int, error) {
 	close(work)
 	wg.Wait()
 	return done, ctx.Err()
+}
+
+// MeasureUnrecorded measures the sky and stars of lights the stacker found
+// no Target Scheduler record for, so they can be scored from their pixels.
+// Each is downloaded whole once.
+func (ix *Indexer) MeasureUnrecorded(ctx context.Context) (int, error) {
+	var frames []app.Frame
+	if err := ix.db.WithContext(ctx).Select("id", "key").
+		Where("type = ? AND index_error IS NULL AND measured_at IS NULL", "LIGHT").
+		Where("id IN (?)", ix.db.Table("stack_frames").Select("frame_id").Where("status = ?", app.StackStatusNoMetadata)).
+		Find(&frames).Error; err != nil {
+		return 0, err
+	}
+	work := make(chan app.Frame)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	done := 0
+	for range ix.concurrency {
+		wg.Go(func() {
+			for f := range work {
+				r, err := ix.measure(ctx, f.Key)
+				if err != nil {
+					if ctx.Err() == nil {
+						slog.Debug("Could not measure light", "key", f.Key, "error", err)
+					}
+					continue
+				}
+				now := time.Now()
+				if err := ix.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).Updates(map[string]any{
+					"sky_adu": r.SkyADU, "star_hfr": r.HFR, "star_count": r.Stars, "measured_at": now,
+				}).Error; err != nil {
+					slog.Debug("Could not save measurement", "key", f.Key, "error", err)
+					continue
+				}
+				mu.Lock()
+				done++
+				mu.Unlock()
+			}
+		})
+	}
+	for _, f := range frames {
+		select {
+		case work <- f:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	close(work)
+	wg.Wait()
+	return done, ctx.Err()
+}
+
+func (ix *Indexer) measure(ctx context.Context, key string) (measure.Result, error) {
+	obj, err := ix.client.GetObject(ctx, ix.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return measure.Result{}, err
+	}
+	defer obj.Close()
+	b, err := io.ReadAll(obj)
+	if err != nil {
+		return measure.Result{}, err
+	}
+	im, err := imagedata.Decode(b)
+	if err != nil {
+		return measure.Result{}, err
+	}
+	return measure.Sub(im), nil
 }
 
 type Stats struct {
