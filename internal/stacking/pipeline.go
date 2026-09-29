@@ -95,6 +95,44 @@ type Pipeline struct {
 	statusMu sync.Mutex
 	working  map[string]*events.Worker // by object
 	dirty    bool
+
+	// drain is closed when the pipeline should stop taking on work, and
+	// finish what it has (Drain).
+	drain     chan struct{}
+	drainOnce sync.Once
+}
+
+// Drain stops the pipeline taking on new work: each loop finishes the batch,
+// master, mosaic or comet it is on and returns, and so does Run.
+func (p *Pipeline) Drain() {
+	p.drainOnce.Do(func() { close(p.drain) })
+}
+
+// stopping reports whether a loop should stop before its next piece of
+// work: the context ended, or the pipeline is draining.
+func (p *Pipeline) stopping(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	select {
+	case <-p.drain:
+		return true
+	default:
+		return false
+	}
+}
+
+// pause waits d, or less if the pipeline stops meanwhile; it reports
+// whether to carry on.
+func (p *Pipeline) pause(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-p.drain:
+		return false
+	case <-time.After(d):
+		return true
+	}
 }
 
 func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runner siril.Runner, workDir string, opts PipelineOptions) *Pipeline {
@@ -109,7 +147,7 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 		opts.FailureBackoff = DefaultPipelineOptions.FailureBackoff
 	}
 	return &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
-		busy: map[string]bool{}, working: map[string]*events.Worker{}}
+		busy: map[string]bool{}, working: map[string]*events.Worker{}, drain: make(chan struct{})}
 }
 
 // Run stacks new lights with opts.Workers workers until ctx is cancelled,
@@ -123,14 +161,12 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.backfillCovers(ctx)
 		p.republishMasters(ctx)
 		// The exposure templates' moon avoidance can change: hourly.
-		for {
+		for !p.stopping(ctx) {
 			if err := p.moonSweep(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("Moon sweep failed", "error", err)
 			}
-			select {
-			case <-ctx.Done():
+			if !p.pause(ctx, time.Hour) {
 				return
-			case <-time.After(time.Hour):
 			}
 		}
 	})
@@ -144,18 +180,16 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 }
 
 func (p *Pipeline) work(ctx context.Context, interval time.Duration) {
-	for {
+	for !p.stopping(ctx) {
 		n, err := p.RunOnce(ctx, "", "")
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Stacking failed", "error", err)
 		}
-		if n > 0 && err == nil && ctx.Err() == nil {
+		if n > 0 && err == nil {
 			continue
 		}
-		select {
-		case <-ctx.Done():
+		if !p.pause(ctx, interval) {
 			return
-		case <-time.After(interval):
 		}
 	}
 }

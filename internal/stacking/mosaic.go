@@ -111,23 +111,30 @@ func MosaicPanels(ctx context.Context, sched *gorm.DB) (map[string]bool, error) 
 // runMosaics builds mosaics and linear fits that are due every interval
 // until ctx ends.
 func (p *Pipeline) runMosaics(ctx context.Context, interval time.Duration) {
-	for {
+	for !p.stopping(ctx) {
 		if err := p.MosaicsOnce(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Building mosaics failed", "error", err)
+		}
+		if p.stopping(ctx) {
+			return
 		}
 		if err := p.linearFitsOnce(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("LinearFit failed", "error", err)
 		}
+		if p.stopping(ctx) {
+			return
+		}
 		if err := p.cometsOnce(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Comet masters failed", "error", err)
+		}
+		if p.stopping(ctx) {
+			return
 		}
 		if err := p.recalibrateDarks(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Checking for new darks failed", "error", err)
 		}
-		select {
-		case <-ctx.Done():
+		if !p.pause(ctx, interval) {
 			return
-		case <-time.After(interval):
 		}
 	}
 }
@@ -156,6 +163,9 @@ func (p *Pipeline) MosaicsOnce(ctx context.Context) error {
 		}
 		// One panel is enough: the layout shows the rest as gaps.
 		for filter, masters := range byFilter {
+			if p.stopping(ctx) {
+				return nil
+			}
 			if err := p.mosaicIfDue(ctx, g, filter, masters); err != nil {
 				if ctx.Err() != nil {
 					return ctx.Err()

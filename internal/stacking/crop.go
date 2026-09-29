@@ -276,7 +276,7 @@ func (p *Pipeline) recropMasters(ctx context.Context) {
 	}
 	objects := map[string]bool{}
 	for i := range stacks {
-		if ctx.Err() != nil {
+		if p.stopping(ctx) {
 			return
 		}
 		s := &stacks[i]

@@ -253,7 +253,7 @@ func (p *Pipeline) republishMasters(ctx context.Context) {
 	}
 	done := 0
 	for i := range stacks {
-		if ctx.Err() != nil {
+		if p.stopping(ctx) {
 			return
 		}
 		s := &stacks[i]

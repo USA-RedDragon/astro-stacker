@@ -61,6 +61,9 @@ func (p *Pipeline) linearFitsOnce(ctx context.Context) error {
 		groups[key{s.Object, g}] = append(groups[key{s.Object, g}], s)
 	}
 	for k, masters := range groups {
+		if p.stopping(ctx) {
+			return nil
+		}
 		if len(masters) < 2 {
 			for i := range masters {
 				if masters[i].FittedKey != nil {
