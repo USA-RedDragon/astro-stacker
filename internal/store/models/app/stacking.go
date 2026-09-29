@@ -145,7 +145,10 @@ type Stack struct {
 	CometCropX, CometCropY, CometCropW, CometCropH int
 	CometSignature                                 string
 	CometError                                     *string `gorm:"type:text"`
-	UpdatedAt                                      time.Time
+	// CometMethod is the stacking.cometMethod the comet master was made
+	// by; nil for those made before it was recorded, by an older one.
+	CometMethod *int
+	UpdatedAt   time.Time
 }
 
 // Why a light is or isn't in a master.

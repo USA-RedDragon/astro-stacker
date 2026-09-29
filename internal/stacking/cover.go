@@ -397,12 +397,16 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 		slog.Warn("Could not load masters for the cover", "object", object, "error", err)
 		return
 	}
-	// A comet is shown as its comet masters see it, sharp, but only once
-	// every filter has one: comet-aligned and star-aligned channels put the
-	// comet and the stars in different places.
-	comet := len(stacks) > 0
-	for _, s := range stacks {
-		comet = comet && s.CometLinearKey != nil
+	comet, wait := cometCover(stacks)
+	if wait {
+		var n int64
+		if err := p.db.WithContext(ctx).Model(&app.Cover{}).Where("subject = ?", object).Count(&n).Error; err != nil {
+			slog.Warn("Could not look for the cover", "object", object, "error", err)
+			return
+		}
+		if n > 0 {
+			return
+		}
 	}
 	linear := map[string]layer{}
 	for _, s := range stacks {
@@ -416,6 +420,36 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 	if err := p.renderCover(ctx, object, path.Join("stacks", object), linear); err != nil {
 		slog.Warn("Could not render the cover", "object", object, "error", err)
 	}
+}
+
+// cometCover decides how a target's cover shows a comet. It is shown as its
+// comet masters see it, sharp, but only once every filter has one made by
+// the current cometMethod: comet-aligned and star-aligned channels put the
+// comet and the stars in different places, and masters made by different
+// methods differ in colour (with the stars taken out of some channels
+// only, they came out yellow). While comet masters are still to be made
+// for the current masters, wait is set and the cover as it is kept, rather
+// than shown half and half; with nothing on its way, the star-aligned
+// masters make it.
+func cometCover(stacks []app.Stack) (comet, wait bool) {
+	some, current := false, len(stacks) > 0
+	for i := range stacks {
+		s := &stacks[i]
+		some = some || s.CometLinearKey != nil
+		current = current && s.CometLinearKey != nil && s.CometMethod != nil && *s.CometMethod == cometMethod
+	}
+	if current || !some {
+		return current, false
+	}
+	for i := range stacks {
+		s := &stacks[i]
+		// cometsOnce makes one for a master of three subs or more, once
+		// its signature has changed.
+		if s.Subs >= 3 && s.MasterKey != nil && s.CometSignature != cometSignature(s) {
+			return false, true
+		}
+	}
+	return false, false
 }
 
 // refreshMosaicCover re-renders a project's colour cover from its mosaics.
