@@ -355,6 +355,61 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		c.JSON(http.StatusOK, out)
 	})
 
+	// Every target with lights, and whether Target Scheduler knows it, so
+	// targets imaged outside it can be listed too.
+	r.GET("/objects", func(c *gin.Context) {
+		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+		ctx := c.Request.Context()
+		var rows []struct {
+			Object     string
+			Lights     int
+			Stacked    int
+			Nights     int
+			FirstNight *time.Time
+			LastNight  *time.Time
+		}
+		if err := di.AppStore.DB().WithContext(ctx).Table("frames f").
+			Select("f.object, COUNT(*) AS lights, COUNT(sf.id) FILTER (WHERE sf.status = ?) AS stacked, "+
+				"COUNT(DISTINCT f.night) AS nights, MIN(f.night) AS first_night, MAX(f.night) AS last_night", app.StackStatusAdded).
+			Joins("LEFT JOIN stack_frames sf ON sf.frame_id = f.id").
+			Where("f.type = ? AND f.object <> '' AND f.index_error IS NULL", "LIGHT").
+			Group("f.object").Order("f.object").Scan(&rows).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		var scheduled []string
+		if err := di.SchedulerDBStore.DB().WithContext(ctx).Table("target").Pluck("name", &scheduled).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		known := map[string]bool{}
+		for _, n := range scheduled {
+			known[n] = true
+		}
+		type object struct {
+			Name       string  `json:"name"`
+			Lights     int     `json:"lights"`
+			Stacked    int     `json:"stacked"`
+			Nights     int     `json:"nights"`
+			FirstNight *string `json:"first_night,omitempty"`
+			LastNight  *string `json:"last_night,omitempty"`
+			Scheduled  bool    `json:"scheduled"`
+		}
+		day := func(t *time.Time) *string {
+			if t == nil {
+				return nil
+			}
+			s := t.Format("2006-01-02")
+			return &s
+		}
+		out := make([]object, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, object{Name: r.Object, Lights: r.Lights, Stacked: r.Stacked, Nights: r.Nights,
+				FirstNight: day(r.FirstNight), LastNight: day(r.LastNight), Scheduled: known[r.Object]})
+		}
+		c.JSON(http.StatusOK, out)
+	})
+
 	// Stack a target again from scratch, with a new registration reference.
 	r.POST("/targets/restack", func(c *gin.Context) {
 		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
