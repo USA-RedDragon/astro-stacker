@@ -176,7 +176,11 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.backfillCovers(ctx)
 		p.republishMasters(ctx)
 		// The exposure templates' moon avoidance can change: hourly.
+		// Duplicates found in masters are left for the sweep to restack.
 		for !p.stopping(ctx) {
+			if err := p.dropDuplicates(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("Taking duplicates out of masters failed", "error", err)
+			}
 			if err := p.moonSweep(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("Moon sweep failed", "error", err)
 			}
@@ -277,8 +281,18 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	if err != nil {
 		return 0, err
 	}
+	dups, err := p.duplicates(ctx, frames)
+	if err != nil {
+		return 0, err
+	}
 	var batch []candidate
 	for _, f := range frames {
+		if dups[f.ID] {
+			if err := p.record(ctx, app.StackFrame{FrameID: f.ID, Status: app.StackStatusDuplicate, Exposure: val(f.Exposure)}); err != nil {
+				return 0, err
+			}
+			continue
+		}
 		c, status := p.classify(f, scores, sets, positions)
 		if status == "" && moonlit[f.ID] && moonFree {
 			status = app.StackStatusMoon

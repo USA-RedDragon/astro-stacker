@@ -157,6 +157,7 @@ const (
 	StackStatusOffTarget    = "off_target"  // the mount pointed elsewhere
 	StackStatusRecalibrate  = "recalibrate" // stacked with no dark or a worse one than now matches
 	StackStatusMoon         = "moon"        // breaks its filter's moon avoidance
+	StackStatusDuplicate    = "duplicate"   // the same file as an earlier light of the target
 )
 
 // StackFrame records what happened to one light.
