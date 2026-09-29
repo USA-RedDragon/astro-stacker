@@ -39,14 +39,28 @@ func TestFlatPrefersSameNightThenNearest(t *testing.T) {
 	}
 }
 
-func TestFlatRejectsGainAndFilterMismatch(t *testing.T) {
+func TestFlatRejectsFilterMismatch(t *testing.T) {
 	t.Parallel()
 	sets := []calmatch.Set{
-		{Type: "FLAT", Night: night("2025-11-15"), Filter: "Red", Gain: 100, Offset: 50, BinX: 1, Rotator: 142.4},
 		{Type: "FLAT", Night: night("2025-11-15"), Filter: "Blue", Gain: 0, Offset: 50, BinX: 1, Rotator: 142.4},
 	}
 	if m := calmatch.Choose(lights, sets).Flat; m.Quality != calmatch.Missing {
 		t.Fatalf("got %+v", m)
+	}
+}
+
+// A flat at another gain is normalized like any other, so it is a fallback,
+// and one at the lights' gain wins even when it is older.
+func TestFlatAtOtherGainIsFallback(t *testing.T) {
+	t.Parallel()
+	other := calmatch.Set{Type: "FLAT", Night: night("2025-11-15"), Filter: "Red", Gain: 100, Offset: 50, BinX: 1, Rotator: 142.4}
+	m := calmatch.Choose(lights, []calmatch.Set{other}).Flat
+	if m.Quality != calmatch.Fallback || m.Set == nil {
+		t.Fatalf("got %+v", m)
+	}
+	older := calmatch.Set{Type: "FLAT", Night: night("2025-10-01"), Filter: "Red", Gain: 0, Offset: 50, BinX: 1, Rotator: 142.4}
+	if m := calmatch.Choose(lights, []calmatch.Set{other, older}).Flat; m.Set == nil || m.Set.Gain != 0 {
+		t.Fatalf("got %+v, want the flat at the lights' gain", m)
 	}
 }
 
