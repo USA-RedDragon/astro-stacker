@@ -356,7 +356,10 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		Night: *f.Night, Filter: f.Filter, Exposure: *f.Exposure, Gain: val(f.Gain), Offset: val(f.Offset),
 		SetTemp: val(f.SetTemp), BinX: val(f.BinX), Rotator: val(f.Rotator),
 	}, sets)
-	if c.cal.Flat.Set == nil || c.cal.Dark.Set == nil || c.cal.Bias.Set == nil {
+	// A missing dark doesn't hold a light back: at the cold setpoints darks
+	// are missing for, dark current is small and rejection takes the hot
+	// pixels. It is calibrated again once a dark comes (recalibrateDarks).
+	if c.cal.Flat.Set == nil || c.cal.Bias.Set == nil {
 		return c, app.StackStatusCalibration
 	}
 	return c, ""
@@ -476,5 +479,65 @@ func (p *Pipeline) upload(ctx context.Context, src, key, contentType string) err
 	if err != nil {
 		return fmt.Errorf("upload %s: %w", key, err)
 	}
+	return nil
+}
+
+// recalibrateDarks queues lights stacked without a dark for calibration
+// again once a dark matches them, and marks their masters to be rebuilt
+// without the dark-less versions.
+func (p *Pipeline) recalibrateDarks(ctx context.Context) error {
+	var rows []struct {
+		ID    int
+		Frame app.Frame `gorm:"embedded;embeddedPrefix:f_"`
+		Stack int
+	}
+	if err := p.db.WithContext(ctx).Table("stack_frames sf").
+		Select("sf.id, sf.stack_id AS stack, f.night AS f_night, f.filter AS f_filter, f.exposure AS f_exposure, "+
+			"f.gain AS f_gain, f.\"offset\" AS f_offset, f.set_temp AS f_set_temp, f.bin_x AS f_bin_x, f.rotator AS f_rotator").
+		Joins("JOIN frames f ON f.id = sf.frame_id").
+		Where("sf.status = ? AND sf.no_dark", app.StackStatusAdded).Scan(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	sets, err := coverage.Sets(ctx, p.db)
+	if err != nil {
+		return err
+	}
+	var ids []int
+	stacks := map[int]bool{}
+	for _, r := range rows {
+		f := r.Frame
+		if f.Night == nil || f.Exposure == nil {
+			continue
+		}
+		m := calmatch.Choose(calmatch.Group{
+			Night: *f.Night, Filter: f.Filter, Exposure: *f.Exposure, Gain: val(f.Gain), Offset: val(f.Offset),
+			SetTemp: val(f.SetTemp), BinX: val(f.BinX), Rotator: val(f.Rotator),
+		}, sets)
+		if m.Dark.Set != nil {
+			ids = append(ids, r.ID)
+			stacks[r.Stack] = true
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	stackIDs := make([]int, 0, len(stacks))
+	for id := range stacks {
+		stackIDs = append(stackIDs, id)
+	}
+	now := time.Now()
+	if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&app.StackFrame{}).Where("id IN ?", ids).
+			UpdateColumns(map[string]any{"status": app.StackStatusRecalibrate, "next_attempt_at": now}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&app.Stack{}).Where("id IN ?", stackIDs).UpdateColumn("needs_rebuild", true).Error
+	}); err != nil {
+		return err
+	}
+	slog.Info("Darks now match lights stacked without one; calibrating them again", "lights", len(ids), "masters", len(stackIDs))
 	return nil
 }

@@ -97,6 +97,9 @@ type Stack struct {
 	ScaleExposure float64
 	// RebuiltAtSubs is the sub count at the last full rebuild.
 	RebuiltAtSubs int
+	// NeedsRebuild is set when some of its subs are being calibrated again,
+	// so the next update rebuilds it without their old versions.
+	NeedsRebuild bool
 	// Crop is the frame less its ragged, nearly empty borders, in pixels;
 	// previews show only this. CropVersion is the rule that made it.
 	CropX, CropY, CropW, CropH int
@@ -140,8 +143,9 @@ const (
 	StackStatusCalibration  = "calibration" // no usable flat, dark or bias yet
 	StackStatusRegistration = "registration"
 	StackStatusFailed       = "failed"
-	StackStatusDead         = "dead"       // failed MaxAttempts times; left out until reset
-	StackStatusOffTarget    = "off_target" // the mount pointed elsewhere
+	StackStatusDead         = "dead"        // failed MaxAttempts times; left out until reset
+	StackStatusOffTarget    = "off_target"  // the mount pointed elsewhere
+	StackStatusRecalibrate  = "recalibrate" // stacked without a dark; one has come
 )
 
 // StackFrame records what happened to one light.
@@ -164,4 +168,6 @@ type StackFrame struct {
 	// is when the sub is next picked up, nil for final states.
 	Attempts      int
 	NextAttemptAt *time.Time `gorm:"index"`
+	// NoDark is set when it was calibrated without a dark, none matching.
+	NoDark bool
 }

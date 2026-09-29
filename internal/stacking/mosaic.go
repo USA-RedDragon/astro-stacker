@@ -100,6 +100,9 @@ func (p *Pipeline) runMosaics(ctx context.Context, interval time.Duration) {
 		if err := p.cometsOnce(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Comet masters failed", "error", err)
 		}
+		if err := p.recalibrateDarks(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("Checking for new darks failed", "error", err)
+		}
 		select {
 		case <-ctx.Done():
 			return
