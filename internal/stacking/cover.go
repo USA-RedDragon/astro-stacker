@@ -24,11 +24,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// palette maps filters to red, green and blue; HaRed blends H-a into red.
+// palette maps filters to red, green and blue; HaRed adds H-a to red, and
+// OIIIGB O-III to green and blue, where their masks are on (addLine).
 type palette struct {
 	Name    string
 	R, G, B string
 	HaRed   bool
+	OIIIGB  bool
 }
 
 // filters lists each filter the palette reads once.
@@ -41,6 +43,9 @@ func (p palette) filters() []string {
 	}
 	if p.HaRed && !slices.Contains(out, "H-a") {
 		out = append(out, "H-a")
+	}
+	if p.OIIIGB && !slices.Contains(out, "O-III") {
+		out = append(out, "O-III")
 	}
 	return out
 }
@@ -98,14 +103,15 @@ func commonCrop(layers []layer, w, h int) Rect {
 	return r
 }
 
-// haBlend is how much of H-a's excess over red goes into red, in units of
-// each channel's noise, as in the browser's palette mixer.
-const haBlend = 0.6
+// haBlue bounds how much H-a goes into blue, relative to red, for a hint
+// of pink: the H-a filter's line (H-a with H-b alongside) showed in the
+// Cygnus Loop's broadband as 1 red to 0.36 blue, but at that the covers
+// came out magenta, and the manual North America version added none.
+const haBlue = 0.15
 
-// haFloor is how far, in noise, H-a must stand over red before any of it
-// goes into red. Taking every excess, noise alone reddened the sky, the more
-// the fewer H-a subs: a mosaic's shallow panels came out as red patches.
-const haFloor = 2.0
+// oiiiBlue bounds how much O-III goes into blue, relative to green; the
+// Cygnus Loop's broadband saw it about equally in both.
+const oiiiBlue = 1.2
 
 // choosePalette picks the first palette whose filters all have a linear
 // preview and comparable data: every channel at least minShare of the
@@ -114,7 +120,9 @@ const haFloor = 2.0
 // exposure than red, green and blue: a target shot mostly in narrowband
 // (Dolphin Head, the Cygnus Loop) shows its nebula rather than a little H-a
 // in a star field. SHO is the last resort, but for a subject shot for it
-// (sho: "SHO" in its name, as Heart and Soul Nebula SHO).
+// (sho: "SHO" in its name, as Heart and Soul Nebula SHO). A broadband
+// palette also takes O-III, into green and blue, when there is as much of
+// it as RGB+Ha asks of H-a.
 func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 	var narrow, broad float64
 	for _, f := range []string{"H-a", "O-III", "S-II"} {
@@ -164,6 +172,12 @@ func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 			ok = ok && found && ha.Key != "" && ha.Effective >= minShare*sum/3
 		}
 		if ok {
+			if p.R == "Red" && p.G == "Green" && p.B == "Blue" {
+				if o, found := have["O-III"]; found && o.Key != "" && o.Effective >= minShare*sum/3 {
+					p.OIIIGB = true
+					p.Name += "+OIII"
+				}
+			}
 			return p, true
 		}
 	}
@@ -232,17 +246,30 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 	return p.db.WithContext(ctx).Save(&c).Error
 }
 
-// composeCover stretches each channel on its own and encodes a JPEG.
+// composeCover adds the narrowband lines, balances and stretches the
+// channels together (colourStretch) and encodes a JPEG.
 func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte, error) {
 	// Only where every channel has data: a mosaic panel missing a filter,
 	// or a master's edge another doesn't reach, would otherwise show in the
 	// remaining channels' colours. H-a only adds to red, so it isn't needed.
 	rawR, rawG, rawB := commonData(planes[pal.R].Data, planes[pal.G].Data, planes[pal.B].Data)
-	red := rawR
+	red, green, blue := rawR, rawG, rawB
 	if pal.HaRed {
-		red = blendHa(red, planes["H-a"].Data)
+		// H-a into red, and a little into blue, as the camera sees the
+		// line with H-b alongside: pink rather than pure red.
+		out := addLine(lineInputs{Name: "H-a", Line: planes["H-a"].Data, Cont: rawR, Proxy: rawG, Gate: rawB,
+			Into: []lineTarget{{Data: red}, {Data: blue, MaxRel: haBlue}}}, w, h)
+		red, blue = out[0], out[1]
 	}
-	r, g, b := stretchNonZero(red), stretchNonZero(rawG), stretchNonZero(rawB)
+	if pal.OIIIGB {
+		out := addLine(lineInputs{Name: "O-III", Line: planes["O-III"].Data, Cont: rawG, Proxy: rawR,
+			Into: []lineTarget{{Data: green}, {Data: blue, MaxRel: oiiiBlue}}}, w, h)
+		green, blue = out[0], out[1]
+	}
+	// Balanced and stretched as without the lines, so where the mask is
+	// off the colour is exactly the broadband's.
+	rgb := colourStretch([3][]float32{red, green, blue}, [3][]float32{rawR, rawG, rawB}, w, h)
+	r, g, b := rgb[0], rgb[1], rgb[2]
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for i := range r {
 		img.Pix[4*i] = to8(r[i])
@@ -345,11 +372,15 @@ func statsNonZero(p []float32) (med, sigma float64) {
 
 // stretchNonZero applies the STF auto-stretch from the covered pixels'
 // statistics, leaving uncovered pixels black.
-func stretchNonZero(p []float32) []float32 {
-	med, sigma := statsNonZero(p)
+func stretchNonZero(p []float32) []float32 { return stretchAs(p, p) }
+
+// stretchAs stretches p with the STF auto-stretch computed from ref's
+// covered pixels, leaving uncovered pixels black.
+func stretchAs(p, ref []float32) []float32 {
+	med, sigma := statsNonZero(ref)
 	var hi float64
-	for i := 0; i < len(p); i += 7 {
-		hi = max(hi, float64(p[i]))
+	for i := 0; i < len(ref); i += 7 {
+		hi = max(hi, float64(ref[i]))
 	}
 	if hi <= 0 {
 		hi = 1
@@ -366,26 +397,6 @@ func stretchNonZero(p []float32) []float32 {
 			continue
 		}
 		out[i] = float32(preview.MTF(m, math.Max(0, math.Min(1, (float64(v)-c0)/span))))
-	}
-	return out
-}
-
-// blendHa adds H-a signal brighter than red into red, comparing both on a
-// common scale (median 0, σ 1), and returns it on red's scale.
-func blendHa(red, ha []float32) []float32 {
-	rm, rs := statsNonZero(red)
-	hm, hs := statsNonZero(ha)
-	if rs == 0 || hs == 0 {
-		return red
-	}
-	out := make([]float32, len(red))
-	for i, v := range red {
-		if v == 0 {
-			continue
-		}
-		r := (float64(v) - rm) / rs
-		h := (float64(ha[i]) - hm) / hs
-		out[i] = float32((r+haBlend*math.Max(0, h-r-haFloor))*rs + rm)
 	}
 	return out
 }
@@ -473,8 +484,10 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // startup. 1: pixels missing any channel are black. 2: H-a goes into red
 // only above the noise (haFloor). 3: narrowband palettes first when
 // narrowband holds more exposure. 4: SHO only for subjects named for it,
-// or when nothing else fits.
-const CoverVersion = 4
+// or when nothing else fits. 5: H-a (and O-III) added only where a mask
+// from the continuum-subtracted line is on (addLine), and the channels
+// balanced on the sky and the stars and stretched together (colourStretch).
+const CoverVersion = 5
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or
