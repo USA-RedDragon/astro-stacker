@@ -13,13 +13,15 @@ import (
 )
 
 // A clean dark is flat: over this camera's darks the medians of 32×24 blocks
-// spread (5th to 95th percentile) by 1-3 ADU. Light reaching the sensor adds
-// a gradient and dust shadows, 155 ADU in a dark taken with the cover off in
-// daylight. A dark is leaky when its spread exceeds minLeakADU and its own
-// noise.
-const minLeakADU = 15
+// spread (5th to 95th percentile) by 1 ADU, since each median is taken over
+// thousands of pixels and pixel noise barely moves it. Light reaching the
+// sensor adds a gradient and dust shadows: 155 ADU in a dark taken with the
+// cover off in daylight, and a ramp from 2 to 14 ADU over a set whose last
+// frames were taken as the morning brightened. A dark is leaky when its
+// spread exceeds maxCleanADU.
+const maxCleanADU = 3
 
-func leaky(spread, noise float64) bool { return spread > math.Max(minLeakADU, noise) }
+func leaky(spread float64) bool { return spread > maxCleanADU }
 
 // darkSpread measures a raw dark's large-scale structure and pixel noise,
 // both in 16-bit ADU.
@@ -73,7 +75,7 @@ func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files
 		}
 		spread, noise := darkSpread(im.Data, im.W, im.H)
 		var leak *float64
-		if leaky(spread, noise) {
+		if leaky(spread) {
 			leak = &spread
 			slog.Warn("Leaving out a dark with a light leak", "key", f.Key, "spread_adu", math.Round(spread), "noise_adu", math.Round(noise))
 			if err := os.Remove(files[i]); err != nil {

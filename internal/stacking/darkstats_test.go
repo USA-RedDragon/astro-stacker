@@ -28,34 +28,41 @@ func TestDarkStats(t *testing.T) {
 			t.Fatal(err)
 		}
 		spread, noise := darkSpread(im.Data, im.W, im.H)
-		t.Logf("%-60s noise %5.2f  spread %6.1f ADU  leaky %v", filepath.Base(f), noise, spread, leaky(spread, noise))
+		t.Logf("%-60s noise %5.2f  spread %6.1f ADU  leaky %v", filepath.Base(f), noise, spread, leaky(spread))
 	}
 }
 
-// testDarks are a clean dark and one with light reaching the sensor.
-func testDarks() (clean, leak []float32, w, h int) {
-	w, h = 640, 480
+// testDarks are a clean dark, one with light reaching the sensor and one
+// with a faint dawn ramp, well under the pixel noise.
+func testDarks() (clean, leak, dawn []float32, w, h int) {
+	w, h = 2048, 1536
 	r := rand.New(rand.NewPCG(5, 5))
 	clean = make([]float32, w*h)
 	leak = make([]float32, w*h)
+	dawn = make([]float32, w*h)
 	for y := range h {
 		for x := range w {
-			n := 500 + 5*r.NormFloat64()
+			n := 500 + 7*r.NormFloat64()
+			ramp := float64(w-x+h-y) / float64(w+h) // brighter towards the top left
 			clean[y*w+x] = float32(n / 65535)
-			leak[y*w+x] = float32((n + 150*float64(w-x+h-y)/float64(w+h)) / 65535) // brighter towards the top left
+			leak[y*w+x] = float32((n + 150*ramp) / 65535)
+			dawn[y*w+x] = float32((n + 6*ramp) / 65535)
 		}
 	}
-	return clean, leak, w, h
+	return clean, leak, dawn, w, h
 }
 
 func TestLightLeak(t *testing.T) {
 	t.Parallel()
-	clean, leak, w, h := testDarks()
-	if s, n := darkSpread(clean, w, h); leaky(s, n) {
-		t.Errorf("clean dark: spread %v noise %v called leaky", s, n)
+	clean, leak, dawn, w, h := testDarks()
+	if s, _ := darkSpread(clean, w, h); leaky(s) {
+		t.Errorf("clean dark: spread %v called leaky", s)
 	}
-	if s, n := darkSpread(leak, w, h); !leaky(s, n) {
-		t.Errorf("leaky dark: spread %v noise %v called clean", s, n)
+	if s, _ := darkSpread(leak, w, h); !leaky(s) {
+		t.Errorf("leaky dark: spread %v called clean", s)
+	}
+	if s, _ := darkSpread(dawn, w, h); !leaky(s) {
+		t.Errorf("dawn dark: spread %v called clean", s)
 	}
 }
 
@@ -70,7 +77,7 @@ func TestDropLeakyDarksRecordsClean(t *testing.T) {
 	if err := db.AutoMigrate(&app.Frame{}); err != nil {
 		t.Fatal(err)
 	}
-	clean, leak, w, h := testDarks()
+	clean, leak, _, w, h := testDarks()
 	dir := t.TempDir()
 	var frames []app.Frame
 	var files []string
