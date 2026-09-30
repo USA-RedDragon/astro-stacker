@@ -117,6 +117,17 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	// A master holding subs calibrated again (a dark came for them) is
 	// rebuilt, so their old versions go.
 	rebuild := newTotal < WarmUpSubs || stack.RebuiltAtSubs < WarmUpSubs || newTotal >= 2*stack.RebuiltAtSubs || stack.NeedsRebuild
+	// A sub of another gain goes on the master's with the scale its last
+	// rebuild measured; a gain it hasn't measured needs a rebuild.
+	gains := make([]*float64, len(added))
+	for i, a := range added {
+		gains[i] = a.c.c.frame.Gain
+	}
+	scales, measured, err := p.batchGains(ctx, stack, gains)
+	if err != nil {
+		return err
+	}
+	rebuild = rebuild || !measured
 	var acc *Accumulator
 	if !rebuild {
 		if acc, err = p.loadState(ctx, stack); err != nil {
@@ -142,7 +153,7 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 			if w != acc.W || h != acc.H {
 				return fmt.Errorf("registered sub is %dx%d, master %dx%d", w, h, acc.W, acc.H)
 			}
-			res, err := acc.Add(sub, exp, sf.Weight, p.opts.Stack)
+			res, err := acc.Add(sub, exp*scales.scale(gains[i]), sf.Weight, p.opts.Stack)
 			if err != nil {
 				return err
 			}

@@ -148,58 +148,7 @@ func fitSky(get func(int) float32, w, h int, exposure float64, ref *Accumulator,
 		return flat()
 	}
 
-	// Only where nearly every sub of the reference contributes: where some
-	// are missing (a flip, a rotated night, dither edges) the reference
-	// steps by their gradients, which a sub fitted to it would copy.
-	var full float32
-	for _, c := range ref.Count {
-		full = max(full, c)
-	}
-	full *= 0.9
-	type cell struct{ x, y, sub, ref, fsub, fref float64 }
-	var cells []cell
-	subs := make([]float32, 0, lnCell*lnCell/4)
-	refs := make([]float32, 0, lnCell*lnCell/4)
-	for cy := 0; cy+lnCell/2 <= h; cy += lnCell {
-		for cx := 0; cx+lnCell/2 <= w; cx += lnCell {
-			subs, refs = subs[:0], refs[:0]
-			x1, y1 := min(cx+lnCell, w), min(cy+lnCell, h)
-			for y := cy; y < y1; y += 2 {
-				for x := cx; x < x1; x += 2 {
-					i := y*w + x
-					v := get(i)
-					if v == 0 || v >= saturation || ref.Count[i] < full {
-						continue
-					}
-					subs = append(subs, v)
-					refs = append(refs, ref.Mean[i])
-				}
-			}
-			if len(subs) < (x1-cx)*(y1-cy)/8 { // under half the sampled pixels
-				continue
-			}
-			// Starlight measures transparency: summed over a star it
-			// doesn't depend on seeing, and above the cell's median not on
-			// the sky. Stars are picked in the reference, whose noise is
-			// low, and only their pixels summed: over the whole cell a
-			// tiny error in the median would outweigh them.
-			c := cell{x: float64(cx+x1) / 2, y: float64(cy+y1) / 2}
-			medSub, medRef := median32(slices.Clone(subs)), median32(slices.Clone(refs))
-			c.sub, c.ref = float64(medSub)/exposure, float64(medRef)
-			dev := make([]float32, len(refs))
-			for k, r := range refs {
-				dev[k] = float32(math.Abs(float64(r - medRef)))
-			}
-			star := medRef + 5*madToSigma*median32(dev)
-			for k, r := range refs {
-				if r > star {
-					c.fsub += float64(subs[k])/exposure - c.sub
-					c.fref += float64(r - medRef)
-				}
-			}
-			cells = append(cells, c)
-		}
-	}
+	cells := skyCells(get, w, h, exposure, ref, saturation)
 	if len(cells) < 4*lnTerms {
 		return flat()
 	}
@@ -228,11 +177,80 @@ func fitSky(get func(int) float32, w, h int, exposure float64, ref *Accumulator,
 	return m
 }
 
-// transparency is the sub's flux over the reference's: the median ratio
-// over cells with clearly more flux than noise, judged from the faintest
-// half of the cells, which hold little but noise. It is 1 when too few cells
-// have flux or the ratio is implausible.
+// skyCell is one lnCell of a sub against the reference: their medians, the
+// sub's per second, and their starlight above those medians.
+type skyCell struct{ x, y, sub, ref, fsub, fref float64 }
+
+// skyCells measures a sub against ref, cell by cell, as fitSky describes.
+func skyCells(get func(int) float32, w, h int, exposure float64, ref *Accumulator, saturation float32) []skyCell {
+	// Only where nearly every sub of the reference contributes: where some
+	// are missing (a flip, a rotated night, dither edges) the reference
+	// steps by their gradients, which a sub fitted to it would copy.
+	var full float32
+	for _, c := range ref.Count {
+		full = max(full, c)
+	}
+	full *= 0.9
+	var cells []skyCell
+	subs := make([]float32, 0, lnCell*lnCell/4)
+	refs := make([]float32, 0, lnCell*lnCell/4)
+	for cy := 0; cy+lnCell/2 <= h; cy += lnCell {
+		for cx := 0; cx+lnCell/2 <= w; cx += lnCell {
+			subs, refs = subs[:0], refs[:0]
+			x1, y1 := min(cx+lnCell, w), min(cy+lnCell, h)
+			for y := cy; y < y1; y += 2 {
+				for x := cx; x < x1; x += 2 {
+					i := y*w + x
+					v := get(i)
+					if v == 0 || v >= saturation || ref.Count[i] < full {
+						continue
+					}
+					subs = append(subs, v)
+					refs = append(refs, ref.Mean[i])
+				}
+			}
+			if len(subs) < (x1-cx)*(y1-cy)/8 { // under half the sampled pixels
+				continue
+			}
+			// Starlight measures transparency: summed over a star it
+			// doesn't depend on seeing, and above the cell's median not on
+			// the sky. Stars are picked in the reference, whose noise is
+			// low, and only their pixels summed: over the whole cell a
+			// tiny error in the median would outweigh them.
+			c := skyCell{x: float64(cx+x1) / 2, y: float64(cy+y1) / 2}
+			medSub, medRef := median32(slices.Clone(subs)), median32(slices.Clone(refs))
+			c.sub, c.ref = float64(medSub)/exposure, float64(medRef)
+			dev := make([]float32, len(refs))
+			for k, r := range refs {
+				dev[k] = float32(math.Abs(float64(r - medRef)))
+			}
+			star := medRef + 5*madToSigma*median32(dev)
+			for k, r := range refs {
+				if r > star {
+					c.fsub += float64(subs[k])/exposure - c.sub
+					c.fref += float64(r - medRef)
+				}
+			}
+			cells = append(cells, c)
+		}
+	}
+	return cells
+}
+
+// transparency is the sub's flux over the reference's (see fluxRatio), or 1
+// when it can't be measured or is implausible for haze.
 func transparency(flux func(int) (sub, ref float64), n int) float64 {
+	if s, ok := fluxRatio(flux, n); ok && s >= lnMinScale && s <= lnMaxScale {
+		return s
+	}
+	return 1
+}
+
+// fluxRatio is the median ratio of the sub's flux over the reference's over
+// cells with clearly more flux than noise, judged from the faintest half of
+// the cells, which hold little but noise. ok is false when too few cells
+// have flux.
+func fluxRatio(flux func(int) (sub, ref float64), n int) (float64, bool) {
 	type pair struct{ sub, ref float64 }
 	ps := make([]pair, 0, n)
 	for i := range n {
@@ -240,7 +258,7 @@ func transparency(flux func(int) (sub, ref float64), n int) float64 {
 		ps = append(ps, pair{s, r})
 	}
 	if len(ps) < 16 {
-		return 1
+		return 0, false
 	}
 	slices.SortFunc(ps, func(a, b pair) int { return cmpFloat(a.ref, b.ref) })
 	faint := make([]float64, len(ps)/2)
@@ -256,14 +274,11 @@ func transparency(flux func(int) (sub, ref float64), n int) float64 {
 		}
 	}
 	if len(ratios) < 8 {
-		return 1
+		return 0, false
 	}
 	slices.Sort(ratios)
 	s := ratios[len(ratios)/2]
-	if !(s >= lnMinScale && s <= lnMaxScale) {
-		return 1
-	}
-	return s
+	return s, s > 0
 }
 
 func cmpFloat(a, b float64) int {

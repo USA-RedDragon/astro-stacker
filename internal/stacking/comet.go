@@ -304,9 +304,10 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 		Exposure      float64
 		Weight        float64
 		DateObs       time.Time
+		Gain          *float64
 	}
 	if err := p.db.WithContext(ctx).Table("stack_frames sf").
-		Select("sf.registered_key, sf.exposure, sf.weight, f.date_obs").
+		Select("sf.registered_key, sf.exposure, sf.weight, f.date_obs, f.gain").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
 		Where("sf.stack_id = ? AND sf.status = ? AND sf.registered_key IS NOT NULL AND f.date_obs IS NOT NULL", stack.ID, app.StackStatusAdded).
 		Order("f.date_obs").Scan(&rows).Error; err != nil {
@@ -316,10 +317,13 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 		return fmt.Errorf("%d subs, need at least 3", len(rows))
 	}
 	subs := make([]cometSub, len(rows))
+	scales := decodeGainTable(stack.GainScales)
 	from, to := refTime, refTime
 	for i, r := range rows {
 		mid := r.DateObs.Add(time.Duration(r.Exposure / 2 * float64(time.Second)))
-		subs[i] = cometSub{stored: storedSub{key: r.RegisteredKey, exposure: r.Exposure, weight: r.Weight}, mid: mid}
+		// On the star master's gain (see gainScales).
+		exp := r.Exposure * scales.scale(r.Gain)
+		subs[i] = cometSub{stored: storedSub{key: r.RegisteredKey, exposure: exp, weight: r.Weight}, mid: mid}
 		from, to = minTime(from, mid), maxTime(to, mid)
 	}
 	eph, err := horizons(ctx, designation, from, to, lon, lat, elev)

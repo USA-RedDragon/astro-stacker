@@ -129,6 +129,12 @@ type Stack struct {
 	// RejectMethod is the pixel rejection its state was last rebuilt with
 	// (see stacking.rejectMethod).
 	RejectMethod int
+	// GainMethod is how its state was last rebuilt onto one camera gain
+	// (see stacking.gainMethod). GainScales is what that rebuild measured
+	// for a master mixing gains, as JSON {"gain": scale}; empty for one
+	// holding a single gain.
+	GainMethod int
+	GainScales string `gorm:"type:text"`
 
 	StateKey   *string // accumulator planes
 	MasterKey  *string // linear master FITS for download
