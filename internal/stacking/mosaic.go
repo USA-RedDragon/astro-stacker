@@ -278,10 +278,10 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 	if err != nil {
 		return err
 	}
-	// The previews: every panel of the project on one canvas, so
-	// panels without a master yet show as outlined gaps where they go, and
-	// every filter's mosaic lines up for colour.
-	canvas, img, cw, ch, r, err := p.layoutPreview(dir, g, masters)
+	// The previews: the mosaic on a canvas framing every panel of the
+	// project, so panels without a master yet show as outlined gaps where
+	// they go, and every filter's mosaic lines up for colour.
+	canvas, img, cw, ch, r, err := p.layoutPreview(dir, g, masters, fitsOut)
 	if err != nil {
 		return err
 	}
@@ -397,30 +397,27 @@ func publishableMosaic(in, fitsOut, xisfOut string) error {
 	return writeXISFFile(xisfOut, im.W, im.H, im.Data, cards)
 }
 
-// layoutPreview puts every panel of the project on one canvas, turned like
-// the panels: solved panels
-// from their plate solutions, missing ones placed from Target Scheduler,
-// framed like the first solved panel. It returns the linear canvas and a
-// stretched copy with the missing panels outlined.
-func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack) (canvas, img []float32, w, h int, r Rect, err error) {
+// layoutPreview frames every panel of the project on one canvas, turned
+// like the panels: solved panels from their plate solutions, missing ones
+// placed from Target Scheduler, framed like the first solved panel. The
+// pixels are the assembled mosaic's (mosaicFile, matched on the overlaps
+// as the download is), reprojected onto the canvas. It returns the linear
+// canvas and a stretched copy with the missing panels outlined.
+func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack, mosaicFile string) (canvas, img []float32, w, h int, r Rect, err error) {
 	present := map[string]int{} // object -> pan file number
 	for i, m := range masters {
 		present[m.Object] = i + 1
 	}
-	var ref *layoutPanel
+	var refWCS wcs
 	var refRot float64
+	solved := false
 	panels := make([]layoutPanel, 0, len(g.Panels))
-	files := map[int][]byte{}
 	for _, pn := range g.Panels {
 		n, ok := present[pn.Object]
 		if !ok {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", n)))
-		if err != nil {
-			return nil, nil, 0, 0, Rect{}, err
-		}
-		kw, err := frameheader.Parse(b)
+		kw, err := readKeywords(filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", n)))
 		if err != nil {
 			return nil, nil, 0, 0, Rect{}, err
 		}
@@ -428,38 +425,55 @@ func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack)
 		if err != nil {
 			return nil, nil, 0, 0, Rect{}, fmt.Errorf("%s: %w", pn.Object, err)
 		}
-		files[len(panels)] = b
-		panels = append(panels, layoutPanel{WCS: gw})
-		if ref == nil {
-			ref, refRot = &panels[len(panels)-1], pn.Rotation
+		// Its pixels come from the mosaic; a non-nil Data marks it present.
+		panels = append(panels, layoutPanel{WCS: gw, Data: []float32{}})
+		if !solved {
+			refWCS, refRot, solved = gw, pn.Rotation, true
 		}
 	}
-	if ref == nil {
+	if !solved {
 		return nil, nil, 0, 0, Rect{}, fmt.Errorf("no solved panel")
 	}
-	refWCS := ref.WCS
 	for _, pn := range g.Panels {
 		if _, ok := present[pn.Object]; ok {
 			continue
 		}
 		panels = append(panels, layoutPanel{WCS: refWCS.placed(pn.RA, pn.Dec, pn.Rotation-refRot)})
 	}
-	l, bin := newLayout(panels, refWCS, mosaicPreviewWidth)
-	for i, b := range files {
-		im, err := imagedata.Decode(b)
-		if err != nil {
-			return nil, nil, 0, 0, Rect{}, err
-		}
-		panels[i].Data, panels[i].W, panels[i].H = binImage(im.Data, im.W, im.H, bin)
-		panels[i].Bin = bin
+	b, err := os.ReadFile(mosaicFile)
+	if err != nil {
+		return nil, nil, 0, 0, Rect{}, err
 	}
-	canvas = l.render(panels)
+	kw, err := frameheader.Parse(b)
+	if err != nil {
+		return nil, nil, 0, 0, Rect{}, err
+	}
+	im, err := imagedata.Decode(b)
+	if err != nil {
+		return nil, nil, 0, 0, Rect{}, err
+	}
+	mw, err := wcsFromHeader(kw, im.W, im.H)
+	if err != nil {
+		return nil, nil, 0, 0, Rect{}, fmt.Errorf("mosaic: %w", err)
+	}
+	canvas, img, w, h, r = mosaicPreview(panels, refWCS, mw, im.Plane(0))
+	return canvas, img, w, h, r, nil
+}
+
+// mosaicPreview reprojects the mosaic (top row first, its plate solution
+// mw) onto a canvas framing the panels, as layoutPreview describes.
+func mosaicPreview(panels []layoutPanel, ref, mw wcs, data []float32) (canvas, img []float32, w, h int, r Rect) {
+	l, bin := newLayout(panels, ref, mosaicPreviewWidth)
+	m := layoutPanel{WCS: mw, Bin: bin}
+	m.Data, m.W, m.H = binImage(data, mw.width, mw.height, bin)
+	// One image: render's level matching and feathering leave it as it is.
+	canvas = l.render([]layoutPanel{m})
 	img = l.stretchedWithOutlines(canvas, panels)
 	// The preview is cropped to leave out the wedges around the outside
 	// that no panel reaches, counting missing panels' frames as covered so
 	// their gaps stay in. The linear canvas stays whole, so every filter's
 	// lines up, and carries the crop.
-	return canvas, img, l.W, l.H, l.panelCrop(canvas, panels), nil
+	return canvas, img, l.W, l.H, l.panelCrop(canvas, panels)
 }
 
 // mosaicPreviewWidth caps the layout canvas's width in pixels.
