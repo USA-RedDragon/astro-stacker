@@ -43,4 +43,9 @@ var (
 		Help: "Frames whose headers were indexed."})
 	EventListeners = promauto.NewGauge(prometheus.GaugeOpts{Namespace: ns, Name: "event_listeners",
 		Help: "Clients following the event stream."})
+	TSVerdicts = promauto.NewGaugeVec(prometheus.GaugeOpts{Namespace: ns, Name: "ts_verdicts",
+		Help: "Verdicts sent to Target Scheduler, by verdict (reject, accept) and state (sent, applied, moot, overridden)."},
+		[]string{"verdict", "state"})
+	TSVerdictsSent = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "ts_verdicts_sent_total",
+		Help: "Verdicts written for Target Scheduler, by kind (new, retry, undo, redo)."}, []string{"kind"})
 )

@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/utils"
 	"github.com/USA-RedDragon/astro-stacker/internal/types"
@@ -44,7 +45,21 @@ type Stacking struct {
 	CalibrationSettle int     `name:"calibration-settle-minutes" description:"Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile" default:"180"`
 	RecalibrateLimit  int     `name:"recalibrate-limit" description:"Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear" default:"300"`
 	DrainSeconds      int     `name:"drain-seconds" description:"On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it" default:"1200"`
+	// TSVerdicts sends the subs left out of masters (low score, moon) back to
+	// Target Scheduler as rejected, so they stop counting toward its
+	// exposure plans and it images the targets further.
+	TSVerdicts        string   `name:"ts-verdicts" description:"Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on" default:"off"`
+	TSVerdictsSince   string   `name:"ts-verdicts-since" description:"Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all"`
+	TSVerdictsTargets []string `name:"ts-verdicts-targets" description:"Only subs of these targets; empty for all"`
+	TSVerdictsMax     int      `name:"ts-verdicts-max" description:"Most new verdicts sent per hourly sweep" default:"200"`
 }
+
+// TS verdict modes.
+const (
+	TSVerdictsOff    = "off"
+	TSVerdictsDryRun = "dry-run"
+	TSVerdictsOn     = "on"
+)
 
 type Previews struct {
 	Enabled         bool `name:"enabled" description:"Render auto-stretched JPEG previews of lights into the processed bucket"`
@@ -116,6 +131,8 @@ var (
 	ErrEmptyStorageDSNSchedulerDB   = errors.New("scheduler database DSN cannot be empty")
 	ErrInvalidStorageDSNApp         = errors.New("invalid application storage DSN provided")
 	ErrInvalidStorageDSNSchedulerDB = errors.New("invalid scheduler database DSN provided")
+	ErrInvalidTSVerdicts            = errors.New("stacking.ts-verdicts must be off, dry-run or on")
+	ErrInvalidTSVerdictsSince       = errors.New("stacking.ts-verdicts-since must be a date, YYYY-MM-DD")
 )
 
 func (c Config) Validate() error {
@@ -134,6 +151,17 @@ func (c Config) Validate() error {
 
 	if c.Storage.DSN.App == "" {
 		return ErrEmptyStorageDSNApp
+	}
+
+	switch c.Stacking.TSVerdicts {
+	case TSVerdictsOff, TSVerdictsDryRun, TSVerdictsOn:
+	default:
+		return ErrInvalidTSVerdicts
+	}
+	if c.Stacking.TSVerdictsSince != "" {
+		if _, err := time.Parse(time.DateOnly, c.Stacking.TSVerdictsSince); err != nil {
+			return ErrInvalidTSVerdictsSince
+		}
 	}
 
 	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {

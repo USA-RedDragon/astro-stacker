@@ -43,3 +43,38 @@ func TestLogLevelConstants(t *testing.T) {
 		})
 	}
 }
+
+func TestTSVerdicts(t *testing.T) {
+	t.Parallel()
+
+	defConfig, err := configulator.New[config.Config]().Default()
+	if err != nil {
+		t.Fatalf("failed to create default config: %v", err)
+	}
+	if defConfig.Stacking.TSVerdicts != config.TSVerdictsOff {
+		t.Errorf("ts-verdicts defaults to %q, want off", defConfig.Stacking.TSVerdicts)
+	}
+	if err := defConfig.Validate(); err != nil {
+		t.Fatalf("default config: %v", err)
+	}
+
+	tests := []struct {
+		mode, since string
+		want        error
+	}{
+		{config.TSVerdictsOff, "", nil},
+		{config.TSVerdictsDryRun, "", nil},
+		{config.TSVerdictsOn, "2026-10-01", nil},
+		{"yes", "", config.ErrInvalidTSVerdicts},
+		{"", "", config.ErrInvalidTSVerdicts},
+		{config.TSVerdictsOn, "October", config.ErrInvalidTSVerdictsSince},
+	}
+	for _, tt := range tests {
+		cfg := defConfig
+		cfg.Stacking.TSVerdicts = tt.mode
+		cfg.Stacking.TSVerdictsSince = tt.since
+		if err := cfg.Validate(); !errors.Is(err, tt.want) {
+			t.Errorf("mode %q since %q: Validate() = %v, want %v", tt.mode, tt.since, err, tt.want)
+		}
+	}
+}
