@@ -49,8 +49,9 @@ const lineFitKnots = 200
 // lineGain multiplies the doubled line. With the cover's colour taken from
 // linear ratios (colourStretch), as in the manual versions, 2 shows M31's
 // and M33's H II regions and North America's fronts without neon; 4 was
-// needed when each channel was stretched on its own.
-const lineGain = 2.0
+// needed when each channel was stretched on its own. 1.5 since IC 434 and
+// M42 came out neon at 2.
+const lineGain = 1.5
 
 // Bounds on k·q, the line's response in the broadband filter relative to
 // the narrowband's continuum ratio: roughly the ratio of their bandwidths,

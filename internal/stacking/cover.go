@@ -106,8 +106,9 @@ func commonCrop(layers []layer, w, h int) Rect {
 // haBlue bounds how much H-a goes into blue, relative to red, for a hint
 // of pink: the H-a filter's line (H-a with H-b alongside) showed in the
 // Cygnus Loop's broadband as 1 red to 0.36 blue, but at that the covers
-// came out magenta, and the manual North America version added none.
-const haBlue = 0.15
+// came out magenta, and the manual North America version added none;
+// 0.15 still turned IC 434 and M42 magenta.
+const haBlue = 0.0
 
 // oiiiBlue bounds how much O-III goes into blue, relative to green; the
 // Cygnus Loop's broadband saw it about equally in both.
@@ -487,7 +488,9 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // or when nothing else fits. 5: H-a (and O-III) added only where a mask
 // from the continuum-subtracted line is on (addLine), and the channels
 // balanced on the sky and the stars and stretched together (colourStretch).
-const CoverVersion = 5
+// 6: black point no higher than the darkest sky, over-bright colour taken
+// partway to white, and less H-a (lineGain 1.5, none into blue).
+const CoverVersion = 6
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or
