@@ -158,3 +158,57 @@ func TestPanelCropKeepsTheGapButNotTheWedges(t *testing.T) {
 		t.Errorf("crop %+v kept the uncovered wedges of the %dx%d layout", r, l.W, l.H)
 	}
 }
+
+// The preview shows the assembled mosaic as it is, upright, levels and all
+// (it was matched on the overlaps already), framed with the missing
+// panels' gaps outlined.
+func TestMosaicPreviewShowsTheMosaic(t *testing.T) {
+	t.Parallel()
+	const w, h, scale = 120, 80, 0.01
+	p1 := synthPanel(83.0, 20.0, w, h, scale)
+	p2 := synthPanel(83.0, 20.7, w, h, scale)
+	p3 := synthPanel(83.0, 21.4, w, h, scale)
+	p1.Data, p3.Data = []float32{}, []float32{} // present: pixels from the mosaic
+	p2.Data = nil                               // not done yet
+	// The mosaic of panels 1 and 3: one frame across both, no data between.
+	m := synthPanel(83.0, 20.7, w, 3*h, scale)
+	for r := range m.H {
+		_, dec := m.WCS.toSky(float64(w+1)/2, float64(m.H-r))
+		if dec > 20.0+0.4 && dec < 21.4-0.4 {
+			clear(m.Data[r*w : (r+1)*w])
+		}
+	}
+	panels := []layoutPanel{p1, p2, p3}
+	canvas, img, cw, ch, crop := mosaicPreview(panels, p1.WCS, m.WCS, m.Data)
+	l, _ := newLayout(panels, p1.WCS, mosaicPreviewWidth)
+	if cw != l.W || ch != l.H {
+		t.Fatalf("canvas %dx%d, layout %dx%d", cw, ch, l.W, l.H)
+	}
+	// Values are the mosaic's own, where they are on the sky: a flipped or
+	// re-levelled mosaic wouldn't match.
+	for _, pos := range [][2]float64{{83.0, 19.75}, {83.3, 20.1}, {82.8, 21.6}} {
+		c, r, _ := l.toCanvas(pos[0], pos[1])
+		col, row := math.Round(c), math.Round(r)
+		sra, sdec := l.toSky(col, row)
+		if got, want := canvas[int(row)*cw+int(col)], sky(sra, sdec); math.Abs(float64(got-want)) > 0.01 {
+			t.Errorf("at %v the preview has %v, the sky %v", pos, got, want)
+		}
+	}
+	// The missing panel's middle is empty, outlined, and kept in the crop.
+	c, r, _ := l.toCanvas(83.0, 20.7)
+	if v := canvas[int(r)*cw+int(c)]; v != 0 {
+		t.Errorf("missing panel's centre is %v", v)
+	}
+	edges := 0
+	for _, v := range img {
+		if v == 0.35 {
+			edges++
+		}
+	}
+	if edges < w+h {
+		t.Errorf("drew %d outline pixels for the missing panel", edges)
+	}
+	if crop.H < 2*h {
+		t.Errorf("crop %+v dropped the missing panel's gap", crop)
+	}
+}

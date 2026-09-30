@@ -84,6 +84,9 @@ type Mosaic struct {
 	PreviewURL  string    `json:"preview_url"`
 	LinearURL   string    `json:"linear_url"`
 	Crop        *Crop     `json:"crop,omitempty"`
+	// XISFURL is the mosaic for PixInsight, which opens it upright and
+	// plate solved.
+	XISFURL string `json:"xisf_url,omitempty"`
 }
 
 // monoFilterOrder ranks filters by how well one shows a target on its own:
@@ -287,6 +290,9 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 			}
 			if err == nil && m.LinearKey != nil {
 				o.LinearURL, err = signer.URL(ctx, *m.LinearKey)
+			}
+			if err == nil && m.XISFKey != nil {
+				o.XISFURL, err = signer.DownloadURL(ctx, *m.XISFKey, strings.TrimSuffix(name, ".fit")+".xisf")
 			}
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

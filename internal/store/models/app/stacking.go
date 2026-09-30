@@ -90,6 +90,7 @@ type Mosaic struct {
 	// rebuilt only when one of them changes.
 	Signature  string
 	MasterKey  *string
+	XISFKey    *string // the mosaic for PixInsight: upright, plate solved
 	PreviewKey *string
 	LinearKey  *string
 	Error      *string `gorm:"type:text"`

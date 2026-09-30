@@ -33,7 +33,10 @@ func IntCard(key string, value int, comment string) Card {
 
 // WriteFITS writes a 32-bit float FITS image. data is planar
 // (c*w*h + y*w + x) with row 0 at the top, which FITS stores as NAXIS1=w,
-// NAXIS2=h, NAXIS3=c with the bottom row first, as Siril and PixInsight do.
+// NAXIS2=h, NAXIS3=c with the bottom row first, as Siril does. The header
+// says so with ROWORDER: PixInsight reads FITS top row first unless a
+// ROWORDER keyword says otherwise, which shows the image upside down under
+// its plate solution. A ROWORDER in extra is left out.
 func WriteFITS(out io.Writer, w, h, c int, data []float32, extra []Card) error {
 	if len(data) != w*h*c {
 		return fmt.Errorf("have %d samples, want %d", len(data), w*h*c)
@@ -49,7 +52,12 @@ func WriteFITS(out io.Writer, w, h, c int, data []float32, extra []Card) error {
 	if c > 1 {
 		cards = append(cards, IntCard("NAXIS3", c, ""))
 	}
-	cards = append(cards, extra...)
+	for _, cd := range extra {
+		if cd.Key != "ROWORDER" {
+			cards = append(cards, cd)
+		}
+	}
+	cards = append(cards, StringCard("ROWORDER", "BOTTOM-UP", "Order of the rows in the image array"))
 	written := 0
 	for _, cd := range cards {
 		if _, err := bw.WriteString(formatCard(cd)); err != nil {
