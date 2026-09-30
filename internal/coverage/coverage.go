@@ -123,12 +123,14 @@ type calFrame struct {
 
 // Sets loads every flat, dark and bias set. Flats are grouped per night,
 // object, filter and rotator angle, as frames taken for one session's
-// lights; darks and bias by their setup and SessionGap.
+// lights; darks and bias by their setup and SessionGap. Darks found to have a
+// light leak are left out, so a set shot while daylight reached the sensor
+// counts only its clean frames.
 func Sets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, error) {
 	var frames []calFrame
 	if err := db.WithContext(ctx).Table("frames").
 		Select(`type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, rotator, date_obs, last_modified`).
-		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL", []string{"FLAT", "DARK", "BIAS"}).
+		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL AND light_leak IS NULL", []string{"FLAT", "DARK", "BIAS"}).
 		Scan(&frames).Error; err != nil {
 		return nil, fmt.Errorf("load calibration frames: %w", err)
 	}
@@ -224,7 +226,7 @@ var Imported = func() []calmatch.Set {
 // SetFrames returns the frames that make up a set, matching the grouping in
 // Sets exactly, with missing values matched as NULL.
 func SetFrames(ctx context.Context, db *gorm.DB, s calmatch.Set) ([]app.Frame, error) {
-	q := db.WithContext(ctx).Where("type = ? AND night IS NOT NULL AND index_error IS NULL", s.Type)
+	q := db.WithContext(ctx).Where("type = ? AND night IS NOT NULL AND index_error IS NULL AND light_leak IS NULL", s.Type)
 	if !library(s.Type) {
 		q = q.Where("night = ? AND object = ? AND filter = ?", s.Night, s.Object, s.Filter)
 		if math.IsNaN(s.Rotator) {
