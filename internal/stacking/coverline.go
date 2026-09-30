@@ -46,12 +46,11 @@ const lineFitBlocks = 30
 // on; with fewer, k is lineKQDefault/q.
 const lineFitKnots = 200
 
-// lineGain multiplies the doubled line. The manual versions carried colour
-// by linear ratios onto a luminance stretch; the cover stretches each
-// channel on its own, which leaves a doubled line hard to see: M31's and
-// M33's H II regions needed about 4 to show as clearly as with the old
-// σ-based blend, and North America's fronts as in the manual version.
-const lineGain = 4.0
+// lineGain multiplies the doubled line. With the cover's colour taken from
+// linear ratios (colourStretch), as in the manual versions, 2 shows M31's
+// and M33's H II regions and North America's fronts without neon; 4 was
+// needed when each channel was stretched on its own.
+const lineGain = 2.0
 
 // Bounds on k·q, the line's response in the broadband filter relative to
 // the narrowband's continuum ratio: roughly the ratio of their bandwidths,
@@ -522,6 +521,12 @@ func skyLevel(g []float64) float64 {
 // of the last fit until they settle. It returns the surface on every block
 // and which blocks it was fitted to.
 func skySurface(g []float64, gw, gh int) ([]float64, []bool) {
+	return skySurfaceAmong(g, nil, gw, gh)
+}
+
+// skySurfaceAmong is skySurface fitted only among the given blocks, all of
+// them to start with; nil means from the lower half of all.
+func skySurfaceAmong(g []float64, among []bool, gw, gh int) ([]float64, []bool) {
 	basis := func(i int) [6]float64 {
 		x := 2*(float64(i%gw)+0.5)/float64(gw) - 1
 		y := 2*(float64(i/gw)+0.5)/float64(gh) - 1
@@ -541,7 +546,11 @@ func skySurface(g []float64, gw, gh int) ([]float64, []bool) {
 	slices.Sort(valid)
 	med := valid[len(valid)/2]
 	for i, v := range g {
-		keep[i] = !math.IsNaN(v) && v <= med
+		if among != nil {
+			keep[i] = !math.IsNaN(v) && among[i]
+		} else {
+			keep[i] = !math.IsNaN(v) && v <= med
+		}
 	}
 	var coef [6]float64
 	for range 20 {
@@ -577,7 +586,7 @@ func skySurface(g []float64, gw, gh int) ([]float64, []bool) {
 		changed := false
 		for i, v := range g {
 			k := false
-			if !math.IsNaN(v) {
+			if !math.IsNaN(v) && (among == nil || among[i]) {
 				d := v - dot6(coef, basis(i))
 				k = d > -3*sd && d < 2*sd
 			}
