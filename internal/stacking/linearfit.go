@@ -53,7 +53,7 @@ func (p *Pipeline) linearFitsOnce(ctx context.Context) error {
 	for _, s := range stacks {
 		g := fitGroup(s.Filter)
 		if g == "" {
-			if s.FittedKey != nil {
+			if s.FittedKey != nil || s.FitError != nil {
 				p.dropFit(ctx, &s)
 			}
 			continue
@@ -66,7 +66,7 @@ func (p *Pipeline) linearFitsOnce(ctx context.Context) error {
 		}
 		if len(masters) < 2 {
 			for i := range masters {
-				if masters[i].FittedKey != nil {
+				if masters[i].FittedKey != nil || masters[i].FitError != nil {
 					p.dropFit(ctx, &masters[i])
 				}
 			}
@@ -94,20 +94,27 @@ func fitGroup(filter string) string {
 
 // dropFit removes a fitted master that no longer has a group to fit in.
 func (p *Pipeline) dropFit(ctx context.Context, s *app.Stack) {
-	if err := p.s3.RemoveObject(ctx, p.dest, *s.FittedKey, minio.RemoveObjectOptions{}); err != nil {
-		slog.Warn("Could not remove fitted master", "object", s.Object, "filter", s.Filter, "error", err)
-		return
+	if s.FittedKey != nil {
+		if err := p.s3.RemoveObject(ctx, p.dest, *s.FittedKey, minio.RemoveObjectOptions{}); err != nil {
+			slog.Warn("Could not remove fitted master", "object", s.Object, "filter", s.Filter, "error", err)
+			return
+		}
 	}
 	if err := p.db.WithContext(ctx).Model(s).UpdateColumns(map[string]any{
-		"fitted_key": nil, "fit_reference": "", "fit_offset": 0, "fit_scale": 0, "fit_signature": "",
+		"fitted_key": nil, "fit_reference": "", "fit_offset": 0, "fit_scale": 0, "fit_signature": "", "fit_error": nil,
 	}).Error; err != nil {
 		slog.Warn("Could not clear fitted master", "object", s.Object, "filter", s.Filter, "error", err)
 	}
 }
 
-// fitSignature identifies the masters a fit was made from.
+// fitMethod is part of every fit's signature, so a change to how fits are
+// made refits every target.
+const fitMethod = 2 // symmetric fit without clipping; reference by filter
+
+// fitSignature identifies the masters a fit was made from, and how.
 func fitSignature(masters []app.Stack) (string, time.Time) {
 	h := sha256.New()
+	fmt.Fprintf(h, "%d\x00", fitMethod)
 	var newest time.Time
 	for _, m := range masters {
 		fmt.Fprintf(h, "%s\x00%d\x00", m.Filter, m.UpdatedAt.UnixNano())
@@ -118,25 +125,80 @@ func fitSignature(masters []app.Stack) (string, time.Time) {
 	return hex.EncodeToString(h.Sum(nil))[:32], newest
 }
 
-// fitReference is the filter the others are fitted to: the one with the
-// most effective exposure, whose master is the least noisy.
+// fitReference is the filter the others are fitted to: the first of its
+// group, in fitGroups' order, that the target has. The reference only sets
+// the level the group is brought to, and a fixed choice brings every panel
+// of a mosaic to the same filter. Effective exposure, used before, isn't
+// comparable between filters: it picked S-II for one panel of a mosaic and
+// H-a for its neighbours.
 func fitReference(masters []app.Stack) int {
+	rank := func(filter string) int {
+		for _, g := range fitGroups {
+			if i := slices.Index(g, filter); i >= 0 {
+				return i
+			}
+		}
+		return math.MaxInt
+	}
 	best := 0
 	for i, m := range masters {
-		if m.EffectiveSeconds > masters[best].EffectiveSeconds {
+		if rank(m.Filter) < rank(masters[best].Filter) {
 			best = i
 		}
 	}
 	return best
 }
 
-func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []app.Stack) error {
+// fitFailure is a fit that can't succeed until the masters change, unlike
+// a download or upload that might work next time.
+type fitFailure struct{ msg string }
+
+func (e *fitFailure) Error() string { return e.msg }
+
+func unfittable(format string, args ...any) error {
+	return &fitFailure{fmt.Sprintf(format, args...)}
+}
+
+// fitMasters fits a master to the reference over the part of the frame
+// both cover.
+func fitMasters(im, ref *imagedata.Image, crop, refCrop Rect) (offset, scale float64, err error) {
+	if im.W != ref.W || im.H != ref.H {
+		return 0, 1, unfittable("master is %dx%d, reference %dx%d", im.W, im.H, ref.W, ref.H)
+	}
+	return fitLinear(im.Data, ref.Data, im.W, intersect(crop, refCrop))
+}
+
+// failFit records why a master couldn't be fitted, against the signature of
+// the masters it was tried with so it isn't tried again until one changes,
+// and takes down its fit of older masters.
+func (p *Pipeline) failFit(ctx context.Context, m *app.Stack, sig, msg string) error {
+	if m.FittedKey != nil {
+		if err := p.s3.RemoveObject(ctx, p.dest, *m.FittedKey, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("remove old fit of %s: %w", m.Filter, err)
+		}
+	}
+	return p.db.WithContext(ctx).Model(m).UpdateColumns(map[string]any{
+		"fitted_key": nil, "fit_reference": "", "fit_offset": 0, "fit_scale": 0,
+		"fit_signature": sig, "fit_error": msg,
+	}).Error
+}
+
+// fitDue gives the signature of a group's masters and whether they are to
+// be fitted: they've been left alone for quiet and some master's last fit,
+// or failure to fit, was of other masters. A fit that failed to download or
+// upload records nothing and is due again next pass.
+func fitDue(masters []app.Stack, quiet time.Duration) (string, bool) {
 	sig, newest := fitSignature(masters)
 	current := true
 	for _, m := range masters {
 		current = current && m.FitSignature == sig
 	}
-	if current || time.Since(newest) < p.opts.MosaicQuiet {
+	return sig, !current && time.Since(newest) >= quiet
+}
+
+func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []app.Stack) error {
+	sig, due := fitDue(masters, p.opts.MosaicQuiet)
+	if !due {
 		return nil
 	}
 	if !p.hold(object) {
@@ -166,13 +228,17 @@ func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []
 		}
 		offset, scale := 0.0, 1.0
 		if i != ri {
-			if im.W != refIm.W || im.H != refIm.H {
-				return fmt.Errorf("%s is %dx%d, %s %dx%d", m.Filter, im.W, im.H, ref.Filter, refIm.W, refIm.H)
-			}
-			r := intersect(cropRect(m), cropRect(ref))
-			var ok bool
-			if offset, scale, ok = fitLinear(im.Data, refIm.Data, im.W, r); !ok {
-				return fmt.Errorf("too few pixels to fit %s to %s", m.Filter, ref.Filter)
+			offset, scale, err = fitMasters(im, refIm, cropRect(m), cropRect(ref))
+			if err != nil {
+				// Left unfitted, and not tried again until a master
+				// changes; the rest of the group is still published.
+				msg := fmt.Sprintf("fitting %s to %s: %v", m.Filter, ref.Filter, err)
+				slog.Warn("Could not linear fit master", "object", object, "filter", m.Filter,
+					"reference", ref.Filter, "error", err)
+				if err := p.failFit(ctx, m, sig, msg); err != nil {
+					return err
+				}
+				continue
 			}
 			applyLinear(im.Data, offset, scale)
 		}
@@ -195,7 +261,8 @@ func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []
 		}
 		// UpdateColumns leaves updated_at, which the signature is made of.
 		if err := p.db.WithContext(ctx).Model(m).UpdateColumns(map[string]any{
-			"fitted_key": key, "fit_reference": ref.Filter, "fit_offset": offset, "fit_scale": scale, "fit_signature": sig,
+			"fitted_key": key, "fit_reference": ref.Filter, "fit_offset": offset, "fit_scale": scale,
+			"fit_signature": sig, "fit_error": nil,
 		}).Error; err != nil {
 			return err
 		}
@@ -258,10 +325,21 @@ func intersect(a, b Rect) Rect {
 // fitLinear finds offset and scale so offset + scale×target best matches
 // ref inside r, over pixels with data below fitRejectHigh in both. Like
 // PixInsight's LinearFit it minimises absolute rather than squared
-// deviations. Structure one filter sees and the other doesn't (emission in
-// H-a but not O-III) sits far off the line and can still tilt it, so pixels
-// more than 5σ off are dropped and the fit repeated.
-func fitLinear(target, ref []float32, w int, r Rect) (offset, scale float64, ok bool) {
+// deviations.
+//
+// Most of a master is sky, where pixel noise is far larger than any signal
+// the two filters share. Regressing one on the other there pulls the slope
+// towards 0 (regression dilution): ref on target underestimates the scale
+// and target on ref overestimates it. So both are fitted and the scale is
+// their geometric mean, which is exact when the two masters are equally
+// noisy for their signal, halves the error otherwise, and comes out the
+// same whichever way round the pair is fitted. Nothing is sigma clipped:
+// clipping about the sky's residuals threw away the stars and nebula that
+// carry the relation and left sky noise to fit, which gave one faint O-III
+// master a negative scale and fitted others at a fifth of what chaining
+// them through a third filter gave. Without it, structure only the target
+// sees tilts the fit by a few percent.
+func fitLinear(target, ref []float32, w int, r Rect) (offset, scale float64, err error) {
 	stride := max(1, int(math.Sqrt(float64(r.W*r.H)/fitSamples)))
 	var xs, ys []float64
 	for y := r.Y; y < r.Y+r.H; y += stride {
@@ -274,30 +352,23 @@ func fitLinear(target, ref []float32, w int, r Rect) (offset, scale float64, ok 
 			}
 		}
 	}
-	for range 5 {
-		if len(xs) < 100 {
-			return 0, 1, false
-		}
-		if offset, scale, ok = fitLAD(xs, ys); !ok {
-			return 0, 1, false
-		}
-		res := make([]float64, len(xs))
-		for i, x := range xs {
-			res[i] = math.Abs(ys[i] - offset - scale*x)
-		}
-		limit := 5 * 1.4826 * median(res)
-		kx, ky := xs[:0], ys[:0]
-		for i, x := range xs {
-			if res[i] <= limit {
-				kx, ky = append(kx, x), append(ky, ys[i])
-			}
-		}
-		if len(kx) == len(xs) {
-			break
-		}
-		xs, ys = kx, ky
+	if len(xs) < 100 {
+		return 0, 1, unfittable("only %d pixels with data in both", len(xs))
 	}
-	return offset, scale, scale > 0
+	_, up, ok := fitLAD(xs, ys)
+	_, down, ok2 := fitLAD(ys, xs)
+	if !ok || !ok2 {
+		return 0, 1, unfittable("no spread in the pixels to fit")
+	}
+	if up <= 0 || down <= 0 {
+		return 0, 1, unfittable("no positive relation between them (slopes %.3g and %.3g)", up, 1/down)
+	}
+	scale = math.Sqrt(up / down)
+	res := make([]float64, len(xs))
+	for i, x := range xs {
+		res[i] = ys[i] - scale*x
+	}
+	return median(res), scale, nil
 }
 
 // fitLAD fits y = a + b×x minimising absolute deviations, by iteratively
