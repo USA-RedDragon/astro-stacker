@@ -208,6 +208,8 @@ func TestWriteFITSRoundTrip(t *testing.T) {
 		imagedata.StringCard("OBJECT", "Bode's Galaxy", "target"),
 		imagedata.FloatCard("EXPTIME", 600, "seconds"),
 		imagedata.IntCard("NCOMBINE", 42, "subs"),
+		// Copied from a file that said otherwise: the writer's own wins.
+		imagedata.StringCard("ROWORDER", "TOP-DOWN", ""),
 	}
 	if err := imagedata.WriteFITS(&buf, 3, 2, 2, data, cards); err != nil {
 		t.Fatal(err)
@@ -235,5 +237,9 @@ func TestWriteFITSRoundTrip(t *testing.T) {
 	}
 	if !bytes.Contains(buf.Bytes(), []byte("OBJECT  = 'Bode''s Galaxy'")) {
 		t.Error("quoted string card not written as expected")
+	}
+	// PixInsight reads FITS top row first unless ROWORDER says otherwise.
+	if n := bytes.Count(buf.Bytes(), []byte("ROWORDER=")); n != 1 || !bytes.Contains(buf.Bytes(), []byte("ROWORDER= 'BOTTOM-UP'")) {
+		t.Errorf("want one ROWORDER= 'BOTTOM-UP', have %d ROWORDER cards", n)
 	}
 }

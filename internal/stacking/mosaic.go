@@ -33,7 +33,9 @@ import (
 
 // mosaicMethod is part of every mosaic's signature, so a change to how
 // they are assembled builds them all again. 2: panels flattened first.
-const mosaicMethod = 2
+// 3: panels matched on their overlaps; the FITS marked bottom-up, and an
+// XISF copy for PixInsight.
+const mosaicMethod = 3
 
 // StageAssembling is reported while a mosaic is being built.
 const StageAssembling = "assembling"
@@ -271,35 +273,15 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 			return fmt.Errorf("%s: %w", m.Object, err)
 		}
 	}
-	// Each panel's own sky gradient (moon, horizon glow, a different one
-	// every night) would show in the mosaic as a colour cast per panel:
-	// matching levels on the overlaps can't take a slope out.
-	for i := range masters {
-		if err := flattenPanel(filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", i+1)), p.opts.Stack.SaturationLevel); err != nil {
-			return fmt.Errorf("%s: flatten: %w", masters[i].Object, err)
-		}
-	}
-	// The download: with two or more panels, Siril's full-resolution stack
-	// (seqplatesolve then only computes the astrometric registration from
-	// the solutions, and the panels are projected onto one canvas and
-	// blended, levels matched on the overlaps and edges feathered); with
-	// one, the solved panel itself.
 	p.progress("Mosaic: "+g.Project, filter, StageAssembling, len(masters), len(masters)+1)
-	out := filepath.Join(dir, "pan_00001.fit")
-	if len(masters) >= 2 {
-		script := p.sirilPreamble(true) +
-			"seqplatesolve pan -nocache\n" +
-			"seqapplyreg pan -framing=max\n" +
-			"stack r_pan rej none -maximize -overlap_norm -feather=300 -32b -out=mosaic\n"
-		if _, err := p.siril.Run(ctx, dir, script); err != nil {
-			return err
-		}
-		out = filepath.Join(dir, "mosaic.fit")
+	fitsOut, xisfOut, err := p.assembleMosaic(ctx, dir, g.Project, filter, len(masters))
+	if err != nil {
+		return err
 	}
-	// The previews: every panel of the project on one canvas, so
-	// panels without a master yet show as outlined gaps where they go, and
-	// every filter's mosaic lines up for colour.
-	canvas, img, cw, ch, r, err := p.layoutPreview(dir, g, masters)
+	// The previews: the mosaic on a canvas framing every panel of the
+	// project, so panels without a master yet show as outlined gaps where
+	// they go, and every filter's mosaic lines up for colour.
+	canvas, img, cw, ch, r, err := p.layoutPreview(dir, g, masters, fitsOut)
 	if err != nil {
 		return err
 	}
@@ -318,7 +300,8 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 	prefix := mosaicPrefix(g.Project, filter)
 	keys := map[string]string{}
 	for name, up := range map[string]func(string) error{
-		"mosaic.fit": func(k string) error { return p.upload(ctx, out, k, "application/fits") },
+		"mosaic.fit":  func(k string) error { return p.upload(ctx, fitsOut, k, "application/fits") },
+		"mosaic.xisf": func(k string) error { return p.upload(ctx, xisfOut, k, "application/octet-stream") },
 		"preview.jpg": func(k string) error {
 			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"})
 		},
@@ -332,36 +315,109 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 		}
 		keys[name] = k
 	}
-	master, prev, lin := keys["mosaic.fit"], keys["preview.jpg"], keys["linear.bin"]
-	mosaic.MasterKey, mosaic.PreviewKey, mosaic.LinearKey = &master, &prev, &lin
+	master, xisf, prev, lin := keys["mosaic.fit"], keys["mosaic.xisf"], keys["preview.jpg"], keys["linear.bin"]
+	mosaic.MasterKey, mosaic.XISFKey, mosaic.PreviewKey, mosaic.LinearKey = &master, &xisf, &prev, &lin
 	mosaic.Width, mosaic.Height = im.W, im.H
 	return nil
 }
 
-// layoutPreview puts every panel of the project on one canvas, turned like
-// the panels: solved panels
-// from their plate solutions, missing ones placed from Target Scheduler,
-// framed like the first solved panel. It returns the linear canvas and a
-// stretched copy with the missing panels outlined.
-func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack) (canvas, img []float32, w, h int, r Rect, err error) {
+// assembleMosaic builds the mosaic from the solved panels pan_00001.fit
+// on in dir, returning the downloadable FITS and its XISF copy.
+//
+// Each panel's own sky gradient (moon, horizon glow, a different one every
+// night) would show in the mosaic as a colour cast per panel, so a plane
+// fitted to each panel's sky is taken out first. That leaves the panels'
+// levels, and whatever of their gradients a plane under nebulosity got
+// wrong, differing on the overlaps; Siril blends the panels unnormalized
+// (its -overlap_norm does nothing without -norm, and only matches an
+// offset with it), so the difference would show as a feathered band. With
+// two or more panels, the registered panels are therefore matched on their
+// overlaps before Siril stacks them. seqplatesolve only computes the
+// astrometric registration from the panels' solutions; seqapplyreg
+// projects them onto one canvas. With one panel, it is the solved panel
+// itself.
+func (p *Pipeline) assembleMosaic(ctx context.Context, dir, project, filter string, n int) (fitsOut, xisfOut string, err error) {
+	sat := p.opts.Stack.SaturationLevel
+	for i := range n {
+		if err := flattenPanel(filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", i+1)), sat); err != nil {
+			return "", "", fmt.Errorf("panel %d: flatten: %w", i+1, err)
+		}
+	}
+	out := filepath.Join(dir, "pan_00001.fit")
+	if n >= 2 {
+		if _, err := p.siril.Run(ctx, dir, p.sirilPreamble(true)+
+			"seqplatesolve pan -nocache\n"+
+			"seqapplyreg pan -framing=max\n"); err != nil {
+			return "", "", err
+		}
+		registered, err := filepath.Glob(filepath.Join(dir, "r_pan_*.fit"))
+		if err != nil {
+			return "", "", err
+		}
+		slices.Sort(registered)
+		before, after, err := matchRegistered(registered, sat)
+		if err != nil {
+			return "", "", fmt.Errorf("match panels: %w", err)
+		}
+		logPairs("Mosaic overlap before matching", project, filter, before)
+		logPairs("Mosaic overlap after matching", project, filter, after)
+		if _, err := p.siril.Run(ctx, dir, p.sirilPreamble(true)+
+			"stack r_pan rej none -maximize -feather=300 -32b -out=mosaic\n"); err != nil {
+			return "", "", err
+		}
+		out = filepath.Join(dir, "mosaic.fit")
+	}
+	fitsOut, xisfOut = filepath.Join(dir, "download.fit"), filepath.Join(dir, "download.xisf")
+	return fitsOut, xisfOut, publishableMosaic(out, fitsOut, xisfOut)
+}
+
+// publishableMosaic writes the mosaic for download: a FITS marked as
+// stored bottom row first, as FITS is (PixInsight otherwise reads FITS top
+// row first, which turns the image over under its plate solution), and an
+// XISF copy that PixInsight opens upright and solved, as masters have.
+func publishableMosaic(in, fitsOut, xisfOut string) error {
+	b, err := os.ReadFile(in)
+	if err != nil {
+		return err
+	}
+	im, err := imagedata.Decode(b)
+	if err != nil {
+		return err
+	}
+	if im.C != 1 {
+		return fmt.Errorf("mosaic has %d channels", im.C)
+	}
+	cards, err := copiedCards(b)
+	if err != nil {
+		return err
+	}
+	if err := writeFITSFile(fitsOut, im.W, im.H, 1, im.Data, cards); err != nil {
+		return err
+	}
+	return writeXISFFile(xisfOut, im.W, im.H, im.Data, cards)
+}
+
+// layoutPreview frames every panel of the project on one canvas, turned
+// like the panels: solved panels from their plate solutions, missing ones
+// placed from Target Scheduler, framed like the first solved panel. The
+// pixels are the assembled mosaic's (mosaicFile, matched on the overlaps
+// as the download is), reprojected onto the canvas. It returns the linear
+// canvas and a stretched copy with the missing panels outlined.
+func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack, mosaicFile string) (canvas, img []float32, w, h int, r Rect, err error) {
 	present := map[string]int{} // object -> pan file number
 	for i, m := range masters {
 		present[m.Object] = i + 1
 	}
-	var ref *layoutPanel
+	var refWCS wcs
 	var refRot float64
+	solved := false
 	panels := make([]layoutPanel, 0, len(g.Panels))
-	files := map[int][]byte{}
 	for _, pn := range g.Panels {
 		n, ok := present[pn.Object]
 		if !ok {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", n)))
-		if err != nil {
-			return nil, nil, 0, 0, Rect{}, err
-		}
-		kw, err := frameheader.Parse(b)
+		kw, err := readKeywords(filepath.Join(dir, fmt.Sprintf("pan_%05d.fit", n)))
 		if err != nil {
 			return nil, nil, 0, 0, Rect{}, err
 		}
@@ -369,38 +425,55 @@ func (p *Pipeline) layoutPreview(dir string, g mosaicGroup, masters []app.Stack)
 		if err != nil {
 			return nil, nil, 0, 0, Rect{}, fmt.Errorf("%s: %w", pn.Object, err)
 		}
-		files[len(panels)] = b
-		panels = append(panels, layoutPanel{WCS: gw})
-		if ref == nil {
-			ref, refRot = &panels[len(panels)-1], pn.Rotation
+		// Its pixels come from the mosaic; a non-nil Data marks it present.
+		panels = append(panels, layoutPanel{WCS: gw, Data: []float32{}})
+		if !solved {
+			refWCS, refRot, solved = gw, pn.Rotation, true
 		}
 	}
-	if ref == nil {
+	if !solved {
 		return nil, nil, 0, 0, Rect{}, fmt.Errorf("no solved panel")
 	}
-	refWCS := ref.WCS
 	for _, pn := range g.Panels {
 		if _, ok := present[pn.Object]; ok {
 			continue
 		}
 		panels = append(panels, layoutPanel{WCS: refWCS.placed(pn.RA, pn.Dec, pn.Rotation-refRot)})
 	}
-	l, bin := newLayout(panels, refWCS, mosaicPreviewWidth)
-	for i, b := range files {
-		im, err := imagedata.Decode(b)
-		if err != nil {
-			return nil, nil, 0, 0, Rect{}, err
-		}
-		panels[i].Data, panels[i].W, panels[i].H = binImage(im.Data, im.W, im.H, bin)
-		panels[i].Bin = bin
+	b, err := os.ReadFile(mosaicFile)
+	if err != nil {
+		return nil, nil, 0, 0, Rect{}, err
 	}
-	canvas = l.render(panels)
+	kw, err := frameheader.Parse(b)
+	if err != nil {
+		return nil, nil, 0, 0, Rect{}, err
+	}
+	im, err := imagedata.Decode(b)
+	if err != nil {
+		return nil, nil, 0, 0, Rect{}, err
+	}
+	mw, err := wcsFromHeader(kw, im.W, im.H)
+	if err != nil {
+		return nil, nil, 0, 0, Rect{}, fmt.Errorf("mosaic: %w", err)
+	}
+	canvas, img, w, h, r = mosaicPreview(panels, refWCS, mw, im.Plane(0))
+	return canvas, img, w, h, r, nil
+}
+
+// mosaicPreview reprojects the mosaic (top row first, its plate solution
+// mw) onto a canvas framing the panels, as layoutPreview describes.
+func mosaicPreview(panels []layoutPanel, ref, mw wcs, data []float32) (canvas, img []float32, w, h int, r Rect) {
+	l, bin := newLayout(panels, ref, mosaicPreviewWidth)
+	m := layoutPanel{WCS: mw, Bin: bin}
+	m.Data, m.W, m.H = binImage(data, mw.width, mw.height, bin)
+	// One image: render's level matching and feathering leave it as it is.
+	canvas = l.render([]layoutPanel{m})
 	img = l.stretchedWithOutlines(canvas, panels)
 	// The preview is cropped to leave out the wedges around the outside
 	// that no panel reaches, counting missing panels' frames as covered so
 	// their gaps stay in. The linear canvas stays whole, so every filter's
 	// lines up, and carries the crop.
-	return canvas, img, l.W, l.H, l.panelCrop(canvas, panels), nil
+	return canvas, img, l.W, l.H, l.panelCrop(canvas, panels)
 }
 
 // mosaicPreviewWidth caps the layout canvas's width in pixels.
@@ -436,18 +509,9 @@ func flattenPanel(file string, sat float32) error {
 	if im.C != 1 {
 		return fmt.Errorf("%d channels", im.C)
 	}
-	all, err := frameheader.ParseCards(b)
+	cards, err := copiedCards(b)
 	if err != nil {
 		return err
-	}
-	var cards []imagedata.Card
-	for _, c := range all {
-		switch {
-		case c.Name == "SIMPLE", c.Name == "BITPIX", c.Name == "EXTEND", c.Name == "BZERO", c.Name == "BSCALE",
-			strings.HasPrefix(c.Name, "NAXIS"):
-		default:
-			cards = append(cards, imageCard(c))
-		}
 	}
 	data := im.Plane(0)
 	_, bx, by, ok := fitSkyPlane(data, im.W, im.H, sat)
