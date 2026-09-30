@@ -172,6 +172,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	wg.Go(func() {
 		p.reregisterPrecalibrated(ctx)
 		p.requeueWeightless(ctx)
+		p.requeueLeakFailures(ctx)
 		// Recropping re-renders covers of the masters it touches.
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
