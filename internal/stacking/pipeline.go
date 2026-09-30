@@ -93,6 +93,9 @@ type Pipeline struct {
 	workDir string
 	opts    PipelineOptions
 
+	// scorer keeps the scheduler's parsed acquired images between batches.
+	scorer quality.Scorer
+
 	// busy holds the targets workers are stacking, so no two work on the
 	// same target's reference and masters.
 	mu   sync.Mutex
@@ -253,7 +256,7 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	if err != nil {
 		return 0, err
 	}
-	scores, err := quality.LoadScores(ctx, p.sched, p.opts.Pedestal, measured)
+	scores, err := p.scorer.Load(ctx, p.sched, p.opts.Pedestal, measured)
 	if err != nil {
 		return 0, err
 	}
