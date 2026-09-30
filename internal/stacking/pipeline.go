@@ -60,7 +60,10 @@ type PipelineOptions struct {
 	// calibrated again (recalibrateDarks), so a new dark library is worked
 	// into the masters a few hundred lights at a time.
 	RecalibrateLimit int
-	Stack            Options
+	// Verdicts tell Target Scheduler which subs were left out (see
+	// SendVerdicts).
+	Verdicts VerdictOptions
+	Stack    Options
 }
 
 var DefaultPipelineOptions = PipelineOptions{
@@ -109,6 +112,11 @@ type Pipeline struct {
 	statusMu sync.Mutex
 	working  map[string]*events.Worker // by object
 	dirty    bool
+
+	// verdictFiles caches acquired images' file names, by Id, for the
+	// verdicts.
+	verdictMu    sync.Mutex
+	verdictFiles map[int]string
 
 	// drain is closed when the pipeline should stop taking on work, and
 	// finish what it has (Drain).
@@ -198,6 +206,9 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	})
 	if p.opts.MosaicInterval > 0 {
 		wg.Go(func() { p.runMosaics(ctx, p.opts.MosaicInterval) })
+	}
+	if m := p.opts.Verdicts.Mode; m == verdictModeOn || m == verdictModeDryRun {
+		wg.Go(func() { p.runVerdicts(ctx, p.opts.Verdicts) })
 	}
 	for range p.opts.Workers {
 		wg.Go(func() { p.work(ctx, interval) })

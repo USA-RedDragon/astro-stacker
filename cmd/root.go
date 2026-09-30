@@ -143,7 +143,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 				}
 				cancelStack()
 			}
-			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir)
+			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir, "ts_verdicts", cfg.Stacking.TSVerdicts)
 		}
 	}
 
