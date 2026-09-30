@@ -121,7 +121,8 @@ func monoCovers(stacks []app.Stack) []app.Stack {
 
 // Cover is the preview that best shows a target or project.
 type Cover struct {
-	// Palette is set for a colour composite (RGB+Ha, RGB, SHO, HOO);
+	// Palette is set for a colour composite (RGB+Ha, RGB, SHO, HOO, with
+	// +OIII when O-III is added to RGB);
 	// Filter for a single filter's preview.
 	Palette          string    `json:"palette,omitempty"`
 	Filter           string    `json:"filter,omitempty"`
