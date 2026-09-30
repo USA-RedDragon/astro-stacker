@@ -3,6 +3,7 @@ package stacking
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -24,6 +25,12 @@ const RelativeTolerance = 0.15
 // outlier can never reject it with few subs, since one value out of n is at
 // most (n-1)/√n σ from a mean it pulls, 3.2σ for 12 subs.
 func (a *Accumulator) AddAgainst(sub []float32, exposure, weight float64, ref *Accumulator, leaveOut bool, noise float64, opts Options) (AddResult, error) {
+	return a.addAgainst(sub, exposure, weight, ref, leaveOut, noise, opts, nil)
+}
+
+// addAgainst is AddAgainst that also folds the sub, unrejected and with the
+// same sky, into plain when it isn't nil (see keepMajority).
+func (a *Accumulator) addAgainst(sub []float32, exposure, weight float64, ref *Accumulator, leaveOut bool, noise float64, opts Options, plain *Accumulator) (AddResult, error) {
 	if len(sub) != a.W*a.H || len(ref.Mean) != len(sub) {
 		return AddResult{}, fmt.Errorf("sub, reference and master sizes differ")
 	}
@@ -43,7 +50,21 @@ func (a *Accumulator) AddAgainst(sub []float32, exposure, weight float64, ref *A
 			reject[i] = abs32(x-mean) > k*max(std, floor)+RelativeTolerance*abs32(mean)
 		}
 	}
+	if plain != nil {
+		plain.fold(sub, exposure, weight, sky, make([]bool, len(sub)), opts)
+	}
 	return a.fold(sub, exposure, weight, sky, reject, opts), nil
+}
+
+// keepMajority puts back, from plain (the same subs folded without
+// rejection), every pixel where rejection left fewer than half of the
+// samples: see keepMajorityMem.
+func keepMajority(acc, plain *Accumulator) {
+	for i, n := range plain.Count {
+		if acc.Count[i]*2 < n {
+			acc.Weight[i], acc.Mean[i], acc.M2[i], acc.Count[i] = plain.Weight[i], plain.Mean[i], plain.M2[i], n
+		}
+	}
 }
 
 // refStats returns pixel i's mean and standard deviation in ref, without the
@@ -101,6 +122,28 @@ type storedSub struct {
 	weight   float64
 }
 
+// rejectMethod is how rebuilds reject pixels. 2: a pixel keeps all its
+// samples when rejection would drop most of them (keepMajority).
+const rejectMethod = 2
+
+// rejectMethodMaxSubs bounds the masters restacked for an older rejectMethod:
+// the rule only bites with few subs, and bigger masters pick it up at their
+// next rebuild.
+const rejectMethodMaxSubs = 40
+
+// markOldRejection marks masters rebuilt with an older rejectMethod for the
+// moon sweep to restack.
+func (p *Pipeline) markOldRejection(ctx context.Context) {
+	res := p.db.WithContext(ctx).Model(&app.Stack{}).
+		Where("state_key IS NOT NULL AND subs < ? AND (reject_method IS NULL OR reject_method < ?)", rejectMethodMaxSubs, rejectMethod).
+		UpdateColumn("needs_rebuild", true)
+	if res.Error != nil {
+		slog.Warn("Could not mark masters for restacking", "error", res.Error)
+	} else if res.RowsAffected > 0 {
+		slog.Info("Marked masters for restacking with the new rejection", "masters", res.RowsAffected)
+	}
+}
+
 // rebuild recomputes a master from every stored registered sub with proper
 // rejection, replacing whatever the incremental updates accumulated.
 func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator, error) {
@@ -116,6 +159,7 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 	if len(subs) == 0 {
 		return nil, fmt.Errorf("no registered subs")
 	}
+	stack.RejectMethod = rejectMethod
 	dir, err := os.MkdirTemp(p.workDir, "rebuild-")
 	if err != nil {
 		return nil, err
@@ -261,13 +305,48 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 			}
 		}
 	}
+	for j := range reject {
+		reject[j] = grow(reject[j], w, h, opts.RejectGrow)
+	}
+	if opts.KeepMajority {
+		keepMajorityMem(all, reject, opts.SaturationLevel)
+	}
 	acc := NewAccumulator(w, h)
 	for j, l := range all {
-		reject[j] = grow(reject[j], w, h, opts.RejectGrow)
 		foldMem(acc, l, reject[j], opts.SaturationLevel)
 		reject[j] = nil
 	}
 	return acc
+}
+
+// keepMajorityMem clears a pixel's rejections in every sub when they would
+// leave fewer than half of its usable samples. Rejection is for the odd
+// outlier; on a star core, subs of different seeing all differ from the
+// median by more than RelativeTolerance, and the grown rejections of the
+// neighbours then take out the median sub too. With every sample gone the
+// pixel was written as saturated (fillSaturated), a coloured dot per star.
+func keepMajorityMem(all []memSub, reject [][]bool, sat float32) {
+	if len(all) == 0 {
+		return
+	}
+	for i := range all[0].px {
+		usable, kept := 0, 0
+		for j, l := range all {
+			q := l.px[i]
+			if q == 0 || dequantize(q) >= sat {
+				continue
+			}
+			usable++
+			if !reject[j][i] {
+				kept++
+			}
+		}
+		if kept*2 < usable {
+			for j := range reject {
+				reject[j][i] = false
+			}
+		}
+	}
 }
 
 // foldMem adds an in-memory sub's pixels that aren't empty, saturated or
@@ -320,7 +399,7 @@ func (p *Pipeline) rebuildStreaming(ctx context.Context, dir string, stack *app.
 func streamStack(subs []storedSub, passes int, stackOpts Options, load func(int, storedSub) ([]float32, int, int, error)) (*Accumulator, error) {
 	var prev *Accumulator
 	for pass := range passes {
-		var acc *Accumulator
+		var acc, plain *Accumulator
 		for i, s := range subs {
 			sub, w, h, err := load(i, s)
 			if err != nil {
@@ -346,10 +425,16 @@ func streamStack(subs []storedSub, passes int, stackOpts Options, load func(int,
 			// The second pass judges each sub against the others in the
 			// unrejected first pass; later ones against the cleaner pass
 			// before, which no longer holds the outliers.
+			if pass == passes-1 && stackOpts.KeepMajority && plain == nil {
+				plain = NewAccumulator(w, h)
+			}
 			noise := noiseLevel(sub, stackOpts.SaturationLevel)
-			if _, err := acc.AddAgainst(sub, s.exposure, s.weight, prev, pass == 1, noise, stackOpts); err != nil {
+			if _, err := acc.addAgainst(sub, s.exposure, s.weight, prev, pass == 1, noise, stackOpts, plain); err != nil {
 				return nil, err
 			}
+		}
+		if plain != nil {
+			keepMajority(acc, plain)
 		}
 		prev = acc
 	}
