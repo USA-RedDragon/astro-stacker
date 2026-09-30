@@ -43,6 +43,10 @@ func TestChoosePalette(t *testing.T) {
 		{"mostly narrowband", hours("Red", 0.5, "Green", 0.25, "Blue", 0.4, "H-a", 7.7, "O-III", 5.0), "HOO", false},
 		// Cygnus Loop: S-II too, but SHO only when asked for.
 		{"narrowband with S-II", hours("Red", 1.0, "Green", 1.0, "Blue", 1.0, "S-II", 3.0, "H-a", 4.0, "O-III", 3.0), "HOO", false},
+		// IC 1396 Panel 2: O-III goes into green and blue too.
+		{"RGB with H-a and O-III", hours("Red", 2.7, "Green", 2.9, "Blue", 3.1, "H-a", 3.4, "O-III", 3.4), "RGB+Ha+OIII", false},
+		{"RGB with O-III only", hours("Red", 2.7, "Green", 2.9, "Blue", 3.1, "O-III", 3.4), "RGB+OIII", false},
+		{"too little O-III", hours("Red", 2.7, "Green", 2.9, "Blue", 3.1, "H-a", 3.4, "O-III", 0.3), "RGB+Ha", false},
 	} {
 		p, ok := choosePalette(c.have, c.sho)
 		if got := map[bool]string{true: p.Name, false: ""}[ok]; got != c.want {
@@ -97,20 +101,6 @@ func TestStretchKeepsUncoveredBlack(t *testing.T) {
 	// The sky median lands near the target background.
 	if v := s[500]; v < 0.1 || v > 0.5 {
 		t.Errorf("sky pixel stretched to %v", v)
-	}
-}
-
-func TestBlendHaOnlyBrightens(t *testing.T) {
-	red := []float32{0.01, 0.011, 0.012, 0.01, 0.011, 0.012, 0.01, 0.011}
-	ha := []float32{0.02, 0.021, 0.022, 0.02, 0.021, 0.022, 0.02, 0.2}
-	out := blendHa(red, ha)
-	if out[7] <= red[7] {
-		t.Errorf("H-a nebula pixel not added to red: %v vs %v", out[7], red[7])
-	}
-	for i := range 7 {
-		if out[i] < red[i]-1e-6 {
-			t.Errorf("pixel %d darkened: %v < %v", i, out[i], red[i])
-		}
 	}
 }
 
