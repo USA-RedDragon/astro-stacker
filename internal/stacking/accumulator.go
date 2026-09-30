@@ -27,9 +27,13 @@ type Options struct {
 	// background level, when the master's coverage is uneven (see fitSky
 	// and needsLocalNorm).
 	LocalNorm bool
+	// KeepMajority keeps all of a pixel's samples in a rebuild when
+	// rejection would drop most of them (see keepMajorityMem). Comet stacks
+	// leave it off: there a star's trail is what the majority can hold.
+	KeepMajority bool
 }
 
-var DefaultOptions = Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2, LocalNorm: true}
+var DefaultOptions = Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2, LocalNorm: true, KeepMajority: true}
 
 // Accumulator holds the running state for one master: per pixel, the total
 // weight, the weighted mean and sum of squared deviations (West's weighted

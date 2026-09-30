@@ -126,6 +126,9 @@ type Stack struct {
 	// MasterVersion is how the master file was written (see
 	// stacking.MasterVersion).
 	MasterVersion int
+	// RejectMethod is the pixel rejection its state was last rebuilt with
+	// (see stacking.rejectMethod).
+	RejectMethod int
 
 	StateKey   *string // accumulator planes
 	MasterKey  *string // linear master FITS for download

@@ -180,6 +180,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
 		p.republishMasters(ctx)
+		p.markOldRejection(ctx)
 		// The exposure templates' moon avoidance can change: hourly.
 		// Duplicates found in masters are left for the sweep to restack.
 		for !p.stopping(ctx) {
