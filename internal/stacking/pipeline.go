@@ -512,6 +512,25 @@ func (p *Pipeline) requeueWeightless(ctx context.Context) {
 	}
 }
 
+// requeueLeakFailures gives lights that failed because the dark set they
+// matched had too few clean frames left another go from scratch: the matcher
+// used to pick such a set again every time, so they failed until given up
+// on; it now passes it over for the next best.
+func (p *Pipeline) requeueLeakFailures(ctx context.Context) {
+	res := p.db.WithContext(ctx).Model(&app.StackFrame{}).
+		Where("status IN ? AND error LIKE ?", []string{app.StackStatusFailed, app.StackStatusDead}, "%light leak%").
+		UpdateColumns(map[string]any{"status": app.StackStatusFailed, "attempts": 0, "next_attempt_at": time.Now()})
+	if res.Error != nil {
+		if ctx.Err() == nil {
+			slog.Error("Requeueing lights failed on leaky darks failed", "error", res.Error)
+		}
+		return
+	}
+	if res.RowsAffected > 0 {
+		slog.Info("Trying again lights that failed on a leaky dark set", "lights", res.RowsAffected)
+	}
+}
+
 // precalibrated reports whether a light came calibrated, as Telescope.live
 // delivers them ("…_cal.fits"): it is registered as it is.
 func precalibrated(f app.Frame) bool {

@@ -148,3 +148,18 @@ func TestBiasIgnoresTemperatureAndExposure(t *testing.T) {
 		t.Fatalf("got %+v", m)
 	}
 }
+
+// A dark set left with too few clean frames (the rest leaked light) is passed
+// over for the next best, instead of every matching light failing on it.
+func TestUnbuildableDarkSetIsPassedOver(t *testing.T) {
+	night := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
+	g := calmatch.Group{Night: night, Exposure: 600, Gain: 100, Offset: 50, SetTemp: 4, BinX: 1, Rotator: math.NaN()}
+	sets := []calmatch.Set{
+		{Type: "DARK", Night: night, Exposure: 600, Gain: 100, Offset: 50, SetTemp: 5, BinX: 1, Count: 2},
+		{Type: "DARK", Night: night, Exposure: 600, Gain: 100, Offset: 50, SetTemp: -5, BinX: 1, Count: 25},
+	}
+	m := calmatch.Choose(g, sets).Dark
+	if m.Set == nil || m.Set.SetTemp != -5 {
+		t.Errorf("chose %+v, want the -5 °C set", m.Set)
+	}
+}
