@@ -111,10 +111,14 @@ func colourStretch(chans, raw [3][]float32, w, h int) [3][]float32 {
 	}
 	med, sigma := statsNonZero(lum)
 	c0 := med + preview.ShadowsClip*sigma
-	_, spread, ok := darkSky(lum, raw[0], w, h, s)
+	level, spread, ok := darkSky(lum, raw[0], w, h, s)
 	if !ok {
 		return out
 	}
+	// Never above the darkest sky less its spread: in a field full of
+	// stars (the Milky Way), the median is star-rich sky and a dark cloud
+	// sits far below it, clipped to black.
+	c0 = min(c0, level-coverPedestal*spread)
 	if hi <= c0 {
 		hi = c0 + 1
 	}
@@ -146,9 +150,23 @@ func colourStretch(chans, raw [3][]float32, w, h int) [3][]float32 {
 			q[c] = math.Max(0, float64(blur[c][i])) + ped
 			qm += q[c] / 3
 		}
-		top := 1.0
+		// Where a channel would pass 1, the colour goes part of the way
+		// toward white at the same lightness (the geometric mean of none and
+		// all the way), and what still passes 1 is scaled down. Dividing by
+		// the brightest channel alone kept full saturation in bright stars
+		// and cores (periwinkle stars, neon H-a, a dark ring round Alnitak);
+		// going all the way to white blew out M31's and M42's cores.
+		f := 1.0
 		for c := range 3 {
 			q[c] = ls * math.Pow(q[c]/qm, 1/2.2)
+			if q[c] > 1 && q[c] > ls {
+				f = min(f, (1-ls)/(q[c]-ls))
+			}
+		}
+		f = math.Sqrt(f)
+		top := 1.0
+		for c := range 3 {
+			q[c] = ls + f*(q[c]-ls)
 			top = max(top, q[c])
 		}
 		for c := range 3 {
