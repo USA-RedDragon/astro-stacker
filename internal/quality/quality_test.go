@@ -107,7 +107,7 @@ func TestCalibratedSubsScore(t *testing.T) {
 }
 
 // emptyScheduler is a scheduler database without acquired images.
-func emptyScheduler(t *testing.T) *gorm.DB {
+func emptyScheduler(t testing.TB) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

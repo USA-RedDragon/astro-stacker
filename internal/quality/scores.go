@@ -2,9 +2,11 @@ package quality
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 
 	"gorm.io/gorm"
 )
@@ -42,10 +44,11 @@ type group struct {
 	exposure float64
 }
 
+// row is an acquired image with its parsed metadata.
 type row struct {
 	GradingStatus int
 	Target        string
-	Metadata      string
+	meta          Metadata
 }
 
 // Measured is a sub without a Target Scheduler record, measured from its
@@ -69,27 +72,154 @@ type Measured struct {
 //
 // measured subs, which Target Scheduler has no record of, are scored in the
 // same groups from their own measurements.
+//
+// It reads and parses every image's metadata; a Scorer keeps the parsed
+// metadata between calls.
 func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measured []Measured) (map[string]SubScore, error) {
-	var rows []row
-	if err := db.WithContext(ctx).Table("acquiredimage").
-		Select(`acquiredimage."gradingStatus" as grading_status, target.name as target, acquiredimage.metadata`).
-		Joins(`LEFT JOIN target ON target."Id" = acquiredimage."targetId"`).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("load acquired images: %w", err)
+	return new(Scorer).Load(ctx, db, pedestal, measured)
+}
+
+// Scorer scores subs as LoadScores does, keeping each acquired image's
+// parsed metadata between calls. Every call still reads each image's grading
+// status, target and a checksum of its metadata, so grading, renamed targets
+// and new, deleted or rewritten images all count; only the metadata of new
+// or changed images is read and parsed again. The zero value is ready to
+// use, and it is safe for concurrent use.
+type Scorer struct {
+	mu     sync.Mutex
+	images map[int]cachedImage // by acquiredimage Id
+}
+
+type cachedImage struct {
+	sum  string
+	meta Metadata
+	ok   bool // parsed, with a file name
+}
+
+// imageState is what Load reads of every acquired image on every call.
+type imageState struct {
+	ID            int
+	GradingStatus int
+	Target        string
+	Sum           string
+}
+
+// metadataChunk bounds how many ids go in one IN list.
+const metadataChunk = 1000
+
+// sumExpr is the SQL for a value that changes whenever an image's metadata
+// does. In Postgres that is the row's xmin, the transaction that last wrote
+// it, which costs nothing to read (md5 of every blob costs 30 ms). SQLite has
+// no md5, so there the metadata is its own checksum: it is read on every
+// call, but still parsed only when it changes.
+func sumExpr(db *gorm.DB) string {
+	switch db.Name() {
+	case "postgres":
+		return "a.xmin::text"
+	case "mysql":
+		return "md5(a.metadata)"
+	default:
+		return "a.metadata"
+	}
+}
+
+// Load scores every acquired image in db, and measured subs, as LoadScores.
+func (s *Scorer) Load(ctx context.Context, db *gorm.DB, pedestal float64, measured []Measured) (map[string]SubScore, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	db = db.WithContext(ctx)
+	states, err := s.listImages(db)
+	if err != nil {
+		return nil, err
 	}
 
+	if s.images == nil {
+		s.images = make(map[int]cachedImage, len(states))
+	}
+	sums := make(map[int]string, len(states))
+	var stale []int
+	for _, st := range states {
+		sums[st.ID] = st.Sum
+		if c, ok := s.images[st.ID]; !ok || c.sum != st.Sum {
+			stale = append(stale, st.ID)
+		}
+	}
+	for id := range s.images {
+		if _, ok := sums[id]; !ok {
+			delete(s.images, id)
+		}
+	}
+	for i := 0; i < len(stale); i += metadataChunk {
+		ids := stale[i:min(i+metadataChunk, len(stale))]
+		var metas []struct {
+			ID       int
+			Metadata string
+		}
+		if err := db.Table("acquiredimage").Select(`"Id" as id, metadata`).
+			Where(`"Id" IN ?`, ids).Scan(&metas).Error; err != nil {
+			return nil, fmt.Errorf("load acquired image metadata: %w", err)
+		}
+		for _, r := range metas {
+			m, err := ParseMetadata(r.Metadata)
+			// Kept under the checksum read with the grading: if the metadata
+			// changed in between, the next call reads it again.
+			s.images[r.ID] = cachedImage{sum: sums[r.ID], meta: m, ok: err == nil && m.FileName != ""}
+		}
+	}
+
+	rows := make([]row, 0, len(states))
+	for _, st := range states {
+		c, ok := s.images[st.ID]
+		if !ok || !c.ok {
+			// Deleted since it was listed, or not scorable.
+			continue
+		}
+		rows = append(rows, row{GradingStatus: st.GradingStatus, Target: st.Target, meta: c.meta})
+	}
+	return score(rows, pedestal, measured), nil
+}
+
+// listImages reads every acquired image's grading, target and checksum, in
+// Id order. It scans the rows itself: gorm's reflection took most of a
+// call's time.
+func (s *Scorer) listImages(db *gorm.DB) ([]imageState, error) {
+	rows, err := db.Table("acquiredimage a").
+		Select(`a."Id", a."gradingStatus", t.name, ` + sumExpr(db)).
+		Joins(`LEFT JOIN target t ON t."Id" = a."targetId"`).
+		Order(`a."Id"`).Rows()
+	if err != nil {
+		return nil, fmt.Errorf("load acquired images: %w", err)
+	}
+	defer rows.Close()
+	states := make([]imageState, 0, len(s.images))
+	for rows.Next() {
+		var st imageState
+		var target sql.NullString
+		if err := rows.Scan(&st.ID, &st.GradingStatus, &target, &st.Sum); err != nil {
+			return nil, fmt.Errorf("load acquired images: %w", err)
+		}
+		st.Target = target.String
+		states = append(states, st)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("load acquired images: %w", err)
+	}
+	return states, nil
+}
+
+// score scores acquired images, in Id order, and measured subs.
+func score(rows []row, pedestal float64, measured []Measured) map[string]SubScore {
 	type item struct {
 		s      SubScore
 		raw    float64
 		g      group
 		target string
 	}
-	items := make([]item, 0, len(rows))
+	items := make([]item, 0, len(rows)+len(measured))
 	byGroup := map[group][]float64{}
 	for _, r := range rows {
-		m, err := ParseMetadata(r.Metadata)
-		if err != nil || m.FileName == "" {
-			continue
-		}
+		m := r.meta
 		g := group{filter: m.FilterName, exposure: math.Round(float64(m.ExposureDuration))}
 		raw := RawWeight(Sky(float64(m.ADUMedian), PedestalAt(pedestal, float64(m.Offset))), float64(m.HFR))
 		it := item{
@@ -157,5 +287,5 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measured []M
 		it.s.TargetBest = best[targetFilter{it.target, it.s.Filter}]
 		out[it.s.File] = it.s
 	}
-	return out, nil
+	return out
 }
