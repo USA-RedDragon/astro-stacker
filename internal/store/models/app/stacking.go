@@ -132,13 +132,15 @@ type Stack struct {
 	PreviewKey *string // auto-stretched JPEG
 	LinearKey  *string // small linear preview for palette mixing in the browser
 	// FittedKey is the master, as XISF, linear fitted to FitReference, the filter of
-	// its group (colour or narrowband) with the most effective exposure: FitOffset + FitScale×master.
-	// FitSignature identifies the target's masters it was fitted from.
+	// its group (colour or narrowband): FitOffset + FitScale×master.
+	// FitSignature identifies the target's masters it was fitted from, or
+	// tried with when it couldn't be fitted; FitError then says why.
 	FittedKey    *string
 	FitReference string
 	FitOffset    float64
 	FitScale     float64
 	FitSignature string
+	FitError     *string `gorm:"type:text"`
 	// Comet* are a comet target's master aligned on the comet instead of
 	// the stars; CometSignature identifies the master it was stacked from.
 	CometKey                                       *string

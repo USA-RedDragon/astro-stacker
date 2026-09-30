@@ -47,6 +47,8 @@ type Master struct {
 	// target has other colour or other narrowband filters.
 	FittedURL    string `json:"fitted_url,omitempty"`
 	FitReference string `json:"fit_reference,omitempty"`
+	// FitError is why the master couldn't be fitted to the others.
+	FitError string `json:"fit_error,omitempty"`
 	// Comet* are a comet's master aligned on the comet, when there is one.
 	CometPreviewURL string `json:"comet_preview_url,omitempty"`
 	CometURL        string `json:"comet_url,omitempty"`
@@ -342,6 +344,9 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 				if err == nil {
 					m.CometXISFURL, err = signer.DownloadURL(ctx, *s.CometXISFKey, base+"comet.xisf")
 				}
+			}
+			if s.FitError != nil {
+				m.FitError = *s.FitError
 			}
 			if err == nil && s.FittedKey != nil {
 				m.FitReference = s.FitReference
