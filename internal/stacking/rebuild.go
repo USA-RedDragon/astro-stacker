@@ -159,12 +159,26 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 	if len(subs) == 0 {
 		return nil, fmt.Errorf("no registered subs")
 	}
+	gains, err := p.frameGains(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
 	stack.RejectMethod = rejectMethod
 	dir, err := os.MkdirTemp(p.workDir, "rebuild-")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
+	// Subs of several gains go on the one with most weight: a sub counts as
+	// exposed as long as the ADU it records there (see gain.go).
+	scales, err := p.gainScales(ctx, dir, stack, subs, gains)
+	if err != nil {
+		return nil, err
+	}
+	for i := range subs {
+		subs[i].exposure *= scales.scale(gains[i])
+	}
+	stack.GainMethod, stack.GainScales = gainMethod, scales.encode()
 
 	if len(subs) < WarmUpSubs {
 		return p.rebuildMedian(ctx, dir, stack, subs)
@@ -176,6 +190,27 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 		passes = 3
 	}
 	return p.rebuildStreaming(ctx, dir, stack, subs, passes)
+}
+
+// frameGains is the camera gain of each row's light, nil when unknown.
+func (p *Pipeline) frameGains(ctx context.Context, rows []app.StackFrame) ([]*float64, error) {
+	ids := make([]int, len(rows))
+	for i, r := range rows {
+		ids[i] = r.FrameID
+	}
+	var frames []app.Frame
+	if err := p.db.WithContext(ctx).Select("id", "gain").Where("id IN ?", ids).Find(&frames).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[int]*float64, len(frames))
+	for _, f := range frames {
+		byID[f.ID] = f.Gain
+	}
+	gains := make([]*float64, len(rows))
+	for i, r := range rows {
+		gains[i] = byID[r.FrameID]
+	}
+	return gains, nil
 }
 
 // memOffset lets memSub store slightly negative calibrated values: samples
