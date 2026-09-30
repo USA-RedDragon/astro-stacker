@@ -246,7 +246,8 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 	return p.db.WithContext(ctx).Save(&c).Error
 }
 
-// composeCover stretches each channel on its own and encodes a JPEG.
+// composeCover adds the narrowband lines, balances and stretches the
+// channels together (colourStretch) and encodes a JPEG.
 func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte, error) {
 	// Only where every channel has data: a mosaic panel missing a filter,
 	// or a master's edge another doesn't reach, would otherwise show in the
@@ -265,9 +266,10 @@ func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte
 			Into: []lineTarget{{Data: green}, {Data: blue, MaxRel: oiiiBlue}}}, w, h)
 		green, blue = out[0], out[1]
 	}
-	// Each channel is stretched as it would be without the lines, so where
-	// the mask is off the colour is exactly the broadband's.
-	r, g, b := stretchAs(red, rawR), stretchAs(green, rawG), stretchAs(blue, rawB)
+	// Balanced and stretched as without the lines, so where the mask is
+	// off the colour is exactly the broadband's.
+	rgb := colourStretch([3][]float32{red, green, blue}, [3][]float32{rawR, rawG, rawB}, w, h)
+	r, g, b := rgb[0], rgb[1], rgb[2]
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for i := range r {
 		img.Pix[4*i] = to8(r[i])
@@ -483,7 +485,8 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // only above the noise (haFloor). 3: narrowband palettes first when
 // narrowband holds more exposure. 4: SHO only for subjects named for it,
 // or when nothing else fits. 5: H-a (and O-III) added only where a mask
-// from the continuum-subtracted line is on (addLine).
+// from the continuum-subtracted line is on (addLine), and the channels
+// balanced on the sky and the stars and stretched together (colourStretch).
 const CoverVersion = 5
 
 // backfillCovers renders covers for targets and projects whose masters are
