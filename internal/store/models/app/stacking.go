@@ -54,7 +54,7 @@ type TargetReference struct {
 type Cover struct {
 	ID         int    `gorm:"primaryKey;autoIncrement"`
 	Subject    string `gorm:"not null;uniqueIndex"`
-	Palette    string // RGB+Ha, RGB, SHO or HOO
+	Palette    string // RGB+Ha, RGB, SHO or HOO; +OIII when O-III is added to RGB
 	PreviewKey string
 	Version    int // stacking.CoverVersion it was composed by
 	UpdatedAt  time.Time
