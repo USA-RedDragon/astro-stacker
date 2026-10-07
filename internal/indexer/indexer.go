@@ -46,41 +46,94 @@ func New(client *minio.Client, bucket string, db *gorm.DB, concurrency int) *Ind
 	return &Indexer{client: client, bucket: bucket, db: db, concurrency: concurrency}
 }
 
-// Run indexes the bucket every interval until ctx is cancelled.
+// Run indexes the bucket every interval until ctx is cancelled. Between
+// scans it measures lights' starlight a batch at a time: back to back while
+// a backlog remains, so a backfill takes hours rather than days, but never
+// holding up the next scan for longer than one batch, so new lights are
+// indexed on time. With no backlog it waits out the interval.
 func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
+	runLoop(ctx, interval, ix.scan, ix.photometryPass)
+}
+
+// runLoop calls scan every interval, and pass between scans: again at once
+// while it reports a backlog and the next scan isn't due, otherwise once
+// before waiting for the next scan.
+func runLoop(ctx context.Context, interval time.Duration, scan func(context.Context), pass func(context.Context) bool) {
 	for {
-		start := time.Now()
-		stats, err := ix.IndexOnce(ctx)
-		if err != nil && !errors.Is(err, context.Canceled) {
-			slog.Error("Indexing failed", "error", err)
-		} else if err == nil {
-			if stats.Indexed > 0 {
-				ix.Events.Publish(events.Event{Type: events.TypeFrames})
+		scan(ctx)
+		next := time.Now().Add(interval)
+		for {
+			backlog := pass(ctx)
+			if ctx.Err() != nil {
+				return
 			}
-			slog.Info("Indexed bucket", "bucket", ix.bucket, "seen", stats.Seen, "indexed", stats.Indexed,
-				"failed", stats.Failed, "removed", stats.Removed, "duration", time.Since(start).Round(time.Millisecond))
-		}
-		if n, err := ix.BackfillPointing(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Error("Reading mount pointing failed", "error", err)
-		} else if n > 0 {
-			slog.Info("Read mount pointing", "lights", n)
-		}
-		if n, err := ix.MeasureUnrecorded(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Error("Measuring lights failed", "error", err)
-		} else if n > 0 {
-			slog.Info("Measured lights without a scheduler record", "lights", n)
-		}
-		if n, err := ix.MeasurePhotometry(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Error("Measuring lights' starlight failed", "error", err)
-		} else if n > 0 {
-			slog.Info("Measured lights' starlight", "lights", n)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
+			wait := time.Until(next)
+			if wait <= 0 {
+				break
+			}
+			if backlog {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			break
 		}
 	}
+}
+
+// scan indexes the bucket, then reads what new lights need before they can
+// be scored.
+func (ix *Indexer) scan(ctx context.Context) {
+	start := time.Now()
+	stats, err := ix.IndexOnce(ctx)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("Indexing failed", "error", err)
+	} else if err == nil {
+		if stats.Indexed > 0 {
+			ix.Events.Publish(events.Event{Type: events.TypeFrames})
+		}
+		slog.Info("Indexed bucket", "bucket", ix.bucket, "seen", stats.Seen, "indexed", stats.Indexed,
+			"failed", stats.Failed, "removed", stats.Removed, "duration", time.Since(start).Round(time.Millisecond))
+	}
+	if n, err := ix.BackfillPointing(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("Reading mount pointing failed", "error", err)
+	} else if n > 0 {
+		slog.Info("Read mount pointing", "lights", n)
+	}
+	if n, err := ix.MeasureUnrecorded(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("Measuring lights failed", "error", err)
+	} else if n > 0 {
+		slog.Info("Measured lights without a scheduler record", "lights", n)
+	}
+}
+
+// photometryPass measures one batch of lights' starlight and reports whether
+// another batch should follow at once: it measured some and more are
+// pending. A batch that measured nothing (downloads failing, say) waits for
+// the next scan rather than spinning.
+func (ix *Indexer) photometryPass(ctx context.Context) bool {
+	start := time.Now()
+	n, err := ix.MeasurePhotometry(ctx)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("Measuring lights' starlight failed", "error", err)
+		}
+		return false
+	}
+	if n == 0 {
+		return false
+	}
+	var pending int64
+	if err := photometryPending(ix.db.WithContext(ctx)).Count(&pending).Error; err != nil {
+		slog.Error("Counting lights waiting for photometry failed", "error", err)
+		return false
+	}
+	slog.Info("Measured lights' starlight", "lights", n, "pending", pending,
+		"duration", time.Since(start).Round(time.Millisecond))
+	return pending > 0
 }
 
 // BackfillPointing reads where the mount pointed for lights indexed before

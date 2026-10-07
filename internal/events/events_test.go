@@ -74,3 +74,42 @@ func TestNilBrokerDropsEvents(t *testing.T) {
 	var b *Broker
 	b.Publish(Event{Type: TypeMaster})
 }
+
+// An open stream must not hold a shutting-down server to its timeout.
+func TestShutdownEndsStreams(t *testing.T) {
+	b := NewBroker()
+	srv := httptest.NewUnstartedServer(b)
+	srv.Config.RegisterOnShutdown(b.Close)
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, err := bufio.NewReader(resp.Body).ReadString('\n'); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	if err := srv.Config.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown with an open stream: %v after %s", err, time.Since(start))
+	}
+
+	// A stream opened after Close ends at once.
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		b.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream opened after Close didn't end")
+	}
+	b.Close() // twice is fine
+}

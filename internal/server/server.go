@@ -71,13 +71,18 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 		}
 	}
 
+	server := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", config.HTTP.Bind, config.HTTP.Port),
+		ReadHeaderTimeout: defTimeout,
+		WriteTimeout:      writeTimeout,
+		Handler:           r,
+	}
+	// Event streams never end on their own: end them as shutdown starts, so
+	// it doesn't wait them out until its timeout.
+	server.RegisterOnShutdown(broker.Close)
+
 	return &Server{
-		server: &http.Server{
-			Addr:              fmt.Sprintf("%s:%d", config.HTTP.Bind, config.HTTP.Port),
-			ReadHeaderTimeout: defTimeout,
-			WriteTimeout:      writeTimeout,
-			Handler:           r,
-		},
+		server:        server,
 		metricsServer: metricsServer,
 		pprofServer:   pprofServer,
 		config:        config,
