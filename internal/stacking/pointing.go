@@ -17,10 +17,46 @@ import (
 )
 
 // OffTargetDegrees is how far from its target a sub's mount pointing may be
-// before the sub is left out: more than half the frame's diagonal, so a
-// re-framed target's subs still count, while a mount that parked or lost
-// its position (pointing at 0/0, say) doesn't.
+// before the pointing is doubted: more than half the frame's diagonal, so a
+// re-framed target's subs aren't.
+//
+// Such a sub is left out (off_target) only when it also fails to register
+// to the target's reference. The pointing is what the mount reports, and
+// the mount can be the one that is lost: on 2026-10-05/06 its model was
+// about 20° out and it refused NINA's syncs ("SyncToCoordinates: distance …
+// too large"), but NINA's plate-solve centring still put the scope on each
+// target. The headers said RA 6.67°/Dec 17.72° for M33 and RA 67.4°/
+// Dec -19.5° for Orion, and 66 well framed subs were left out on the
+// pointing alone. A mount that parked or lost its position for real
+// (0/0, or the pole at Dec 89.85°) points at other stars, which don't
+// register.
 const OffTargetDegrees = 2.0
+
+// offTargetError is recorded with a sub left out as off target. Rows from
+// before registration was tried have none (requeueOffTarget).
+func offTargetError(offBy float64) *string {
+	msg := fmt.Sprintf("the mount pointed %.1f° from the target and the sub did not register to the target reference", offBy)
+	return &msg
+}
+
+// referenceCandidates leaves out of the reference choice the subs whose
+// mount pointing is off target: whether they show the target is only known
+// once they register to a reference. Their pointings, consistently wrong
+// for a night (all 46 of Cygnis Loop Panel 2's at RA 296.6°/Dec 17.3°),
+// would also form a framing of their own in mainFraming. Only when a target
+// has no other subs are they used.
+func referenceCandidates(cands []candidate) []candidate {
+	var on []candidate
+	for _, c := range cands {
+		if c.offBy == 0 {
+			on = append(on, c)
+		}
+	}
+	if len(on) == 0 {
+		return cands
+	}
+	return on
+}
 
 // clusterDegrees is how close two subs' pointings must be to count as the
 // same framing when choosing a registration reference.

@@ -184,6 +184,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.reregisterPrecalibrated(ctx)
 		p.requeueWeightless(ctx)
 		p.requeueLeakFailures(ctx)
+		p.requeueOffTarget(ctx)
 		// Recropping re-renders covers of the masters it touches.
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
@@ -238,6 +239,9 @@ type candidate struct {
 	cal   calmatch.Result
 	// waiting is the matched set a light waits for to settle, if any.
 	waiting *calmatch.Set
+	// offBy is how far, in degrees, the mount said it pointed from the
+	// target, when that is more than OffTargetDegrees; 0 otherwise.
+	offBy float64
 }
 
 // RunOnce processes one batch of new lights for one master and returns how
@@ -449,9 +453,12 @@ func (p *Pipeline) lockKey(key string) func() {
 // when it doesn't.
 func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, sets []calmatch.Set, positions map[string][2]float64) (candidate, string) {
 	c := candidate{frame: f}
-	if pos, ok := positions[f.Object]; ok && f.MountRA != nil && f.MountDec != nil &&
-		separation(*f.MountRA, *f.MountDec, pos[0], pos[1]) > OffTargetDegrees {
-		return c, app.StackStatusOffTarget
+	// A sub whose mount pointing is off target is still stacked if it
+	// registers to the target's reference (see OffTargetDegrees).
+	if pos, ok := positions[f.Object]; ok && f.MountRA != nil && f.MountDec != nil {
+		if d := separation(*f.MountRA, *f.MountDec, pos[0], pos[1]); d > OffTargetDegrees {
+			c.offBy = d
+		}
 	}
 	s, ok := scores[path.Base(f.Key)]
 	if !ok {
@@ -545,6 +552,30 @@ func (p *Pipeline) requeueLeakFailures(ctx context.Context) {
 	}
 	if res.RowsAffected > 0 {
 		slog.Info("Trying again lights that failed on a leaky dark set", "lights", res.RowsAffected)
+	}
+}
+
+// requeueOffTarget gives subs left out as off target on their mount
+// pointing alone another go, to be stacked if they register to the target's
+// reference (see OffTargetDegrees). Those have no error recorded; subs left
+// out since carry offTargetError and stay out, so this runs once. Most of
+// the 330 rows are a parked mount's subs (0/0 or the pole), which fail to
+// register and return to off target. They wait as failed with no
+// attempts, as requeueLeakFailures does, not as registration failures,
+// which maybeReReference would count against the reference.
+func (p *Pipeline) requeueOffTarget(ctx context.Context) {
+	msg := "the mount pointed off target; trying whether the sub registers to the target reference"
+	res := p.db.WithContext(ctx).Model(&app.StackFrame{}).
+		Where("status = ? AND error IS NULL", app.StackStatusOffTarget).
+		UpdateColumns(map[string]any{"status": app.StackStatusFailed, "attempts": 0, "next_attempt_at": time.Now(), "error": msg})
+	if res.Error != nil {
+		if ctx.Err() == nil {
+			slog.Error("Requeueing off-target subs failed", "error", res.Error)
+		}
+		return
+	}
+	if res.RowsAffected > 0 {
+		slog.Info("Trying again subs left out on their mount pointing alone", "subs", res.RowsAffected)
 	}
 }
 
