@@ -65,7 +65,7 @@ const (
 	reconcileEvery = 24 * time.Hour
 	// stackerReasonPrefix marks the stacker's rejects in TS; the trigger
 	// undoes only those.
-	stackerReasonPrefix = "stacker:"
+	stackerReasonPrefix = quality.StackerReasonPrefix
 )
 
 // verdictReason is what TS shows as the reject reason for a stack status.
@@ -519,4 +519,59 @@ func (p *Pipeline) runVerdicts(ctx context.Context, opts VerdictOptions) {
 			return
 		}
 	}
+}
+
+// requeueStackerRejected sends lights recorded as rejected because Target
+// Scheduler showed the stacker's own verdict back to be classified again.
+// classify used to take any reject in TS as final, so once a verdict was
+// applied the sub was never judged again and its verdict could never be
+// undone (7,194 such lights on 2026-10-07).
+func (p *Pipeline) requeueStackerRejected(ctx context.Context) {
+	measured, err := p.measuredSubs(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Error("Requeueing the stacker's rejects failed", "error", err)
+		}
+		return
+	}
+	scores, err := p.scorer.Load(ctx, p.sched, p.opts.Pedestal, measured)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Error("Requeueing the stacker's rejects failed", "error", err)
+		}
+		return
+	}
+	if err := p.requeueRejects(ctx, scores, time.Now()); err != nil && ctx.Err() == nil {
+		slog.Error("Requeueing the stacker's rejects failed", "error", err)
+	}
+}
+
+// requeueRejects marks the rejected lights whose rejection is the stacker's
+// own verdict low_score, due now, so they are classified again.
+func (p *Pipeline) requeueRejects(ctx context.Context, scores map[string]quality.SubScore, now time.Time) error {
+	var rows []struct {
+		ID  int
+		Key string
+	}
+	if err := p.db.WithContext(ctx).Table("stack_frames sf").Select("sf.id, f.key").
+		Joins("JOIN frames f ON f.id = sf.frame_id").
+		Where("sf.status = ?", app.StackStatusRejected).Scan(&rows).Error; err != nil {
+		return err
+	}
+	var ids []int
+	for _, r := range rows {
+		if scores[path.Base(r.Key)].StackerRejected {
+			ids = append(ids, r.ID)
+		}
+	}
+	for i := 0; i < len(ids); i += 1000 {
+		if err := p.db.WithContext(ctx).Model(&app.StackFrame{}).Where("id IN ?", ids[i:min(i+1000, len(ids))]).
+			UpdateColumns(map[string]any{"status": app.StackStatusLowScore, "next_attempt_at": now}).Error; err != nil {
+			return err
+		}
+	}
+	if len(ids) > 0 {
+		slog.Info("Classifying again lights the stacker rejected in Target Scheduler", "lights", len(ids))
+	}
+	return nil
 }

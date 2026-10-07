@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"gorm.io/gorm"
 )
 
@@ -18,16 +19,29 @@ const (
 	GradingRejected = 2
 )
 
+// StackerReasonPrefix starts the reject reason of images the stacker
+// rejected in Target Scheduler (its verdicts). Those are the stacker's own
+// judgement, so they are scored as if accepted and classified again.
+const StackerReasonPrefix = "stacker:"
+
 // SubScore is one acquired image's score and grading, keyed by file name.
 type SubScore struct {
 	File          string
 	Filter        string
 	Exposure      float64
 	GradingStatus int
+	// StackerRejected is set when the rejection in Target Scheduler is the
+	// stacker's own verdict (StackerReasonPrefix): the sub is scored as if
+	// accepted, so the stacker can change its mind.
+	StackerRejected bool
 	// Score is the weight relative to the best tenth of subs for the same
 	// filter and exposure across all targets, capped at 1, times the
 	// square of Transparency. 0 when the metadata can't be scored.
 	Score float64
+	// PlainScore and PlainTargetBest are Score and TargetBest without
+	// transparency, as subs were scored before it (scoreMethod 0).
+	PlainScore      float64
+	PlainTargetBest float64
 	// Transparency is the light the sub recorded against the best subs of
 	// its target, filter, exposure, gain and framing (see transparency.go);
 	// 1 when it can't be told.
@@ -59,9 +73,10 @@ type fieldGroup struct {
 
 // row is an acquired image with its parsed metadata.
 type row struct {
-	GradingStatus int
-	Target        string
-	meta          Metadata
+	GradingStatus   int
+	StackerRejected bool
+	Target          string
+	meta            Metadata
 }
 
 // Measured is a sub without a Target Scheduler record, measured from its
@@ -78,6 +93,10 @@ type Measured struct {
 	Calibrated bool
 	HFR        float64
 	Stars      int
+	// Photometry is the stacker's photometry of the light's stars, for its
+	// transparency; nil until measured. A light Target Scheduler has a
+	// record of is listed for this alone, its HFR and sky left 0.
+	Photometry *measure.Photometry
 }
 
 // LoadScores reads every acquired image from the scheduler database and
@@ -113,6 +132,7 @@ type cachedImage struct {
 type imageState struct {
 	ID            int
 	GradingStatus int
+	Reason        string
 	Target        string
 	Sum           string
 }
@@ -188,17 +208,19 @@ func (s *Scorer) Load(ctx context.Context, db *gorm.DB, pedestal float64, measur
 			// Deleted since it was listed, or not scorable.
 			continue
 		}
-		rows = append(rows, row{GradingStatus: st.GradingStatus, Target: st.Target, meta: c.meta})
+		rows = append(rows, row{GradingStatus: st.GradingStatus, Target: st.Target, meta: c.meta,
+			StackerRejected: st.GradingStatus == GradingRejected && strings.HasPrefix(st.Reason, StackerReasonPrefix)})
 	}
 	return score(rows, pedestal, measured), nil
 }
 
-// listImages reads every acquired image's grading, target and checksum, in
+// listImages reads every acquired image's grading, target, reject reason and
+// checksum, in
 // Id order. It scans the rows itself: gorm's reflection took most of a
 // call's time.
 func (s *Scorer) listImages(db *gorm.DB) ([]imageState, error) {
 	rows, err := db.Table("acquiredimage a").
-		Select(`a."Id", a."gradingStatus", t.name, ` + sumExpr(db)).
+		Select(`a."Id", a."gradingStatus", t.name, coalesce(a.rejectreason, ''), ` + sumExpr(db)).
 		Joins(`LEFT JOIN target t ON t."Id" = a."targetId"`).
 		Order(`a."Id"`).Rows()
 	if err != nil {
@@ -209,7 +231,7 @@ func (s *Scorer) listImages(db *gorm.DB) ([]imageState, error) {
 	for rows.Next() {
 		var st imageState
 		var target sql.NullString
-		if err := rows.Scan(&st.ID, &st.GradingStatus, &target, &st.Sum); err != nil {
+		if err := rows.Scan(&st.ID, &st.GradingStatus, &target, &st.Reason, &st.Sum); err != nil {
 			return nil, fmt.Errorf("load acquired images: %w", err)
 		}
 		st.Target = target.String
@@ -229,13 +251,22 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 		g      group
 		target string
 		// excess is the light above the sky (Excess), NaN for subs
-		// measured by the stacker, and field the group it compares in.
+		// measured by the stacker, phot its star photometry, and field the
+		// group it compares in.
 		excess float64
+		phot   *measure.Photometry
 		field  fieldGroup
+	}
+	phots := make(map[string]*measure.Photometry, len(measured))
+	for _, m := range measured {
+		if m.Photometry != nil {
+			phots[m.File] = m.Photometry
+		}
 	}
 	items := make([]item, 0, len(rows)+len(measured))
 	byGroup := map[group][]float64{}
 	byField := map[fieldGroup][]float64{}
+	photsByField := map[fieldGroup][]*measure.Photometry{}
 	for _, r := range rows {
 		m := r.meta
 		g := group{filter: m.FilterName, exposure: math.Round(float64(m.ExposureDuration))}
@@ -243,13 +274,14 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 		field := fieldGroup{target: r.Target, g: g, gain: float64(m.Gain), framing: Framing(float64(m.RotatorPosition))}
 		it := item{
 			s: SubScore{
-				File:          m.FileName[strings.LastIndexAny(m.FileName, `\/`)+1:],
-				Filter:        g.filter,
-				Exposure:      g.exposure,
-				GradingStatus: r.GradingStatus,
-				HFR:           float64(m.HFR),
-				Stars:         int(m.DetectedStars),
-				Eccentricity:  float64(m.Eccentricity),
+				File:            m.FileName[strings.LastIndexAny(m.FileName, `\/`)+1:],
+				Filter:          g.filter,
+				Exposure:        g.exposure,
+				GradingStatus:   r.GradingStatus,
+				StackerRejected: r.StackerRejected,
+				HFR:             float64(m.HFR),
+				Stars:           int(m.DetectedStars),
+				Eccentricity:    float64(m.Eccentricity),
 			},
 			raw:    raw,
 			g:      g,
@@ -257,10 +289,12 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 			excess: Excess(float64(m.ADUMean), float64(m.ADUMedian)),
 			field:  field,
 		}
+		it.phot = phots[it.s.File]
 		items = append(items, it)
-		if r.GradingStatus != GradingRejected {
+		if r.GradingStatus != GradingRejected || r.StackerRejected {
 			byGroup[g] = append(byGroup[g], raw)
 			byField[field] = append(byField[field], it.excess)
+			photsByField[field] = append(photsByField[field], it.phot)
 		}
 	}
 
@@ -269,7 +303,7 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 		recorded[it.s.File] = true
 	}
 	for _, m := range measured {
-		if recorded[m.File] {
+		if recorded[m.File] || !(m.HFR > 0) {
 			continue
 		}
 		g := group{filter: m.Filter, exposure: math.Round(m.Exposure)}
@@ -296,28 +330,47 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 	for f, es := range byField {
 		fieldRefs[f] = TransparencyReference(es)
 	}
+	coreRefs := make(map[fieldGroup][]float64, len(photsByField))
+	for f, ps := range photsByField {
+		coreRefs[f] = CoreReference(ps)
+	}
 	type targetFilter struct {
 		target string
 		filter string
 	}
 	best := map[targetFilter]float64{}
+	plainBest := map[targetFilter]float64{}
 	for i := range items {
 		it := &items[i]
-		ref := math.NaN()
-		if !math.IsNaN(it.excess) {
-			ref = fieldRefs[it.field]
+		// Starlight where the field's photometry tells it, otherwise the
+		// light above the sky (see transparency.go).
+		it.s.Transparency = math.NaN()
+		if it.phot != nil {
+			it.s.Transparency = CoreTransparency(it.phot, coreRefs[it.field])
 		}
-		it.s.Transparency = Transparency(it.excess, ref)
-		if it.s.GradingStatus != GradingRejected {
+		if math.IsNaN(it.s.Transparency) {
+			ref := math.NaN()
+			if !math.IsNaN(it.excess) {
+				ref = fieldRefs[it.field]
+			}
+			it.s.Transparency = Transparency(it.excess, ref)
+		}
+		// The stacker's own rejects count as they did before its verdict
+		// was applied: otherwise each verdict would move the references,
+		// and a rejected sub could never be judged again.
+		if it.s.GradingStatus != GradingRejected || it.s.StackerRejected {
 			t := it.s.Transparency
-			it.s.Score = Score(it.raw, refs[it.g]) * t * t
+			it.s.PlainScore = Score(it.raw, refs[it.g])
+			it.s.Score = it.s.PlainScore * t * t
 			k := targetFilter{it.target, it.s.Filter}
 			best[k] = math.Max(best[k], it.s.Score)
+			plainBest[k] = math.Max(plainBest[k], it.s.PlainScore)
 		}
 	}
 	out := make(map[string]SubScore, len(items))
 	for _, it := range items {
-		it.s.TargetBest = best[targetFilter{it.target, it.s.Filter}]
+		k := targetFilter{it.target, it.s.Filter}
+		it.s.TargetBest, it.s.PlainTargetBest = best[k], plainBest[k]
 		out[it.s.File] = it.s
 	}
 	return out

@@ -19,10 +19,11 @@ func legacyLoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measur
 		GradingStatus int
 		Target        string
 		Metadata      string
+		Reason        *string
 	}
 	var rows []legacyRow
 	if err := db.WithContext(ctx).Table("acquiredimage").
-		Select(`acquiredimage."gradingStatus" as grading_status, target.name as target, acquiredimage.metadata`).
+		Select(`acquiredimage."gradingStatus" as grading_status, target.name as target, acquiredimage.metadata, acquiredimage.rejectreason as reason`).
 		Joins(`LEFT JOIN target ON target."Id" = acquiredimage."targetId"`).Scan(&rows).Error; err != nil {
 		panic(err)
 	}
@@ -54,16 +55,17 @@ func legacyLoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measur
 		}
 		g := group{filter: m.FilterName, exposure: math.Round(float64(m.ExposureDuration))}
 		raw := quality.RawWeight(quality.Sky(float64(m.ADUMedian), quality.PedestalAt(pedestal, float64(m.Offset))), float64(m.HFR))
+		ours := r.GradingStatus == quality.GradingRejected && r.Reason != nil && strings.HasPrefix(*r.Reason, quality.StackerReasonPrefix)
 		items = append(items, item{
 			s: quality.SubScore{
 				File: m.FileName[strings.LastIndexAny(m.FileName, `\/`)+1:], Filter: g.filter, Exposure: g.exposure,
-				GradingStatus: r.GradingStatus, HFR: float64(m.HFR), Stars: int(m.DetectedStars), Eccentricity: float64(m.Eccentricity),
+				GradingStatus: r.GradingStatus, StackerRejected: ours, HFR: float64(m.HFR), Stars: int(m.DetectedStars), Eccentricity: float64(m.Eccentricity),
 			},
 			raw: raw, g: g, target: r.Target,
 			excess: quality.Excess(float64(m.ADUMean), float64(m.ADUMedian)),
 			f:      field{r.Target, g, float64(m.Gain), quality.Framing(float64(m.RotatorPosition))},
 		})
-		if r.GradingStatus != quality.GradingRejected {
+		if r.GradingStatus != quality.GradingRejected || ours {
 			byGroup[g] = append(byGroup[g], raw)
 			byField[items[len(items)-1].f] = append(byField[items[len(items)-1].f], items[len(items)-1].excess)
 		}
@@ -100,7 +102,7 @@ func legacyLoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measur
 			ref = quality.TransparencyReference(byField[it.f])
 		}
 		it.s.Transparency = quality.Transparency(it.excess, ref)
-		if it.s.GradingStatus != quality.GradingRejected {
+		if it.s.GradingStatus != quality.GradingRejected || it.s.StackerRejected {
 			it.s.Score = quality.Score(it.raw, refs[it.g]) * it.s.Transparency * it.s.Transparency
 			k := targetFilter{it.target, it.s.Filter}
 			best[k] = math.Max(best[k], it.s.Score)
@@ -178,8 +180,16 @@ func fillScheduler(t testing.TB, db *gorm.DB, n int) {
 		if i%61 == 0 {
 			targetID = 99 // no such target
 		}
-		if err := db.Exec(`INSERT INTO acquiredimage ("Id", "targetId", "gradingStatus", metadata) VALUES (?, ?, ?, ?)`,
-			i+1, targetID, i%3, meta).Error; err != nil {
+		// Some rejects are the stacker's verdicts, some Target Scheduler's.
+		var reason any
+		switch {
+		case i%3 == 2 && i%5 == 0:
+			reason = "stacker: sky"
+		case i%3 == 2 && i%5 == 1:
+			reason = "HFR"
+		}
+		if err := db.Exec(`INSERT INTO acquiredimage ("Id", "targetId", "gradingStatus", metadata, rejectreason) VALUES (?, ?, ?, ?, ?)`,
+			i+1, targetID, i%3, meta, reason).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -198,6 +208,7 @@ func sameScores(t *testing.T, step string, got, want map[string]quality.SubScore
 			continue
 		}
 		if g.File != w.File || g.Filter != w.Filter || g.GradingStatus != w.GradingStatus || g.Stars != w.Stars ||
+			g.StackerRejected != w.StackerRejected ||
 			!eq(g.Exposure, w.Exposure) || !eq(g.Score, w.Score) || !eq(g.TargetBest, w.TargetBest) ||
 			!eq(g.Transparency, w.Transparency) ||
 			!eq(g.HFR, w.HFR) || !eq(g.Eccentricity, w.Eccentricity) {
@@ -258,6 +269,10 @@ func TestScorerMatchesLegacyAsImagesChange(t *testing.T) {
 	exec(`UPDATE acquiredimage SET "gradingStatus" = 2 WHERE "Id" IN (2, 3, 4, 5, 6, 7, 8)`)
 	exec(`UPDATE acquiredimage SET "gradingStatus" = 1 WHERE "Id" IN (9, 10, 11)`)
 	check("regraded", 0)
+
+	exec(`UPDATE acquiredimage SET "gradingStatus" = 2, rejectreason = 'stacker: moon' WHERE "Id" IN (13, 14)`)
+	exec(`UPDATE acquiredimage SET rejectreason = 'Star Count' WHERE "Id" = 2`)
+	check("verdicts applied", 0)
 
 	exec(`UPDATE target SET name = 'Andromeda' WHERE "Id" = 1`)
 	check("target renamed", 0)

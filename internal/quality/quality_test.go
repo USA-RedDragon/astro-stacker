@@ -115,7 +115,7 @@ func emptyScheduler(t testing.TB) *gorm.DB {
 	}
 	for _, q := range []string{
 		`CREATE TABLE target ("Id" integer, name text)`,
-		`CREATE TABLE acquiredimage ("Id" integer, "targetId" integer, "gradingStatus" integer, metadata text)`,
+		`CREATE TABLE acquiredimage ("Id" integer, "targetId" integer, "gradingStatus" integer, metadata text, rejectreason text)`,
 	} {
 		if err := db.Exec(q).Error; err != nil {
 			t.Fatal(err)

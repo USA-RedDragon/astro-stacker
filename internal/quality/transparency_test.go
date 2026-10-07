@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 )
 
@@ -170,5 +171,101 @@ func TestScoresTakeTransparency(t *testing.T) {
 	}
 	if s := scores["rejected.xisf"]; s.Score != 0 {
 		t.Errorf("rejected score = %v, want 0", s.Score)
+	}
+}
+
+// photometry is a sub's star photometry: a field whose star at rank k has
+// flux 1e8/k, times gain, the brightest ranks clipped as in Orion's
+// Luminance (about 400 stars) when clear.
+func photometry(gain float64) *measure.Photometry {
+	ranks := measure.Ranks()
+	p := &measure.Photometry{Noise: 34, Flux: make([]float64, len(ranks)), Saturated: make([]bool, len(ranks))}
+	for j, k := range ranks {
+		f := gain * 1e8 / float64(k)
+		if f > 2.5e5 {
+			p.Saturated[j] = true
+			f = 2.5e5
+		}
+		p.Flux[j] = f
+	}
+	return p
+}
+
+func TestCoreTransparency(t *testing.T) {
+	t.Parallel()
+	field := make([]*measure.Photometry, 0, 12)
+	for i := range 12 {
+		field = append(field, photometry(1+0.01*float64(i%3)))
+	}
+	ref := quality.CoreReference(field)
+	if got := quality.CoreTransparency(photometry(0.44), ref); math.Abs(got-0.44/1.02) > 0.01 {
+		t.Errorf("hazy sub's core transparency = %.3f, want %.3f", got, 0.44/1.02)
+	}
+	if got := quality.CoreTransparency(photometry(1.1), ref); got != 1 {
+		t.Errorf("a clearer sub = %v, want capped at 1", got)
+	}
+	if got := quality.CoreTransparency(nil, ref); !math.IsNaN(got) {
+		t.Errorf("no photometry = %v, want NaN", got)
+	}
+	if ref := quality.CoreReference(field[:9]); ref != nil {
+		t.Errorf("9 subs gave a reference %v", ref)
+	}
+	// Ranks that clip in the field's subs, or are faint, are not used.
+	for j, k := range measure.Ranks() {
+		clipped := 1.02e8/float64(k) > 2.5e5
+		faint := 1e8/float64(k)/(34*math.Sqrt(113)) < 100
+		if (clipped || faint) != math.IsNaN(ref[j]) {
+			t.Errorf("rank %d (clipped %v, faint %v): reference %v", k, clipped, faint, ref[j])
+		}
+	}
+}
+
+// Where the field's photometry tells it, transparency is the starlight's:
+// haze that spreads light into halos keeps the light above the sky (0.71 on
+// Orion's 02:36 sub) but not the stars' (0.44). A stacker reject is scored.
+func TestScoresTakeCoreTransparency(t *testing.T) {
+	t.Parallel()
+	db := emptyScheduler(t)
+	if err := db.Exec(`INSERT INTO target ("Id", name) VALUES (1, 'Orion')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	var measured []quality.Measured
+	add := func(id int, file string, grading int, reason any, median, mean float64, phot *measure.Photometry) {
+		t.Helper()
+		if err := db.Exec(`INSERT INTO acquiredimage ("Id", "targetId", "gradingStatus", metadata, rejectreason) VALUES (?, 1, ?, ?, ?)`,
+			id, grading, transparencyMeta(file, "Luminance", 0, 90, 1.7, median, mean), reason).Error; err != nil {
+			t.Fatal(err)
+		}
+		if phot != nil {
+			measured = append(measured, quality.Measured{File: file, Target: "Orion", Filter: "Luminance", Exposure: 300, Photometry: phot})
+		}
+	}
+	for i := range 12 {
+		add(i+1, fmt.Sprintf("clear_%02d.xisf", i), quality.GradingAccepted, nil, 900, 900+135, photometry(1))
+	}
+	add(20, "halo.xisf", quality.GradingAccepted, nil, 993, 993+0.71*135, photometry(0.44))
+	add(21, "unmeasured.xisf", quality.GradingAccepted, nil, 993, 993+0.71*135, nil)
+	add(22, "verdict.xisf", quality.GradingRejected, "stacker: sky", 993, 993+0.71*135, photometry(0.44))
+	add(23, "graded.xisf", quality.GradingRejected, "HFR", 900, 900+135, photometry(1))
+	scores, err := quality.LoadScores(t.Context(), db, 506, measured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := scores["halo.xisf"].Transparency; math.Abs(got-0.44) > 0.01 {
+		t.Errorf("photometered hazy sub: transparency %.3f, want 0.44", got)
+	}
+	if got := scores["unmeasured.xisf"].Transparency; math.Abs(got-0.71) > 0.02 {
+		t.Errorf("hazy sub without photometry: transparency %.3f, want 0.71 from the light above the sky", got)
+	}
+	v := scores["verdict.xisf"]
+	if !v.StackerRejected || !(v.Score > 0) || v.Score != scores["halo.xisf"].Score {
+		t.Errorf("stacker's reject = %+v, want scored as the same sub accepted", v)
+	}
+	if g := scores["graded.xisf"]; g.StackerRejected || g.Score != 0 {
+		t.Errorf("Target Scheduler's reject = %+v, want score 0", g)
+	}
+	h := scores["halo.xisf"]
+	if math.Abs(h.Score-h.PlainScore*0.44*0.44) > 0.01*h.PlainScore || h.PlainTargetBest != 1 {
+		t.Errorf("halo sub: score %v, plain %v (best %v)", h.Score, h.PlainScore, h.PlainTargetBest)
 	}
 }
