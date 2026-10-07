@@ -5,6 +5,7 @@ package indexer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -68,6 +69,11 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
 			slog.Error("Measuring lights failed", "error", err)
 		} else if n > 0 {
 			slog.Info("Measured lights without a scheduler record", "lights", n)
+		}
+		if n, err := ix.MeasurePhotometry(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("Measuring lights' starlight failed", "error", err)
+		} else if n > 0 {
+			slog.Info("Measured lights' starlight", "lights", n)
 		}
 		select {
 		case <-ctx.Done():
@@ -194,12 +200,7 @@ func (ix *Indexer) MeasureUnrecorded(ctx context.Context) (int, error) {
 }
 
 func (ix *Indexer) measure(ctx context.Context, key string) (measure.Result, error) {
-	obj, err := ix.client.GetObject(ctx, ix.bucket, key, minio.GetObjectOptions{})
-	if err != nil {
-		return measure.Result{}, err
-	}
-	defer obj.Close()
-	b, err := io.ReadAll(obj)
+	b, err := ix.download(ctx, key)
 	if err != nil {
 		return measure.Result{}, err
 	}
@@ -208,6 +209,93 @@ func (ix *Indexer) measure(ctx context.Context, key string) (measure.Result, err
 		return measure.Result{}, err
 	}
 	return measure.Sub(im), nil
+}
+
+func (ix *Indexer) download(ctx context.Context, key string) ([]byte, error) {
+	obj, err := ix.client.GetObject(ctx, ix.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer obj.Close()
+	return io.ReadAll(obj)
+}
+
+// photometryWorkers is how many lights MeasurePhotometry reads at once: each
+// holds a whole light, about 150 MB decoded.
+const photometryWorkers = 2
+
+// photometryBatch is the most lights one pass measures, so a backfill of
+// every light doesn't hold up indexing for hours.
+const photometryBatch = 200
+
+// photometryPending are the lights whose starlight hasn't been measured at
+// the current measure.PhotometryRevision, leaving out those no master will
+// take whatever their score (off target, duplicates, given up on).
+func photometryPending(db *gorm.DB) *gorm.DB {
+	return db.Model(&app.Frame{}).
+		Where("type = ? AND index_error IS NULL", "LIGHT").
+		Where("photometry_rev IS NULL OR photometry_rev < ?", measure.PhotometryRevision).
+		Where("NOT EXISTS (SELECT 1 FROM stack_frames sf WHERE sf.frame_id = frames.id AND sf.status IN ?)",
+			[]string{app.StackStatusOffTarget, app.StackStatusDuplicate, app.StackStatusDead})
+}
+
+// MeasurePhotometry measures the starlight of lights (measure.Photometry),
+// newest first, for scoring their transparency; the stacker holds lights
+// back until it has. Each is downloaded whole once. A light that can't be
+// decoded is recorded as measured, with the error, so it isn't waited on.
+func (ix *Indexer) MeasurePhotometry(ctx context.Context) (int, error) {
+	var frames []app.Frame
+	if err := photometryPending(ix.db.WithContext(ctx)).Select("id", "key").
+		Order("date_obs DESC").Limit(photometryBatch).Find(&frames).Error; err != nil {
+		return 0, err
+	}
+	work := make(chan app.Frame)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	done := 0
+	for range min(ix.concurrency, photometryWorkers) {
+		wg.Go(func() {
+			for f := range work {
+				b, err := ix.download(ctx, f.Key)
+				if err != nil {
+					if ctx.Err() == nil {
+						slog.Debug("Could not download light for photometry", "key", f.Key, "error", err)
+					}
+					continue // tried again next pass
+				}
+				cols := map[string]any{"photometry_rev": measure.PhotometryRevision}
+				if im, err := imagedata.Decode(b); err != nil {
+					msg := err.Error()
+					cols["photometry"], cols["photometry_err"] = nil, msg
+				} else {
+					js, err := json.Marshal(measure.Measure(im))
+					if err != nil {
+						continue
+					}
+					cols["photometry"], cols["photometry_err"] = string(js), nil
+				}
+				if err := ix.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).Updates(cols).Error; err != nil {
+					slog.Debug("Could not save photometry", "key", f.Key, "error", err)
+					continue
+				}
+				mu.Lock()
+				done++
+				mu.Unlock()
+			}
+		})
+	}
+	for _, f := range frames {
+		select {
+		case work <- f:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	close(work)
+	wg.Wait()
+	return done, ctx.Err()
 }
 
 type Stats struct {

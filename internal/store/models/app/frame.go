@@ -45,6 +45,13 @@ type Frame struct {
 	StarHFR    *float64
 	StarCount  *int
 	MeasuredAt *time.Time
+	// Photometry is the flux of the light's brightest stars, by rank, as
+	// JSON (measure.Photometry), for its transparency; PhotometryRev is the
+	// measure.PhotometryRevision it was measured at, nil until then. A light
+	// that couldn't be measured has the revision and no Photometry.
+	Photometry    *string `gorm:"type:text"`
+	PhotometryRev *int
+	PhotometryErr *string `gorm:"type:text"`
 	// LightLeak is the large-scale spread, in ADU, of a dark left out of
 	// its master because light reached the sensor; nil when it's clean or
 	// unchecked.

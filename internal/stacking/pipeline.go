@@ -2,6 +2,7 @@ package stacking
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
@@ -60,6 +62,10 @@ type PipelineOptions struct {
 	// calibrated again (recalibrateDarks), so a new dark library is worked
 	// into the masters a few hundred lights at a time.
 	RecalibrateLimit int
+	// Photometry holds lights back until the indexer has measured their
+	// starlight (measure.Photometry), which their transparency is scored
+	// from; off, they are scored without it.
+	Photometry bool
 	// Verdicts tell Target Scheduler which subs were left out (see
 	// SendVerdicts).
 	Verdicts VerdictOptions
@@ -112,6 +118,10 @@ type Pipeline struct {
 	statusMu sync.Mutex
 	working  map[string]*events.Worker // by object
 	dirty    bool
+
+	// phots caches lights' parsed photometry, by frame id.
+	photMu sync.Mutex
+	phots  map[int]cachedPhotometry
 
 	// verdictFiles caches acquired images' file names, by Id, for the
 	// verdicts.
@@ -189,13 +199,15 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
 		p.republishMasters(ctx)
-		// Before the sweeps: the moon sweep restacks what it marks.
-		p.rescoreAdded(ctx)
+		p.requeueStackerRejected(ctx)
 		p.markOldRejection(ctx)
 		p.markMixedGains(ctx)
 		// The exposure templates' moon avoidance can change: hourly.
 		// Duplicates found in masters are left for the sweep to restack.
+		// Masters are scored again as their lights' photometry comes in,
+		// before the sweep, which restacks what that marks.
 		for !p.stopping(ctx) {
+			p.rescoreAdded(ctx)
 			if err := p.dropDuplicates(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("Taking duplicates out of masters failed", "error", err)
 			}
@@ -468,7 +480,10 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 	}
 	c.score = s
 	switch {
-	case s.GradingStatus == quality.GradingRejected:
+	case s.GradingStatus == quality.GradingRejected && !s.StackerRejected:
+		// Rejected by Target Scheduler or by hand. One the stacker rejected
+		// itself (its verdicts) is judged again like any other, so a sub
+		// that qualifies again comes back and its verdict is undone.
 		return c, app.StackStatusRejected
 	case !(s.Score > 0):
 		// Unmeasurable (no sky above the pedestal, no stars): a weight of 0
@@ -591,21 +606,74 @@ func precalibrated(f app.Frame) bool {
 // Failures (failed, registration) count attempts and are retried with a
 // doubling backoff until MaxAttempts, when the sub is dead. Missing
 // calibration is rechecked every RetryAfter, as new frames may arrive.
-// measuredSubs are the lights measured from their pixels because Target
-// Scheduler has no record of them.
+// measuredSubs are the lights measured from their pixels: their sky and
+// stars when Target Scheduler has no record of them, and their photometry.
 func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error) {
 	var frames []app.Frame
-	if err := p.db.WithContext(ctx).Select("key", "object", "filter", "exposure", "offset", "sky_adu", "star_hfr", "star_count").
-		Where("measured_at IS NOT NULL AND star_hfr > 0").Find(&frames).Error; err != nil {
+	if err := p.db.WithContext(ctx).Select("id", "key", "object", "filter", "exposure", "offset", "sky_adu", "star_hfr", "star_count", "photometry_rev").
+		Where("(measured_at IS NOT NULL AND star_hfr > 0) OR photometry_rev IS NOT NULL").Find(&frames).Error; err != nil {
 		return nil, fmt.Errorf("load measured lights: %w", err)
+	}
+	phots, err := p.photometry(ctx, frames)
+	if err != nil {
+		return nil, err
 	}
 	out := make([]quality.Measured, 0, len(frames))
 	for _, f := range frames {
-		out = append(out, quality.Measured{
-			File: path.Base(f.Key), Target: f.Object, Filter: f.Filter, Exposure: val(f.Exposure),
-			SkyADU: val(f.SkyADU), Offset: val(f.Offset), HFR: val(f.StarHFR), Stars: intVal(f.StarCount),
-			Calibrated: precalibrated(f),
-		})
+		m := quality.Measured{File: path.Base(f.Key), Target: f.Object, Filter: f.Filter, Exposure: val(f.Exposure),
+			Offset: val(f.Offset), Calibrated: precalibrated(f), Photometry: phots[f.ID]}
+		if f.StarHFR != nil && *f.StarHFR > 0 {
+			m.SkyADU, m.HFR, m.Stars = val(f.SkyADU), val(f.StarHFR), intVal(f.StarCount)
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+type cachedPhotometry struct {
+	rev  int
+	phot *measure.Photometry
+}
+
+// photometry is the parsed photometry of frames, by id, read from the
+// database only for frames not cached at their revision.
+func (p *Pipeline) photometry(ctx context.Context, frames []app.Frame) (map[int]*measure.Photometry, error) {
+	p.photMu.Lock()
+	defer p.photMu.Unlock()
+	if p.phots == nil {
+		p.phots = map[int]cachedPhotometry{}
+	}
+	var stale []int
+	for _, f := range frames {
+		if f.PhotometryRev == nil {
+			continue
+		}
+		if c, ok := p.phots[f.ID]; !ok || c.rev != *f.PhotometryRev {
+			stale = append(stale, f.ID)
+		}
+	}
+	for i := 0; i < len(stale); i += 1000 {
+		var rows []app.Frame
+		if err := p.db.WithContext(ctx).Select("id", "photometry", "photometry_rev").
+			Where("id IN ?", stale[i:min(i+1000, len(stale))]).Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("load photometry: %w", err)
+		}
+		for _, r := range rows {
+			c := cachedPhotometry{rev: intVal(r.PhotometryRev)}
+			if r.Photometry != nil {
+				var ph measure.Photometry
+				if json.Unmarshal([]byte(*r.Photometry), &ph) == nil && len(ph.Flux) == len(ph.Saturated) {
+					c.phot = &ph
+				}
+			}
+			p.phots[r.ID] = c
+		}
+	}
+	out := make(map[int]*measure.Photometry, len(frames))
+	for _, f := range frames {
+		if c, ok := p.phots[f.ID]; ok && c.phot != nil && f.PhotometryRev != nil && c.rev == *f.PhotometryRev {
+			out[f.ID] = c.phot
+		}
 	}
 	return out, nil
 }

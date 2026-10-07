@@ -1,6 +1,11 @@
 package quality
 
-import "math"
+import (
+	"math"
+	"slices"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/measure"
+)
 
 // Transparency.
 //
@@ -12,42 +17,44 @@ import "math"
 // clear night, while measured on every star it was 5.45 against 3.04; it
 // went into the master with a score of 0.77.
 //
-// A sub's transparency t is how much light from beyond the sky it recorded,
-// against the best subs of the same field. ADUMean - ADUMedian is that light:
-// the mean over the frame of what stands above the sky's median, stars and
-// nebula together, so it depends neither on seeing nor on which stars a
-// detector finds. Haze cuts the signal by t at about the same noise, so the
-// weight drops by t^2.
+// A sub's transparency t is its starlight against the best subs of the same
+// field (target, filter, exposure, gain and framing). Haze cuts the signal by
+// t at about the same noise, so the score takes t^2.
 //
-// Checked against aperture photometry of the same stars matched across raw
-// subs (r = 6 px, 700 to 22,000 stars a sub, 70 subs of four targets), t is
-// within 0.05 of the starlight for 53 of the 70:
+// Starlight is the stacker's own photometry (measure.Photometry): each star's
+// flux within 6 px over a ring 10 to 14 px out, compared rank by rank, the
+// stars ranked by flux so the same rank holds the same star in every sub of a
+// field, clear or hazy, with no matching. Only ranks that rarely clip and
+// stay 100σ above the sky are used, and t is their median ratio. Checked
+// against the same stars matched across 70 raw subs of four targets, it is
+// within 0.05 for 69:
 //
-//   - Cygnus Loop Panel 2, Red, the hazy night of 2025-06-29: 0.45, 0.41 and
-//     0.35 against 0.44, 0.39 and 0.32 measured. Those subs scored 0.70 to
-//     0.74 and now 0.09 to 0.15; clear subs of 2025-06, 2025-11 and 2026-08
-//     come out 0.88 to 1.
-//   - Andromeda, Green, 2025-10-17: 0.86 to 0.98 against 0.91 to 1, the
-//     lower ones at airmass 1.6, where the extinction is real.
-//   - Orion, Luminance: clear subs high in the sky 0.93 to 1, and 0.77 to
-//     0.90 at airmass 1.75 to 2.4 against 0.71 to 0.91 measured. The hazy
-//     sub of 2025-12-26 02:36 comes out 0.71, as did the flux of its 300
-//     brightest unsaturated stars (0.70 of a clear sub's), but its star cores
-//     kept only 0.44: the haze spread the rest into a halo, which still
-//     counts as light above the sky. t takes the light lost, not the blur,
-//     so that sub's score (0.73 today) halves to 0.36 rather than falling
-//     under the cut.
+//   - Orion, Luminance, 2025-12-26: 0.65, 0.42 and 0.42 at 00:29, 01:11 and
+//     02:36 local, against 0.67, 0.44 and 0.44 matched; clear subs of
+//     2025-12-19 to 24 high in the sky 0.88 to 1.
+//   - Cygnus Loop Panel 2, Red, the hazy night of 2025-06-29: 0.43, 0.39 and
+//     0.32 against 0.44, 0.39 and 0.32.
+//   - Seeing is not haze: Andromeda's Green subs of 2025-10-17 at NINA HFR
+//     1.58 and 1.75 read 0.95 and 0.96 (photometry 0.95, 0.97), and Orion's
+//     at HFR 2.03 and 2.11 read 1.00 and 0.96.
+//
+// The ring keeps the glow haze spreads round stars, which reaches much
+// further, out of the star's light. The light above the sky, ADUMean -
+// ADUMedian in Target Scheduler's metadata, counts that glow: it read 0.71
+// for the 02:36 sub, whose stars kept 0.44. It is the fallback for a sub
+// without photometry, or whose field has too few subs with it; it follows
+// absorbing haze (0.45, 0.41, 0.35 for the Cygnus Loop subs above).
 //
 // NINA's DetectedStars was tried and is not used: it follows the seeing more
 // than the sky. On Andromeda's clear night of 2025-10-17 it found 1174 stars
 // at HFR 1.58 and 3497 at 1.75, where photometry had the two within 3%.
 //
 // The ADU median is a whole number, and hot pixels and the vignetted sky add
-// a few ADU of their own, so t is only measured where the best subs have
-// at least transparencyMinExcess ADU of light: nebulae and star fields, not
-// a small galaxy in a dark field (the Markarian Chain panels have 4 to 7).
-// There, and for a sub without ADU statistics, t is 1 and the score is what
-// it was.
+// a few ADU of their own, so the light above the sky is only used where the
+// best subs have at least transparencyMinExcess ADU of it: nebulae and star
+// fields, not a small galaxy in a dark field (the Markarian Chain panels have
+// 4 to 7). There, and for a sub with neither measure, t is 1 and the score is
+// what it was.
 
 // transparencyMinExcess is the least light above the sky, in ADU, the
 // reference of a group must have for t to be measured.
@@ -114,4 +121,102 @@ func Transparency(excess, reference float64) float64 {
 		return 1
 	}
 	return math.Min(1, math.Max(0, excess/reference))
+}
+
+// Core transparency, from the stacker's own photometry of every light
+// (measure.Photometry): the flux of the star at each of a few ranks, against
+// the best subs of the field at the same rank.
+const (
+	// coreMinSNR is the least signal to noise the stars of a rank must have
+	// in the field's median sub, so they are still well measured in haze
+	// that takes half the light.
+	coreMinSNR = 100
+	// coreMaxSaturated is the most of a field's subs whose star at a rank
+	// may clip, for the rank to be used.
+	coreMaxSaturated = 0.1
+	// coreMinRanks is the least ranks a sub needs to be judged on.
+	coreMinRanks = 3
+)
+
+// apertureArea is the number of pixels in measure.PhotometryAperture.
+var apertureArea = func() float64 {
+	r := measure.PhotometryAperture
+	n := 0
+	for y := -r; y <= r; y++ {
+		for x := -r; x <= r; x++ {
+			if x*x+y*y <= r*r {
+				n++
+			}
+		}
+	}
+	return float64(n)
+}()
+
+// CoreReference is a field's reference starlight, by rank: the
+// ReferencePercentile of the unclipped fluxes of its subs, NaN for a rank
+// that clips in too many of them or is too faint to measure through haze.
+// It is nil when the field has too few subs measured.
+func CoreReference(subs []*measure.Photometry) []float64 {
+	n := 0
+	for _, s := range subs {
+		if s != nil {
+			n++
+		}
+	}
+	if n < transparencyMinSubs {
+		return nil
+	}
+	ranks := len(measure.Ranks())
+	ref := make([]float64, ranks)
+	for j := range ranks {
+		var flux, snr []float64
+		clipped := 0
+		for _, s := range subs {
+			if s == nil || j >= len(s.Flux) {
+				continue
+			}
+			switch {
+			case s.Saturated[j]:
+				clipped++
+			case s.Flux[j] > 0:
+				flux = append(flux, s.Flux[j])
+				snr = append(snr, s.Flux[j]/(s.Noise*math.Sqrt(apertureArea)))
+			}
+		}
+		ref[j] = math.NaN()
+		if len(flux) < transparencyMinSubs || float64(clipped) > coreMaxSaturated*float64(len(flux)+clipped) {
+			continue
+		}
+		slices.Sort(snr)
+		if snr[len(snr)/2] < coreMinSNR {
+			continue
+		}
+		ref[j] = Reference(flux)
+	}
+	return ref
+}
+
+// CoreTransparency is a sub's starlight against its field's reference: the
+// median over the usable ranks of its flux over the reference's, capped at 1;
+// NaN when it can't be told.
+func CoreTransparency(sub *measure.Photometry, ref []float64) float64 {
+	if sub == nil || ref == nil {
+		return math.NaN()
+	}
+	var ratios []float64
+	for j, r := range ref {
+		if math.IsNaN(r) || j >= len(sub.Flux) || sub.Saturated[j] || !(sub.Flux[j] > 0) {
+			continue
+		}
+		ratios = append(ratios, sub.Flux[j]/r)
+	}
+	if len(ratios) < coreMinRanks {
+		return math.NaN()
+	}
+	slices.Sort(ratios)
+	m := ratios[len(ratios)/2]
+	if len(ratios)%2 == 0 {
+		m = (ratios[len(ratios)/2-1] + m) / 2
+	}
+	return math.Min(1, m)
 }
