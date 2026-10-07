@@ -3,6 +3,7 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
@@ -68,12 +69,15 @@ type Broker struct {
 	recent []Event
 	subs   map[chan []byte]struct{}
 	status []byte // latest Status, sent to new listeners first
+	// done is closed by Close, which ends every stream.
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 func NewBroker() *Broker {
 	// IDs start from the clock so they keep rising across restarts, and a
 	// listener's Last-Event-ID from before a restart replays nothing wrong.
-	return &Broker{next: uint64(time.Now().UnixMilli()), subs: map[chan []byte]struct{}{}}
+	return &Broker{next: uint64(time.Now().UnixMilli()), subs: map[chan []byte]struct{}{}, done: make(chan struct{})}
 }
 
 func (b *Broker) Publish(e Event) {
@@ -154,12 +158,32 @@ func (b *Broker) Subscribe(after uint64) (backlog [][]byte, ch <-chan []byte, ca
 	}
 }
 
+// Close ends every stream, open or opened later, so an HTTP server shutting
+// down isn't held open by listeners until its timeout. It is safe to call
+// more than once.
+func (b *Broker) Close() {
+	if b == nil {
+		return
+	}
+	b.closeOnce.Do(func() { close(b.done) })
+}
+
 // Heartbeat keeps idle streams open through proxies.
 const Heartbeat = 15 * time.Second
 
 // ServeHTTP streams events as server-sent events, starting after the
 // Last-Event-ID header when a listener reconnects.
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx, stop := context.WithCancel(r.Context())
+	defer stop()
+	go func() {
+		select {
+		case <-b.done:
+			stop()
+		case <-ctx.Done():
+		}
+	}()
+	r = r.WithContext(ctx)
 	after, _ := strconv.ParseUint(r.Header.Get("Last-Event-ID"), 10, 64)
 	backlog, ch, cancel := b.Subscribe(after)
 	defer cancel()
