@@ -135,6 +135,9 @@ type Stack struct {
 	// holding a single gain.
 	GainMethod int
 	GainScales string `gorm:"type:text"`
+	// ScoreMethod is how its subs were last scored (see
+	// stacking.scoreMethod); its subs are scored again under a newer one.
+	ScoreMethod int
 
 	StateKey   *string // accumulator planes
 	MasterKey  *string // linear master FITS for download

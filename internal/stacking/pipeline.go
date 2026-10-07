@@ -189,6 +189,8 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
 		p.republishMasters(ctx)
+		// Before the sweeps: the moon sweep restacks what it marks.
+		p.rescoreAdded(ctx)
 		p.markOldRejection(ctx)
 		p.markMixedGains(ctx)
 		// The exposure templates' moon avoidance can change: hourly.

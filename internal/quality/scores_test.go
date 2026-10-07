@@ -30,14 +30,23 @@ func legacyLoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measur
 		filter   string
 		exposure float64
 	}
+	type field struct {
+		target  string
+		g       group
+		gain    float64
+		framing int
+	}
 	type item struct {
 		s      quality.SubScore
 		raw    float64
 		g      group
 		target string
+		excess float64
+		f      field
 	}
 	items := make([]item, 0, len(rows))
 	byGroup := map[group][]float64{}
+	byField := map[field][]float64{}
 	for _, r := range rows {
 		m, err := quality.ParseMetadata(r.Metadata)
 		if err != nil || m.FileName == "" {
@@ -51,9 +60,12 @@ func legacyLoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measur
 				GradingStatus: r.GradingStatus, HFR: float64(m.HFR), Stars: int(m.DetectedStars), Eccentricity: float64(m.Eccentricity),
 			},
 			raw: raw, g: g, target: r.Target,
+			excess: quality.Excess(float64(m.ADUMean), float64(m.ADUMedian)),
+			f:      field{r.Target, g, float64(m.Gain), quality.Framing(float64(m.RotatorPosition))},
 		})
 		if r.GradingStatus != quality.GradingRejected {
 			byGroup[g] = append(byGroup[g], raw)
+			byField[items[len(items)-1].f] = append(byField[items[len(items)-1].f], items[len(items)-1].excess)
 		}
 	}
 	recorded := map[string]bool{}
@@ -71,7 +83,7 @@ func legacyLoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measur
 		}
 		items = append(items, item{
 			s:   quality.SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: quality.GradingPending, HFR: m.HFR, Stars: m.Stars},
-			raw: quality.RawWeight(quality.Sky(m.SkyADU, ped), m.HFR), g: g, target: m.Target,
+			raw: quality.RawWeight(quality.Sky(m.SkyADU, ped), m.HFR), g: g, target: m.Target, excess: math.NaN(),
 		})
 		byGroup[g] = append(byGroup[g], items[len(items)-1].raw)
 	}
@@ -83,8 +95,13 @@ func legacyLoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measur
 	best := map[targetFilter]float64{}
 	for i := range items {
 		it := &items[i]
+		ref := math.NaN()
+		if !math.IsNaN(it.excess) {
+			ref = quality.TransparencyReference(byField[it.f])
+		}
+		it.s.Transparency = quality.Transparency(it.excess, ref)
 		if it.s.GradingStatus != quality.GradingRejected {
-			it.s.Score = quality.Score(it.raw, refs[it.g])
+			it.s.Score = quality.Score(it.raw, refs[it.g]) * it.s.Transparency * it.s.Transparency
 			k := targetFilter{it.target, it.s.Filter}
 			best[k] = math.Max(best[k], it.s.Score)
 		}
@@ -132,18 +149,25 @@ func fillScheduler(t testing.TB, db *gorm.DB, n int) {
 		if offset == 240 {
 			adu += 1900
 		}
+		// Light above the sky from 5 to 45 ADU, missing now and then (Target
+		// Scheduler leaves out what it couldn't measure).
+		aduMean := fmt.Sprint(float64(adu) + 5 + float64((i*104729)%400)/10)
+		if i%31 == 0 {
+			aduMean = `"NaN"`
+		}
+		rotation := []float64{180.94, 0.6}[(i/11)%2] // one framing, flipped
 		meta := fmt.Sprintf(`{"FileName":"A:\\NINA\\T\\LIGHT\\2026-09-%02d_%s_%.2fs_%05d.xisf","SessionId":%d,"FilterName":%q,`+
 			`"ExposureStartTime":"2026-09-29T03:50:31Z","ExposureDuration":%v,"Offset":%d,"DetectedStars":%d,"HFR":%s,`+
-			`"FWHM":"NaN","Eccentricity":%v,"ADUMedian":%d,"Airmass":1.02,`+
+			`"FWHM":"NaN","Eccentricity":%v,"ADUMedian":%d,"ADUMean":%v,"Airmass":1.02,`+
 			// The rest of a real blob, which scoring ignores: ~1 KB in all.
 			`"Gain":100,"Binning":"1x1","ReadoutMode":0,"ROI":100.0,"HFRStDev":0.060564293162900906,`+
 			`"ADUStDev":253.42457485676186,"ADUMean":1703.7149106104757,"ADUMin":697,"ADUMax":65535,`+
 			`"GuidingRMSScale":5.09296,"GuidingRMS":0.22016996372053474,"GuidingRMSArcSec":1.1213168184301345,`+
 			`"GuidingRMSRA":0.16432550629134338,"GuidingRMSRAArcSec":0.8369032305215601,"GuidingRMSDEC":0.14653307103447757,`+
 			`"GuidingRMSDECArcSec":0.7462870694557528,"FocuserPosition":26252,"FocuserTemp":28.059999465942383,`+
-			`"RotatorPosition":180.9436798095703,"RotatorMechanicalPosition":142.39999389648438,"PierSide":"East",`+
+			`"RotatorPosition":%v,"RotatorMechanicalPosition":142.39999389648438,"PierSide":"East",`+
 			`"CameraTemp":5.0,"CameraTargetTemp":5.0}`,
-			1+i%28, f, exp, i, i/50, f, exp, offset, 100+i%700, hfr, 0.3+float64(i%9)*0.02, adu)
+			1+i%28, f, exp, i, i/50, f, exp, offset, 100+i%700, hfr, 0.3+float64(i%9)*0.02, adu, aduMean, rotation)
 		switch {
 		case i%97 == 0:
 			meta = `not json`
@@ -175,6 +199,7 @@ func sameScores(t *testing.T, step string, got, want map[string]quality.SubScore
 		}
 		if g.File != w.File || g.Filter != w.Filter || g.GradingStatus != w.GradingStatus || g.Stars != w.Stars ||
 			!eq(g.Exposure, w.Exposure) || !eq(g.Score, w.Score) || !eq(g.TargetBest, w.TargetBest) ||
+			!eq(g.Transparency, w.Transparency) ||
 			!eq(g.HFR, w.HFR) || !eq(g.Eccentricity, w.Eccentricity) {
 			t.Errorf("%s: %s = %+v, want %+v", step, f, g, w)
 		}
@@ -219,6 +244,15 @@ func TestScorerMatchesLegacyAsImagesChange(t *testing.T) {
 	}
 
 	check("first load", 2) // 1500 images in chunks of 1000
+	hazy := 0
+	for _, sc := range legacyLoadScores(t.Context(), db, 506, measured) {
+		if sc.Transparency < 1 {
+			hazy++
+		}
+	}
+	if hazy < 100 {
+		t.Errorf("%d subs with a transparency below 1; the fixture should exercise it", hazy)
+	}
 	check("unchanged", 0)
 
 	exec(`UPDATE acquiredimage SET "gradingStatus" = 2 WHERE "Id" IN (2, 3, 4, 5, 6, 7, 8)`)

@@ -221,7 +221,8 @@ func (p *Pipeline) loadStack(ctx context.Context, object, filter string) (*app.S
 	var s app.Stack
 	err := p.db.WithContext(ctx).Where("object = ? AND filter = ?", object, filter).First(&s).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		s = app.Stack{Object: object, Filter: filter, UpdatedAt: time.Now()}
+		// Its subs are scored as they are classified now.
+		s = app.Stack{Object: object, Filter: filter, UpdatedAt: time.Now(), ScoreMethod: scoreMethod}
 		err = p.db.WithContext(ctx).Create(&s).Error
 	}
 	return &s, err
