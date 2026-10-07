@@ -268,3 +268,29 @@ func TestLightsWaitForPhotometry(t *testing.T) {
 		t.Errorf("pending without photometry: %v, want all three", got)
 	}
 }
+
+// A moonlit light the stacker rejected in Target Scheduler for the moon is
+// classified again on its score first, then left out for the moon again, so
+// its verdict isn't undone.
+func TestStackerMoonRejectStaysOut(t *testing.T) {
+	t.Parallel()
+	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", DefaultPipelineOptions)
+	exp, night := 600.0, time.Now()
+	// A light classify would stack: delivered calibrated, so it needs no
+	// calibration frames.
+	f := app.Frame{Key: "Orion/LIGHT/moonlit_cal.fits", Object: "Orion", Filter: "H-a", Exposure: &exp, Night: &night}
+	scores := map[string]quality.SubScore{"moonlit_cal.fits": {Score: 0.9, TargetBest: 1, GradingStatus: quality.GradingRejected, StackerRejected: true}}
+	_, status := p.classify(f, scores, nil, nil)
+	if status != "" {
+		t.Fatalf("classify = %q, want it stacked on its score", status)
+	}
+	if got := withMoon(status, true, true); got != app.StackStatusMoon {
+		t.Errorf("moonlit, master with moon-free lights: %q, want %q", got, app.StackStatusMoon)
+	}
+	if got := withMoon(status, true, false); got != "" {
+		t.Errorf("moonlit, master of moonlit lights only: %q, want stacked", got)
+	}
+	if got := withMoon(app.StackStatusLowScore, true, true); got != app.StackStatusLowScore {
+		t.Errorf("low score and moonlit: %q, want low_score", got)
+	}
+}

@@ -26,20 +26,23 @@ const PhotometryRevision = 1
 
 const (
 	// PhotometryAperture is the radius, in pixels, a star's flux is summed
-	// over, around its peak: 6 holds 95% of a star at HFR 1.7 to 2.1 against
-	// a 24 px aperture, so ordinary seeing barely moves it (Orion's subs at
-	// HFR 2.03 and 2.11 kept 1.00 and 0.96 of a clear sub's).
+	// over, around its peak, the background from a ring 4 to 8 px beyond it.
+	// A fixed 6 px holds seeing apart from haze: Orion's Luminance subs at
+	// HFR 2.4 and 2.5 (measured here; NINA 2.03, 2.11) read 1.09 and 1.02 of
+	// a clear sub at 1.9; IC 4604 Panel 12's of 2026-07-20 at HFR 2.2 to 2.9
+	// read 0.95 to 1, those of 2026-08-04 at the same HFR and altitude 0.28
+	// to 0.58. Scaling the radius with HFR (4·HFR, so
+	// 12 px holds 95% at HFR 3) was tried and is worse: subs measured with
+	// different radii don't compare (Orion's 02:45 sub read 1.31 at 10 px
+	// against a reference at 8), and a wider aperture counts the light haze
+	// scatters a few pixels out as the star's (the hazy 01:11 sub reads 0.47
+	// at 6 px, 0.60 at 10).
 	PhotometryAperture = 6
-	// photometryRing is the ring, in pixels, the star's background is the
-	// median of. Close in, so the glow haze spreads round bright stars, which
-	// reaches far wider, counts as sky and not as the star's light.
-	photometryRingIn, photometryRingOut = 10, 14
 	// photometrySeparation keeps one peak per star: a clipped star's flat
 	// top has many.
 	photometrySeparation = 8
 	// photometryStars is the most stars measured.
-	photometryStars  = 4000
-	photometryBorder = photometryRingOut + 2
+	photometryStars = 4000
 )
 
 // Ranks are the star ranks Photometry keeps: 32 up to 4096, four a doubling.
@@ -53,19 +56,27 @@ func Ranks() []int {
 
 // Measure measures a sub's Photometry from its first channel.
 func Measure(im *imagedata.Image) Photometry {
+	return measureAt(im, PhotometryAperture)
+}
+
+// measureAt is Measure with an aperture of radius r, the ring 4 to 8 px
+// beyond it.
+func measureAt(im *imagedata.Image, r int) Photometry {
 	w, h := im.W, im.H
 	d := im.Plane(0)
 	med, sigma := skyStats(d)
 	thresh := float32(med + detectSig*sigma)
+	ringIn, ringOut := r+4, r+8
+	border := ringOut + 2
 
 	type peak struct {
 		i int
 		v float32
 	}
 	var peaks []peak
-	for y := photometryBorder; y < h-photometryBorder; y++ {
+	for y := border; y < h-border; y++ {
 		row := y * w
-		for x := photometryBorder; x < w-photometryBorder; x++ {
+		for x := border; x < w-border; x++ {
 			i := row + x
 			v := d[i]
 			if v < thresh {
@@ -101,7 +112,7 @@ func Measure(im *imagedata.Image) Photometry {
 		saturated bool
 	}
 	var stars []star
-	ring := make([]float64, 0, 4*photometryRingOut*photometryRingOut)
+	ring := make([]float64, 0, 4*ringOut*ringOut)
 	for _, p := range peaks {
 		if len(stars) == photometryStars {
 			break
@@ -128,17 +139,17 @@ func Measure(im *imagedata.Image) Photometry {
 		var sum float64
 		n := 0
 		sat := false
-		for y := py - photometryRingOut; y <= py+photometryRingOut; y++ {
-			for x := px - photometryRingOut; x <= px+photometryRingOut; x++ {
+		for y := py - ringOut; y <= py+ringOut; y++ {
+			for x := px - ringOut; x <= px+ringOut; x++ {
 				dx, dy := x-px, y-py
 				r2 := dx*dx + dy*dy
 				v := d[y*w+x]
 				switch {
-				case r2 <= PhotometryAperture*PhotometryAperture:
+				case r2 <= r*r:
 					sum += float64(v)
 					n++
 					sat = sat || v >= saturated
-				case r2 > photometryRingIn*photometryRingIn && r2 <= photometryRingOut*photometryRingOut:
+				case r2 > ringIn*ringIn && r2 <= ringOut*ringOut:
 					ring = append(ring, float64(v))
 				}
 			}

@@ -330,9 +330,7 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 			continue
 		}
 		c, status := p.classify(f, scores, sets, positions)
-		if status == "" && moonlit[f.ID] && moonFree {
-			status = app.StackStatusMoon
-		}
+		status = withMoon(status, moonlit[f.ID], moonFree)
 		if status != "" {
 			sf := app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}
 			if status == app.StackStatusCalibration {
@@ -521,6 +519,20 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		}
 	}
 	return c, ""
+}
+
+// withMoon is a light's status once moon avoidance is applied: a light
+// classify would stack is left out if it breaks its filter's moon avoidance
+// and its master has moon-free lights. It comes after the score, so a moonlit
+// light the stacker rejected in Target Scheduler (a "stacker: moon" verdict)
+// and classifies again is left out again, whatever it scores, and its
+// verdict stands. In a master of nothing but moonlit lights it is stacked,
+// as it would have been before.
+func withMoon(status string, moonlit, moonFree bool) string {
+	if status == "" && moonlit && moonFree {
+		return app.StackStatusMoon
+	}
+	return status
 }
 
 // settled reports whether a calibration set has stopped growing: none of
