@@ -8,6 +8,8 @@
 // sky-limited data the noise variance scales with the sky background.
 // Checked against WBPP's PSF Signal Weight on 911 M31 subs, it ranks subs
 // with a Spearman correlation of 0.94 to 0.99 in every filter/exposure group.
+// A score also takes the square of the sub's transparency, which the weight
+// doesn't see (transparency.go); astro-processing's copy doesn't have it yet.
 package quality
 
 import (
@@ -80,9 +82,12 @@ type Metadata struct {
 	FWHM              Float  `json:"FWHM"`
 	Eccentricity      Float  `json:"Eccentricity"`
 	ADUMedian         Float  `json:"ADUMedian"`
+	ADUMean           Float  `json:"ADUMean"`
+	Gain              Float  `json:"Gain"`
 	Offset            Float  `json:"Offset"`
 	GuidingRMSArcSec  Float  `json:"GuidingRMSArcSec"`
 	Airmass           Float  `json:"Airmass"`
+	RotatorPosition   Float  `json:"RotatorPosition"`
 }
 
 // ParseMetadata decodes a Target Scheduler metadata blob.

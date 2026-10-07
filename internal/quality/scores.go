@@ -25,9 +25,13 @@ type SubScore struct {
 	Exposure      float64
 	GradingStatus int
 	// Score is the weight relative to the best tenth of subs for the same
-	// filter and exposure across all targets, capped at 1. 0 when the
-	// metadata can't be scored.
+	// filter and exposure across all targets, capped at 1, times the
+	// square of Transparency. 0 when the metadata can't be scored.
 	Score float64
+	// Transparency is the light the sub recorded against the best subs of
+	// its target, filter, exposure, gain and framing (see transparency.go);
+	// 1 when it can't be told.
+	Transparency float64
 	// TargetBest is the best Score among its target's subs in the same
 	// filter, so a target imaged only on poor nights can be judged against
 	// what it has.
@@ -42,6 +46,15 @@ type SubScore struct {
 type group struct {
 	filter   string
 	exposure float64
+}
+
+// fieldGroup is the subs whose light above the sky compares: one target's
+// field, framed the same way, through one filter, exposure and gain.
+type fieldGroup struct {
+	target  string
+	g       group
+	gain    float64
+	framing int
 }
 
 // row is an acquired image with its parsed metadata.
@@ -215,13 +228,19 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 		raw    float64
 		g      group
 		target string
+		// excess is the light above the sky (Excess), NaN for subs
+		// measured by the stacker, and field the group it compares in.
+		excess float64
+		field  fieldGroup
 	}
 	items := make([]item, 0, len(rows)+len(measured))
 	byGroup := map[group][]float64{}
+	byField := map[fieldGroup][]float64{}
 	for _, r := range rows {
 		m := r.meta
 		g := group{filter: m.FilterName, exposure: math.Round(float64(m.ExposureDuration))}
 		raw := RawWeight(Sky(float64(m.ADUMedian), PedestalAt(pedestal, float64(m.Offset))), float64(m.HFR))
+		field := fieldGroup{target: r.Target, g: g, gain: float64(m.Gain), framing: Framing(float64(m.RotatorPosition))}
 		it := item{
 			s: SubScore{
 				File:          m.FileName[strings.LastIndexAny(m.FileName, `\/`)+1:],
@@ -235,10 +254,13 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 			raw:    raw,
 			g:      g,
 			target: r.Target,
+			excess: Excess(float64(m.ADUMean), float64(m.ADUMedian)),
+			field:  field,
 		}
 		items = append(items, it)
 		if r.GradingStatus != GradingRejected {
 			byGroup[g] = append(byGroup[g], raw)
+			byField[field] = append(byField[field], it.excess)
 		}
 	}
 
@@ -261,6 +283,7 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 			raw:    raw,
 			g:      g,
 			target: m.Target,
+			excess: math.NaN(),
 		})
 		byGroup[g] = append(byGroup[g], raw)
 	}
@@ -269,6 +292,10 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 	for g, ws := range byGroup {
 		refs[g] = Reference(ws)
 	}
+	fieldRefs := make(map[fieldGroup]float64, len(byField))
+	for f, es := range byField {
+		fieldRefs[f] = TransparencyReference(es)
+	}
 	type targetFilter struct {
 		target string
 		filter string
@@ -276,8 +303,14 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 	best := map[targetFilter]float64{}
 	for i := range items {
 		it := &items[i]
+		ref := math.NaN()
+		if !math.IsNaN(it.excess) {
+			ref = fieldRefs[it.field]
+		}
+		it.s.Transparency = Transparency(it.excess, ref)
 		if it.s.GradingStatus != GradingRejected {
-			it.s.Score = Score(it.raw, refs[it.g])
+			t := it.s.Transparency
+			it.s.Score = Score(it.raw, refs[it.g]) * t * t
 			k := targetFilter{it.target, it.s.Filter}
 			best[k] = math.Max(best[k], it.s.Score)
 		}
