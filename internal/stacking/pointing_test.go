@@ -17,19 +17,51 @@ func pointed(id int, ra, dec, hfr float64) candidate {
 		score: quality.SubScore{HFR: hfr, Stars: 1000, Score: 1}}
 }
 
-func TestOffTargetSubsAreLeftOut(t *testing.T) {
-	p := &Pipeline{}
+// A sub whose mount pointing is off target is no longer left out by
+// classify: it goes on to be stacked, flagged, and is left out only if it
+// doesn't register (TestOffPointingSubsStayOnlyIfTheyRegister).
+func TestOffPointingSubsAreFlagged(t *testing.T) {
+	p := &Pipeline{opts: PipelineOptions{MinScore: 0.3}}
 	positions := map[string][2]float64{"Cygnis Loop Panel 2": {313.02, 29.76}}
 	exp := 300.0
 	ra, dec := 0.04, 0.0002 // parked
-	f := app.Frame{Object: "Cygnis Loop Panel 2", MountRA: &ra, MountDec: &dec, Exposure: &exp}
-	if _, status := p.classify(f, nil, nil, positions); status != app.StackStatusOffTarget {
-		t.Errorf("parked sub: status %q", status)
+	f := app.Frame{Key: "LIGHT/a.xisf", Object: "Cygnis Loop Panel 2", MountRA: &ra, MountDec: &dec, Exposure: &exp}
+	scores := map[string]quality.SubScore{"a.xisf": {Score: 1, TargetBest: 1}}
+	c, status := p.classify(f, scores, nil, positions)
+	if status == app.StackStatusOffTarget || c.offBy < 30 {
+		t.Errorf("parked sub: status %q, off by %.1f°", status, c.offBy)
 	}
-	// Re-framed by a degree: still on target, left to scoring.
+	// 2026-10-06: the mount's model 20° out, the scope on target.
+	ra, dec = 296.61, 17.33
+	if c, status := p.classify(f, scores, nil, positions); status == app.StackStatusOffTarget || c.offBy < 15 {
+		t.Errorf("lost mount: status %q, off by %.1f°", status, c.offBy)
+	}
+	// Re-framed by a degree: on target.
 	ra, dec = 313.02, 30.8
-	if _, status := p.classify(f, nil, nil, positions); status == app.StackStatusOffTarget {
-		t.Error("a sub a degree off was left out as off target")
+	if c, _ := p.classify(f, scores, nil, positions); c.offBy != 0 {
+		t.Errorf("a sub a degree off is off by %.1f°", c.offBy)
+	}
+}
+
+// Subs whose mount pointing is off target neither become the reference nor
+// make a framing of their own, even when they are most of the subs and the
+// sharpest; with nothing else they are used.
+func TestOffPointingSubsAreNotTheReference(t *testing.T) {
+	// Triangulum Galaxy at RA 23.46°/Dec 30.66°; 2026-10-06's headers said
+	// 6.67°/17.72°.
+	var cands []candidate
+	for i := range 5 {
+		c := pointed(i+1, 6.67, 17.72, 1.0)
+		c.offBy = 20.5
+		cands = append(cands, c)
+	}
+	cands = append(cands, pointed(10, 23.46, 30.66, 1.9), pointed(11, 23.47, 30.66, 1.7))
+	best, ok := pickReference(mainFraming(referenceCandidates(cands)))
+	if !ok || best.frame.ID != 11 {
+		t.Errorf("picked %d, want 11, the sharpest pointed on target", best.frame.ID)
+	}
+	if best, ok := pickReference(mainFraming(referenceCandidates(cands[:5]))); !ok || best.frame.ID == 0 {
+		t.Errorf("only off-pointing subs: picked %d, %v", best.frame.ID, ok)
 	}
 }
 

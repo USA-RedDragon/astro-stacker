@@ -177,7 +177,7 @@ const (
 	StackStatusRegistration = "registration"
 	StackStatusFailed       = "failed"
 	StackStatusDead         = "dead"        // failed MaxAttempts times; left out until reset
-	StackStatusOffTarget    = "off_target"  // the mount pointed elsewhere
+	StackStatusOffTarget    = "off_target"  // the mount pointed elsewhere, and the sub didn't register
 	StackStatusRecalibrate  = "recalibrate" // stacked with no dark or a worse one than now matches
 	StackStatusMoon         = "moon"        // breaks its filter's moon avoidance
 	StackStatusDuplicate    = "duplicate"   // the same file as an earlier light of the target

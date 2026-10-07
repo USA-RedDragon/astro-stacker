@@ -84,24 +84,9 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 
 	// Store the registered subs; they're the input for rebuilds and for
 	// integrating at the desk.
-	var added []addedSub
-	unregistered := 0
-	for i, c := range cals {
-		reg := registered[i]
-		if reg == "" {
-			unregistered++
-			msg := "Siril could not register the sub to the target reference"
-			if err := p.record(ctx, app.StackFrame{FrameID: c.c.frame.ID, Status: app.StackStatusRegistration,
-				Score: c.c.score.Score, Exposure: *c.c.frame.Exposure, DarkScale: c.darkScale, Error: &msg}); err != nil {
-				return err
-			}
-			continue
-		}
-		key := path.Join("registered", object, filter, strings.TrimSuffix(path.Base(c.c.frame.Key), path.Ext(c.c.frame.Key))+".fit")
-		if err := p.upload(ctx, reg, key, "application/fits"); err != nil {
-			return err
-		}
-		added = append(added, addedSub{c: c, local: reg, key: key})
+	added, unregistered, err := p.storeRegistered(ctx, object, filter, cals, registered)
+	if err != nil {
+		return err
 	}
 	if unregistered > 0 {
 		// Many failures mean a poor reference: replace it and restack.
@@ -178,6 +163,44 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 	slog.Info("Updated master", "object", object, "filter", filter, "added", len(added), "subs", acc.Subs,
 		"rebuilt", rebuild, "duration", time.Since(start).Round(time.Second))
 	return nil
+}
+
+// storeRegistered uploads the subs that registered and records those that
+// didn't. unregistered counts the failures that say the reference may be
+// poor; a sub whose mount pointing was off target and that didn't register
+// is off target instead, and isn't counted: a night of a parked mount's
+// subs says nothing about the reference.
+func (p *Pipeline) storeRegistered(ctx context.Context, object, filter string, cals []calibrated, registered []string) ([]addedSub, int, error) {
+	var added []addedSub
+	unregistered := 0
+	for i, c := range cals {
+		reg := registered[i]
+		if reg == "" {
+			sf := app.StackFrame{FrameID: c.c.frame.ID, Status: app.StackStatusRegistration,
+				Score: c.c.score.Score, Exposure: *c.c.frame.Exposure, DarkScale: c.darkScale}
+			if c.c.offBy > 0 {
+				sf.Status, sf.Error = app.StackStatusOffTarget, offTargetError(c.c.offBy)
+			} else {
+				unregistered++
+				msg := "Siril could not register the sub to the target reference"
+				sf.Error = &msg
+			}
+			if err := p.record(ctx, sf); err != nil {
+				return nil, 0, err
+			}
+			continue
+		}
+		if c.c.offBy > 0 {
+			slog.Info("Sub registered though its mount pointed elsewhere", "object", object, "filter", filter,
+				"frame", c.c.frame.Key, "off_by", fmt.Sprintf("%.1f°", c.c.offBy))
+		}
+		key := path.Join("registered", object, filter, strings.TrimSuffix(path.Base(c.c.frame.Key), path.Ext(c.c.frame.Key))+".fit")
+		if err := p.upload(ctx, reg, key, "application/fits"); err != nil {
+			return nil, 0, err
+		}
+		added = append(added, addedSub{c: c, local: reg, key: key})
+	}
+	return added, unregistered, nil
 }
 
 // optional is nil for an empty string.
@@ -355,6 +378,7 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 			usable = append(usable, c)
 		}
 	}
+	usable = referenceCandidates(usable)
 	p.readPointings(ctx, usable)
 	// Subs framed differently register poorly against each other, so the
 	// reference comes from the framing most subs share.
