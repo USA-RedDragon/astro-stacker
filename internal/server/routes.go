@@ -304,6 +304,9 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		c.JSON(http.StatusOK, out)
 	})
 
+	// One target's lights with what the stacker made of each.
+	r.GET("/subs", subsRoute)
+
 	// Stacked masters for one target, one per filter.
 	r.GET("/stacks", func(c *gin.Context) {
 		if signer == nil {
