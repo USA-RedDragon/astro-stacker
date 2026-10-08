@@ -12,6 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
+	"github.com/USA-RedDragon/astro-stacker/internal/publicframe"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -238,6 +239,59 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		}
 		c.Header("Cache-Control", "no-cache")
 		c.Header("X-Frame-Key", f.Key)
+		c.DataFromReader(http.StatusOK, info.Size, "image/jpeg", obj, nil)
+	})
+
+	// The public site's frame of a target, or with no object the newest of
+	// any target: the light the renderer last stored for it (small,
+	// stretched, watermarked; see publicframe). Only streams those bytes,
+	// with an ETag for conditional requests; nothing is rendered here, and
+	// it is 404 until the renderer has stored one. For wheresmyscope, in the
+	// cluster: no gateway routes it.
+	r.GET("/public-light.jpg", func(c *gin.Context) {
+		if signer == nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if !publicSize(c.Query("width"), c.Query("height")) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("public frames are %dx%d",
+				publicframe.DefaultOptions.Width, publicframe.DefaultOptions.Height)})
+			return
+		}
+		ctx := c.Request.Context()
+		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+		f, err := publicFrame(ctx, di.AppStore.DB(), c.Query("object"))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.Header("ETag", f.ETag)
+		c.Header("Last-Modified", f.RenderedAt.UTC().Format(http.TimeFormat))
+		c.Header("Cache-Control", "no-cache")
+		c.Header("X-Object", f.Object)
+		c.Header("X-Filter", f.Filter)
+		if f.DateObs != nil {
+			c.Header("X-Date-Obs", f.DateObs.UTC().Format(time.RFC3339))
+		}
+		if match := c.GetHeader("If-None-Match"); match != "" && (match == f.ETag || match == "*") {
+			c.Status(http.StatusNotModified)
+			return
+		}
+		obj, err := signer.Open(ctx, f.Key)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		defer obj.Close()
+		info, err := obj.Stat()
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
 		c.DataFromReader(http.StatusOK, info.Size, "image/jpeg", obj, nil)
 	})
 

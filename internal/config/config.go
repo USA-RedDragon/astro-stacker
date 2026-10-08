@@ -27,6 +27,15 @@ type Config struct {
 	Indexer  Indexer  `name:"indexer" description:"Frame indexer configuration"`
 	Previews Previews `name:"previews" description:"Sub preview rendering"`
 	Stacking Stacking `name:"stacking" description:"Calibrating, registering and stacking lights into one master per target and filter"`
+	// PublicFrames are the watermarked frames the public site shows.
+	PublicFrames PublicFrames `name:"public-frames" description:"Small watermarked frames of each target's newest accepted light, for the public site"`
+}
+
+type PublicFrames struct {
+	Enabled         bool    `name:"enabled" description:"Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg"`
+	IntervalSeconds int     `name:"interval-seconds" description:"Seconds between checks for newly accepted lights" default:"60"`
+	MaxAgeDays      int     `name:"max-age-days" description:"Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered" default:"14"`
+	NoiseFloor      float64 `name:"noise-floor" description:"Least sky noise a frame is shown with, in 8-bit DN: noise is added to smoother frames so the watermark has noise to hide in; 0 adds none" default:"0"`
 }
 
 type Stacking struct {
@@ -164,7 +173,7 @@ func (c Config) Validate() error {
 		}
 	}
 
-	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {
+	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled || c.PublicFrames.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {
 		return ErrMissingS3Credentials
 	}
 
