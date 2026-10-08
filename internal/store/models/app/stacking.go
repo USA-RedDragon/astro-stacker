@@ -217,3 +217,26 @@ type StackFrame struct {
 	DarkMaster *string
 	FlatMaster *string
 }
+
+// PublicFrame is the frame the public site shows of a target: its newest
+// light in a master, rendered small, stretched and watermarked
+// (publicframe.Render) and stored in the processed bucket, so serving it
+// is only streaming those bytes.
+type PublicFrame struct {
+	ID      int    `gorm:"primaryKey;autoIncrement"`
+	Object  string `gorm:"not null;uniqueIndex"`
+	FrameID int    `gorm:"not null"`
+	Filter  string
+	DateObs *time.Time `gorm:"index"`
+	Key     string     `gorm:"not null"` // the JPEG in the processed bucket
+	// ETag is the JPEG's, quoted, for conditional requests.
+	ETag string `gorm:"not null"`
+	// Revision is the publicframe.Revision it was rendered at; frames from
+	// an older one are rendered again.
+	Revision int
+	// Sigma is the frame's sky noise and Amplitude the watermark's peak,
+	// in DN of the stretched frame.
+	Sigma      float64
+	Amplitude  float64
+	RenderedAt time.Time
+}

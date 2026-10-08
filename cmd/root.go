@@ -13,6 +13,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
+	"github.com/USA-RedDragon/astro-stacker/internal/publicframe"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
@@ -88,7 +89,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	var restacker middleware.Restacker
 	drainStacker := func() {}
 	broker := events.NewBroker()
-	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled {
+	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)
 		if err != nil {
@@ -106,6 +107,14 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			pv.Events = broker
 			go pv.Run(indexCtx, time.Duration(cfg.Previews.IntervalSeconds)*time.Second)
 			slog.Info("Preview renderer started", "bucket", cfg.S3.ProcessedBucket, "concurrency", cfg.Previews.Concurrency)
+		}
+		if cfg.PublicFrames.Enabled {
+			opts := publicframe.DefaultOptions
+			opts.NoiseFloor = cfg.PublicFrames.NoiseFloor
+			pf := publicframe.NewRenderer(s3, cfg.S3.ProcessedBucket, appStore.DB(), opts,
+				time.Duration(cfg.PublicFrames.MaxAgeDays)*24*time.Hour)
+			go pf.Run(indexCtx, time.Duration(cfg.PublicFrames.IntervalSeconds)*time.Second)
+			slog.Info("Public frame renderer started", "bucket", cfg.S3.ProcessedBucket, "max_age_days", cfg.PublicFrames.MaxAgeDays)
 		}
 		// Presigned URLs, for previews and masters, are signed for the public
 		// host browsers use.
