@@ -5,102 +5,115 @@
 package config
 
 import (
-	jsontext "encoding/json/jsontext"
-	v2 "encoding/json/v2"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
-	types "github.com/USA-RedDragon/astro-stacker/internal/types"
-	configulator "github.com/USA-RedDragon/configulator/v2"
-	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
-	"github.com/spf13/pflag"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
+
+	types "github.com/USA-RedDragon/astro-stacker/internal/types"
+	"github.com/USA-RedDragon/configulator/v2"
+	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
+	"github.com/USA-RedDragon/configulator/v2/impl"
+	"github.com/spf13/pflag"
 )
 
 type hTTPShadow struct {
-	Bind           *string   `json:"bind" toml:"bind" yaml:"bind"`
-	Port           *int      `json:"port" toml:"port" yaml:"port"`
+	Bind           *string   `json:"bind"            toml:"bind"            yaml:"bind"`
+	Port           *int      `json:"port"            toml:"port"            yaml:"port"`
 	TrustedProxies *[]string `json:"trusted-proxies" toml:"trusted-proxies" yaml:"trusted-proxies"`
 }
+
 type metricsShadow struct {
 	Enabled *bool   `json:"enabled" toml:"enabled" yaml:"enabled"`
-	Bind    *string `json:"bind" toml:"bind" yaml:"bind"`
-	Port    *int    `json:"port" toml:"port" yaml:"port"`
+	Bind    *string `json:"bind"    toml:"bind"    yaml:"bind"`
+	Port    *int    `json:"port"    toml:"port"    yaml:"port"`
 }
+
 type pProfShadow struct {
 	Enabled *bool   `json:"enabled" toml:"enabled" yaml:"enabled"`
-	Bind    *string `json:"bind" toml:"bind" yaml:"bind"`
-	Port    *int    `json:"port" toml:"port" yaml:"port"`
+	Bind    *string `json:"bind"    toml:"bind"    yaml:"bind"`
+	Port    *int    `json:"port"    toml:"port"    yaml:"port"`
 }
+
 type dSNShadow struct {
-	App         *string `json:"app" toml:"app" yaml:"app"`
+	App         *string `json:"app"         toml:"app"         yaml:"app"`
 	SchedulerDB *string `json:"schedulerdb" toml:"schedulerdb" yaml:"schedulerdb"`
 }
+
 type storageShadow struct {
-	Type            *string    `json:"type" toml:"type" yaml:"type"`
+	Type            *string    `json:"type"             toml:"type"             yaml:"type"`
 	SchedulerDBType *string    `json:"schedulerdb-type" toml:"schedulerdb-type" yaml:"schedulerdb-type"`
-	DSN             *dSNShadow `json:"dsn" toml:"dsn" yaml:"dsn"`
+	DSN             *dSNShadow `json:"dsn"              toml:"dsn"              yaml:"dsn"`
 }
+
 type s3Shadow struct {
-	Endpoint        *string `json:"endpoint" toml:"endpoint" yaml:"endpoint"`
-	UseSSL          *bool   `json:"use-ssl" toml:"use-ssl" yaml:"use-ssl"`
-	Region          *string `json:"region" toml:"region" yaml:"region"`
-	Bucket          *string `json:"bucket" toml:"bucket" yaml:"bucket"`
-	AccessKey       *string `json:"access-key" toml:"access-key" yaml:"access-key"`
-	SecretKey       *string `json:"secret-key" toml:"secret-key" yaml:"secret-key"`
+	Endpoint        *string `json:"endpoint"         toml:"endpoint"         yaml:"endpoint"`
+	UseSSL          *bool   `json:"use-ssl"          toml:"use-ssl"          yaml:"use-ssl"`
+	Region          *string `json:"region"           toml:"region"           yaml:"region"`
+	Bucket          *string `json:"bucket"           toml:"bucket"           yaml:"bucket"`
+	AccessKey       *string `json:"access-key"       toml:"access-key"       yaml:"access-key"`
+	SecretKey       *string `json:"secret-key"       toml:"secret-key"       yaml:"secret-key"`
 	ProcessedBucket *string `json:"processed-bucket" toml:"processed-bucket" yaml:"processed-bucket"`
-	PublicEndpoint  *string `json:"public-endpoint" toml:"public-endpoint" yaml:"public-endpoint"`
-	PublicUseSSL    *bool   `json:"public-use-ssl" toml:"public-use-ssl" yaml:"public-use-ssl"`
+	PublicEndpoint  *string `json:"public-endpoint"  toml:"public-endpoint"  yaml:"public-endpoint"`
+	PublicUseSSL    *bool   `json:"public-use-ssl"   toml:"public-use-ssl"   yaml:"public-use-ssl"`
 }
+
 type indexerShadow struct {
-	Enabled         *bool `json:"enabled" toml:"enabled" yaml:"enabled"`
+	Enabled         *bool `json:"enabled"          toml:"enabled"          yaml:"enabled"`
 	IntervalSeconds *int  `json:"interval-seconds" toml:"interval-seconds" yaml:"interval-seconds"`
-	Concurrency     *int  `json:"concurrency" toml:"concurrency" yaml:"concurrency"`
+	Concurrency     *int  `json:"concurrency"      toml:"concurrency"      yaml:"concurrency"`
 }
+
 type previewsShadow struct {
-	Enabled         *bool `json:"enabled" toml:"enabled" yaml:"enabled"`
+	Enabled         *bool `json:"enabled"          toml:"enabled"          yaml:"enabled"`
 	IntervalSeconds *int  `json:"interval-seconds" toml:"interval-seconds" yaml:"interval-seconds"`
-	Concurrency     *int  `json:"concurrency" toml:"concurrency" yaml:"concurrency"`
-	MaxWidth        *int  `json:"max-width" toml:"max-width" yaml:"max-width"`
-	Quality         *int  `json:"quality" toml:"quality" yaml:"quality"`
-	URLTTLSeconds   *int  `json:"url-ttl-seconds" toml:"url-ttl-seconds" yaml:"url-ttl-seconds"`
+	Concurrency     *int  `json:"concurrency"      toml:"concurrency"      yaml:"concurrency"`
+	MaxWidth        *int  `json:"max-width"        toml:"max-width"        yaml:"max-width"`
+	Quality         *int  `json:"quality"          toml:"quality"          yaml:"quality"`
+	URLTTLSeconds   *int  `json:"url-ttl-seconds"  toml:"url-ttl-seconds"  yaml:"url-ttl-seconds"`
 }
+
 type stackingShadow struct {
-	Enabled           *bool     `json:"enabled" toml:"enabled" yaml:"enabled"`
-	IntervalSeconds   *int      `json:"interval-seconds" toml:"interval-seconds" yaml:"interval-seconds"`
-	MinScore          *float64  `json:"min-score" toml:"min-score" yaml:"min-score"`
-	BatchSize         *int      `json:"batch-size" toml:"batch-size" yaml:"batch-size"`
-	WorkDir           *string   `json:"work-dir" toml:"work-dir" yaml:"work-dir"`
-	SirilCommand      *string   `json:"siril-command" toml:"siril-command" yaml:"siril-command"`
-	SirilThreads      *int      `json:"siril-threads" toml:"siril-threads" yaml:"siril-threads"`
-	SirilMemory       *float64  `json:"siril-memory" toml:"siril-memory" yaml:"siril-memory"`
-	Workers           *int      `json:"workers" toml:"workers" yaml:"workers"`
-	MosaicMinutes     *int      `json:"mosaic-minutes" toml:"mosaic-minutes" yaml:"mosaic-minutes"`
-	MosaicQuiet       *int      `json:"mosaic-quiet-minutes" toml:"mosaic-quiet-minutes" yaml:"mosaic-quiet-minutes"`
-	Pedestal          *float64  `json:"pedestal" toml:"pedestal" yaml:"pedestal"`
+	Enabled           *bool     `json:"enabled"                    toml:"enabled"                    yaml:"enabled"`
+	IntervalSeconds   *int      `json:"interval-seconds"           toml:"interval-seconds"           yaml:"interval-seconds"`
+	MinScore          *float64  `json:"min-score"                  toml:"min-score"                  yaml:"min-score"`
+	BatchSize         *int      `json:"batch-size"                 toml:"batch-size"                 yaml:"batch-size"`
+	WorkDir           *string   `json:"work-dir"                   toml:"work-dir"                   yaml:"work-dir"`
+	SirilCommand      *string   `json:"siril-command"              toml:"siril-command"              yaml:"siril-command"`
+	SirilThreads      *int      `json:"siril-threads"              toml:"siril-threads"              yaml:"siril-threads"`
+	SirilMemory       *float64  `json:"siril-memory"               toml:"siril-memory"               yaml:"siril-memory"`
+	Workers           *int      `json:"workers"                    toml:"workers"                    yaml:"workers"`
+	MosaicMinutes     *int      `json:"mosaic-minutes"             toml:"mosaic-minutes"             yaml:"mosaic-minutes"`
+	MosaicQuiet       *int      `json:"mosaic-quiet-minutes"       toml:"mosaic-quiet-minutes"       yaml:"mosaic-quiet-minutes"`
+	Pedestal          *float64  `json:"pedestal"                   toml:"pedestal"                   yaml:"pedestal"`
 	CalibrationSettle *int      `json:"calibration-settle-minutes" toml:"calibration-settle-minutes" yaml:"calibration-settle-minutes"`
-	RecalibrateLimit  *int      `json:"recalibrate-limit" toml:"recalibrate-limit" yaml:"recalibrate-limit"`
-	DrainSeconds      *int      `json:"drain-seconds" toml:"drain-seconds" yaml:"drain-seconds"`
-	TSVerdicts        *string   `json:"ts-verdicts" toml:"ts-verdicts" yaml:"ts-verdicts"`
-	TSVerdictsSince   *string   `json:"ts-verdicts-since" toml:"ts-verdicts-since" yaml:"ts-verdicts-since"`
-	TSVerdictsTargets *[]string `json:"ts-verdicts-targets" toml:"ts-verdicts-targets" yaml:"ts-verdicts-targets"`
-	TSVerdictsMax     *int      `json:"ts-verdicts-max" toml:"ts-verdicts-max" yaml:"ts-verdicts-max"`
+	RecalibrateLimit  *int      `json:"recalibrate-limit"          toml:"recalibrate-limit"          yaml:"recalibrate-limit"`
+	DrainSeconds      *int      `json:"drain-seconds"              toml:"drain-seconds"              yaml:"drain-seconds"`
+	TSVerdicts        *string   `json:"ts-verdicts"                toml:"ts-verdicts"                yaml:"ts-verdicts"`
+	TSVerdictsSince   *string   `json:"ts-verdicts-since"          toml:"ts-verdicts-since"          yaml:"ts-verdicts-since"`
+	TSVerdictsTargets *[]string `json:"ts-verdicts-targets"        toml:"ts-verdicts-targets"        yaml:"ts-verdicts-targets"`
+	TSVerdictsMax     *int      `json:"ts-verdicts-max"            toml:"ts-verdicts-max"            yaml:"ts-verdicts-max"`
 }
+
 type publicFramesShadow struct {
-	Enabled         *bool `json:"enabled" toml:"enabled" yaml:"enabled"`
+	Enabled         *bool `json:"enabled"          toml:"enabled"          yaml:"enabled"`
 	IntervalSeconds *int  `json:"interval-seconds" toml:"interval-seconds" yaml:"interval-seconds"`
-	MaxAgeDays      *int  `json:"max-age-days" toml:"max-age-days" yaml:"max-age-days"`
+	MaxAgeDays      *int  `json:"max-age-days"     toml:"max-age-days"     yaml:"max-age-days"`
 }
+
 type configShadow struct {
-	LogLevel     *string             `json:"log-level" toml:"log-level" yaml:"log-level"`
-	HTTP         *hTTPShadow         `json:"http" toml:"http" yaml:"http"`
-	Metrics      *metricsShadow      `json:"metrics" toml:"metrics" yaml:"metrics"`
-	PProf        *pProfShadow        `json:"pprof" toml:"pprof" yaml:"pprof"`
-	Storage      *storageShadow      `json:"storage" toml:"storage" yaml:"storage"`
-	S3           *s3Shadow           `json:"s3" toml:"s3" yaml:"s3"`
-	Indexer      *indexerShadow      `json:"indexer" toml:"indexer" yaml:"indexer"`
-	Previews     *previewsShadow     `json:"previews" toml:"previews" yaml:"previews"`
-	Stacking     *stackingShadow     `json:"stacking" toml:"stacking" yaml:"stacking"`
+	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
+	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
+	Metrics      *metricsShadow      `json:"metrics"       toml:"metrics"       yaml:"metrics"`
+	PProf        *pProfShadow        `json:"pprof"         toml:"pprof"         yaml:"pprof"`
+	Storage      *storageShadow      `json:"storage"       toml:"storage"       yaml:"storage"`
+	S3           *s3Shadow           `json:"s3"            toml:"s3"            yaml:"s3"`
+	Indexer      *indexerShadow      `json:"indexer"       toml:"indexer"       yaml:"indexer"`
+	Previews     *previewsShadow     `json:"previews"      toml:"previews"      yaml:"previews"`
+	Stacking     *stackingShadow     `json:"stacking"      toml:"stacking"      yaml:"stacking"`
 	PublicFrames *publicFramesShadow `json:"public-frames" toml:"public-frames" yaml:"public-frames"`
 }
 
@@ -112,7 +125,8 @@ func ConfigSchema() *configulator.Schema[Config] {
 		DecodeFile:    configDecodeFile,
 	}
 }
-func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) error {
+
+func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) error {
 	cfg.LogLevel = LogLevel("info")
 	set("log-level", configulator.LayerDefault, "default tag")
 	cfg.HTTP.Bind = "[::]"
@@ -199,6 +213,7 @@ func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) er
 	set("public-frames.max-age-days", configulator.LayerDefault, "default tag")
 	return nil
 }
+
 func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, sep string, set configulator.SetOrigin, file string) error {
 	var sh configShadow
 	if err := u(data, &sh); err != nil {
@@ -209,7 +224,8 @@ func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, sep st
 	}
 	return sh.applyTo(cfg, sep, set, file)
 }
-func (s *configShadow) applyTo(cfg *Config, sep string, set configulator.SetOrigin, file string) error {
+
+func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin, file string) error {
 	if s.LogLevel != nil {
 		cfg.LogLevel = LogLevel(*s.LogLevel)
 		set("log-level", configulator.LayerFile, file)
@@ -448,629 +464,522 @@ func (s *configShadow) applyTo(cfg *Config, sep string, set configulator.SetOrig
 	}
 	return nil
 }
+
 func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.SetOrigin) error {
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "log-level"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.LogLevel = LogLevel(v)
-			set("log-level", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "log-level"); ok {
+		cfg.LogLevel = LogLevel(v)
+		set("log-level", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "http", "bind"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.HTTP.Bind = v
-			set("http.bind", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "http", "bind"); ok {
+		cfg.HTTP.Bind = v
+		set("http.bind", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "http", "port"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "http.port",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "http", "port"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "http.port",
+				Source: n,
+				Value:  v,
 			}
-			cfg.HTTP.Port = int(p)
-			set("http.port", configulator.LayerEnv, n)
 		}
+		cfg.HTTP.Port = int(p)
+		set("http.port", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "http", "trusted-proxies"); true {
-		if v, ok := ec.Getenv(n); ok {
-			lst := configulator.SplitList(v, ec.ArraySeparator)
-			cfg.HTTP.TrustedProxies = lst
-			set("http.trusted-proxies", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "http", "trusted-proxies"); ok {
+		lst := impl.SplitList(v, ec.ArraySeparator)
+		cfg.HTTP.TrustedProxies = lst
+		set("http.trusted-proxies", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "metrics", "enabled"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseBool(v)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "metrics.enabled",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "metrics", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "metrics.enabled",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Metrics.Enabled = p
-			set("metrics.enabled", configulator.LayerEnv, n)
 		}
+		cfg.Metrics.Enabled = p
+		set("metrics.enabled", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "metrics", "bind"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Metrics.Bind = v
-			set("metrics.bind", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "metrics", "bind"); ok {
+		cfg.Metrics.Bind = v
+		set("metrics.bind", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "metrics", "port"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "metrics.port",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "metrics", "port"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "metrics.port",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Metrics.Port = int(p)
-			set("metrics.port", configulator.LayerEnv, n)
 		}
+		cfg.Metrics.Port = int(p)
+		set("metrics.port", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "pprof", "enabled"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseBool(v)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "pprof.enabled",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "pprof", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "pprof.enabled",
+				Source: n,
+				Value:  v,
 			}
-			cfg.PProf.Enabled = p
-			set("pprof.enabled", configulator.LayerEnv, n)
 		}
+		cfg.PProf.Enabled = p
+		set("pprof.enabled", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "pprof", "bind"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.PProf.Bind = v
-			set("pprof.bind", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "pprof", "bind"); ok {
+		cfg.PProf.Bind = v
+		set("pprof.bind", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "pprof", "port"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "pprof.port",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "pprof", "port"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "pprof.port",
+				Source: n,
+				Value:  v,
 			}
-			cfg.PProf.Port = int(p)
-			set("pprof.port", configulator.LayerEnv, n)
 		}
+		cfg.PProf.Port = int(p)
+		set("pprof.port", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "storage", "type"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Storage.Type = types.StorageType(v)
-			set("storage.type", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "storage", "type"); ok {
+		cfg.Storage.Type = types.StorageType(v)
+		set("storage.type", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "storage", "schedulerdb-type"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Storage.SchedulerDBType = types.StorageType(v)
-			set("storage.schedulerdb-type", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "storage", "schedulerdb-type"); ok {
+		cfg.Storage.SchedulerDBType = types.StorageType(v)
+		set("storage.schedulerdb-type", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "storage", "dsn", "app"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Storage.DSN.App = v
-			set("storage.dsn.app", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "storage", "dsn", "app"); ok {
+		cfg.Storage.DSN.App = v
+		set("storage.dsn.app", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "storage", "dsn", "schedulerdb"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Storage.DSN.SchedulerDB = v
-			set("storage.dsn.schedulerdb", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "storage", "dsn", "schedulerdb"); ok {
+		cfg.Storage.DSN.SchedulerDB = v
+		set("storage.dsn.schedulerdb", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "endpoint"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.S3.Endpoint = v
-			set("s3.endpoint", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "endpoint"); ok {
+		cfg.S3.Endpoint = v
+		set("s3.endpoint", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "use-ssl"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseBool(v)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "s3.use-ssl",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "use-ssl"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "s3.use-ssl",
+				Source: n,
+				Value:  v,
 			}
-			cfg.S3.UseSSL = p
-			set("s3.use-ssl", configulator.LayerEnv, n)
 		}
+		cfg.S3.UseSSL = p
+		set("s3.use-ssl", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "region"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.S3.Region = v
-			set("s3.region", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "region"); ok {
+		cfg.S3.Region = v
+		set("s3.region", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "bucket"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.S3.Bucket = v
-			set("s3.bucket", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "bucket"); ok {
+		cfg.S3.Bucket = v
+		set("s3.bucket", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "access-key"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.S3.AccessKey = v
-			set("s3.access-key", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "access-key"); ok {
+		cfg.S3.AccessKey = v
+		set("s3.access-key", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "secret-key"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.S3.SecretKey = v
-			set("s3.secret-key", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "secret-key"); ok {
+		cfg.S3.SecretKey = v
+		set("s3.secret-key", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "processed-bucket"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.S3.ProcessedBucket = v
-			set("s3.processed-bucket", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "processed-bucket"); ok {
+		cfg.S3.ProcessedBucket = v
+		set("s3.processed-bucket", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "public-endpoint"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.S3.PublicEndpoint = v
-			set("s3.public-endpoint", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "public-endpoint"); ok {
+		cfg.S3.PublicEndpoint = v
+		set("s3.public-endpoint", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "s3", "public-use-ssl"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseBool(v)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "s3.public-use-ssl",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "s3", "public-use-ssl"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "s3.public-use-ssl",
+				Source: n,
+				Value:  v,
 			}
-			cfg.S3.PublicUseSSL = p
-			set("s3.public-use-ssl", configulator.LayerEnv, n)
 		}
+		cfg.S3.PublicUseSSL = p
+		set("s3.public-use-ssl", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "indexer", "enabled"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseBool(v)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "indexer.enabled",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "indexer", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "indexer.enabled",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Indexer.Enabled = p
-			set("indexer.enabled", configulator.LayerEnv, n)
 		}
+		cfg.Indexer.Enabled = p
+		set("indexer.enabled", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "indexer", "interval-seconds"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "indexer.interval-seconds",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "indexer", "interval-seconds"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "indexer.interval-seconds",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Indexer.IntervalSeconds = int(p)
-			set("indexer.interval-seconds", configulator.LayerEnv, n)
 		}
+		cfg.Indexer.IntervalSeconds = int(p)
+		set("indexer.interval-seconds", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "indexer", "concurrency"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "indexer.concurrency",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "indexer", "concurrency"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "indexer.concurrency",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Indexer.Concurrency = int(p)
-			set("indexer.concurrency", configulator.LayerEnv, n)
 		}
+		cfg.Indexer.Concurrency = int(p)
+		set("indexer.concurrency", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "previews", "enabled"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseBool(v)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "previews.enabled",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "previews", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "previews.enabled",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Previews.Enabled = p
-			set("previews.enabled", configulator.LayerEnv, n)
 		}
+		cfg.Previews.Enabled = p
+		set("previews.enabled", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "previews", "interval-seconds"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "previews.interval-seconds",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "previews", "interval-seconds"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "previews.interval-seconds",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Previews.IntervalSeconds = int(p)
-			set("previews.interval-seconds", configulator.LayerEnv, n)
 		}
+		cfg.Previews.IntervalSeconds = int(p)
+		set("previews.interval-seconds", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "previews", "concurrency"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "previews.concurrency",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "previews", "concurrency"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "previews.concurrency",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Previews.Concurrency = int(p)
-			set("previews.concurrency", configulator.LayerEnv, n)
 		}
+		cfg.Previews.Concurrency = int(p)
+		set("previews.concurrency", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "previews", "max-width"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "previews.max-width",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "previews", "max-width"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "previews.max-width",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Previews.MaxWidth = int(p)
-			set("previews.max-width", configulator.LayerEnv, n)
 		}
+		cfg.Previews.MaxWidth = int(p)
+		set("previews.max-width", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "previews", "quality"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "previews.quality",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "previews", "quality"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "previews.quality",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Previews.Quality = int(p)
-			set("previews.quality", configulator.LayerEnv, n)
 		}
+		cfg.Previews.Quality = int(p)
+		set("previews.quality", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "previews", "url-ttl-seconds"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "previews.url-ttl-seconds",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "previews", "url-ttl-seconds"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "previews.url-ttl-seconds",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Previews.URLTTLSeconds = int(p)
-			set("previews.url-ttl-seconds", configulator.LayerEnv, n)
 		}
+		cfg.Previews.URLTTLSeconds = int(p)
+		set("previews.url-ttl-seconds", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "enabled"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseBool(v)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.enabled",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.enabled",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.Enabled = p
-			set("stacking.enabled", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.Enabled = p
+		set("stacking.enabled", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "interval-seconds"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.interval-seconds",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "interval-seconds"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.interval-seconds",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.IntervalSeconds = int(p)
-			set("stacking.interval-seconds", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.IntervalSeconds = int(p)
+		set("stacking.interval-seconds", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "min-score"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.min-score",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "min-score"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.min-score",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.MinScore = p
-			set("stacking.min-score", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.MinScore = p
+		set("stacking.min-score", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "batch-size"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.batch-size",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "batch-size"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.batch-size",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.BatchSize = int(p)
-			set("stacking.batch-size", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.BatchSize = int(p)
+		set("stacking.batch-size", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "work-dir"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Stacking.WorkDir = v
-			set("stacking.work-dir", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "work-dir"); ok {
+		cfg.Stacking.WorkDir = v
+		set("stacking.work-dir", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "siril-command"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Stacking.SirilCommand = v
-			set("stacking.siril-command", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "siril-command"); ok {
+		cfg.Stacking.SirilCommand = v
+		set("stacking.siril-command", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "siril-threads"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.siril-threads",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "siril-threads"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.siril-threads",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.SirilThreads = int(p)
-			set("stacking.siril-threads", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.SirilThreads = int(p)
+		set("stacking.siril-threads", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "siril-memory"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.siril-memory",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "siril-memory"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.siril-memory",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.SirilMemory = p
-			set("stacking.siril-memory", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.SirilMemory = p
+		set("stacking.siril-memory", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "workers"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.workers",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "workers"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.workers",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.Workers = int(p)
-			set("stacking.workers", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.Workers = int(p)
+		set("stacking.workers", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "mosaic-minutes"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.mosaic-minutes",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "mosaic-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.mosaic-minutes",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.MosaicMinutes = int(p)
-			set("stacking.mosaic-minutes", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.MosaicMinutes = int(p)
+		set("stacking.mosaic-minutes", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "mosaic-quiet-minutes"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.mosaic-quiet-minutes",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "mosaic-quiet-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.mosaic-quiet-minutes",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.MosaicQuiet = int(p)
-			set("stacking.mosaic-quiet-minutes", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.MosaicQuiet = int(p)
+		set("stacking.mosaic-quiet-minutes", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "pedestal"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.pedestal",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "pedestal"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.pedestal",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.Pedestal = p
-			set("stacking.pedestal", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.Pedestal = p
+		set("stacking.pedestal", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "calibration-settle-minutes"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.calibration-settle-minutes",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "calibration-settle-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.calibration-settle-minutes",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.CalibrationSettle = int(p)
-			set("stacking.calibration-settle-minutes", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.CalibrationSettle = int(p)
+		set("stacking.calibration-settle-minutes", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "recalibrate-limit"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.recalibrate-limit",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "recalibrate-limit"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.recalibrate-limit",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.RecalibrateLimit = int(p)
-			set("stacking.recalibrate-limit", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.RecalibrateLimit = int(p)
+		set("stacking.recalibrate-limit", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "drain-seconds"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.drain-seconds",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "drain-seconds"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.drain-seconds",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.DrainSeconds = int(p)
-			set("stacking.drain-seconds", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.DrainSeconds = int(p)
+		set("stacking.drain-seconds", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Stacking.TSVerdicts = v
-			set("stacking.ts-verdicts", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts"); ok {
+		cfg.Stacking.TSVerdicts = v
+		set("stacking.ts-verdicts", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts-since"); true {
-		if v, ok := ec.Getenv(n); ok {
-			cfg.Stacking.TSVerdictsSince = v
-			set("stacking.ts-verdicts-since", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts-since"); ok {
+		cfg.Stacking.TSVerdictsSince = v
+		set("stacking.ts-verdicts-since", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts-targets"); true {
-		if v, ok := ec.Getenv(n); ok {
-			lst := configulator.SplitList(v, ec.ArraySeparator)
-			cfg.Stacking.TSVerdictsTargets = lst
-			set("stacking.ts-verdicts-targets", configulator.LayerEnv, n)
-		}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts-targets"); ok {
+		lst := impl.SplitList(v, ec.ArraySeparator)
+		cfg.Stacking.TSVerdictsTargets = lst
+		set("stacking.ts-verdicts-targets", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts-max"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "stacking.ts-verdicts-max",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts-max"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.ts-verdicts-max",
+				Source: n,
+				Value:  v,
 			}
-			cfg.Stacking.TSVerdictsMax = int(p)
-			set("stacking.ts-verdicts-max", configulator.LayerEnv, n)
 		}
+		cfg.Stacking.TSVerdictsMax = int(p)
+		set("stacking.ts-verdicts-max", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "public-frames", "enabled"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseBool(v)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "public-frames.enabled",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "public-frames", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "public-frames.enabled",
+				Source: n,
+				Value:  v,
 			}
-			cfg.PublicFrames.Enabled = p
-			set("public-frames.enabled", configulator.LayerEnv, n)
 		}
+		cfg.PublicFrames.Enabled = p
+		set("public-frames.enabled", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "public-frames", "interval-seconds"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "public-frames.interval-seconds",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "public-frames", "interval-seconds"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "public-frames.interval-seconds",
+				Source: n,
+				Value:  v,
 			}
-			cfg.PublicFrames.IntervalSeconds = int(p)
-			set("public-frames.interval-seconds", configulator.LayerEnv, n)
 		}
+		cfg.PublicFrames.IntervalSeconds = int(p)
+		set("public-frames.interval-seconds", configulator.LayerEnv, n)
 	}
-	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "public-frames", "max-age-days"); true {
-		if v, ok := ec.Getenv(n); ok {
-			p, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &configulator.ParseError{
-					Err:    err,
-					Path:   "public-frames.max-age-days",
-					Source: n,
-					Value:  v,
-				}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "public-frames", "max-age-days"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "public-frames.max-age-days",
+				Source: n,
+				Value:  v,
 			}
-			cfg.PublicFrames.MaxAgeDays = int(p)
-			set("public-frames.max-age-days", configulator.LayerEnv, n)
 		}
+		cfg.PublicFrames.MaxAgeDays = int(p)
+		set("public-frames.max-age-days", configulator.LayerEnv, n)
 	}
 	return nil
 }
@@ -1082,10 +991,72 @@ func ConfigPFlagHooks() cpflag.Hooks[Config] {
 		Register: configRegisterPFlags,
 	}
 }
+
 func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
-	names := []string{strings.Join([]string{"log-level"}, o.Separator), strings.Join([]string{"http", "bind"}, o.Separator), strings.Join([]string{"http", "port"}, o.Separator), strings.Join([]string{"http", "trusted-proxies"}, o.Separator), strings.Join([]string{"metrics", "enabled"}, o.Separator), strings.Join([]string{"metrics", "bind"}, o.Separator), strings.Join([]string{"metrics", "port"}, o.Separator), strings.Join([]string{"pprof", "enabled"}, o.Separator), strings.Join([]string{"pprof", "bind"}, o.Separator), strings.Join([]string{"pprof", "port"}, o.Separator), strings.Join([]string{"storage", "type"}, o.Separator), strings.Join([]string{"storage", "schedulerdb-type"}, o.Separator), strings.Join([]string{"storage", "dsn", "app"}, o.Separator), strings.Join([]string{"storage", "dsn", "schedulerdb"}, o.Separator), strings.Join([]string{"s3", "endpoint"}, o.Separator), strings.Join([]string{"s3", "use-ssl"}, o.Separator), strings.Join([]string{"s3", "region"}, o.Separator), strings.Join([]string{"s3", "bucket"}, o.Separator), strings.Join([]string{"s3", "access-key"}, o.Separator), strings.Join([]string{"s3", "secret-key"}, o.Separator), strings.Join([]string{"s3", "processed-bucket"}, o.Separator), strings.Join([]string{"s3", "public-endpoint"}, o.Separator), strings.Join([]string{"s3", "public-use-ssl"}, o.Separator), strings.Join([]string{"indexer", "enabled"}, o.Separator), strings.Join([]string{"indexer", "interval-seconds"}, o.Separator), strings.Join([]string{"indexer", "concurrency"}, o.Separator), strings.Join([]string{"previews", "enabled"}, o.Separator), strings.Join([]string{"previews", "interval-seconds"}, o.Separator), strings.Join([]string{"previews", "concurrency"}, o.Separator), strings.Join([]string{"previews", "max-width"}, o.Separator), strings.Join([]string{"previews", "quality"}, o.Separator), strings.Join([]string{"previews", "url-ttl-seconds"}, o.Separator), strings.Join([]string{"stacking", "enabled"}, o.Separator), strings.Join([]string{"stacking", "interval-seconds"}, o.Separator), strings.Join([]string{"stacking", "min-score"}, o.Separator), strings.Join([]string{"stacking", "batch-size"}, o.Separator), strings.Join([]string{"stacking", "work-dir"}, o.Separator), strings.Join([]string{"stacking", "siril-command"}, o.Separator), strings.Join([]string{"stacking", "siril-threads"}, o.Separator), strings.Join([]string{"stacking", "siril-memory"}, o.Separator), strings.Join([]string{"stacking", "workers"}, o.Separator), strings.Join([]string{"stacking", "mosaic-minutes"}, o.Separator), strings.Join([]string{"stacking", "mosaic-quiet-minutes"}, o.Separator), strings.Join([]string{"stacking", "pedestal"}, o.Separator), strings.Join([]string{"stacking", "calibration-settle-minutes"}, o.Separator), strings.Join([]string{"stacking", "recalibrate-limit"}, o.Separator), strings.Join([]string{"stacking", "drain-seconds"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-since"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-targets"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-max"}, o.Separator), strings.Join([]string{"public-frames", "enabled"}, o.Separator), strings.Join([]string{"public-frames", "interval-seconds"}, o.Separator), strings.Join([]string{"public-frames", "max-age-days"}, o.Separator)}
+	names := []string{
+		"log-level",
+		"http" + o.Separator + "bind",
+		"http" + o.Separator + "port",
+		"http" + o.Separator + "trusted-proxies",
+		"metrics" + o.Separator + "enabled",
+		"metrics" + o.Separator + "bind",
+		"metrics" + o.Separator + "port",
+		"pprof" + o.Separator + "enabled",
+		"pprof" + o.Separator + "bind",
+		"pprof" + o.Separator + "port",
+		"storage" + o.Separator + "type",
+		"storage" + o.Separator + "schedulerdb-type",
+		"storage" + o.Separator + "dsn" + o.Separator + "app",
+		"storage" + o.Separator + "dsn" + o.Separator + "schedulerdb",
+		"s3" + o.Separator + "endpoint",
+		"s3" + o.Separator + "use-ssl",
+		"s3" + o.Separator + "region",
+		"s3" + o.Separator + "bucket",
+		"s3" + o.Separator + "access-key",
+		"s3" + o.Separator + "secret-key",
+		"s3" + o.Separator + "processed-bucket",
+		"s3" + o.Separator + "public-endpoint",
+		"s3" + o.Separator + "public-use-ssl",
+		"indexer" + o.Separator + "enabled",
+		"indexer" + o.Separator + "interval-seconds",
+		"indexer" + o.Separator + "concurrency",
+		"previews" + o.Separator + "enabled",
+		"previews" + o.Separator + "interval-seconds",
+		"previews" + o.Separator + "concurrency",
+		"previews" + o.Separator + "max-width",
+		"previews" + o.Separator + "quality",
+		"previews" + o.Separator + "url-ttl-seconds",
+		"stacking" + o.Separator + "enabled",
+		"stacking" + o.Separator + "interval-seconds",
+		"stacking" + o.Separator + "min-score",
+		"stacking" + o.Separator + "batch-size",
+		"stacking" + o.Separator + "work-dir",
+		"stacking" + o.Separator + "siril-command",
+		"stacking" + o.Separator + "siril-threads",
+		"stacking" + o.Separator + "siril-memory",
+		"stacking" + o.Separator + "workers",
+		"stacking" + o.Separator + "mosaic-minutes",
+		"stacking" + o.Separator + "mosaic-quiet-minutes",
+		"stacking" + o.Separator + "pedestal",
+		"stacking" + o.Separator + "calibration-settle-minutes",
+		"stacking" + o.Separator + "recalibrate-limit",
+		"stacking" + o.Separator + "drain-seconds",
+		"stacking" + o.Separator + "ts-verdicts",
+		"stacking" + o.Separator + "ts-verdicts-since",
+		"stacking" + o.Separator + "ts-verdicts-targets",
+		"stacking" + o.Separator + "ts-verdicts-max",
+		"public-frames" + o.Separator + "enabled",
+		"public-frames" + o.Separator + "interval-seconds",
+		"public-frames" + o.Separator + "max-age-days",
+	}
 	for i, name := range names {
-		if fs.Lookup(name) != nil || slices.Contains(names[:i], name) {
+		if f := fs.Lookup(name); f != nil {
+			return &configulator.FlagConflictError{
+				Existing: f.Name,
+				Flag:     name,
+			}
+		}
+		if slices.Contains(names[:i], name) {
 			return &configulator.FlagConflictError{
 				Existing: name,
 				Flag:     name,
@@ -1094,14 +1065,14 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	}
 	fs.String(names[0], "info", "Logging level for the application. One of debug, info, warn, or error")
 	fs.String(names[1], "[::]", "Address to listen on")
-	fs.Int(names[2], 8080, "Port to listen on")
+	fs.Var(impl.NewInt(8080), names[2], "Port to listen on")
 	fs.StringSlice(names[3], nil, "Trusted proxies for the HTTP server")
 	fs.Bool(names[4], false, "Enable metrics server")
 	fs.String(names[5], "127.0.0.1", "Address to listen on")
-	fs.Int(names[6], 9000, "Port to listen on")
+	fs.Var(impl.NewInt(9000), names[6], "Port to listen on")
 	fs.Bool(names[7], false, "Enable pprof server")
 	fs.String(names[8], "127.0.0.1", "Address to listen on")
-	fs.Int(names[9], 9999, "Port to listen on")
+	fs.Var(impl.NewInt(9999), names[9], "Port to listen on")
 	fs.String(names[10], "sqlite", "Storage type. One of mysql, postgres, sqlite")
 	fs.String(names[11], "", "Storage type of the scheduler database, if different from type")
 	fs.String(names[12], ":memory:?_pragma=foreign_keys(1)", "Data source name for the application storage")
@@ -1116,40 +1087,41 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[21], "s3.mcswain.dev", "S3 host browsers use for presigned URLs")
 	fs.Bool(names[22], true, "Presigned URLs use HTTPS")
 	fs.Bool(names[23], false, "Index frame headers from the bucket")
-	fs.Int(names[24], 600, "Seconds between bucket scans")
-	fs.Int(names[25], 8, "Headers to fetch in parallel")
+	fs.Var(impl.NewInt(600), names[24], "Seconds between bucket scans")
+	fs.Var(impl.NewInt(8), names[25], "Headers to fetch in parallel")
 	fs.Bool(names[26], false, "Render auto-stretched JPEG previews of lights into the processed bucket")
-	fs.Int(names[27], 120, "Seconds between checks for frames without previews")
-	fs.Int(names[28], 2, "Frames rendered in parallel; each needs about 200 MB")
-	fs.Int(names[29], 1280, "Preview width in pixels")
-	fs.Int(names[30], 80, "JPEG quality")
-	fs.Int(names[31], 3600, "Lifetime of presigned preview URLs")
+	fs.Var(impl.NewInt(120), names[27], "Seconds between checks for frames without previews")
+	fs.Var(impl.NewInt(2), names[28], "Frames rendered in parallel; each needs about 200 MB")
+	fs.Var(impl.NewInt(1280), names[29], "Preview width in pixels")
+	fs.Var(impl.NewInt(80), names[30], "JPEG quality")
+	fs.Var(impl.NewInt(3600), names[31], "Lifetime of presigned preview URLs")
 	fs.Bool(names[32], false, "Stack good lights into masters as they arrive")
-	fs.Int(names[33], 120, "Seconds between checks for new lights when idle")
+	fs.Var(impl.NewInt(120), names[33], "Seconds between checks for new lights when idle")
 	fs.Float64(names[34], 0.3, "Lowest sub score (0-1) that goes into a master")
-	fs.Int(names[35], 12, "Subs calibrated and registered per Siril run")
+	fs.Var(impl.NewInt(12), names[35], "Subs calibrated and registered per Siril run")
 	fs.String(names[36], "/tmp/stacking", "Scratch space for downloads, masters and Siril output")
 	fs.String(names[37], "siril-cli", "siril-cli, or an extracted Siril AppImage's AppRun")
-	fs.Int(names[38], 4, "Threads Siril may use")
+	fs.Var(impl.NewInt(4), names[38], "Threads Siril may use")
 	fs.Float64(names[39], 0.5, "Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread")
-	fs.Int(names[40], 1, "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
-	fs.Int(names[41], 10, "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
-	fs.Int(names[42], 30, "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
+	fs.Var(impl.NewInt(1), names[40], "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
+	fs.Var(impl.NewInt(10), names[41], "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
+	fs.Var(impl.NewInt(30), names[42], "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
 	fs.Float64(names[43], 506.0, "Camera pedestal in ADU, for scoring subs")
-	fs.Int(names[44], 180, "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
-	fs.Int(names[45], 300, "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
-	fs.Int(names[46], 1200, "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
+	fs.Var(impl.NewInt(180), names[44], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
+	fs.Var(impl.NewInt(300), names[45], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
+	fs.Var(impl.NewInt(1200), names[46], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
 	fs.String(names[47], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
 	fs.String(names[48], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
 	fs.StringSlice(names[49], nil, "Only subs of these targets; empty for all")
-	fs.Int(names[50], 200, "Most new verdicts sent per hourly sweep")
+	fs.Var(impl.NewInt(200), names[50], "Most new verdicts sent per hourly sweep")
 	fs.Bool(names[51], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
-	fs.Int(names[52], 60, "Seconds between checks for newly accepted lights")
-	fs.Int(names[53], 14, "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
+	fs.Var(impl.NewInt(60), names[52], "Seconds between checks for newly accepted lights")
+	fs.Var(impl.NewInt(14), names[53], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
 	return nil
 }
-func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep string, set configulator.SetOrigin) error {
-	if n := strings.Join([]string{"log-level"}, o.Separator); fs.Changed(n) {
+
+func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ string, set configulator.SetOrigin) error {
+	if n := "log-level"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1161,7 +1133,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.LogLevel = LogLevel(v)
 		set("log-level", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"http", "bind"}, o.Separator); fs.Changed(n) {
+	if n := "http" + o.Separator + "bind"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1173,7 +1145,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.HTTP.Bind = v
 		set("http.bind", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"http", "port"}, o.Separator); fs.Changed(n) {
+	if n := "http" + o.Separator + "port"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1185,7 +1157,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.HTTP.Port = v
 		set("http.port", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"http", "trusted-proxies"}, o.Separator); fs.Changed(n) {
+	if n := "http" + o.Separator + "trusted-proxies"; fs.Changed(n) {
 		v, err := fs.GetStringSlice(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1197,7 +1169,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.HTTP.TrustedProxies = v
 		set("http.trusted-proxies", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"metrics", "enabled"}, o.Separator); fs.Changed(n) {
+	if n := "metrics" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1209,7 +1181,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Metrics.Enabled = v
 		set("metrics.enabled", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"metrics", "bind"}, o.Separator); fs.Changed(n) {
+	if n := "metrics" + o.Separator + "bind"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1221,7 +1193,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Metrics.Bind = v
 		set("metrics.bind", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"metrics", "port"}, o.Separator); fs.Changed(n) {
+	if n := "metrics" + o.Separator + "port"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1233,7 +1205,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Metrics.Port = v
 		set("metrics.port", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"pprof", "enabled"}, o.Separator); fs.Changed(n) {
+	if n := "pprof" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1245,7 +1217,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.PProf.Enabled = v
 		set("pprof.enabled", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"pprof", "bind"}, o.Separator); fs.Changed(n) {
+	if n := "pprof" + o.Separator + "bind"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1257,7 +1229,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.PProf.Bind = v
 		set("pprof.bind", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"pprof", "port"}, o.Separator); fs.Changed(n) {
+	if n := "pprof" + o.Separator + "port"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1269,7 +1241,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.PProf.Port = v
 		set("pprof.port", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"storage", "type"}, o.Separator); fs.Changed(n) {
+	if n := "storage" + o.Separator + "type"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1281,7 +1253,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Storage.Type = types.StorageType(v)
 		set("storage.type", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"storage", "schedulerdb-type"}, o.Separator); fs.Changed(n) {
+	if n := "storage" + o.Separator + "schedulerdb-type"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1293,7 +1265,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Storage.SchedulerDBType = types.StorageType(v)
 		set("storage.schedulerdb-type", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"storage", "dsn", "app"}, o.Separator); fs.Changed(n) {
+	if n := "storage" + o.Separator + "dsn" + o.Separator + "app"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1305,7 +1277,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Storage.DSN.App = v
 		set("storage.dsn.app", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"storage", "dsn", "schedulerdb"}, o.Separator); fs.Changed(n) {
+	if n := "storage" + o.Separator + "dsn" + o.Separator + "schedulerdb"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1317,7 +1289,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Storage.DSN.SchedulerDB = v
 		set("storage.dsn.schedulerdb", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "endpoint"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "endpoint"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1329,7 +1301,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.Endpoint = v
 		set("s3.endpoint", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "use-ssl"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "use-ssl"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1341,7 +1313,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.UseSSL = v
 		set("s3.use-ssl", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "region"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "region"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1353,7 +1325,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.Region = v
 		set("s3.region", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "bucket"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "bucket"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1365,7 +1337,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.Bucket = v
 		set("s3.bucket", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "access-key"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "access-key"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1377,7 +1349,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.AccessKey = v
 		set("s3.access-key", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "secret-key"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "secret-key"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1389,7 +1361,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.SecretKey = v
 		set("s3.secret-key", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "processed-bucket"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "processed-bucket"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1401,7 +1373,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.ProcessedBucket = v
 		set("s3.processed-bucket", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "public-endpoint"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "public-endpoint"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1413,7 +1385,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.PublicEndpoint = v
 		set("s3.public-endpoint", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"s3", "public-use-ssl"}, o.Separator); fs.Changed(n) {
+	if n := "s3" + o.Separator + "public-use-ssl"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1425,7 +1397,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.S3.PublicUseSSL = v
 		set("s3.public-use-ssl", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"indexer", "enabled"}, o.Separator); fs.Changed(n) {
+	if n := "indexer" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1437,7 +1409,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Indexer.Enabled = v
 		set("indexer.enabled", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"indexer", "interval-seconds"}, o.Separator); fs.Changed(n) {
+	if n := "indexer" + o.Separator + "interval-seconds"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1449,7 +1421,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Indexer.IntervalSeconds = v
 		set("indexer.interval-seconds", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"indexer", "concurrency"}, o.Separator); fs.Changed(n) {
+	if n := "indexer" + o.Separator + "concurrency"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1461,7 +1433,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Indexer.Concurrency = v
 		set("indexer.concurrency", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"previews", "enabled"}, o.Separator); fs.Changed(n) {
+	if n := "previews" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1473,7 +1445,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Previews.Enabled = v
 		set("previews.enabled", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"previews", "interval-seconds"}, o.Separator); fs.Changed(n) {
+	if n := "previews" + o.Separator + "interval-seconds"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1485,7 +1457,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Previews.IntervalSeconds = v
 		set("previews.interval-seconds", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"previews", "concurrency"}, o.Separator); fs.Changed(n) {
+	if n := "previews" + o.Separator + "concurrency"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1497,7 +1469,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Previews.Concurrency = v
 		set("previews.concurrency", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"previews", "max-width"}, o.Separator); fs.Changed(n) {
+	if n := "previews" + o.Separator + "max-width"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1509,7 +1481,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Previews.MaxWidth = v
 		set("previews.max-width", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"previews", "quality"}, o.Separator); fs.Changed(n) {
+	if n := "previews" + o.Separator + "quality"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1521,7 +1493,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Previews.Quality = v
 		set("previews.quality", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"previews", "url-ttl-seconds"}, o.Separator); fs.Changed(n) {
+	if n := "previews" + o.Separator + "url-ttl-seconds"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1533,7 +1505,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Previews.URLTTLSeconds = v
 		set("previews.url-ttl-seconds", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "enabled"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1545,7 +1517,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.Enabled = v
 		set("stacking.enabled", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "interval-seconds"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "interval-seconds"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1557,7 +1529,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.IntervalSeconds = v
 		set("stacking.interval-seconds", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "min-score"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "min-score"; fs.Changed(n) {
 		v, err := fs.GetFloat64(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1569,7 +1541,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.MinScore = v
 		set("stacking.min-score", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "batch-size"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "batch-size"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1581,7 +1553,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.BatchSize = v
 		set("stacking.batch-size", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "work-dir"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "work-dir"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1593,7 +1565,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.WorkDir = v
 		set("stacking.work-dir", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "siril-command"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "siril-command"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1605,7 +1577,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.SirilCommand = v
 		set("stacking.siril-command", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "siril-threads"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "siril-threads"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1617,7 +1589,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.SirilThreads = v
 		set("stacking.siril-threads", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "siril-memory"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "siril-memory"; fs.Changed(n) {
 		v, err := fs.GetFloat64(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1629,7 +1601,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.SirilMemory = v
 		set("stacking.siril-memory", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "workers"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "workers"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1641,7 +1613,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.Workers = v
 		set("stacking.workers", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "mosaic-minutes"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "mosaic-minutes"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1653,7 +1625,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.MosaicMinutes = v
 		set("stacking.mosaic-minutes", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "mosaic-quiet-minutes"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "mosaic-quiet-minutes"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1665,7 +1637,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.MosaicQuiet = v
 		set("stacking.mosaic-quiet-minutes", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "pedestal"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "pedestal"; fs.Changed(n) {
 		v, err := fs.GetFloat64(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1677,7 +1649,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.Pedestal = v
 		set("stacking.pedestal", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "calibration-settle-minutes"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "calibration-settle-minutes"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1689,7 +1661,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.CalibrationSettle = v
 		set("stacking.calibration-settle-minutes", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "recalibrate-limit"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "recalibrate-limit"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1701,7 +1673,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.RecalibrateLimit = v
 		set("stacking.recalibrate-limit", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "drain-seconds"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "drain-seconds"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1713,7 +1685,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.DrainSeconds = v
 		set("stacking.drain-seconds", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "ts-verdicts"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "ts-verdicts"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1725,7 +1697,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.TSVerdicts = v
 		set("stacking.ts-verdicts", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "ts-verdicts-since"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "ts-verdicts-since"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1737,7 +1709,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.TSVerdictsSince = v
 		set("stacking.ts-verdicts-since", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "ts-verdicts-targets"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "ts-verdicts-targets"; fs.Changed(n) {
 		v, err := fs.GetStringSlice(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1749,7 +1721,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.TSVerdictsTargets = v
 		set("stacking.ts-verdicts-targets", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"stacking", "ts-verdicts-max"}, o.Separator); fs.Changed(n) {
+	if n := "stacking" + o.Separator + "ts-verdicts-max"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1761,7 +1733,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.Stacking.TSVerdictsMax = v
 		set("stacking.ts-verdicts-max", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"public-frames", "enabled"}, o.Separator); fs.Changed(n) {
+	if n := "public-frames" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1773,7 +1745,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.PublicFrames.Enabled = v
 		set("public-frames.enabled", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"public-frames", "interval-seconds"}, o.Separator); fs.Changed(n) {
+	if n := "public-frames" + o.Separator + "interval-seconds"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1785,7 +1757,7 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 		cfg.PublicFrames.IntervalSeconds = v
 		set("public-frames.interval-seconds", configulator.LayerCLI, "--"+n)
 	}
-	if n := strings.Join([]string{"public-frames", "max-age-days"}, o.Separator); fs.Changed(n) {
+	if n := "public-frames" + o.Separator + "max-age-days"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
 		if err != nil {
 			return &configulator.ParseError{
@@ -1799,181 +1771,245 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep st
 	}
 	return nil
 }
+
 func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	tok, err := dec.ReadToken()
 	if err != nil {
 		return err
 	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
+	if tok.Kind() != jsontext.KindBeginObject {
+		return fmt.Errorf("expected an object, got %v", tok.Kind())
 	}
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "log-level":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.LogLevel = &str
 			default:
-				return fmt.Errorf("log-level: expected a string, got %v", v.Kind())
+				return configJSONError("log-level", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "http":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("http", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub hTTPShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "http"); err != nil {
 					return err
 				}
 				s.HTTP = &sub
 			}
 		case "metrics":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("metrics", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub metricsShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "metrics"); err != nil {
 					return err
 				}
 				s.Metrics = &sub
 			}
 		case "pprof":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("pprof", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub pProfShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "pprof"); err != nil {
 					return err
 				}
 				s.PProf = &sub
 			}
 		case "storage":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("storage", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub storageShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "storage"); err != nil {
 					return err
 				}
 				s.Storage = &sub
 			}
 		case "s3":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("s3", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub s3Shadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "s3"); err != nil {
 					return err
 				}
 				s.S3 = &sub
 			}
 		case "indexer":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("indexer", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub indexerShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "indexer"); err != nil {
 					return err
 				}
 				s.Indexer = &sub
 			}
 		case "previews":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("previews", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub previewsShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "previews"); err != nil {
 					return err
 				}
 				s.Previews = &sub
 			}
 		case "stacking":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("stacking", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub stackingShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "stacking"); err != nil {
 					return err
 				}
 				s.Stacking = &sub
 			}
 		case "public-frames":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("public-frames", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub publicFramesShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, "public-frames"); err != nil {
 					return err
 				}
 				s.PublicFrames = &sub
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*configShadow)(nil)
+var _ json.UnmarshalerFrom = (*configShadow)(nil)
 
-func (s *hTTPShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *hTTPShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "bind":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Bind = &str
 			default:
-				return fmt.Errorf("bind: expected a string, got %v", v.Kind())
+				return configJSONError(path+".bind", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "port":
 			v, err := dec.ReadToken()
@@ -1981,38 +2017,41 @@ func (s *hTTPShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".port", v, err)
 				}
-				val := int(num)
-				s.Port = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".port", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Port = &num
 			default:
-				return fmt.Errorf("port: expected a number, got %v", v.Kind())
+				return configJSONError(path+".port", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "trusted-proxies":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
-				tok, err := dec.ReadToken()
+				open, err := dec.ReadToken()
 				if err != nil {
 					return err
 				}
-				if tok.Kind() != '[' {
-					return fmt.Errorf("trusted-proxies: expected an array, got %v", tok.Kind())
+				if open.Kind() != jsontext.KindBeginArray {
+					return configJSONError(path+".trusted-proxies", open, fmt.Errorf("expected an array, got %v", open.Kind()))
 				}
 				out := []string{}
-				for dec.PeekKind() != ']' {
+				for dec.PeekKind() != jsontext.KindEndArray {
 					v, err := dec.ReadToken()
 					if err != nil {
 						return err
 					}
-					if v.Kind() != '"' {
-						return fmt.Errorf("trusted-proxies: expected a string element, got %v", v.Kind())
+					if v.Kind() != jsontext.KindString {
+						return configJSONError(path+".trusted-proxies"+"["+strconv.Itoa(len(out))+"]", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 					}
 					el := v.String()
 					out = append(out, el)
@@ -2023,42 +2062,40 @@ func (s *hTTPShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				s.TrustedProxies = &out
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*hTTPShadow)(nil)
-
-func (s *metricsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *metricsShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "enabled":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case 't', 'f':
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
 				b := v.Bool()
 				s.Enabled = &b
 			default:
-				return fmt.Errorf("enabled: expected a bool, got %v", v.Kind())
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
 		case "bind":
 			v, err := dec.ReadToken()
@@ -2066,12 +2103,12 @@ func (s *metricsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Bind = &str
 			default:
-				return fmt.Errorf("bind: expected a string, got %v", v.Kind())
+				return configJSONError(path+".bind", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "port":
 			v, err := dec.ReadToken()
@@ -2079,54 +2116,55 @@ func (s *metricsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".port", v, err)
 				}
-				val := int(num)
-				s.Port = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".port", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Port = &num
 			default:
-				return fmt.Errorf("port: expected a number, got %v", v.Kind())
+				return configJSONError(path+".port", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*metricsShadow)(nil)
-
-func (s *pProfShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *pProfShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "enabled":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case 't', 'f':
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
 				b := v.Bool()
 				s.Enabled = &b
 			default:
-				return fmt.Errorf("enabled: expected a bool, got %v", v.Kind())
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
 		case "bind":
 			v, err := dec.ReadToken()
@@ -2134,12 +2172,12 @@ func (s *pProfShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Bind = &str
 			default:
-				return fmt.Errorf("bind: expected a string, got %v", v.Kind())
+				return configJSONError(path+".bind", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "port":
 			v, err := dec.ReadToken()
@@ -2147,54 +2185,55 @@ func (s *pProfShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".port", v, err)
 				}
-				val := int(num)
-				s.Port = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".port", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Port = &num
 			default:
-				return fmt.Errorf("port: expected a number, got %v", v.Kind())
+				return configJSONError(path+".port", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*pProfShadow)(nil)
-
-func (s *storageShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *storageShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "type":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Type = &str
 			default:
-				return fmt.Errorf("type: expected a string, got %v", v.Kind())
+				return configJSONError(path+".type", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "schedulerdb-type":
 			v, err := dec.ReadToken()
@@ -2202,62 +2241,67 @@ func (s *storageShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.SchedulerDBType = &str
 			default:
-				return fmt.Errorf("schedulerdb-type: expected a string, got %v", v.Kind())
+				return configJSONError(path+".schedulerdb-type", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "dsn":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError(path+".dsn", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
 				var sub dSNShadow
-				if err := sub.UnmarshalJSONFrom(dec); err != nil {
+				if err := sub.decodeJSON(dec, path+".dsn"); err != nil {
 					return err
 				}
 				s.DSN = &sub
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*storageShadow)(nil)
-
-func (s *dSNShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *dSNShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "app":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.App = &str
 			default:
-				return fmt.Errorf("app: expected a string, got %v", v.Kind())
+				return configJSONError(path+".app", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "schedulerdb":
 			v, err := dec.ReadToken()
@@ -2265,50 +2309,48 @@ func (s *dSNShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.SchedulerDB = &str
 			default:
-				return fmt.Errorf("schedulerdb: expected a string, got %v", v.Kind())
+				return configJSONError(path+".schedulerdb", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*dSNShadow)(nil)
-
-func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *s3Shadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "endpoint":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Endpoint = &str
 			default:
-				return fmt.Errorf("endpoint: expected a string, got %v", v.Kind())
+				return configJSONError(path+".endpoint", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "use-ssl":
 			v, err := dec.ReadToken()
@@ -2316,12 +2358,12 @@ func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case 't', 'f':
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
 				b := v.Bool()
 				s.UseSSL = &b
 			default:
-				return fmt.Errorf("use-ssl: expected a bool, got %v", v.Kind())
+				return configJSONError(path+".use-ssl", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
 		case "region":
 			v, err := dec.ReadToken()
@@ -2329,12 +2371,12 @@ func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Region = &str
 			default:
-				return fmt.Errorf("region: expected a string, got %v", v.Kind())
+				return configJSONError(path+".region", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "bucket":
 			v, err := dec.ReadToken()
@@ -2342,12 +2384,12 @@ func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.Bucket = &str
 			default:
-				return fmt.Errorf("bucket: expected a string, got %v", v.Kind())
+				return configJSONError(path+".bucket", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "access-key":
 			v, err := dec.ReadToken()
@@ -2355,12 +2397,12 @@ func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.AccessKey = &str
 			default:
-				return fmt.Errorf("access-key: expected a string, got %v", v.Kind())
+				return configJSONError(path+".access-key", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "secret-key":
 			v, err := dec.ReadToken()
@@ -2368,12 +2410,12 @@ func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.SecretKey = &str
 			default:
-				return fmt.Errorf("secret-key: expected a string, got %v", v.Kind())
+				return configJSONError(path+".secret-key", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "processed-bucket":
 			v, err := dec.ReadToken()
@@ -2381,12 +2423,12 @@ func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.ProcessedBucket = &str
 			default:
-				return fmt.Errorf("processed-bucket: expected a string, got %v", v.Kind())
+				return configJSONError(path+".processed-bucket", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "public-endpoint":
 			v, err := dec.ReadToken()
@@ -2394,12 +2436,12 @@ func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.PublicEndpoint = &str
 			default:
-				return fmt.Errorf("public-endpoint: expected a string, got %v", v.Kind())
+				return configJSONError(path+".public-endpoint", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "public-use-ssl":
 			v, err := dec.ReadToken()
@@ -2407,50 +2449,48 @@ func (s *s3Shadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case 't', 'f':
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
 				b := v.Bool()
 				s.PublicUseSSL = &b
 			default:
-				return fmt.Errorf("public-use-ssl: expected a bool, got %v", v.Kind())
+				return configJSONError(path+".public-use-ssl", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*s3Shadow)(nil)
-
-func (s *indexerShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *indexerShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "enabled":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case 't', 'f':
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
 				b := v.Bool()
 				s.Enabled = &b
 			default:
-				return fmt.Errorf("enabled: expected a bool, got %v", v.Kind())
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
 		case "interval-seconds":
 			v, err := dec.ReadToken()
@@ -2458,16 +2498,19 @@ func (s *indexerShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".interval-seconds", v, err)
 				}
-				val := int(num)
-				s.IntervalSeconds = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-seconds", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalSeconds = &num
 			default:
-				return fmt.Errorf("interval-seconds: expected a number, got %v", v.Kind())
+				return configJSONError(path+".interval-seconds", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "concurrency":
 			v, err := dec.ReadToken()
@@ -2475,54 +2518,55 @@ func (s *indexerShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".concurrency", v, err)
 				}
-				val := int(num)
-				s.Concurrency = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".concurrency", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Concurrency = &num
 			default:
-				return fmt.Errorf("concurrency: expected a number, got %v", v.Kind())
+				return configJSONError(path+".concurrency", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*indexerShadow)(nil)
-
-func (s *previewsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *previewsShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "enabled":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case 't', 'f':
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
 				b := v.Bool()
 				s.Enabled = &b
 			default:
-				return fmt.Errorf("enabled: expected a bool, got %v", v.Kind())
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
 		case "interval-seconds":
 			v, err := dec.ReadToken()
@@ -2530,16 +2574,19 @@ func (s *previewsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".interval-seconds", v, err)
 				}
-				val := int(num)
-				s.IntervalSeconds = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-seconds", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalSeconds = &num
 			default:
-				return fmt.Errorf("interval-seconds: expected a number, got %v", v.Kind())
+				return configJSONError(path+".interval-seconds", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "concurrency":
 			v, err := dec.ReadToken()
@@ -2547,16 +2594,19 @@ func (s *previewsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".concurrency", v, err)
 				}
-				val := int(num)
-				s.Concurrency = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".concurrency", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Concurrency = &num
 			default:
-				return fmt.Errorf("concurrency: expected a number, got %v", v.Kind())
+				return configJSONError(path+".concurrency", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "max-width":
 			v, err := dec.ReadToken()
@@ -2564,16 +2614,19 @@ func (s *previewsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".max-width", v, err)
 				}
-				val := int(num)
-				s.MaxWidth = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".max-width", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.MaxWidth = &num
 			default:
-				return fmt.Errorf("max-width: expected a number, got %v", v.Kind())
+				return configJSONError(path+".max-width", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "quality":
 			v, err := dec.ReadToken()
@@ -2581,16 +2634,19 @@ func (s *previewsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".quality", v, err)
 				}
-				val := int(num)
-				s.Quality = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".quality", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Quality = &num
 			default:
-				return fmt.Errorf("quality: expected a number, got %v", v.Kind())
+				return configJSONError(path+".quality", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "url-ttl-seconds":
 			v, err := dec.ReadToken()
@@ -2598,54 +2654,55 @@ func (s *previewsShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".url-ttl-seconds", v, err)
 				}
-				val := int(num)
-				s.URLTTLSeconds = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".url-ttl-seconds", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.URLTTLSeconds = &num
 			default:
-				return fmt.Errorf("url-ttl-seconds: expected a number, got %v", v.Kind())
+				return configJSONError(path+".url-ttl-seconds", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*previewsShadow)(nil)
-
-func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *stackingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "enabled":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case 't', 'f':
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
 				b := v.Bool()
 				s.Enabled = &b
 			default:
-				return fmt.Errorf("enabled: expected a bool, got %v", v.Kind())
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
 		case "interval-seconds":
 			v, err := dec.ReadToken()
@@ -2653,16 +2710,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".interval-seconds", v, err)
 				}
-				val := int(num)
-				s.IntervalSeconds = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-seconds", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalSeconds = &num
 			default:
-				return fmt.Errorf("interval-seconds: expected a number, got %v", v.Kind())
+				return configJSONError(path+".interval-seconds", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "min-score":
 			v, err := dec.ReadToken()
@@ -2670,16 +2730,15 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
 				num, err := v.Float()
 				if err != nil {
-					return err
+					return configJSONError(path+".min-score", v, err)
 				}
-				val := num
-				s.MinScore = &val
+				s.MinScore = &num
 			default:
-				return fmt.Errorf("min-score: expected a number, got %v", v.Kind())
+				return configJSONError(path+".min-score", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "batch-size":
 			v, err := dec.ReadToken()
@@ -2687,16 +2746,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".batch-size", v, err)
 				}
-				val := int(num)
-				s.BatchSize = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".batch-size", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.BatchSize = &num
 			default:
-				return fmt.Errorf("batch-size: expected a number, got %v", v.Kind())
+				return configJSONError(path+".batch-size", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "work-dir":
 			v, err := dec.ReadToken()
@@ -2704,12 +2766,12 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.WorkDir = &str
 			default:
-				return fmt.Errorf("work-dir: expected a string, got %v", v.Kind())
+				return configJSONError(path+".work-dir", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "siril-command":
 			v, err := dec.ReadToken()
@@ -2717,12 +2779,12 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.SirilCommand = &str
 			default:
-				return fmt.Errorf("siril-command: expected a string, got %v", v.Kind())
+				return configJSONError(path+".siril-command", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "siril-threads":
 			v, err := dec.ReadToken()
@@ -2730,16 +2792,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".siril-threads", v, err)
 				}
-				val := int(num)
-				s.SirilThreads = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".siril-threads", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.SirilThreads = &num
 			default:
-				return fmt.Errorf("siril-threads: expected a number, got %v", v.Kind())
+				return configJSONError(path+".siril-threads", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "siril-memory":
 			v, err := dec.ReadToken()
@@ -2747,16 +2812,15 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
 				num, err := v.Float()
 				if err != nil {
-					return err
+					return configJSONError(path+".siril-memory", v, err)
 				}
-				val := num
-				s.SirilMemory = &val
+				s.SirilMemory = &num
 			default:
-				return fmt.Errorf("siril-memory: expected a number, got %v", v.Kind())
+				return configJSONError(path+".siril-memory", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "workers":
 			v, err := dec.ReadToken()
@@ -2764,16 +2828,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".workers", v, err)
 				}
-				val := int(num)
-				s.Workers = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".workers", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Workers = &num
 			default:
-				return fmt.Errorf("workers: expected a number, got %v", v.Kind())
+				return configJSONError(path+".workers", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "mosaic-minutes":
 			v, err := dec.ReadToken()
@@ -2781,16 +2848,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".mosaic-minutes", v, err)
 				}
-				val := int(num)
-				s.MosaicMinutes = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".mosaic-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.MosaicMinutes = &num
 			default:
-				return fmt.Errorf("mosaic-minutes: expected a number, got %v", v.Kind())
+				return configJSONError(path+".mosaic-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "mosaic-quiet-minutes":
 			v, err := dec.ReadToken()
@@ -2798,16 +2868,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".mosaic-quiet-minutes", v, err)
 				}
-				val := int(num)
-				s.MosaicQuiet = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".mosaic-quiet-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.MosaicQuiet = &num
 			default:
-				return fmt.Errorf("mosaic-quiet-minutes: expected a number, got %v", v.Kind())
+				return configJSONError(path+".mosaic-quiet-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "pedestal":
 			v, err := dec.ReadToken()
@@ -2815,16 +2888,15 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
 				num, err := v.Float()
 				if err != nil {
-					return err
+					return configJSONError(path+".pedestal", v, err)
 				}
-				val := num
-				s.Pedestal = &val
+				s.Pedestal = &num
 			default:
-				return fmt.Errorf("pedestal: expected a number, got %v", v.Kind())
+				return configJSONError(path+".pedestal", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "calibration-settle-minutes":
 			v, err := dec.ReadToken()
@@ -2832,16 +2904,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".calibration-settle-minutes", v, err)
 				}
-				val := int(num)
-				s.CalibrationSettle = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".calibration-settle-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.CalibrationSettle = &num
 			default:
-				return fmt.Errorf("calibration-settle-minutes: expected a number, got %v", v.Kind())
+				return configJSONError(path+".calibration-settle-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "recalibrate-limit":
 			v, err := dec.ReadToken()
@@ -2849,16 +2924,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".recalibrate-limit", v, err)
 				}
-				val := int(num)
-				s.RecalibrateLimit = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".recalibrate-limit", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.RecalibrateLimit = &num
 			default:
-				return fmt.Errorf("recalibrate-limit: expected a number, got %v", v.Kind())
+				return configJSONError(path+".recalibrate-limit", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "drain-seconds":
 			v, err := dec.ReadToken()
@@ -2866,16 +2944,19 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".drain-seconds", v, err)
 				}
-				val := int(num)
-				s.DrainSeconds = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".drain-seconds", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.DrainSeconds = &num
 			default:
-				return fmt.Errorf("drain-seconds: expected a number, got %v", v.Kind())
+				return configJSONError(path+".drain-seconds", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "ts-verdicts":
 			v, err := dec.ReadToken()
@@ -2883,12 +2964,12 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.TSVerdicts = &str
 			default:
-				return fmt.Errorf("ts-verdicts: expected a string, got %v", v.Kind())
+				return configJSONError(path+".ts-verdicts", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "ts-verdicts-since":
 			v, err := dec.ReadToken()
@@ -2896,34 +2977,34 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '"':
+			case jsontext.KindNull:
+			case jsontext.KindString:
 				str := v.String()
 				s.TSVerdictsSince = &str
 			default:
-				return fmt.Errorf("ts-verdicts-since: expected a string, got %v", v.Kind())
+				return configJSONError(path+".ts-verdicts-since", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "ts-verdicts-targets":
-			if dec.PeekKind() == 'n' {
+			if dec.PeekKind() == jsontext.KindNull {
 				if _, err := dec.ReadToken(); err != nil {
 					return err
 				}
 			} else {
-				tok, err := dec.ReadToken()
+				open, err := dec.ReadToken()
 				if err != nil {
 					return err
 				}
-				if tok.Kind() != '[' {
-					return fmt.Errorf("ts-verdicts-targets: expected an array, got %v", tok.Kind())
+				if open.Kind() != jsontext.KindBeginArray {
+					return configJSONError(path+".ts-verdicts-targets", open, fmt.Errorf("expected an array, got %v", open.Kind()))
 				}
 				out := []string{}
-				for dec.PeekKind() != ']' {
+				for dec.PeekKind() != jsontext.KindEndArray {
 					v, err := dec.ReadToken()
 					if err != nil {
 						return err
 					}
-					if v.Kind() != '"' {
-						return fmt.Errorf("ts-verdicts-targets: expected a string element, got %v", v.Kind())
+					if v.Kind() != jsontext.KindString {
+						return configJSONError(path+".ts-verdicts-targets"+"["+strconv.Itoa(len(out))+"]", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 					}
 					el := v.String()
 					out = append(out, el)
@@ -2939,54 +3020,55 @@ func (s *stackingShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".ts-verdicts-max", v, err)
 				}
-				val := int(num)
-				s.TSVerdictsMax = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".ts-verdicts-max", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.TSVerdictsMax = &num
 			default:
-				return fmt.Errorf("ts-verdicts-max: expected a number, got %v", v.Kind())
+				return configJSONError(path+".ts-verdicts-max", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*stackingShadow)(nil)
-
-func (s *publicFramesShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	tok, err := dec.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != '{' {
-		return fmt.Errorf("expected object, got %v", tok.Kind())
-	}
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *publicFramesShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		if tok.Kind() == '}' {
+		if tok.Kind() == jsontext.KindEndObject {
 			return nil
 		}
-		switch tok.String() {
+		switch key := tok.String(); key {
 		case "enabled":
 			v, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case 't', 'f':
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
 				b := v.Bool()
 				s.Enabled = &b
 			default:
-				return fmt.Errorf("enabled: expected a bool, got %v", v.Kind())
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
 		case "interval-seconds":
 			v, err := dec.ReadToken()
@@ -2994,16 +3076,19 @@ func (s *publicFramesShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".interval-seconds", v, err)
 				}
-				val := int(num)
-				s.IntervalSeconds = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-seconds", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalSeconds = &num
 			default:
-				return fmt.Errorf("interval-seconds: expected a number, got %v", v.Kind())
+				return configJSONError(path+".interval-seconds", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		case "max-age-days":
 			v, err := dec.ReadToken()
@@ -3011,83 +3096,105 @@ func (s *publicFramesShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 				return err
 			}
 			switch v.Kind() {
-			case 'n':
-			case '0':
-				num, err := v.Int()
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
 				if err != nil {
-					return err
+					return configJSONError(path+".max-age-days", v, err)
 				}
-				val := int(num)
-				s.MaxAgeDays = &val
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".max-age-days", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.MaxAgeDays = &num
 			default:
-				return fmt.Errorf("max-age-days: expected a number, got %v", v.Kind())
+				return configJSONError(path+".max-age-days", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
 		default:
-			return fmt.Errorf("unknown key %q", tok.String())
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-var _ v2.UnmarshalerFrom = (*publicFramesShadow)(nil)
+// configJSONError returns a ParseError for the JSON token v at path.
+func configJSONError(path string, v jsontext.Token, err error) error {
+	return &configulator.ParseError{
+		Err:   err,
+		Path:  path,
+		Value: v.String(),
+	}
+}
 
 // PrintConfig renders every field as "path = value" lines, redacting
 // fields tagged secret:"true". The origin Report holds no values,
 // so this is the only place redaction happens.
-func (c *Config) PrintConfig() string {
+func (c Config) PrintConfig() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("log-level = %v\n", c.LogLevel))
-	b.WriteString(fmt.Sprintf("http.bind = %v\n", c.HTTP.Bind))
-	b.WriteString(fmt.Sprintf("http.port = %v\n", c.HTTP.Port))
-	b.WriteString(fmt.Sprintf("http.trusted-proxies = %v\n", c.HTTP.TrustedProxies))
-	b.WriteString(fmt.Sprintf("metrics.enabled = %v\n", c.Metrics.Enabled))
-	b.WriteString(fmt.Sprintf("metrics.bind = %v\n", c.Metrics.Bind))
-	b.WriteString(fmt.Sprintf("metrics.port = %v\n", c.Metrics.Port))
-	b.WriteString(fmt.Sprintf("pprof.enabled = %v\n", c.PProf.Enabled))
-	b.WriteString(fmt.Sprintf("pprof.bind = %v\n", c.PProf.Bind))
-	b.WriteString(fmt.Sprintf("pprof.port = %v\n", c.PProf.Port))
-	b.WriteString(fmt.Sprintf("storage.type = %v\n", c.Storage.Type))
-	b.WriteString(fmt.Sprintf("storage.schedulerdb-type = %v\n", c.Storage.SchedulerDBType))
-	b.WriteString(fmt.Sprintf("storage.dsn.app = %v\n", c.Storage.DSN.App))
-	b.WriteString(fmt.Sprintf("storage.dsn.schedulerdb = %v\n", c.Storage.DSN.SchedulerDB))
-	b.WriteString(fmt.Sprintf("s3.endpoint = %v\n", c.S3.Endpoint))
-	b.WriteString(fmt.Sprintf("s3.use-ssl = %v\n", c.S3.UseSSL))
-	b.WriteString(fmt.Sprintf("s3.region = %v\n", c.S3.Region))
-	b.WriteString(fmt.Sprintf("s3.bucket = %v\n", c.S3.Bucket))
-	b.WriteString(fmt.Sprintf("s3.access-key = %v\n", c.S3.AccessKey))
-	b.WriteString(fmt.Sprintf("s3.secret-key = %v\n", c.S3.SecretKey))
-	b.WriteString(fmt.Sprintf("s3.processed-bucket = %v\n", c.S3.ProcessedBucket))
-	b.WriteString(fmt.Sprintf("s3.public-endpoint = %v\n", c.S3.PublicEndpoint))
-	b.WriteString(fmt.Sprintf("s3.public-use-ssl = %v\n", c.S3.PublicUseSSL))
-	b.WriteString(fmt.Sprintf("indexer.enabled = %v\n", c.Indexer.Enabled))
-	b.WriteString(fmt.Sprintf("indexer.interval-seconds = %v\n", c.Indexer.IntervalSeconds))
-	b.WriteString(fmt.Sprintf("indexer.concurrency = %v\n", c.Indexer.Concurrency))
-	b.WriteString(fmt.Sprintf("previews.enabled = %v\n", c.Previews.Enabled))
-	b.WriteString(fmt.Sprintf("previews.interval-seconds = %v\n", c.Previews.IntervalSeconds))
-	b.WriteString(fmt.Sprintf("previews.concurrency = %v\n", c.Previews.Concurrency))
-	b.WriteString(fmt.Sprintf("previews.max-width = %v\n", c.Previews.MaxWidth))
-	b.WriteString(fmt.Sprintf("previews.quality = %v\n", c.Previews.Quality))
-	b.WriteString(fmt.Sprintf("previews.url-ttl-seconds = %v\n", c.Previews.URLTTLSeconds))
-	b.WriteString(fmt.Sprintf("stacking.enabled = %v\n", c.Stacking.Enabled))
-	b.WriteString(fmt.Sprintf("stacking.interval-seconds = %v\n", c.Stacking.IntervalSeconds))
-	b.WriteString(fmt.Sprintf("stacking.min-score = %v\n", c.Stacking.MinScore))
-	b.WriteString(fmt.Sprintf("stacking.batch-size = %v\n", c.Stacking.BatchSize))
-	b.WriteString(fmt.Sprintf("stacking.work-dir = %v\n", c.Stacking.WorkDir))
-	b.WriteString(fmt.Sprintf("stacking.siril-command = %v\n", c.Stacking.SirilCommand))
-	b.WriteString(fmt.Sprintf("stacking.siril-threads = %v\n", c.Stacking.SirilThreads))
-	b.WriteString(fmt.Sprintf("stacking.siril-memory = %v\n", c.Stacking.SirilMemory))
-	b.WriteString(fmt.Sprintf("stacking.workers = %v\n", c.Stacking.Workers))
-	b.WriteString(fmt.Sprintf("stacking.mosaic-minutes = %v\n", c.Stacking.MosaicMinutes))
-	b.WriteString(fmt.Sprintf("stacking.mosaic-quiet-minutes = %v\n", c.Stacking.MosaicQuiet))
-	b.WriteString(fmt.Sprintf("stacking.pedestal = %v\n", c.Stacking.Pedestal))
-	b.WriteString(fmt.Sprintf("stacking.calibration-settle-minutes = %v\n", c.Stacking.CalibrationSettle))
-	b.WriteString(fmt.Sprintf("stacking.recalibrate-limit = %v\n", c.Stacking.RecalibrateLimit))
-	b.WriteString(fmt.Sprintf("stacking.drain-seconds = %v\n", c.Stacking.DrainSeconds))
-	b.WriteString(fmt.Sprintf("stacking.ts-verdicts = %v\n", c.Stacking.TSVerdicts))
-	b.WriteString(fmt.Sprintf("stacking.ts-verdicts-since = %v\n", c.Stacking.TSVerdictsSince))
-	b.WriteString(fmt.Sprintf("stacking.ts-verdicts-targets = %v\n", c.Stacking.TSVerdictsTargets))
-	b.WriteString(fmt.Sprintf("stacking.ts-verdicts-max = %v\n", c.Stacking.TSVerdictsMax))
-	b.WriteString(fmt.Sprintf("public-frames.enabled = %v\n", c.PublicFrames.Enabled))
-	b.WriteString(fmt.Sprintf("public-frames.interval-seconds = %v\n", c.PublicFrames.IntervalSeconds))
-	b.WriteString(fmt.Sprintf("public-frames.max-age-days = %v\n", c.PublicFrames.MaxAgeDays))
+	fmt.Fprintf(&b, "log-level = %v\n", c.LogLevel)
+	fmt.Fprintf(&b, "http.bind = %v\n", c.HTTP.Bind)
+	fmt.Fprintf(&b, "http.port = %v\n", c.HTTP.Port)
+	fmt.Fprintf(&b, "http.trusted-proxies = %v\n", c.HTTP.TrustedProxies)
+	fmt.Fprintf(&b, "metrics.enabled = %v\n", c.Metrics.Enabled)
+	fmt.Fprintf(&b, "metrics.bind = %v\n", c.Metrics.Bind)
+	fmt.Fprintf(&b, "metrics.port = %v\n", c.Metrics.Port)
+	fmt.Fprintf(&b, "pprof.enabled = %v\n", c.PProf.Enabled)
+	fmt.Fprintf(&b, "pprof.bind = %v\n", c.PProf.Bind)
+	fmt.Fprintf(&b, "pprof.port = %v\n", c.PProf.Port)
+	fmt.Fprintf(&b, "storage.type = %v\n", c.Storage.Type)
+	fmt.Fprintf(&b, "storage.schedulerdb-type = %v\n", c.Storage.SchedulerDBType)
+	fmt.Fprintf(&b, "storage.dsn.app = %v\n", c.Storage.DSN.App)
+	fmt.Fprintf(&b, "storage.dsn.schedulerdb = %v\n", c.Storage.DSN.SchedulerDB)
+	fmt.Fprintf(&b, "s3.endpoint = %v\n", c.S3.Endpoint)
+	fmt.Fprintf(&b, "s3.use-ssl = %v\n", c.S3.UseSSL)
+	fmt.Fprintf(&b, "s3.region = %v\n", c.S3.Region)
+	fmt.Fprintf(&b, "s3.bucket = %v\n", c.S3.Bucket)
+	fmt.Fprintf(&b, "s3.access-key = %v\n", c.S3.AccessKey)
+	fmt.Fprintf(&b, "s3.secret-key = %v\n", c.S3.SecretKey)
+	fmt.Fprintf(&b, "s3.processed-bucket = %v\n", c.S3.ProcessedBucket)
+	fmt.Fprintf(&b, "s3.public-endpoint = %v\n", c.S3.PublicEndpoint)
+	fmt.Fprintf(&b, "s3.public-use-ssl = %v\n", c.S3.PublicUseSSL)
+	fmt.Fprintf(&b, "indexer.enabled = %v\n", c.Indexer.Enabled)
+	fmt.Fprintf(&b, "indexer.interval-seconds = %v\n", c.Indexer.IntervalSeconds)
+	fmt.Fprintf(&b, "indexer.concurrency = %v\n", c.Indexer.Concurrency)
+	fmt.Fprintf(&b, "previews.enabled = %v\n", c.Previews.Enabled)
+	fmt.Fprintf(&b, "previews.interval-seconds = %v\n", c.Previews.IntervalSeconds)
+	fmt.Fprintf(&b, "previews.concurrency = %v\n", c.Previews.Concurrency)
+	fmt.Fprintf(&b, "previews.max-width = %v\n", c.Previews.MaxWidth)
+	fmt.Fprintf(&b, "previews.quality = %v\n", c.Previews.Quality)
+	fmt.Fprintf(&b, "previews.url-ttl-seconds = %v\n", c.Previews.URLTTLSeconds)
+	fmt.Fprintf(&b, "stacking.enabled = %v\n", c.Stacking.Enabled)
+	fmt.Fprintf(&b, "stacking.interval-seconds = %v\n", c.Stacking.IntervalSeconds)
+	fmt.Fprintf(&b, "stacking.min-score = %v\n", c.Stacking.MinScore)
+	fmt.Fprintf(&b, "stacking.batch-size = %v\n", c.Stacking.BatchSize)
+	fmt.Fprintf(&b, "stacking.work-dir = %v\n", c.Stacking.WorkDir)
+	fmt.Fprintf(&b, "stacking.siril-command = %v\n", c.Stacking.SirilCommand)
+	fmt.Fprintf(&b, "stacking.siril-threads = %v\n", c.Stacking.SirilThreads)
+	fmt.Fprintf(&b, "stacking.siril-memory = %v\n", c.Stacking.SirilMemory)
+	fmt.Fprintf(&b, "stacking.workers = %v\n", c.Stacking.Workers)
+	fmt.Fprintf(&b, "stacking.mosaic-minutes = %v\n", c.Stacking.MosaicMinutes)
+	fmt.Fprintf(&b, "stacking.mosaic-quiet-minutes = %v\n", c.Stacking.MosaicQuiet)
+	fmt.Fprintf(&b, "stacking.pedestal = %v\n", c.Stacking.Pedestal)
+	fmt.Fprintf(&b, "stacking.calibration-settle-minutes = %v\n", c.Stacking.CalibrationSettle)
+	fmt.Fprintf(&b, "stacking.recalibrate-limit = %v\n", c.Stacking.RecalibrateLimit)
+	fmt.Fprintf(&b, "stacking.drain-seconds = %v\n", c.Stacking.DrainSeconds)
+	fmt.Fprintf(&b, "stacking.ts-verdicts = %v\n", c.Stacking.TSVerdicts)
+	fmt.Fprintf(&b, "stacking.ts-verdicts-since = %v\n", c.Stacking.TSVerdictsSince)
+	fmt.Fprintf(&b, "stacking.ts-verdicts-targets = %v\n", c.Stacking.TSVerdictsTargets)
+	fmt.Fprintf(&b, "stacking.ts-verdicts-max = %v\n", c.Stacking.TSVerdictsMax)
+	fmt.Fprintf(&b, "public-frames.enabled = %v\n", c.PublicFrames.Enabled)
+	fmt.Fprintf(&b, "public-frames.interval-seconds = %v\n", c.PublicFrames.IntervalSeconds)
+	fmt.Fprintf(&b, "public-frames.max-age-days = %v\n", c.PublicFrames.MaxAgeDays)
 	return b.String()
+}
+
+func configQuoteKey(k string) string {
+	if strings.ContainsAny(k, ".[") {
+		return "\"" + strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(k) + "\""
+	}
+	return k
 }
