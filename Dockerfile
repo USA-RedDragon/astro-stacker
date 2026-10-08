@@ -2,6 +2,6 @@
 # Alpine (github.com/USA-RedDragon/dockers, images/siril). It's x86_64 only,
 # so this image is amd64 only. The base sets HOME and the XDG dirs to /tmp,
 # which the pod mounts writable over a read-only root filesystem.
-FROM ghcr.io/usa-reddragon/siril:1.4.4@sha256:b1afaf6b4bffa570a3d5599bd31f1d8b2459b290e76d48ea82c5a2ac1205c3c1
+FROM ghcr.io/usa-reddragon/siril:1.4.4@sha256:266194257a6db0e3a0b6f86e4aef375044b99b410a105b99ef25625da444105c
 COPY astro-stacker /astro-stacker
 CMD ["/astro-stacker"]
