@@ -1,45 +1,129 @@
-# Copy this file to config.yaml and modify it to suit your needs.
-
-# Logging level (debug, info, warn, error)
-log-level: info
-
+# Sample configuration for Config.
+# Logging level for the application. One of debug, info, warn, or error
+log-level: "info"
 # HTTP server configuration
 http:
-  # IPv6 wildcard, listens on all interfaces
+  # Address to listen on
   bind: "[::]"
+  # Port to listen on
   port: 8080
-  # List of trusted proxy IPs for X-Forwarded-* headers
-  trusted-proxies: []
-
-# Prometheus metrics endpoint
+  # Trusted proxies for the HTTP server
+  # trusted-proxies: []
+# Metrics server configuration
 metrics:
+  # Enable metrics server
   enabled: false
-  # Localhost only by default
+  # Address to listen on
   bind: "127.0.0.1"
+  # Port to listen on
   port: 9000
-
-# Go pprof profiling endpoint (for debugging/performance analysis)
+# PProf server configuration
 pprof:
+  # Enable pprof server
   enabled: false
-  # Localhost only by default
+  # Address to listen on
   bind: "127.0.0.1"
+  # Port to listen on
   port: 9999
-
-# Database configuration
+# Storage configuration
 storage:
-  # Database type (sqlite, postgres, mysql)
-  type: sqlite
-  # Data Source Names (DSNs) for different databases
+  # Storage type. One of mysql, postgres, sqlite
+  type: "sqlite"
+  # Storage type of the scheduler database, if different from type
+  # schedulerdb-type: ""
+  # Data source names for the storage
   dsn:
-    # Example Postgres DSN:
-    # "host=localhost user=username dbname=database password=password sslmode=disable"
-    # Example MySQL DSN:
-    # "username:password@tcp(localhost:3306)/database?charset=utf8&parseTime=True"
-    # Example SQLite DSN:
-    # "file:database.db?_pragma=foreign_keys(1)&journal_mode=WAL"
-
-    # Data source name for the application database
+    # Data source name for the application storage
     app: ":memory:?_pragma=foreign_keys(1)"
     # Data source name for the scheduler database
     schedulerdb: ":memory:?_pragma=foreign_keys(1)"
-  
+# Object store holding the raw frames
+s3:
+  # S3 endpoint host, without scheme
+  endpoint: "s3.mcswain.dev"
+  # Use HTTPS for the S3 endpoint
+  use-ssl: true
+  # S3 region
+  region: "us-east-1"
+  # Bucket holding the raw frames
+  bucket: "astro"
+  # S3 access key
+  # access-key: ""
+  # S3 secret key
+  # secret-key: ""
+  # Bucket for previews and processed frames
+  processed-bucket: "astro-processed"
+  # S3 host browsers use for presigned URLs
+  public-endpoint: "s3.mcswain.dev"
+  # Presigned URLs use HTTPS
+  public-use-ssl: true
+# Frame indexer configuration
+indexer:
+  # Index frame headers from the bucket
+  enabled: false
+  # Seconds between bucket scans
+  interval-seconds: 600
+  # Headers to fetch in parallel
+  concurrency: 8
+# Sub preview rendering
+previews:
+  # Render auto-stretched JPEG previews of lights into the processed bucket
+  enabled: false
+  # Seconds between checks for frames without previews
+  interval-seconds: 120
+  # Frames rendered in parallel; each needs about 200 MB
+  concurrency: 2
+  # Preview width in pixels
+  max-width: 1280
+  # JPEG quality
+  quality: 80
+  # Lifetime of presigned preview URLs
+  url-ttl-seconds: 3600
+# Calibrating, registering and stacking lights into one master per target and filter
+stacking:
+  # Stack good lights into masters as they arrive
+  enabled: false
+  # Seconds between checks for new lights when idle
+  interval-seconds: 120
+  # Lowest sub score (0-1) that goes into a master
+  min-score: 0.3
+  # Subs calibrated and registered per Siril run
+  batch-size: 12
+  # Scratch space for downloads, masters and Siril output
+  work-dir: "/tmp/stacking"
+  # siril-cli, or an extracted Siril AppImage's AppRun
+  siril-command: "siril-cli"
+  # Threads Siril may use
+  siril-threads: 4
+  # Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread
+  siril-memory: 0.5
+  # Targets stacked at once; each holds up to about 1.5 GB besides Siril
+  workers: 1
+  # Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off
+  mosaic-minutes: 10
+  # Minutes a mosaic's panel masters must be unchanged before it is rebuilt
+  mosaic-quiet-minutes: 30
+  # Camera pedestal in ADU, for scoring subs
+  pedestal: 506
+  # Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile
+  calibration-settle-minutes: 180
+  # Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear
+  recalibrate-limit: 300
+  # On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it
+  drain-seconds: 1200
+  # Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on
+  ts-verdicts: "off"
+  # Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all
+  # ts-verdicts-since: ""
+  # Only subs of these targets; empty for all
+  # ts-verdicts-targets: []
+  # Most new verdicts sent per hourly sweep
+  ts-verdicts-max: 200
+# Small watermarked frames of each target's newest accepted light, for the public site
+public-frames:
+  # Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg
+  enabled: false
+  # Seconds between checks for newly accepted lights
+  interval-seconds: 60
+  # Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered
+  max-age-days: 14

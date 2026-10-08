@@ -12,6 +12,7 @@ import (
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
 	"github.com/spf13/pflag"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -111,7 +112,7 @@ func ConfigSchema() *configulator.Schema[Config] {
 		DecodeFile:    configDecodeFile,
 	}
 }
-func configApplyDefaults(cfg *Config, set configulator.SetOrigin) error {
+func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) error {
 	cfg.LogLevel = LogLevel("info")
 	set("log-level", configulator.LayerDefault, "default tag")
 	cfg.HTTP.Bind = "[::]"
@@ -198,7 +199,7 @@ func configApplyDefaults(cfg *Config, set configulator.SetOrigin) error {
 	set("public-frames.max-age-days", configulator.LayerDefault, "default tag")
 	return nil
 }
-func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, set configulator.SetOrigin, file string) error {
+func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, sep string, set configulator.SetOrigin, file string) error {
 	var sh configShadow
 	if err := u(data, &sh); err != nil {
 		return &configulator.DecodeError{
@@ -206,9 +207,9 @@ func configDecodeFile(data []byte, u configulator.Unmarshal, cfg *Config, set co
 			Path: file,
 		}
 	}
-	return sh.applyTo(cfg, set, file)
+	return sh.applyTo(cfg, sep, set, file)
 }
-func (s *configShadow) applyTo(cfg *Config, set configulator.SetOrigin, file string) error {
+func (s *configShadow) applyTo(cfg *Config, sep string, set configulator.SetOrigin, file string) error {
 	if s.LogLevel != nil {
 		cfg.LogLevel = LogLevel(*s.LogLevel)
 		set("log-level", configulator.LayerFile, file)
@@ -477,7 +478,8 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 	}
 	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "http", "trusted-proxies"); true {
 		if v, ok := ec.Getenv(n); ok {
-			cfg.HTTP.TrustedProxies = configulator.SplitList(v, ec.ArraySeparator)
+			lst := configulator.SplitList(v, ec.ArraySeparator)
+			cfg.HTTP.TrustedProxies = lst
 			set("http.trusted-proxies", configulator.LayerEnv, n)
 		}
 	}
@@ -1005,7 +1007,8 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 	}
 	if n := configulator.EnvName(ec.Opts.Prefix, ec.Opts.Separator, "stacking", "ts-verdicts-targets"); true {
 		if v, ok := ec.Getenv(n); ok {
-			cfg.Stacking.TSVerdictsTargets = configulator.SplitList(v, ec.ArraySeparator)
+			lst := configulator.SplitList(v, ec.ArraySeparator)
+			cfg.Stacking.TSVerdictsTargets = lst
 			set("stacking.ts-verdicts-targets", configulator.LayerEnv, n)
 		}
 	}
@@ -1080,68 +1083,72 @@ func ConfigPFlagHooks() cpflag.Hooks[Config] {
 	}
 }
 func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
-	for _, name := range []string{strings.Join([]string{"log-level"}, o.Separator), strings.Join([]string{"http", "bind"}, o.Separator), strings.Join([]string{"http", "port"}, o.Separator), strings.Join([]string{"http", "trusted-proxies"}, o.Separator), strings.Join([]string{"metrics", "enabled"}, o.Separator), strings.Join([]string{"metrics", "bind"}, o.Separator), strings.Join([]string{"metrics", "port"}, o.Separator), strings.Join([]string{"pprof", "enabled"}, o.Separator), strings.Join([]string{"pprof", "bind"}, o.Separator), strings.Join([]string{"pprof", "port"}, o.Separator), strings.Join([]string{"storage", "type"}, o.Separator), strings.Join([]string{"storage", "schedulerdb-type"}, o.Separator), strings.Join([]string{"storage", "dsn", "app"}, o.Separator), strings.Join([]string{"storage", "dsn", "schedulerdb"}, o.Separator), strings.Join([]string{"s3", "endpoint"}, o.Separator), strings.Join([]string{"s3", "use-ssl"}, o.Separator), strings.Join([]string{"s3", "region"}, o.Separator), strings.Join([]string{"s3", "bucket"}, o.Separator), strings.Join([]string{"s3", "access-key"}, o.Separator), strings.Join([]string{"s3", "secret-key"}, o.Separator), strings.Join([]string{"s3", "processed-bucket"}, o.Separator), strings.Join([]string{"s3", "public-endpoint"}, o.Separator), strings.Join([]string{"s3", "public-use-ssl"}, o.Separator), strings.Join([]string{"indexer", "enabled"}, o.Separator), strings.Join([]string{"indexer", "interval-seconds"}, o.Separator), strings.Join([]string{"indexer", "concurrency"}, o.Separator), strings.Join([]string{"previews", "enabled"}, o.Separator), strings.Join([]string{"previews", "interval-seconds"}, o.Separator), strings.Join([]string{"previews", "concurrency"}, o.Separator), strings.Join([]string{"previews", "max-width"}, o.Separator), strings.Join([]string{"previews", "quality"}, o.Separator), strings.Join([]string{"previews", "url-ttl-seconds"}, o.Separator), strings.Join([]string{"stacking", "enabled"}, o.Separator), strings.Join([]string{"stacking", "interval-seconds"}, o.Separator), strings.Join([]string{"stacking", "min-score"}, o.Separator), strings.Join([]string{"stacking", "batch-size"}, o.Separator), strings.Join([]string{"stacking", "work-dir"}, o.Separator), strings.Join([]string{"stacking", "siril-command"}, o.Separator), strings.Join([]string{"stacking", "siril-threads"}, o.Separator), strings.Join([]string{"stacking", "siril-memory"}, o.Separator), strings.Join([]string{"stacking", "workers"}, o.Separator), strings.Join([]string{"stacking", "mosaic-minutes"}, o.Separator), strings.Join([]string{"stacking", "mosaic-quiet-minutes"}, o.Separator), strings.Join([]string{"stacking", "pedestal"}, o.Separator), strings.Join([]string{"stacking", "calibration-settle-minutes"}, o.Separator), strings.Join([]string{"stacking", "recalibrate-limit"}, o.Separator), strings.Join([]string{"stacking", "drain-seconds"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-since"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-targets"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-max"}, o.Separator), strings.Join([]string{"public-frames", "enabled"}, o.Separator), strings.Join([]string{"public-frames", "interval-seconds"}, o.Separator), strings.Join([]string{"public-frames", "max-age-days"}, o.Separator)} {
-		if fs.Lookup(name) != nil {
-			return fmt.Errorf("flag --%s already registered on this FlagSet", name)
+	names := []string{strings.Join([]string{"log-level"}, o.Separator), strings.Join([]string{"http", "bind"}, o.Separator), strings.Join([]string{"http", "port"}, o.Separator), strings.Join([]string{"http", "trusted-proxies"}, o.Separator), strings.Join([]string{"metrics", "enabled"}, o.Separator), strings.Join([]string{"metrics", "bind"}, o.Separator), strings.Join([]string{"metrics", "port"}, o.Separator), strings.Join([]string{"pprof", "enabled"}, o.Separator), strings.Join([]string{"pprof", "bind"}, o.Separator), strings.Join([]string{"pprof", "port"}, o.Separator), strings.Join([]string{"storage", "type"}, o.Separator), strings.Join([]string{"storage", "schedulerdb-type"}, o.Separator), strings.Join([]string{"storage", "dsn", "app"}, o.Separator), strings.Join([]string{"storage", "dsn", "schedulerdb"}, o.Separator), strings.Join([]string{"s3", "endpoint"}, o.Separator), strings.Join([]string{"s3", "use-ssl"}, o.Separator), strings.Join([]string{"s3", "region"}, o.Separator), strings.Join([]string{"s3", "bucket"}, o.Separator), strings.Join([]string{"s3", "access-key"}, o.Separator), strings.Join([]string{"s3", "secret-key"}, o.Separator), strings.Join([]string{"s3", "processed-bucket"}, o.Separator), strings.Join([]string{"s3", "public-endpoint"}, o.Separator), strings.Join([]string{"s3", "public-use-ssl"}, o.Separator), strings.Join([]string{"indexer", "enabled"}, o.Separator), strings.Join([]string{"indexer", "interval-seconds"}, o.Separator), strings.Join([]string{"indexer", "concurrency"}, o.Separator), strings.Join([]string{"previews", "enabled"}, o.Separator), strings.Join([]string{"previews", "interval-seconds"}, o.Separator), strings.Join([]string{"previews", "concurrency"}, o.Separator), strings.Join([]string{"previews", "max-width"}, o.Separator), strings.Join([]string{"previews", "quality"}, o.Separator), strings.Join([]string{"previews", "url-ttl-seconds"}, o.Separator), strings.Join([]string{"stacking", "enabled"}, o.Separator), strings.Join([]string{"stacking", "interval-seconds"}, o.Separator), strings.Join([]string{"stacking", "min-score"}, o.Separator), strings.Join([]string{"stacking", "batch-size"}, o.Separator), strings.Join([]string{"stacking", "work-dir"}, o.Separator), strings.Join([]string{"stacking", "siril-command"}, o.Separator), strings.Join([]string{"stacking", "siril-threads"}, o.Separator), strings.Join([]string{"stacking", "siril-memory"}, o.Separator), strings.Join([]string{"stacking", "workers"}, o.Separator), strings.Join([]string{"stacking", "mosaic-minutes"}, o.Separator), strings.Join([]string{"stacking", "mosaic-quiet-minutes"}, o.Separator), strings.Join([]string{"stacking", "pedestal"}, o.Separator), strings.Join([]string{"stacking", "calibration-settle-minutes"}, o.Separator), strings.Join([]string{"stacking", "recalibrate-limit"}, o.Separator), strings.Join([]string{"stacking", "drain-seconds"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-since"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-targets"}, o.Separator), strings.Join([]string{"stacking", "ts-verdicts-max"}, o.Separator), strings.Join([]string{"public-frames", "enabled"}, o.Separator), strings.Join([]string{"public-frames", "interval-seconds"}, o.Separator), strings.Join([]string{"public-frames", "max-age-days"}, o.Separator)}
+	for i, name := range names {
+		if fs.Lookup(name) != nil || slices.Contains(names[:i], name) {
+			return &configulator.FlagConflictError{
+				Existing: name,
+				Flag:     name,
+			}
 		}
 	}
-	fs.String(strings.Join([]string{"log-level"}, o.Separator), "info", "Logging level for the application. One of debug, info, warn, or error")
-	fs.String(strings.Join([]string{"http", "bind"}, o.Separator), "[::]", "Address to listen on")
-	fs.Int(strings.Join([]string{"http", "port"}, o.Separator), 8080, "Port to listen on")
-	fs.StringSlice(strings.Join([]string{"http", "trusted-proxies"}, o.Separator), nil, "Trusted proxies for the HTTP server")
-	fs.Bool(strings.Join([]string{"metrics", "enabled"}, o.Separator), false, "Enable metrics server")
-	fs.String(strings.Join([]string{"metrics", "bind"}, o.Separator), "127.0.0.1", "Address to listen on")
-	fs.Int(strings.Join([]string{"metrics", "port"}, o.Separator), 9000, "Port to listen on")
-	fs.Bool(strings.Join([]string{"pprof", "enabled"}, o.Separator), false, "Enable pprof server")
-	fs.String(strings.Join([]string{"pprof", "bind"}, o.Separator), "127.0.0.1", "Address to listen on")
-	fs.Int(strings.Join([]string{"pprof", "port"}, o.Separator), 9999, "Port to listen on")
-	fs.String(strings.Join([]string{"storage", "type"}, o.Separator), "sqlite", "Storage type. One of mysql, postgres, sqlite")
-	fs.String(strings.Join([]string{"storage", "schedulerdb-type"}, o.Separator), "", "Storage type of the scheduler database, if different from type")
-	fs.String(strings.Join([]string{"storage", "dsn", "app"}, o.Separator), ":memory:?_pragma=foreign_keys(1)", "Data source name for the application storage")
-	fs.String(strings.Join([]string{"storage", "dsn", "schedulerdb"}, o.Separator), ":memory:?_pragma=foreign_keys(1)", "Data source name for the scheduler database")
-	fs.String(strings.Join([]string{"s3", "endpoint"}, o.Separator), "s3.mcswain.dev", "S3 endpoint host, without scheme")
-	fs.Bool(strings.Join([]string{"s3", "use-ssl"}, o.Separator), true, "Use HTTPS for the S3 endpoint")
-	fs.String(strings.Join([]string{"s3", "region"}, o.Separator), "us-east-1", "S3 region")
-	fs.String(strings.Join([]string{"s3", "bucket"}, o.Separator), "astro", "Bucket holding the raw frames")
-	fs.String(strings.Join([]string{"s3", "access-key"}, o.Separator), "", "S3 access key")
-	fs.String(strings.Join([]string{"s3", "secret-key"}, o.Separator), "", "S3 secret key")
-	fs.String(strings.Join([]string{"s3", "processed-bucket"}, o.Separator), "astro-processed", "Bucket for previews and processed frames")
-	fs.String(strings.Join([]string{"s3", "public-endpoint"}, o.Separator), "s3.mcswain.dev", "S3 host browsers use for presigned URLs")
-	fs.Bool(strings.Join([]string{"s3", "public-use-ssl"}, o.Separator), true, "Presigned URLs use HTTPS")
-	fs.Bool(strings.Join([]string{"indexer", "enabled"}, o.Separator), false, "Index frame headers from the bucket")
-	fs.Int(strings.Join([]string{"indexer", "interval-seconds"}, o.Separator), 600, "Seconds between bucket scans")
-	fs.Int(strings.Join([]string{"indexer", "concurrency"}, o.Separator), 8, "Headers to fetch in parallel")
-	fs.Bool(strings.Join([]string{"previews", "enabled"}, o.Separator), false, "Render auto-stretched JPEG previews of lights into the processed bucket")
-	fs.Int(strings.Join([]string{"previews", "interval-seconds"}, o.Separator), 120, "Seconds between checks for frames without previews")
-	fs.Int(strings.Join([]string{"previews", "concurrency"}, o.Separator), 2, "Frames rendered in parallel; each needs about 200 MB")
-	fs.Int(strings.Join([]string{"previews", "max-width"}, o.Separator), 1280, "Preview width in pixels")
-	fs.Int(strings.Join([]string{"previews", "quality"}, o.Separator), 80, "JPEG quality")
-	fs.Int(strings.Join([]string{"previews", "url-ttl-seconds"}, o.Separator), 3600, "Lifetime of presigned preview URLs")
-	fs.Bool(strings.Join([]string{"stacking", "enabled"}, o.Separator), false, "Stack good lights into masters as they arrive")
-	fs.Int(strings.Join([]string{"stacking", "interval-seconds"}, o.Separator), 120, "Seconds between checks for new lights when idle")
-	fs.Float64(strings.Join([]string{"stacking", "min-score"}, o.Separator), 0.3, "Lowest sub score (0-1) that goes into a master")
-	fs.Int(strings.Join([]string{"stacking", "batch-size"}, o.Separator), 12, "Subs calibrated and registered per Siril run")
-	fs.String(strings.Join([]string{"stacking", "work-dir"}, o.Separator), "/tmp/stacking", "Scratch space for downloads, masters and Siril output")
-	fs.String(strings.Join([]string{"stacking", "siril-command"}, o.Separator), "siril-cli", "siril-cli, or an extracted Siril AppImage's AppRun")
-	fs.Int(strings.Join([]string{"stacking", "siril-threads"}, o.Separator), 4, "Threads Siril may use")
-	fs.Float64(strings.Join([]string{"stacking", "siril-memory"}, o.Separator), 0.5, "Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread")
-	fs.Int(strings.Join([]string{"stacking", "workers"}, o.Separator), 1, "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
-	fs.Int(strings.Join([]string{"stacking", "mosaic-minutes"}, o.Separator), 10, "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
-	fs.Int(strings.Join([]string{"stacking", "mosaic-quiet-minutes"}, o.Separator), 30, "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
-	fs.Float64(strings.Join([]string{"stacking", "pedestal"}, o.Separator), 506.0, "Camera pedestal in ADU, for scoring subs")
-	fs.Int(strings.Join([]string{"stacking", "calibration-settle-minutes"}, o.Separator), 180, "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
-	fs.Int(strings.Join([]string{"stacking", "recalibrate-limit"}, o.Separator), 300, "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
-	fs.Int(strings.Join([]string{"stacking", "drain-seconds"}, o.Separator), 1200, "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
-	fs.String(strings.Join([]string{"stacking", "ts-verdicts"}, o.Separator), "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
-	fs.String(strings.Join([]string{"stacking", "ts-verdicts-since"}, o.Separator), "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
-	fs.StringSlice(strings.Join([]string{"stacking", "ts-verdicts-targets"}, o.Separator), nil, "Only subs of these targets; empty for all")
-	fs.Int(strings.Join([]string{"stacking", "ts-verdicts-max"}, o.Separator), 200, "Most new verdicts sent per hourly sweep")
-	fs.Bool(strings.Join([]string{"public-frames", "enabled"}, o.Separator), false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
-	fs.Int(strings.Join([]string{"public-frames", "interval-seconds"}, o.Separator), 60, "Seconds between checks for newly accepted lights")
-	fs.Int(strings.Join([]string{"public-frames", "max-age-days"}, o.Separator), 14, "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
+	fs.String(names[0], "info", "Logging level for the application. One of debug, info, warn, or error")
+	fs.String(names[1], "[::]", "Address to listen on")
+	fs.Int(names[2], 8080, "Port to listen on")
+	fs.StringSlice(names[3], nil, "Trusted proxies for the HTTP server")
+	fs.Bool(names[4], false, "Enable metrics server")
+	fs.String(names[5], "127.0.0.1", "Address to listen on")
+	fs.Int(names[6], 9000, "Port to listen on")
+	fs.Bool(names[7], false, "Enable pprof server")
+	fs.String(names[8], "127.0.0.1", "Address to listen on")
+	fs.Int(names[9], 9999, "Port to listen on")
+	fs.String(names[10], "sqlite", "Storage type. One of mysql, postgres, sqlite")
+	fs.String(names[11], "", "Storage type of the scheduler database, if different from type")
+	fs.String(names[12], ":memory:?_pragma=foreign_keys(1)", "Data source name for the application storage")
+	fs.String(names[13], ":memory:?_pragma=foreign_keys(1)", "Data source name for the scheduler database")
+	fs.String(names[14], "s3.mcswain.dev", "S3 endpoint host, without scheme")
+	fs.Bool(names[15], true, "Use HTTPS for the S3 endpoint")
+	fs.String(names[16], "us-east-1", "S3 region")
+	fs.String(names[17], "astro", "Bucket holding the raw frames")
+	fs.String(names[18], "", "S3 access key")
+	fs.String(names[19], "", "S3 secret key")
+	fs.String(names[20], "astro-processed", "Bucket for previews and processed frames")
+	fs.String(names[21], "s3.mcswain.dev", "S3 host browsers use for presigned URLs")
+	fs.Bool(names[22], true, "Presigned URLs use HTTPS")
+	fs.Bool(names[23], false, "Index frame headers from the bucket")
+	fs.Int(names[24], 600, "Seconds between bucket scans")
+	fs.Int(names[25], 8, "Headers to fetch in parallel")
+	fs.Bool(names[26], false, "Render auto-stretched JPEG previews of lights into the processed bucket")
+	fs.Int(names[27], 120, "Seconds between checks for frames without previews")
+	fs.Int(names[28], 2, "Frames rendered in parallel; each needs about 200 MB")
+	fs.Int(names[29], 1280, "Preview width in pixels")
+	fs.Int(names[30], 80, "JPEG quality")
+	fs.Int(names[31], 3600, "Lifetime of presigned preview URLs")
+	fs.Bool(names[32], false, "Stack good lights into masters as they arrive")
+	fs.Int(names[33], 120, "Seconds between checks for new lights when idle")
+	fs.Float64(names[34], 0.3, "Lowest sub score (0-1) that goes into a master")
+	fs.Int(names[35], 12, "Subs calibrated and registered per Siril run")
+	fs.String(names[36], "/tmp/stacking", "Scratch space for downloads, masters and Siril output")
+	fs.String(names[37], "siril-cli", "siril-cli, or an extracted Siril AppImage's AppRun")
+	fs.Int(names[38], 4, "Threads Siril may use")
+	fs.Float64(names[39], 0.5, "Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread")
+	fs.Int(names[40], 1, "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
+	fs.Int(names[41], 10, "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
+	fs.Int(names[42], 30, "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
+	fs.Float64(names[43], 506.0, "Camera pedestal in ADU, for scoring subs")
+	fs.Int(names[44], 180, "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
+	fs.Int(names[45], 300, "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
+	fs.Int(names[46], 1200, "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
+	fs.String(names[47], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
+	fs.String(names[48], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
+	fs.StringSlice(names[49], nil, "Only subs of these targets; empty for all")
+	fs.Int(names[50], 200, "Most new verdicts sent per hourly sweep")
+	fs.Bool(names[51], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
+	fs.Int(names[52], 60, "Seconds between checks for newly accepted lights")
+	fs.Int(names[53], 14, "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
 	return nil
 }
-func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, set configulator.SetOrigin) error {
+func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, sep string, set configulator.SetOrigin) error {
 	if n := strings.Join([]string{"log-level"}, o.Separator); fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
