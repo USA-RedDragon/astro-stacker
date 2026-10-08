@@ -33,24 +33,12 @@ jobs:
 
   config-docs:
     name: config docs
-    runs-on: ubuntu-24.04
     permissions:
       contents: read
-    steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.AUTO_COMMIT_APP_ID }}
-          private-key: ${{ secrets.AUTO_COMMIT_APP_KEY }}
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
-      - uses: USA-RedDragon/reusable-actions/configulator-docs@86546533e7fe42b748a54ea123c6aa4e3e812241 # v2.0.31
-        with:
-          dir: internal/config
-          type: Config
-          git-user-name: usa-reddragon-auto-commit-bot[bot]
-          git-user-email: usa-reddragon-auto-commit-bot[bot]@users.noreply.github.com
+    uses: USA-RedDragon/reusable-actions/.github/workflows/configulator-docs.yaml@c5ee15922a0ff4229b0f06a8d0551541b5cabfdc # v2.0.34
+    with:
+      dir: internal/config
+      type: Config
+      app-id: ${{ vars.AUTO_COMMIT_APP_ID }}
+    secrets:
+      app-key: ${{ secrets.AUTO_COMMIT_APP_KEY }}
