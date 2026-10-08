@@ -6,7 +6,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -55,7 +54,7 @@ func objectSubs(ctx context.Context, db *gorm.DB, object string) ([]Sub, error) 
 		Select("f.key, f.filter, f.exposure, f.date_obs, f.photometry_rev, f.photometry, "+
 			"sf.status, sf.score, sf.weight, sf.error, sf.processed_at").
 		Joins("LEFT JOIN stack_frames sf ON sf.frame_id = f.id").
-		Where("f.object = ? AND f.type = ? AND f.index_error IS NULL", object, "LIGHT").
+		Where("f.object = ? AND f.type = ? AND f.index_error IS NULL", object, lightType).
 		Order("f.date_obs, f.key").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -91,13 +90,16 @@ func objectSubs(ctx context.Context, db *gorm.DB, object string) ([]Sub, error) 
 func subsRoute(c *gin.Context) {
 	object := c.Query("object")
 	if object == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "object is required"})
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: objectRequired})
 		return
 	}
-	di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+	di, ok := depInjection(c)
+	if !ok {
+		return
+	}
 	subs, err := objectSubs(c.Request.Context(), di.AppStore.DB(), object)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, subs)

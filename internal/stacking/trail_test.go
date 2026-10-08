@@ -20,6 +20,7 @@ import (
 //
 //	TRAIL_DIR=subs TRAIL_SUB=_0066 TRAIL_OUT=out [TRAIL_CROP=x,y,w,h] go test -run SatelliteTrail -v
 func TestSatelliteTrail(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv("TRAIL_DIR")
 	if dir == "" {
 		t.Skip("TRAIL_DIR not set")
@@ -58,24 +59,12 @@ func TestSatelliteTrail(t *testing.T) {
 	}
 	bg := float32(background(sub, opts.SaturationLevel) / trail.exposure)
 	noise := float32(noiseLevel(sub, opts.SaturationLevel) / trail.exposure)
-	mask := make([]bool, w*h)
-	n := 0
-	var excess float64
-	for i, v := range sub {
-		if v == 0 || truth.Weight[i] == 0 {
-			continue
-		}
-		if r := v/float32(trail.exposure) - bg - truth.Mean[i]; r > 5*noise {
-			mask[i] = true
-			n++
-			excess += float64(r)
-		}
-	}
+	mask := outliers(sub, truth, float32(trail.exposure), bg, noise)
 	// Stars that differ with seeing also stand out; the trail is the line
 	// most of the outliers fall on. Measure a band 3 px either side of it,
 	// leaving out stars in the clean master.
 	mask = trailBand(t, mask, truth, w, h)
-	n = 0
+	n := 0
 	for _, m := range mask {
 		if m {
 			n++
@@ -83,23 +72,7 @@ func TestSatelliteTrail(t *testing.T) {
 	}
 	t.Logf("trail pixels: %d; the trail sub's noise per second %.3g", n, noise)
 
-	// Background noise of a master, to express leftovers in σ.
-	sigma := func(a *Accumulator) float64 {
-		var d []float64
-		for i := 0; i < len(a.Mean); i += 97 {
-			if a.Weight[i] > 0 {
-				d = append(d, float64(a.Mean[i]))
-			}
-		}
-		slices.Sort(d)
-		med := d[len(d)/2]
-		for i := range d {
-			d[i] = math.Abs(d[i] - med)
-		}
-		slices.Sort(d)
-		return d[len(d)/2] * madToSigma
-	}
-	sig := sigma(truth)
+	sig := masterSigma(truth)
 	leftover := func(name string, a *Accumulator) {
 		var sum float64
 		var worst float64
@@ -169,7 +142,7 @@ func TestSatelliteTrail(t *testing.T) {
 				worst = max(worst, d)
 			}
 		}
-		s := sigma(wt)
+		s := masterSigma(wt)
 		name := fmt.Sprintf("4-warm-up-%d-subs", k+1)
 		t.Logf("%-44s mean leftover on the trail %+6.2fσ, worst pixel %+6.2fσ", name, sum/float64(n)/s, worst/s)
 		if out != "" {
@@ -186,6 +159,36 @@ func TestSatelliteTrail(t *testing.T) {
 		writeCrop(t, filepath.Join(out, "0-trail-sub.png"), sa, truth)
 		writeCrop(t, filepath.Join(out, "0-master-without-trail-sub.png"), truth, truth)
 	}
+}
+
+func outliers(sub []float32, truth *Accumulator, exposure, bg, noise float32) []bool {
+	mask := make([]bool, truth.W*truth.H)
+	for i, v := range sub {
+		if v == 0 || truth.Weight[i] == 0 {
+			continue
+		}
+		if r := v/exposure - bg - truth.Mean[i]; r > 5*noise {
+			mask[i] = true
+		}
+	}
+	return mask
+}
+
+// Background noise of a master, to express leftovers in σ.
+func masterSigma(a *Accumulator) float64 {
+	var d []float64
+	for i := 0; i < len(a.Mean); i += 97 {
+		if a.Weight[i] > 0 {
+			d = append(d, float64(a.Mean[i]))
+		}
+	}
+	slices.Sort(d)
+	med := d[len(d)/2]
+	for i := range d {
+		d[i] = math.Abs(d[i] - med)
+	}
+	slices.Sort(d)
+	return d[len(d)/2] * madToSigma
 }
 
 // trailBand fits a line to the outlier pixels by RANSAC and returns the
@@ -254,8 +257,9 @@ func writeCrop(t *testing.T, name string, a, ref *Accumulator) {
 	x0, y0, cw, ch := 0, 0, a.W, a.H
 	bin := 8
 	if c := os.Getenv("TRAIL_CROP"); c != "" {
-		var v []int
-		for _, s := range strings.Split(c, ",") {
+		parts := strings.Split(c, ",")
+		v := make([]int, 0, len(parts))
+		for _, s := range parts {
 			n, _ := strconv.Atoi(s)
 			v = append(v, n)
 		}
@@ -303,8 +307,9 @@ func writeCrop(t *testing.T, name string, a, ref *Accumulator) {
 func writeDiff(t *testing.T, name string, a, ref *Accumulator, sigma float64) {
 	x0, y0, cw, ch := 0, 0, a.W, a.H
 	if c := os.Getenv("TRAIL_CROP"); c != "" {
-		var v []int
-		for _, s := range strings.Split(c, ",") {
+		parts := strings.Split(c, ",")
+		v := make([]int, 0, len(parts))
+		for _, s := range parts {
 			n, _ := strconv.Atoi(s)
 			v = append(v, n)
 		}

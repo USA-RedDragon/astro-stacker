@@ -70,7 +70,7 @@ const distortionOrder = 3
 // solveReference plate solves a calibrated reference with distortion terms
 // from where the light f pointed and its optics, and returns the solved
 // file beside it.
-func (p *Pipeline) solveReference(ctx context.Context, dir, file string, f app.Frame) (string, error) {
+func (p *Pipeline) solveReference(ctx context.Context, _, file string, f app.Frame) (string, error) {
 	kw, err := indexer.ReadHeader(ctx, p.s3, p.source, minio.ObjectInfo{Key: f.Key, Size: f.Size})
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", f.Key, err)
@@ -94,7 +94,7 @@ func (p *Pipeline) solveReference(ctx context.Context, dir, file string, f app.F
 	}
 	name := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
 	var runErr error
-	for _, extra := range []string{"", " -downscale"} {
+	for _, extra := range []string{"", solveDownscale} {
 		// -noflip: the reference keeps its pixel grid whatever its
 		// parity; subs are registered to it as it is.
 		script := p.sirilPreamble(true) + fmt.Sprintf("load %s\nplatesolve %.6f,%.6f -focal=%.2f -pixelsize=%.3f -force -noflip -order=%d%s\nsave ref_solved\n",
@@ -124,7 +124,7 @@ func (p *Pipeline) telescopeOptics(ctx context.Context, f app.Frame, pixel float
 		return 0, 0
 	}
 	var others []app.Frame
-	if err := p.db.WithContext(ctx).Where("type = ? AND id <> ? AND key LIKE ?", "LIGHT", f.ID, "%/"+scope+"%").
+	if err := p.db.WithContext(ctx).Where("type = ? AND id <> ? AND key LIKE ?", frameTypeLight, f.ID, "%/"+scope+"%").
 		Order("id").Limit(20).Find(&others).Error; err != nil {
 		return 0, 0
 	}

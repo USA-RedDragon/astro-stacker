@@ -152,26 +152,40 @@ func grow(mask []bool, w, h, r int) []bool {
 	if r <= 0 {
 		return mask
 	}
+	seeds := clusterSeeds(mask, w, h)
+	// Separable: rows, then columns, each with a running count.
+	tmp := dilateRows(seeds, w, h, r)
+	return dilateColumns(tmp, mask, w, h, r)
+}
+
+func clusterSeeds(mask []bool, w, h int) []bool {
 	seeds := make([]bool, len(mask))
 	for y := range h {
 		for x := range w {
 			if !mask[y*w+x] {
 				continue
 			}
-			n := 0
-			for dy := -1; dy <= 1; dy++ {
-				for dx := -1; dx <= 1; dx++ {
-					xx, yy := x+dx, y+dy
-					if (dx != 0 || dy != 0) && xx >= 0 && xx < w && yy >= 0 && yy < h && mask[yy*w+xx] {
-						n++
-					}
-				}
-			}
-			seeds[y*w+x] = n >= 2
+			seeds[y*w+x] = rejectedNeighbours(mask, w, h, x, y) >= 2
 		}
 	}
-	// Separable: rows, then columns, each with a running count.
-	tmp := make([]bool, len(mask))
+	return seeds
+}
+
+func rejectedNeighbours(mask []bool, w, h, x, y int) int {
+	n := 0
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			xx, yy := x+dx, y+dy
+			if (dx != 0 || dy != 0) && xx >= 0 && xx < w && yy >= 0 && yy < h && mask[yy*w+xx] {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func dilateRows(seeds []bool, w, h, r int) []bool {
+	tmp := make([]bool, len(seeds))
 	for y := range h {
 		row := seeds[y*w : (y+1)*w]
 		n := 0
@@ -190,6 +204,10 @@ func grow(mask []bool, w, h, r int) []bool {
 			tmp[y*w+x] = n > 0
 		}
 	}
+	return tmp
+}
+
+func dilateColumns(tmp, mask []bool, w, h, r int) []bool {
 	out := make([]bool, len(mask))
 	for x := range w {
 		n := 0

@@ -35,8 +35,8 @@ const (
 // about 6 output pixels, so the text is about 55 px tall with its
 // descender and a word about 450 px wide: smaller than that, the rows read
 // as bands in one blurred frame; larger, nebulosity (strongest at large
-// scales) hides them. Variables only so the local demo can try others.
-var (
+// scales) hides them.
+const (
 	fontPixelsAcross = 130.0
 	// strokeGrow thickens the strokes, in samples each side (a stroke is
 	// 1¾ font pixels); blurSigma softens the letters' edges, in font
@@ -48,17 +48,19 @@ var (
 
 // glyphs are drawn with '#' on rows 0-8: ascenders from row 0, the x-height
 // from row 2, the baseline under row 6, descenders to row 8.
-var glyphs = map[rune][glyphH]string{
-	'a': {".....", ".....", ".###.", "....#", ".####", "#...#", ".####", ".....", "....."},
-	's': {".....", ".....", ".####", "#....", ".###.", "....#", "####.", ".....", "....."},
-	't': {".#...", ".#...", "####.", ".#...", ".#...", ".#..#", "..##.", ".....", "....."},
-	'r': {".....", ".....", "#.##.", "##..#", "#....", "#....", "#....", ".....", "....."},
-	'o': {".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###.", ".....", "....."},
-	'.': {".....", ".....", ".....", ".....", ".....", ".##..", ".##..", ".....", "....."},
-	'g': {".....", ".....", ".####", "#...#", "#...#", ".####", "....#", "....#", ".###."},
-	'd': {"....#", "....#", ".####", "#...#", "#...#", "#...#", ".####", ".....", "....."},
-	'e': {".....", ".....", ".###.", "#...#", "#####", "#....", ".###.", ".....", "....."},
-	'n': {".....", ".....", "#.##.", "##..#", "#...#", "#...#", "#...#", ".....", "....."},
+func glyphs() map[rune][glyphH]string {
+	return map[rune][glyphH]string{
+		'a': {".....", ".....", ".###.", "....#", ".####", "#...#", ".####", ".....", "....."},
+		's': {".....", ".....", ".####", "#....", ".###.", "....#", "####.", ".....", "....."},
+		't': {".#...", ".#...", "####.", ".#...", ".#...", ".#..#", "..##.", ".....", "....."},
+		'r': {".....", ".....", "#.##.", "##..#", "#....", "#....", "#....", ".....", "....."},
+		'o': {".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###.", ".....", "....."},
+		'.': {".....", ".....", ".....", ".....", ".....", ".##..", ".##..", ".....", "....."},
+		'g': {".....", ".....", ".####", "#...#", "#...#", ".####", "....#", "....#", ".###."},
+		'd': {"....#", "....#", ".####", "#...#", "#...#", "#...#", ".####", ".....", "....."},
+		'e': {".....", ".....", ".###.", "#...#", "#####", "#....", ".###.", ".....", "....."},
+		'n': {".....", ".....", "#.##.", "##..#", "#...#", "#...#", "#...#", ".....", "....."},
+	}
 }
 
 // Pattern is the watermark on a reference grid: 1 in the letters' cores,
@@ -74,13 +76,14 @@ type Pattern struct {
 func NewPattern(refW int) *Pattern {
 	tw, th := tileW*supersample, tileH*supersample
 	tile := make([]float32, tw*th)
+	font := glyphs()
 	// Two rows per tile, the second shifted half a tile, like bricks, so
 	// the tile repeats exactly and a crop of any shape holds whole words.
 	for row := range 2 {
 		x0 := 4 + row*tileW/2
 		y0 := row*rowH + 2
 		for i, r := range text {
-			g := glyphs[r]
+			g := font[r]
 			for gy := range glyphH {
 				for gx := range glyphW {
 					if g[gy][gx] != '#' {

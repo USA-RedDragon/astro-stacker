@@ -2,6 +2,7 @@ package stacking
 
 import (
 	"context"
+	"io/fs"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -16,19 +17,25 @@ import (
 
 // TestDarkStats prints the light-leak measure of real darks in DARK_DIR.
 func TestDarkStats(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv("DARK_DIR")
 	if dir == "" {
 		t.Skip("DARK_DIR not set")
 	}
-	files, _ := filepath.Glob(filepath.Join(dir, "*.xisf"))
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	files, _ := fs.Glob(root.FS(), "*.xisf")
 	for _, f := range files {
-		b, _ := os.ReadFile(f)
+		b, _ := root.ReadFile(f)
 		im, err := imagedata.Decode(b)
 		if err != nil {
 			t.Fatal(err)
 		}
 		spread, noise := darkSpread(im.Data, im.W, im.H)
-		t.Logf("%-60s noise %5.2f  spread %6.1f ADU  leaky %v", filepath.Base(f), noise, spread, leaky(spread))
+		t.Logf("%-60s noise %5.2f  spread %6.1f ADU  leaky %v", f, noise, spread, leaky(spread))
 	}
 }
 
@@ -79,10 +86,11 @@ func TestDropLeakyDarksRecordsClean(t *testing.T) {
 	}
 	clean, leak, _, w, h := testDarks()
 	dir := t.TempDir()
-	var frames []app.Frame
-	var files []string
-	for i, data := range [][]float32{clean, leak} {
-		f := app.Frame{Key: []string{"clean.fit", "leak.fit"}[i], Type: "DARK"}
+	darks := [][]float32{clean, leak}
+	frames := make([]app.Frame, 0, len(darks))
+	files := make([]string, 0, len(darks))
+	for i, data := range darks {
+		f := app.Frame{Key: []string{"clean.fit", "leak.fit"}[i], Type: frameTypeDark}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}

@@ -54,7 +54,10 @@ func (t gainTable) encode() string {
 	for g, s := range t {
 		m[strconv.FormatFloat(g, 'f', -1, 64)] = s
 	}
-	b, _ := json.Marshal(m)
+	b, err := json.Marshal(m)
+	if err != nil {
+		return ""
+	}
 	return string(b)
 }
 
@@ -170,7 +173,7 @@ func (p *Pipeline) gainScales(ctx context.Context, dir string, stack *app.Stack,
 		}
 	}
 	if len(distinct) < 2 {
-		return nil, nil
+		return gainTable{}, nil
 	}
 	opts := p.opts.Stack
 	opts.MinSamples = math.MaxFloat32

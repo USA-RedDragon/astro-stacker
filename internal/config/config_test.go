@@ -30,6 +30,7 @@ func TestLogLevelConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := defConfig
 			cfg.LogLevel = tt.logLevel
 			err := cfg.Validate()
@@ -64,7 +65,7 @@ func TestTSVerdicts(t *testing.T) {
 	}{
 		{config.TSVerdictsOff, "", nil},
 		{config.TSVerdictsDryRun, "", nil},
-		{config.TSVerdictsOn, "2026-10-01", nil},
+		{config.TSVerdictsOn, verdictsSince, nil},
 		{"yes", "", config.ErrInvalidTSVerdicts},
 		{"", "", config.ErrInvalidTSVerdicts},
 		{config.TSVerdictsOn, "October", config.ErrInvalidTSVerdictsSince},

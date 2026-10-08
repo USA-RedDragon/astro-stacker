@@ -27,7 +27,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var imageExtensions = map[string]bool{".xisf": true, ".fits": true, ".fit": true, ".fts": true}
+func imageExtensions() map[string]bool {
+	return map[string]bool{".xisf": true, ".fits": true, ".fit": true, ".fts": true}
+}
 
 type Indexer struct {
 	client      *minio.Client
@@ -396,13 +398,14 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 	}
 
 	present := make(map[string]bool, len(etags))
+	extensions := imageExtensions()
 	var listErr error
 	for obj := range ix.client.ListObjects(ctx, ix.bucket, minio.ListObjectsOptions{Recursive: true}) {
 		if obj.Err != nil {
 			listErr = obj.Err
 			break
 		}
-		if !imageExtensions[strings.ToLower(path.Ext(obj.Key))] {
+		if !extensions[strings.ToLower(path.Ext(obj.Key))] {
 			continue
 		}
 		stats.Seen++

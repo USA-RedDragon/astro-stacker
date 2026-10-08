@@ -17,26 +17,25 @@ import (
 // below the horizon.
 const siteLat, siteLon = 31.546944, -99.382222
 
-var (
-	fullMoonUp = time.Date(2025, 11, 5, 2, 0, 0, 0, time.UTC)
-	newMoon    = time.Date(2025, 10, 21, 4, 0, 0, 0, time.UTC)
-)
+func fullMoonUp() time.Time { return time.Date(2025, 11, 5, 2, 0, 0, 0, time.UTC) }
+
+func newMoon() time.Time { return time.Date(2025, 10, 21, 4, 0, 0, 0, time.UTC) }
 
 func TestMoonRuleBroken(t *testing.T) {
 	t.Parallel()
 	down := moonRule{down: true}
-	if !down.broken(fullMoonUp, 300, 0, 0, siteLat, siteLon) {
+	if !down.broken(fullMoonUp(), 300, 0, 0, siteLat, siteLon) {
 		t.Error("moon up passed a moon-must-be-down rule")
 	}
-	if down.broken(newMoon, 300, 0, 0, siteLat, siteLon) {
+	if down.broken(newMoon(), 300, 0, 0, siteLat, siteLon) {
 		t.Error("moon down broke a moon-must-be-down rule")
 	}
 	ha := moonRule{distance: 30, width: 7}
 	// The full moon that night is near RA 2h40m, Dec +16.
-	if !ha.broken(fullMoonUp, 600, 40, 16, siteLat, siteLon) {
+	if !ha.broken(fullMoonUp(), 600, 40, 16, siteLat, siteLon) {
 		t.Error("a target beside the full moon passed 30° avoidance")
 	}
-	if ha.broken(fullMoonUp, 600, 220, -16, siteLat, siteLon) {
+	if ha.broken(fullMoonUp(), 600, 220, -16, siteLat, siteLon) {
 		t.Error("a target opposite the moon broke 30° avoidance")
 	}
 }
@@ -66,11 +65,11 @@ func TestMoonRulesTakeStrictest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r["Red"].down || r["Red"].distance != 60 {
-		t.Errorf("Red %+v, want moon down, the 60° template", r["Red"])
+	if !r[filterRed].down || r[filterRed].distance != 60 {
+		t.Errorf("Red %+v, want moon down, the 60° template", r[filterRed])
 	}
-	if r["H-a"].down || r["H-a"].distance != 30 || r["O-III"].distance != 60 {
-		t.Errorf("narrowband %+v %+v", r["H-a"], r["O-III"])
+	if r[filterHa].down || r[filterHa].distance != 30 || r["O-III"].distance != 60 {
+		t.Errorf("narrowband %+v %+v", r[filterHa], r["O-III"])
 	}
 	if _, ok := r["S-II"]; ok {
 		t.Error("a template without moon avoidance made a rule")
@@ -90,10 +89,10 @@ func TestMoonlitAdded(t *testing.T) {
 	}
 	exp := 300.0
 	// Master 8 is moon-only and keeps its light.
-	for i, at := range []time.Time{fullMoonUp, newMoon, fullMoonUp} {
+	for i, at := range []time.Time{fullMoonUp(), newMoon(), fullMoonUp()} {
 		stackID := []int{7, 7, 8}[i]
 		d := at
-		f := app.Frame{Key: []string{"a", "b", "c"}[i], Type: "LIGHT", Object: "Moon Test", Filter: "Red",
+		f := app.Frame{Key: []string{"a", "b", "c"}[i], Type: frameTypeLight, Object: "Moon Test", Filter: filterRed,
 			Exposure: &exp, DateObs: &d, LastModified: at}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
@@ -103,9 +102,9 @@ func TestMoonlitAdded(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sites.Store("Moon Test", [2]float64{siteLat, siteLon})
 	p := &Pipeline{db: db}
-	check := &moonChecker{p: p, rules: map[string]moonRule{"Red": {down: true}},
+	p.sites.Store("Moon Test", [2]float64{siteLat, siteLon})
+	check := &moonChecker{p: p, rules: map[string]moonRule{filterRed: {down: true}},
 		positions: map[string][2]float64{"Moon Test": {10, 10}}}
 	ids, stacks, err := p.moonlitAdded(context.Background(), check)
 	if err != nil {
@@ -125,7 +124,7 @@ func TestPrecalibratedNeedsNoCalibration(t *testing.T) {
 		"Telescope.live/Carina Nebula/CHI-1-CCD_2021-05-23T01-09-54_CarinaNebula_Halpha_600s_ID224182_cal.fits": "",
 		"Carina Nebula/LIGHT/2021-05-23_01-09-54_H-a_-10.00_600.00s_0000.xisf":                                  app.StackStatusCalibration,
 	} {
-		f := app.Frame{Key: key, Object: "Carina Nebula", Filter: "H-a", Exposure: &exp, Night: &night}
+		f := app.Frame{Key: key, Object: "Carina Nebula", Filter: filterHa, Exposure: &exp, Night: &night}
 		scores := map[string]quality.SubScore{path.Base(key): {Score: 1, TargetBest: 1}}
 		if _, status := (&Pipeline{}).classify(f, scores, nil, nil); status != want {
 			t.Errorf("%s: status %q, want %q", key, status, want)
@@ -140,7 +139,7 @@ func TestZeroScoreStaysOut(t *testing.T) {
 	exp := 600.0
 	night := time.Date(2021, 5, 23, 0, 0, 0, 0, time.UTC)
 	key := "Telescope.live/Crescent/x_cal.fits"
-	f := app.Frame{Key: key, Object: "Crescent Nebula", Filter: "H-a", Exposure: &exp, Night: &night}
+	f := app.Frame{Key: key, Object: "Crescent Nebula", Filter: filterHa, Exposure: &exp, Night: &night}
 	scores := map[string]quality.SubScore{"x_cal.fits": {Score: 0, TargetBest: 0}}
 	if _, status := (&Pipeline{}).classify(f, scores, nil, nil); status != app.StackStatusLowScore {
 		t.Errorf("status %q, want low_score", status)

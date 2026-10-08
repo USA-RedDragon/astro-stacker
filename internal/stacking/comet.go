@@ -76,7 +76,7 @@ func cometDesignation(object string) (string, bool) {
 }
 
 // horizonsURL is JPL's Horizons API.
-var horizonsURL = "https://ssd.jpl.nasa.gov/api/horizons.api"
+const horizonsURL = "https://ssd.jpl.nasa.gov/api/horizons.api"
 
 // ephemeris is a comet's astrometric (ICRF) position by time.
 type ephemeris struct {
@@ -106,7 +106,7 @@ func (e ephemeris) at(t time.Time) (ra, dec float64, ok bool) {
 	return 0, 0, false
 }
 
-// horizons fetches a comet's positions each minute from from to to, seen
+// horizons fetches a comet's positions each minute between from and to, seen
 // from the site (east longitude and latitude in degrees, elevation in m).
 func horizons(ctx context.Context, designation string, from, to time.Time, lon, lat, elev float64) (ephemeris, error) {
 	q := url.Values{}
@@ -172,11 +172,11 @@ func parseEphemeris(result string) (ephemeris, error) {
 	sc := bufio.NewScanner(strings.NewReader(result))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		switch {
-		case line == "$$SOE":
+		switch line {
+		case "$$SOE":
 			in = true
 			continue
-		case line == "$$EOE":
+		case "$$EOE":
 			in = false
 		}
 		if !in {
@@ -385,7 +385,6 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 		return fmt.Errorf("star-aligned master: %w", err)
 	}
 	stars := starMask(master.Data, master.W, master.H)
-	master = nil
 	layers, err := separateComet(stored, shifts, track, stars, p.opts.Stack, func(i int) ([]float32, int, int, error) {
 		return readSub(files[i])
 	}, func(done, total int) {
@@ -509,7 +508,6 @@ func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, o
 		return cometLayers{}, err
 	}
 	comet := first.Mean // per second, without the sky
-	first = nil
 	layer, err := stackAll(opts, func(i int, sub []float32, w, h int) []float32 {
 		back := shiftImage(comet, w, h, -shifts[i][0], -shifts[i][1])
 		subtractSignal(sub, back, subs[i].exposure, sat)
@@ -971,17 +969,17 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 	prefix := stackPrefix(stack)
 	keys := map[string]string{}
 	for name, up := range map[string]func(string) error{
-		"comet.fit":          func(k string) error { return p.upload(ctx, fitsFile, k, "application/fits") },
-		"comet.xisf":         func(k string) error { return p.upload(ctx, xisfFile, k, "application/octet-stream") },
-		"comet-starless.fit": func(k string) error { return p.upload(ctx, starlessFITS, k, "application/fits") },
+		"comet.fit":          func(k string) error { return p.upload(ctx, fitsFile, k, contentTypeFITS) },
+		"comet.xisf":         func(k string) error { return p.upload(ctx, xisfFile, k, contentTypeOctetStream) },
+		"comet-starless.fit": func(k string) error { return p.upload(ctx, starlessFITS, k, contentTypeFITS) },
 		"comet-starless.xisf": func(k string) error {
-			return p.upload(ctx, starlessXISF, k, "application/octet-stream")
+			return p.upload(ctx, starlessXISF, k, contentTypeOctetStream)
 		},
 		"comet.jpg": func(k string) error {
-			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"})
+			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG})
 		},
 		"comet-linear.bin": func(k string) error {
-			return p.putBytes(ctx, k, linear, minio.PutObjectOptions{ContentType: "application/octet-stream", ContentEncoding: "gzip"})
+			return p.putBytes(ctx, k, linear, minio.PutObjectOptions{ContentType: contentTypeOctetStream, ContentEncoding: contentEncodingGzip})
 		},
 	} {
 		k := path.Join(prefix, name)

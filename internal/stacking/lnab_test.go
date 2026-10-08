@@ -19,11 +19,17 @@ import (
 // manifest.txt lines "key|exposure|weight") with and without local
 // normalization, and writes both masters, previews and their difference.
 func TestLocalNormAB(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv("LN_AB_DIR")
 	if dir == "" {
 		t.Skip("LN_AB_DIR not set")
 	}
-	f, err := os.Open(filepath.Join(dir, "manifest.txt"))
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	f, err := root.Open("manifest.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +74,9 @@ func TestLocalNormAB(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		os.WriteFile(filepath.Join(dir, name+".jpg"), jpg, 0o644)
+		if err := root.WriteFile(name+".jpg", jpg, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	// Each sub's fitted transparency against the flat stack.
 	opts := DefaultOptions()
@@ -77,7 +85,7 @@ func TestLocalNormAB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var scales []string
+	scales := make([]string, 0, len(subs))
 	for i, s := range subs {
 		sub, _, _, err := load(i, s)
 		if err != nil {
@@ -95,7 +103,9 @@ func TestLocalNormAB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(dir, "diff.jpg"), jpg, 0o644)
+	if err := root.WriteFile("diff.jpg", jpg, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // bgNoise is the robust σ of pixel-to-pixel differences in a master's

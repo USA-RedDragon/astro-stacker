@@ -109,13 +109,13 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	keys := map[string]*string{}
 	for name, up := range map[string]func(key string) error{
 		"master.fit":  func(k string) error { return p.upload(ctx, masterFile, k, "application/fits") },
-		"master.xisf": func(k string) error { return p.upload(ctx, xisfFile, k, "application/octet-stream") },
+		"master.xisf": func(k string) error { return p.upload(ctx, xisfFile, k, contentTypeOctetStream) },
 		"state.fit":   func(k string) error { return p.upload(ctx, stateFile, k, "application/fits") },
 		"preview.jpg": func(k string) error {
-			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"})
+			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG})
 		},
 		"linear.bin": func(k string) error {
-			return p.putBytes(ctx, k, linear, minio.PutObjectOptions{ContentType: "application/octet-stream", ContentEncoding: "gzip"})
+			return p.putBytes(ctx, k, linear, minio.PutObjectOptions{ContentType: contentTypeOctetStream, ContentEncoding: contentEncodingGzip})
 		},
 	} {
 		k := path.Join(prefix, name)
@@ -160,6 +160,9 @@ func (p *Pipeline) putBytes(ctx context.Context, key string, b []byte, opts mini
 func linearPreview(im *imagedata.Image) ([]byte, error) {
 	factor := max(1, int(math.Ceil(float64(im.W)/LinearMaxWidth)))
 	b := preview.Bin(im, factor)
+	if b.W < 0 || b.W > math.MaxUint32 || b.H < 0 || b.H > math.MaxUint32 {
+		return nil, fmt.Errorf("linear preview is %dx%d", b.W, b.H)
+	}
 	var raw bytes.Buffer
 	raw.WriteString(LinearMagic)
 	_ = binary.Write(&raw, binary.LittleEndian, uint32(b.W))

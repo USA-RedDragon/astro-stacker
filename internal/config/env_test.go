@@ -9,6 +9,12 @@ import (
 	configulator "github.com/USA-RedDragon/configulator/v2"
 )
 
+const (
+	envTrue       = "true"
+	bindAll       = "[::]"
+	verdictsSince = "2026-10-01"
+)
+
 // TestProductionEnv sets every variable the home-cluster deployment
 // (apps/astro-processing/resources/astro-stacker/values.yaml) passes, under
 // the same names, and checks each lands in its field. A renamed tag or
@@ -20,29 +26,29 @@ func TestProductionEnv(t *testing.T) {
 		"STORAGE_TYPE":                 "postgres",
 		"STORAGE_DSN_APP":              "host=db user=u password=p dbname=app port=5432 sslmode=disable",
 		"STORAGE_DSN_SCHEDULERDB":      "host=db user=u password=p dbname=schedulerdb port=5432 sslmode=disable",
-		"METRICS_ENABLED":              "true",
-		"METRICS_BIND":                 "[::]",
+		"METRICS_ENABLED":              envTrue,
+		"METRICS_BIND":                 bindAll,
 		"METRICS_PORT":                 "9090",
-		"PPROF_ENABLED":                "true",
-		"PPROF_BIND":                   "[::]",
+		"PPROF_ENABLED":                envTrue,
+		"PPROF_BIND":                   bindAll,
 		"LOG_LEVEL":                    "debug",
 		"HTTP_TRUSTED_PROXIES":         "172.17.0.0/16",
-		"INDEXER_ENABLED":              "true",
+		"INDEXER_ENABLED":              envTrue,
 		"S3_ENDPOINT":                  "minio.minio.svc:9000",
 		"S3_USE_SSL":                   "false",
 		"S3_ACCESS_KEY":                "access",
 		"S3_SECRET_KEY":                "secret",
-		"PREVIEWS_ENABLED":             "true",
+		"PREVIEWS_ENABLED":             envTrue,
 		"PREVIEWS_CONCURRENCY":         "3",
-		"STACKING_ENABLED":             "true",
+		"STACKING_ENABLED":             envTrue,
 		"STACKING_WORK_DIR":            "/tmp/stacking-test",
 		"STACKING_SIRIL_THREADS":       "5",
 		"STACKING_SIRIL_MEMORY":        "0.4",
 		"STACKING_WORKERS":             "6",
 		"STACKING_TS_VERDICTS":         "on",
 		"STACKING_TS_VERDICTS_TARGETS": "M31,Cygnis Loop Panel 2",
-		"STACKING_TS_VERDICTS_SINCE":   "2026-10-01",
-		"PUBLIC_FRAMES_ENABLED":        "true",
+		"STACKING_TS_VERDICTS_SINCE":   verdictsSince,
+		"PUBLIC_FRAMES_ENABLED":        envTrue,
 	}
 
 	cfg, err := configulator.New(config.ConfigSchema()).
@@ -62,10 +68,10 @@ func TestProductionEnv(t *testing.T) {
 		{"STORAGE_DSN_APP", cfg.Storage.DSN.App, env["STORAGE_DSN_APP"]},
 		{"STORAGE_DSN_SCHEDULERDB", cfg.Storage.DSN.SchedulerDB, env["STORAGE_DSN_SCHEDULERDB"]},
 		{"METRICS_ENABLED", cfg.Metrics.Enabled, true},
-		{"METRICS_BIND", cfg.Metrics.Bind, "[::]"},
+		{"METRICS_BIND", cfg.Metrics.Bind, bindAll},
 		{"METRICS_PORT", cfg.Metrics.Port, 9090},
 		{"PPROF_ENABLED", cfg.PProf.Enabled, true},
-		{"PPROF_BIND", cfg.PProf.Bind, "[::]"},
+		{"PPROF_BIND", cfg.PProf.Bind, bindAll},
 		{"LOG_LEVEL", cfg.LogLevel, config.LogLevelDebug},
 		{"HTTP_TRUSTED_PROXIES", cfg.HTTP.TrustedProxies, []string{"172.17.0.0/16"}},
 		{"INDEXER_ENABLED", cfg.Indexer.Enabled, true},
@@ -82,7 +88,7 @@ func TestProductionEnv(t *testing.T) {
 		{"STACKING_WORKERS", cfg.Stacking.Workers, 6},
 		{"STACKING_TS_VERDICTS", cfg.Stacking.TSVerdicts, config.TSVerdictsOn},
 		{"STACKING_TS_VERDICTS_TARGETS", cfg.Stacking.TSVerdictsTargets, []string{"M31", "Cygnis Loop Panel 2"}},
-		{"STACKING_TS_VERDICTS_SINCE", cfg.Stacking.TSVerdictsSince, "2026-10-01"},
+		{"STACKING_TS_VERDICTS_SINCE", cfg.Stacking.TSVerdictsSince, verdictsSince},
 		{"PUBLIC_FRAMES_ENABLED", cfg.PublicFrames.Enabled, true},
 	}
 	if len(checks) != len(env) {
@@ -116,7 +122,7 @@ func TestProductionEnv(t *testing.T) {
 func TestV1SectionNamesIgnored(t *testing.T) {
 	t.Parallel()
 
-	env := map[string]string{"PUBLICFRAMES_ENABLED": "true"}
+	env := map[string]string{"PUBLICFRAMES_ENABLED": envTrue}
 	cfg, err := configulator.New(config.ConfigSchema()).
 		WithEnvironmentVariables(&configulator.EnvironmentVariableOptions{Separator: "_"}).
 		WithEnviron(func(k string) (string, bool) { v, ok := env[k]; return v, ok }).

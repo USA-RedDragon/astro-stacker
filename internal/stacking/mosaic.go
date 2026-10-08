@@ -301,12 +301,12 @@ func (p *Pipeline) buildMosaic(ctx context.Context, g mosaicGroup, filter string
 	keys := map[string]string{}
 	for name, up := range map[string]func(string) error{
 		"mosaic.fit":  func(k string) error { return p.upload(ctx, fitsOut, k, "application/fits") },
-		"mosaic.xisf": func(k string) error { return p.upload(ctx, xisfOut, k, "application/octet-stream") },
+		"mosaic.xisf": func(k string) error { return p.upload(ctx, xisfOut, k, contentTypeOctetStream) },
 		"preview.jpg": func(k string) error {
-			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"})
+			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG})
 		},
 		"linear.bin": func(k string) error {
-			return p.putBytes(ctx, k, linear, minio.PutObjectOptions{ContentType: "application/octet-stream", ContentEncoding: "gzip"})
+			return p.putBytes(ctx, k, linear, minio.PutObjectOptions{ContentType: contentTypeOctetStream, ContentEncoding: contentEncodingGzip})
 		},
 	} {
 		k := path.Join(prefix, name)
@@ -600,7 +600,7 @@ func fitSkyPlane(data []float32, w, h int, sat float32) (a, bx, by float64, ok b
 // retried on a downscaled image.
 func (p *Pipeline) solvePanel(ctx context.Context, dir string, n int, pos panel, focal, pixel float64) error {
 	var err error
-	for _, extra := range []string{"", " -downscale"} {
+	for _, extra := range []string{"", solveDownscale} {
 		script := p.sirilPreamble(true) + fmt.Sprintf("load panel%02d\nplatesolve %.6f,%.6f -focal=%.2f -pixelsize=%.3f -force%s\nsave pan_%05d\n",
 			n, pos.RA, pos.Dec, focal, pixel, extra, n)
 		if _, err = p.siril.Run(ctx, dir, script); err == nil {

@@ -35,9 +35,11 @@ const fitSamples = 2_000_000
 // fitGroups are the filters fitted to each other. Colour channels are
 // matched to colour channels and narrowband to narrowband; luminance, and
 // any filter not listed, is left alone.
-var fitGroups = [][]string{
-	{"Red", "Green", "Blue"},
-	{"H-a", "O-III", "S-II"},
+func fitGroups() [][]string {
+	return [][]string{
+		{filterRed, filterGreen, filterBlue},
+		{filterHa, filterOIII, filterSII},
+	}
 }
 
 // linearFitsOnce refits each target's filter groups whose masters changed
@@ -84,7 +86,7 @@ func (p *Pipeline) linearFitsOnce(ctx context.Context) error {
 
 // fitGroup names the group a filter is fitted within, or "" for none.
 func fitGroup(filter string) string {
-	for _, g := range fitGroups {
+	for _, g := range fitGroups() {
 		if slices.Contains(g, filter) {
 			return strings.Join(g, "/")
 		}
@@ -101,7 +103,7 @@ func (p *Pipeline) dropFit(ctx context.Context, s *app.Stack) {
 		}
 	}
 	if err := p.db.WithContext(ctx).Model(s).UpdateColumns(map[string]any{
-		"fitted_key": nil, "fit_reference": "", "fit_offset": 0, "fit_scale": 0, "fit_signature": "", "fit_error": nil,
+		columnFittedKey: nil, columnFitReference: "", columnFitOffset: 0, columnFitScale: 0, columnFitSignature: "", columnFitError: nil,
 	}).Error; err != nil {
 		slog.Warn("Could not clear fitted master", "object", s.Object, "filter", s.Filter, "error", err)
 	}
@@ -133,7 +135,7 @@ func fitSignature(masters []app.Stack) (string, time.Time) {
 // H-a for its neighbours.
 func fitReference(masters []app.Stack) int {
 	rank := func(filter string) int {
-		for _, g := range fitGroups {
+		for _, g := range fitGroups() {
 			if i := slices.Index(g, filter); i >= 0 {
 				return i
 			}
@@ -149,14 +151,14 @@ func fitReference(masters []app.Stack) int {
 	return best
 }
 
-// fitFailure is a fit that can't succeed until the masters change, unlike
+// fitError is a fit that can't succeed until the masters change, unlike
 // a download or upload that might work next time.
-type fitFailure struct{ msg string }
+type fitError struct{ msg string }
 
-func (e *fitFailure) Error() string { return e.msg }
+func (e *fitError) Error() string { return e.msg }
 
 func unfittable(format string, args ...any) error {
-	return &fitFailure{fmt.Sprintf(format, args...)}
+	return &fitError{fmt.Sprintf(format, args...)}
 }
 
 // fitMasters fits a master to the reference over the part of the frame
@@ -178,8 +180,8 @@ func (p *Pipeline) failFit(ctx context.Context, m *app.Stack, sig, msg string) e
 		}
 	}
 	return p.db.WithContext(ctx).Model(m).UpdateColumns(map[string]any{
-		"fitted_key": nil, "fit_reference": "", "fit_offset": 0, "fit_scale": 0,
-		"fit_signature": sig, "fit_error": msg,
+		columnFittedKey: nil, columnFitReference: "", columnFitOffset: 0, columnFitScale: 0,
+		columnFitSignature: sig, columnFitError: msg,
 	}).Error
 }
 
@@ -242,17 +244,17 @@ func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []
 			}
 			applyLinear(im.Data, offset, scale)
 		}
-		out := append(cards,
+		out := slices.Concat(cards, []imagedata.Card{
 			imagedata.StringCard("LFREF", ref.Filter, "LinearFit reference filter"),
 			imagedata.FloatCard("LFOFFSET", offset, "LinearFit: this = offset + scale * master"),
 			imagedata.FloatCard("LFSCALE", scale, "LinearFit scale"),
-		)
+		})
 		file := filepath.Join(dir, "linearfit.xisf")
 		if err := writeXISFFile(file, im.W, im.H, im.Data, out); err != nil {
 			return err
 		}
 		key := path.Join(stackPrefix(m), "linearfit.xisf")
-		if err := p.upload(ctx, file, key, "application/octet-stream"); err != nil {
+		if err := p.upload(ctx, file, key, contentTypeOctetStream); err != nil {
 			return err
 		}
 		if m.FittedKey != nil && *m.FittedKey != key {
@@ -261,8 +263,8 @@ func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []
 		}
 		// UpdateColumns leaves updated_at, which the signature is made of.
 		if err := p.db.WithContext(ctx).Model(m).UpdateColumns(map[string]any{
-			"fitted_key": key, "fit_reference": ref.Filter, "fit_offset": offset, "fit_scale": scale,
-			"fit_signature": sig, "fit_error": nil,
+			columnFittedKey: key, columnFitReference: ref.Filter, columnFitOffset: offset, columnFitScale: scale,
+			columnFitSignature: sig, columnFitError: nil,
 		}).Error; err != nil {
 			return err
 		}
@@ -300,7 +302,7 @@ func (p *Pipeline) loadMaster(ctx context.Context, dir string, s *app.Stack) (*i
 	var cards []imagedata.Card
 	for _, c := range all {
 		switch {
-		case c.Name == "SIMPLE", c.Name == "BITPIX", c.Name == "EXTEND", c.Name == "BZERO", c.Name == "BSCALE",
+		case c.Name == keywordSIMPLE, c.Name == keywordBITPIX, c.Name == keywordEXTEND, c.Name == keywordBZERO, c.Name == keywordBSCALE,
 			strings.HasPrefix(c.Name, "NAXIS"), strings.HasPrefix(c.Name, "LF"):
 		default:
 			cards = append(cards, imageCard(c))
@@ -355,8 +357,8 @@ func fitLinear(target, ref []float32, w int, r Rect) (offset, scale float64, err
 	if len(xs) < 100 {
 		return 0, 1, unfittable("only %d pixels with data in both", len(xs))
 	}
-	_, up, ok := fitLAD(xs, ys)
-	_, down, ok2 := fitLAD(ys, xs)
+	up, ok := fitLAD(xs, ys)
+	down, ok2 := fitLAD(ys, xs)
 	if !ok || !ok2 {
 		return 0, 1, unfittable("no spread in the pixels to fit")
 	}
@@ -372,12 +374,13 @@ func fitLinear(target, ref []float32, w int, r Rect) (offset, scale float64, err
 }
 
 // fitLAD fits y = a + b×x minimising absolute deviations, by iteratively
-// reweighted least squares.
-func fitLAD(xs, ys []float64) (a, b float64, ok bool) {
+// reweighted least squares, and returns b.
+func fitLAD(xs, ys []float64) (b float64, ok bool) {
 	wts := make([]float64, len(xs))
 	for i := range wts {
 		wts[i] = 1
 	}
+	var a float64
 	b = 1
 	for range 50 {
 		var sw, sx, sy, sxx, sxy float64
@@ -391,7 +394,7 @@ func fitLAD(xs, ys []float64) (a, b float64, ok bool) {
 		}
 		den := sw*sxx - sx*sx
 		if den == 0 {
-			return 0, 1, false
+			return 1, false
 		}
 		nb := (sw*sxy - sx*sy) / den
 		na := (sy - nb*sx) / sw
@@ -404,7 +407,7 @@ func fitLAD(xs, ys []float64) (a, b float64, ok bool) {
 			wts[i] = 1 / math.Max(math.Abs(ys[i]-a-b*x), 1e-7)
 		}
 	}
-	return a, b, true
+	return b, true
 }
 
 func median(v []float64) float64 {

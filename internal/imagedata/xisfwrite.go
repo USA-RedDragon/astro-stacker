@@ -46,10 +46,14 @@ func WriteXISF(out io.Writer, w, h int, data []float32, keywords []Card, props [
 	if 16+len(header) > pos {
 		return fmt.Errorf("xisf header of %d bytes does not fit before %d", len(header), pos)
 	}
+	n := len(header)
+	if n > math.MaxUint32 {
+		return fmt.Errorf("xisf header of %d bytes is too long", n)
+	}
 	bw := bufio.NewWriterSize(out, 1<<20)
 	var prefix [16]byte
 	copy(prefix[:], "XISF0100")
-	binary.LittleEndian.PutUint32(prefix[8:], uint32(len(header)))
+	binary.LittleEndian.PutUint32(prefix[8:], uint32(n))
 	if _, err := bw.Write(prefix[:]); err != nil {
 		return err
 	}

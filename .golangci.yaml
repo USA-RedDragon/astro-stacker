@@ -51,6 +51,24 @@ linters:
       - common-false-positives
       - legacy
       - std-error-handling
+    rules:
+      - path: _test\.go$
+        linters:
+          - gosec
+        text: G404|G703
+      - path: internal/(stacking/.*|server/(covers|public|subs)|publicframe/render(er)?|events/events|indexer/(indexer|runloop)|siril/maincommand)_test\.go$
+        linters:
+          - testpackage
+      - path: internal/(stacking/(header|outputs|process)|publicframe/render|imagedata/fits|siril/siril)\.go$
+        linters:
+          - gosec
+        text: G115|G204|G404|G703
+      - path: internal/metrics/metrics\.go$
+        linters:
+          - gochecknoglobals
+      - path: internal/publicframe/watermark\.go$
+        linters:
+          - goconst
     paths:
       - third_party$
       - builtin$

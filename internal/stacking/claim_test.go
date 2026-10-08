@@ -2,6 +2,7 @@ package stacking
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 )
 
 func TestWorkersClaimDifferentTargets(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -23,10 +25,10 @@ func TestWorkersClaimDifferentTargets(t *testing.T) {
 	// Backfill: nights long past.
 	now := time.Now().AddDate(-1, 0, 0)
 	for i, f := range []struct{ object, filter string }{
-		{"A", "Red"}, {"A", "Blue"}, {"B", "Red"}, {"C", "H-a"},
+		{"A", filterRed}, {"A", filterBlue}, {"B", filterRed}, {"C", filterHa},
 	} {
 		d := now.Add(time.Duration(i) * time.Minute)
-		if err := db.Create(&app.Frame{Key: f.object + f.filter, Type: "LIGHT", Object: f.object, Filter: f.filter,
+		if err := db.Create(&app.Frame{Key: f.object + f.filter, Type: frameTypeLight, Object: f.object, Filter: f.filter,
 			LastModified: now, DateObs: &d}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -34,17 +36,17 @@ func TestWorkersClaimDifferentTargets(t *testing.T) {
 	p := &Pipeline{db: db, busy: map[string]bool{}}
 	lights := func() *gorm.DB {
 		return db.Model(&app.Frame{}).Joins("LEFT JOIN stack_frames sf ON sf.frame_id = frames.id").
-			Where("frames.type = ? AND sf.id IS NULL", "LIGHT")
+			Where("frames.type = ? AND sf.id IS NULL", frameTypeLight)
 	}
 	var got []string
 	for range 4 {
 		f, err := p.claim(lights())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if f == nil {
+		if errors.Is(err, errNothingToClaim) {
 			got = append(got, "-")
 			continue
+		}
+		if err != nil {
+			t.Fatal(err)
 		}
 		got = append(got, f.Object)
 	}
@@ -59,6 +61,7 @@ func TestWorkersClaimDifferentTargets(t *testing.T) {
 }
 
 func TestTonightsSubsGoFirst(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -68,9 +71,9 @@ func TestTonightsSubsGoFirst(t *testing.T) {
 	}
 	old, earlier, latest := time.Now().AddDate(-1, 0, 0), time.Now().Add(-3*time.Hour), time.Now().Add(-time.Hour)
 	for _, f := range []app.Frame{
-		{Key: "a", Type: "LIGHT", Object: "Abell 85", Filter: "Red", DateObs: &old},
-		{Key: "m", Type: "LIGHT", Object: "M31", Filter: "Red", DateObs: &earlier},
-		{Key: "z", Type: "LIGHT", Object: "Zeta", Filter: "H-a", DateObs: &latest},
+		{Key: "a", Type: frameTypeLight, Object: "Abell 85", Filter: filterRed, DateObs: &old},
+		{Key: "m", Type: frameTypeLight, Object: objectM31, Filter: filterRed, DateObs: &earlier},
+		{Key: "z", Type: frameTypeLight, Object: "Zeta", Filter: filterHa, DateObs: &latest},
 	} {
 		f.LastModified = time.Now()
 		if err := db.Create(&f).Error; err != nil {
@@ -79,8 +82,8 @@ func TestTonightsSubsGoFirst(t *testing.T) {
 	}
 	p := &Pipeline{db: db, busy: map[string]bool{}}
 	lights := db.Model(&app.Frame{}).Joins("LEFT JOIN stack_frames sf ON sf.frame_id = frames.id").
-		Where("frames.type = ? AND sf.id IS NULL", "LIGHT")
-	var got []string
+		Where("frames.type = ? AND sf.id IS NULL", frameTypeLight)
+	got := make([]string, 0, 3)
 	for range 3 {
 		f, err := p.claim(lights.Session(&gorm.Session{}))
 		if err != nil || f == nil {
@@ -89,12 +92,13 @@ func TestTonightsSubsGoFirst(t *testing.T) {
 		got = append(got, f.Object)
 	}
 	// Newest live sub first, then the backfill.
-	if want := []string{"Zeta", "M31", "Abell 85"}; !slices.Equal(got, want) {
+	if want := []string{"Zeta", objectM31, "Abell 85"}; !slices.Equal(got, want) {
 		t.Fatalf("claimed %v, want %v", got, want)
 	}
 }
 
 func TestFailuresBackOffThenDie(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)

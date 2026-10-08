@@ -11,6 +11,12 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	keyM81A    = "M81/LIGHT/a.xisf"
+	reasonSky  = "stacker: sky"
+	reasonMoon = "stacker: moon"
+)
+
 func TestBackoff(t *testing.T) {
 	t.Parallel()
 	for attempts, want := range map[int]time.Duration{0: time.Hour, 1: time.Hour, 2: 2 * time.Hour, 3: 4 * time.Hour,
@@ -28,36 +34,36 @@ func TestPlanVerdictsNew(t *testing.T) {
 		return tsImage{ID: id, GUID: "g", PlanID: 7, Status: status, Reason: reason, Target: target, File: file, Grader: true}
 	}
 	images := []tsImage{
-		img(1, quality.GradingAccepted, "", "M81", "a.xisf"),
-		img(2, quality.GradingAccepted, "", "M81", "b.xisf"),
-		img(3, quality.GradingPending, "", "M81", "c.xisf"),
-		img(4, quality.GradingRejected, "HFR", "M81", "d.xisf"),
-		img(5, quality.GradingAccepted, "", "M81", "e.xisf"),
-		img(6, quality.GradingAccepted, "", "M81", "dup.xisf"),
-		img(7, quality.GradingAccepted, "", "M81", "dup.xisf"),
+		img(1, quality.GradingAccepted, "", objectM81, subA),
+		img(2, quality.GradingAccepted, "", objectM81, "b.xisf"),
+		img(3, quality.GradingPending, "", objectM81, "c.xisf"),
+		img(4, quality.GradingRejected, "HFR", objectM81, "d.xisf"),
+		img(5, quality.GradingAccepted, "", objectM81, "e.xisf"),
+		img(6, quality.GradingAccepted, "", objectM81, "dup.xisf"),
+		img(7, quality.GradingAccepted, "", objectM81, "dup.xisf"),
 		img(8, quality.GradingAccepted, "", "Other", "f.xisf"),
-		{ID: 9, Status: quality.GradingAccepted, Target: "M81", File: "g.xisf"}, // project without grading
-		img(10, quality.GradingAccepted, "", "M81", "h.xisf"),
+		{ID: 9, Status: quality.GradingAccepted, Target: objectM81, File: "g.xisf"}, // project without grading
+		img(10, quality.GradingAccepted, "", objectM81, "h.xisf"),
 	}
 	frames := []verdictFrame{
-		{FrameID: 101, Key: "M81/LIGHT/a.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusLowScore},
-		{FrameID: 102, Key: "M81/LIGHT/b.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusMoon},
-		{FrameID: 103, Key: "M81/LIGHT/c.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusLowScore},   // Pending in TS
-		{FrameID: 104, Key: "M81/LIGHT/d.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusLowScore},   // TS rejected it
-		{FrameID: 105, Key: "M81/LIGHT/e.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusAdded},      // stacked
-		{FrameID: 106, Key: "M81/LIGHT/dup.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusLowScore}, // two images
-		{FrameID: 107, Key: "NGC/LIGHT/f.xisf", Object: "NGC", Filter: "Red", Status: app.StackStatusLowScore},   // other target's file
-		{FrameID: 108, Key: "M81/LIGHT/g.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusLowScore},
-		{FrameID: 109, Key: "M81/LIGHT/h.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusLowScore},
+		{FrameID: 101, Key: keyM81A, Object: objectM81, Filter: filterRed, Status: app.StackStatusLowScore},
+		{FrameID: 102, Key: "M81/LIGHT/b.xisf", Object: objectM81, Filter: filterRed, Status: app.StackStatusMoon},
+		{FrameID: 103, Key: "M81/LIGHT/c.xisf", Object: objectM81, Filter: filterRed, Status: app.StackStatusLowScore},   // Pending in TS
+		{FrameID: 104, Key: "M81/LIGHT/d.xisf", Object: objectM81, Filter: filterRed, Status: app.StackStatusLowScore},   // TS rejected it
+		{FrameID: 105, Key: "M81/LIGHT/e.xisf", Object: objectM81, Filter: filterRed, Status: app.StackStatusAdded},      // stacked
+		{FrameID: 106, Key: "M81/LIGHT/dup.xisf", Object: objectM81, Filter: filterRed, Status: app.StackStatusLowScore}, // two images
+		{FrameID: 107, Key: "NGC/LIGHT/f.xisf", Object: "NGC", Filter: filterRed, Status: app.StackStatusLowScore},       // other target's file
+		{FrameID: 108, Key: "M81/LIGHT/g.xisf", Object: objectM81, Filter: filterRed, Status: app.StackStatusLowScore},
+		{FrameID: 109, Key: "M81/LIGHT/h.xisf", Object: objectM81, Filter: filterRed, Status: app.StackStatusLowScore},
 	}
 	plan := planVerdicts(frames, images, map[int]app.TSVerdict{}, now, 2)
 	if len(plan.Sends) != 2 {
 		t.Fatalf("sends = %+v, want 2", plan.Sends)
 	}
-	if s := plan.Sends[0]; s.Image.ID != 1 || s.Verdict != app.TSVerdictReject || s.Reason != "stacker: sky" || s.Kind != "new" {
+	if s := plan.Sends[0]; s.Image.ID != 1 || s.Verdict != app.TSVerdictReject || s.Reason != reasonSky || s.Kind != "new" {
 		t.Errorf("first send = %+v", s)
 	}
-	if s := plan.Sends[1]; s.Image.ID != 2 || s.Reason != "stacker: moon" {
+	if s := plan.Sends[1]; s.Image.ID != 2 || s.Reason != reasonMoon {
 		t.Errorf("second send = %+v", s)
 	}
 	if len(plan.Records) != 2 || plan.Records[0].State != app.TSVerdictSent || plan.Records[0].Attempts != 1 ||
@@ -75,8 +81,8 @@ func TestPlanVerdictsNew(t *testing.T) {
 func TestPlanVerdictsLifecycle(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	im := tsImage{ID: 1, GUID: "g", PlanID: 7, Status: quality.GradingAccepted, Target: "M81", File: "a.xisf", Grader: true}
-	low := verdictFrame{FrameID: 101, Key: "M81/LIGHT/a.xisf", Object: "M81", Filter: "Red", Status: app.StackStatusLowScore}
+	im := tsImage{ID: 1, GUID: "g", PlanID: 7, Status: quality.GradingAccepted, Target: objectM81, File: subA, Grader: true}
+	low := verdictFrame{FrameID: 101, Key: keyM81A, Object: objectM81, Filter: filterRed, Status: app.StackStatusLowScore}
 	added := low
 	added.Status = app.StackStatusAdded
 	step := func(f verdictFrame, im tsImage, known map[int]app.TSVerdict, at time.Time) (verdictPlan, map[int]app.TSVerdict) {
@@ -107,7 +113,7 @@ func TestPlanVerdictsLifecycle(t *testing.T) {
 		t.Fatalf("retry: %+v, record %+v", plan.Sends, known[1])
 	}
 	// Applied: TS shows the stacker's reject.
-	im.Status, im.Reason = quality.GradingRejected, "stacker: sky"
+	im.Status, im.Reason = quality.GradingRejected, reasonSky
 	at := now.Add(2 * time.Hour)
 	plan, known = step(low, im, known, at)
 	if len(plan.Sends) != 0 || known[1].State != app.TSVerdictApplied || !known[1].AppliedAt.Equal(at) || known[1].NextAttemptAt != nil {
@@ -132,10 +138,10 @@ func TestPlanVerdictsLifecycle(t *testing.T) {
 	moon := low
 	moon.Status = app.StackStatusMoon
 	plan, known = step(moon, im, known, now.Add(60*time.Hour))
-	if len(plan.Sends) != 1 || plan.Sends[0].Kind != "redo" || plan.Sends[0].Reason != "stacker: moon" {
+	if len(plan.Sends) != 1 || plan.Sends[0].Kind != "redo" || plan.Sends[0].Reason != reasonMoon {
 		t.Fatalf("redo: %+v", plan.Sends)
 	}
-	im.Status, im.Reason = quality.GradingRejected, "stacker: moon"
+	im.Status, im.Reason = quality.GradingRejected, reasonMoon
 	_, known = step(moon, im, known, now.Add(61*time.Hour))
 	// Someone accepts it again in TS: final.
 	im.Status, im.Reason = quality.GradingAccepted, ""
@@ -153,8 +159,8 @@ func TestPlanVerdictsLifecycle(t *testing.T) {
 func TestPlanVerdictsMoot(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	im := tsImage{ID: 1, GUID: "g", PlanID: 7, Status: quality.GradingRejected, Reason: "HFR", Target: "M81", File: "a.xisf", Grader: true}
-	f := verdictFrame{FrameID: 101, Key: "M81/LIGHT/a.xisf", Object: "M81", Status: app.StackStatusLowScore}
+	im := tsImage{ID: 1, GUID: "g", PlanID: 7, Status: quality.GradingRejected, Reason: "HFR", Target: objectM81, File: subA, Grader: true}
+	f := verdictFrame{FrameID: 101, Key: keyM81A, Object: objectM81, Status: app.StackStatusLowScore}
 	next := now
 	known := map[int]app.TSVerdict{1: {AcquiredImageID: 1, Verdict: app.TSVerdictReject, State: app.TSVerdictSent, Attempts: 1, NextAttemptAt: &next}}
 	plan := planVerdicts([]verdictFrame{f}, []tsImage{im}, known, now, 10)
@@ -195,9 +201,8 @@ func schedTables(t *testing.T, db *gorm.DB) {
 	}
 }
 
-func TestSendVerdicts(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
+func verdictPipeline(t *testing.T) (*Pipeline, time.Time) {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -213,8 +218,8 @@ func TestSendVerdicts(t *testing.T) {
 	night := time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC)
 	for i, s := range []string{app.StackStatusLowScore, app.StackStatusMoon, app.StackStatusAdded} {
 		obs := night.Add(time.Duration(i) * time.Hour)
-		f := app.Frame{ID: i + 1, Key: "Bode's Galaxy/LIGHT/r" + string(rune('1'+i)) + ".xisf", ETag: "e", Type: "LIGHT",
-			Object: "Bode's Galaxy", Filter: "Red", DateObs: &obs, LastModified: obs}
+		f := app.Frame{ID: i + 1, Key: "Bode's Galaxy/LIGHT/r" + string(rune('1'+i)) + ".xisf", ETag: "e", Type: frameTypeLight,
+			Object: "Bode's Galaxy", Filter: filterRed, DateObs: &obs, LastModified: obs}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -222,61 +227,78 @@ func TestSendVerdicts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := &Pipeline{db: db, sched: sched, drain: make(chan struct{})}
-	count := func(q string) int {
-		var n int
-		if err := sched.Raw(q).Scan(&n).Error; err != nil {
-			t.Fatal(err)
-		}
-		return n
-	}
+	return &Pipeline{db: db, sched: sched, drain: make(chan struct{})}, night
+}
 
+func schedCount(t *testing.T, sched *gorm.DB, q string) int {
+	t.Helper()
+	var n int
+	if err := sched.Raw(q).Scan(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func checkVerdictsHeldBack(ctx context.Context, t *testing.T, p *Pipeline, night time.Time) {
+	t.Helper()
 	// Off does nothing; a dry run plans but writes nothing.
-	if plan, err := p.SendVerdicts(ctx, VerdictOptions{Mode: "off"}); err != nil || len(plan.Sends) != 0 {
+	if plan, err := p.sendVerdicts(ctx, VerdictOptions{Mode: "off"}); err != nil || len(plan.Sends) != 0 {
 		t.Fatalf("off: %+v %v", plan, err)
 	}
-	plan, err := p.SendVerdicts(ctx, VerdictOptions{Mode: verdictModeDryRun})
+	plan, err := p.sendVerdicts(ctx, VerdictOptions{Mode: verdictModeDryRun})
 	if err != nil || len(plan.Sends) != 2 {
 		t.Fatalf("dry run: %+v %v", plan, err)
 	}
 	var records int64
-	db.Model(&app.TSVerdict{}).Count(&records)
-	if n := count("SELECT count(*) FROM stacker_verdict"); n != 0 || records != 0 {
+	p.db.Model(&app.TSVerdict{}).Count(&records)
+	if n := schedCount(t, p.sched, "SELECT count(*) FROM stacker_verdict"); n != 0 || records != 0 {
 		t.Fatalf("dry run wrote %d verdicts, %d records", n, records)
 	}
 
 	// Limited to later subs: nothing.
-	if plan, err := p.SendVerdicts(ctx, VerdictOptions{Mode: verdictModeOn, Since: night.Add(24 * time.Hour)}); err != nil || len(plan.Sends) != 0 {
+	if plan, err := p.sendVerdicts(ctx, VerdictOptions{Mode: verdictModeOn, Since: night.Add(24 * time.Hour)}); err != nil || len(plan.Sends) != 0 {
 		t.Fatalf("since: %+v %v", plan, err)
 	}
-	if plan, err := p.SendVerdicts(ctx, VerdictOptions{Mode: verdictModeOn, Targets: []string{"M 31"}}); err != nil || len(plan.Sends) != 0 {
+	if plan, err := p.sendVerdicts(ctx, VerdictOptions{Mode: verdictModeOn, Targets: []string{"M 31"}}); err != nil || len(plan.Sends) != 0 {
 		t.Fatalf("targets: %+v %v", plan, err)
 	}
+}
+
+func TestSendVerdicts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	p, night := verdictPipeline(t)
+	db, sched := p.db, p.sched
+	count := func(q string) int {
+		t.Helper()
+		return schedCount(t, sched, q)
+	}
+	checkVerdictsHeldBack(ctx, t, p, night)
 
 	opts := VerdictOptions{Mode: verdictModeOn, Targets: []string{"Bode's Galaxy"}, Since: night}
-	if _, err := p.SendVerdicts(ctx, opts); err != nil {
+	if _, err := p.sendVerdicts(ctx, opts); err != nil {
 		t.Fatal(err)
 	}
 	var rows []struct {
 		AcquiredimageID int
-		Guid            string
+		GUID            string
 		ExposureplanID  int
 		Verdict         int
 		Reason          string
 		Attempt         int
 	}
 	sched.Raw("SELECT acquiredimage_id, guid, exposureplan_id, verdict, reason, attempt FROM stacker_verdict ORDER BY 1").Scan(&rows)
-	if len(rows) != 2 || rows[0].AcquiredimageID != 10 || rows[0].Guid != "g10" || rows[0].ExposureplanID != 577 ||
-		rows[0].Verdict != 2 || rows[0].Reason != "stacker: sky" || rows[1].AcquiredimageID != 11 || rows[1].Reason != "stacker: moon" {
+	if len(rows) != 2 || rows[0].AcquiredimageID != 10 || rows[0].GUID != "g10" || rows[0].ExposureplanID != 577 ||
+		rows[0].Verdict != 2 || rows[0].Reason != reasonSky || rows[1].AcquiredimageID != 11 || rows[1].Reason != reasonMoon {
 		t.Fatalf("stacker_verdict = %+v", rows)
 	}
 	// Again at once: nothing new, nothing sent again before the backoff.
-	if plan, err := p.SendVerdicts(ctx, opts); err != nil || len(plan.Sends) != 0 {
+	if plan, err := p.sendVerdicts(ctx, opts); err != nil || len(plan.Sends) != 0 {
 		t.Fatalf("second sweep: %+v %v", plan, err)
 	}
 	// An hour on, still not applied: sent again, attempt + 1.
 	db.Model(&app.TSVerdict{}).Where("1 = 1").Update("next_attempt_at", time.Now().Add(-time.Minute))
-	if plan, err := p.SendVerdicts(ctx, opts); err != nil || len(plan.Sends) != 2 || plan.Sends[0].Kind != "retry" {
+	if plan, err := p.sendVerdicts(ctx, opts); err != nil || len(plan.Sends) != 2 || plan.Sends[0].Kind != "retry" {
 		t.Fatalf("retry sweep: %+v %v", plan, err)
 	}
 	if n := count("SELECT sum(attempt) FROM stacker_verdict"); n != 2 {
@@ -286,7 +308,7 @@ func TestSendVerdicts(t *testing.T) {
 	// The observatory applied one (as SymmetricDS brings back): recorded,
 	// and its plan gets a reconcile request, once a day.
 	sched.Exec(`UPDATE acquiredimage SET "gradingStatus" = 2, rejectreason = 'stacker: sky' WHERE "Id" = 10`)
-	if _, err := p.SendVerdicts(ctx, opts); err != nil {
+	if _, err := p.sendVerdicts(ctx, opts); err != nil {
 		t.Fatal(err)
 	}
 	var v app.TSVerdict
@@ -297,7 +319,7 @@ func TestSendVerdicts(t *testing.T) {
 	if n := count("SELECT count(*) FROM stacker_reconcile WHERE exposureplan_id = 577 AND attempt = 0"); n != 1 {
 		t.Fatalf("reconcile requests = %d", n)
 	}
-	if _, err := p.SendVerdicts(ctx, opts); err != nil {
+	if _, err := p.sendVerdicts(ctx, opts); err != nil {
 		t.Fatal(err)
 	}
 	if n := count("SELECT attempt FROM stacker_reconcile WHERE exposureplan_id = 577"); n != 0 {
@@ -306,7 +328,7 @@ func TestSendVerdicts(t *testing.T) {
 
 	// The stacker stacks sub 1 after all: undone.
 	db.Model(&app.StackFrame{}).Where("frame_id = 1").Update("status", app.StackStatusAdded)
-	plan, err = p.SendVerdicts(ctx, opts)
+	plan, err := p.sendVerdicts(ctx, opts)
 	if err != nil || len(plan.Sends) != 1 || plan.Sends[0].Kind != "undo" {
 		t.Fatalf("undo sweep: %+v %v", plan, err)
 	}

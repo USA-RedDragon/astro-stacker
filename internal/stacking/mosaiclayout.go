@@ -74,11 +74,6 @@ func (g wcs) toPixel(ra, dec float64) (x, y float64, ok bool) {
 	return dx + g.px0, dy + g.py0, true
 }
 
-// scale is the pixel size in degrees.
-func (g wcs) scale() float64 {
-	return math.Sqrt(math.Abs(g.cd[0][0]*g.cd[1][1] - g.cd[0][1]*g.cd[1][0]))
-}
-
 // corners are the sky positions of the frame's corners.
 func (g wcs) corners() [4][2]float64 {
 	var c [4][2]float64
@@ -125,7 +120,8 @@ type layout struct {
 // canvas pixels across, at a whole multiple of the reference panel's pixel
 // scale, turned like the reference panel.
 func newLayout(panels []layoutPanel, ref wcs, maxWidth int) (layout, int) {
-	var ras, decs []float64
+	ras := make([]float64, 0, len(panels))
+	decs := make([]float64, 0, len(panels))
 	for _, p := range panels {
 		ras = append(ras, p.WCS.ra0)
 		decs = append(decs, p.WCS.dec0)

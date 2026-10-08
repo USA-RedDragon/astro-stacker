@@ -6,7 +6,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-const ns = "astro_stacker"
+const (
+	ns          = "astro_stacker"
+	resultLabel = "result"
+)
 
 var (
 	LightsPending = promauto.NewGauge(prometheus.GaugeOpts{Namespace: ns, Name: "lights_pending",
@@ -23,22 +26,22 @@ var (
 	Subs = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "subs_total",
 		Help: "Subs recorded, by outcome (added, low_score, calibration, registration, failed, dead, ...)."}, []string{"status"})
 	Batches = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "batches_total",
-		Help: "Stacking batches, by result."}, []string{"result"})
+		Help: "Stacking batches, by result."}, []string{resultLabel})
 	BatchSeconds = promauto.NewHistogram(prometheus.HistogramOpts{Namespace: ns, Name: "batch_seconds",
 		Help: "Time to calibrate, register and stack one batch.", Buckets: prometheus.ExponentialBuckets(5, 2, 9)})
 	MastersUpdated = promauto.NewCounter(prometheus.CounterOpts{Namespace: ns, Name: "masters_updated_total",
 		Help: "Masters published."})
 	Mosaics = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "mosaics_total",
-		Help: "Mosaic builds, by result."}, []string{"result"})
+		Help: "Mosaic builds, by result."}, []string{resultLabel})
 	MosaicSeconds = promauto.NewHistogram(prometheus.HistogramOpts{Namespace: ns, Name: "mosaic_seconds",
 		Help: "Time to build one mosaic.", Buckets: prometheus.ExponentialBuckets(10, 2, 9)})
 	Covers = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "covers_total",
-		Help: "Colour cover renders, by result (colour, mono, failed)."}, []string{"result"})
+		Help: "Colour cover renders, by result (colour, mono, failed)."}, []string{resultLabel})
 	SirilSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{Namespace: ns, Name: "siril_seconds",
 		Help: "Siril script run time, by its main command.", Buckets: prometheus.ExponentialBuckets(1, 2, 11)},
-		[]string{"command", "result"})
+		[]string{"command", resultLabel})
 	PreviewsRendered = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "previews_rendered_total",
-		Help: "Sub previews rendered, by result."}, []string{"result"})
+		Help: "Sub previews rendered, by result."}, []string{resultLabel})
 	FramesIndexed = promauto.NewCounter(prometheus.CounterOpts{Namespace: ns, Name: "frames_indexed_total",
 		Help: "Frames whose headers were indexed."})
 	EventListeners = promauto.NewGauge(prometheus.GaugeOpts{Namespace: ns, Name: "event_listeners",

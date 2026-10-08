@@ -15,6 +15,18 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	subTSReject = "tsreject.xisf"
+	subR1       = "r1.xisf"
+	subB1       = "b1.xisf"
+	subB2       = "b2.xisf"
+)
+
+type rescoreSub struct {
+	stack *app.Stack
+	score float64
+}
+
 // Masters stacked under an older scoreMethod have their subs scored again:
 // a hazy sub transparency puts under the cut leaves and its master is
 // restacked; one under the cut without transparency too (the references
@@ -30,61 +42,43 @@ func TestRescoreAdded(t *testing.T) {
 	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}, &app.Stack{}); err != nil {
 		t.Fatal(err)
 	}
-	orion := app.Stack{Object: "Orion", Filter: "Luminance"}
-	m31 := app.Stack{Object: "M31", Filter: "Green"}
-	done := app.Stack{Object: "M42", Filter: "Red", ScoreMethod: scoreMethod}
-	waiting := app.Stack{Object: "M45", Filter: "Blue"}
+	orion := app.Stack{Object: objectOrion, Filter: filterLuminance}
+	m31 := app.Stack{Object: objectM31, Filter: filterGreen}
+	done := app.Stack{Object: "M42", Filter: filterRed, ScoreMethod: scoreMethod}
+	waiting := app.Stack{Object: "M45", Filter: filterBlue}
 	for _, s := range []*app.Stack{&orion, &m31, &done, &waiting} {
 		if err := db.Create(s).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
 	// The masters' subs as stacked: 300 s, weight = score x exposure.
-	subs := map[string]struct {
-		stack *app.Stack
-		score float64
-	}{
-		"clear.xisf":    {&orion, 1},
-		"hazy.xisf":     {&orion, 0.77},
-		"lost.xisf":     {&orion, 0.8}, // no scheduler record now
-		"tsreject.xisf": {&orion, 0.9}, // rejected in Target Scheduler since
-		"drift.xisf":    {&orion, 0.4}, // under the cut without transparency too
-		"g1.xisf":       {&m31, 1},
-		"g2.xisf":       {&m31, 0.9},
-		"r1.xisf":       {&done, 0.9},
-		"b1.xisf":       {&waiting, 0.9},
-		"b2.xisf":       {&waiting, 0.9}, // not photometered yet
+	subs := map[string]rescoreSub{
+		"clear.xisf": {&orion, 1},
+		"hazy.xisf":  {&orion, 0.77},
+		"lost.xisf":  {&orion, 0.8}, // no scheduler record now
+		subTSReject:  {&orion, 0.9}, // rejected in Target Scheduler since
+		"drift.xisf": {&orion, 0.4}, // under the cut without transparency too
+		"g1.xisf":    {&m31, 1},
+		"g2.xisf":    {&m31, 0.9},
+		subR1:        {&done, 0.9},
+		subB1:        {&waiting, 0.9},
+		subB2:        {&waiting, 0.9}, // not photometered yet
 	}
-	ids := map[string]int{}
-	for key, s := range subs {
-		rev := measure.PhotometryRevision
-		f := app.Frame{Key: s.stack.Object + "/LIGHT/" + key, Type: "LIGHT", LastModified: time.Now(), PhotometryRev: &rev}
-		if key == "b2.xisf" {
-			f.PhotometryRev = nil
-		}
-		if err := db.Create(&f).Error; err != nil {
-			t.Fatal(err)
-		}
-		sf := app.StackFrame{FrameID: f.ID, StackID: &s.stack.ID, Status: app.StackStatusAdded, Score: s.score, Weight: s.score * 300, Exposure: 300}
-		if err := db.Create(&sf).Error; err != nil {
-			t.Fatal(err)
-		}
-		ids[key] = sf.ID
-	}
+	ids := addRescoreSubs(t, db, subs)
 	scores := map[string]quality.SubScore{
 		// Orion's hazy sub: 0.77 x 0.57^2 = 0.25, under 0.3 of the best.
-		"clear.xisf":    {Score: 0.95, TargetBest: 0.95, Transparency: 0.97, PlainScore: 1, PlainTargetBest: 1},
-		"hazy.xisf":     {Score: 0.25, TargetBest: 0.95, Transparency: 0.57, PlainScore: 0.77, PlainTargetBest: 1},
-		"drift.xisf":    {Score: 0.2, TargetBest: 0.95, Transparency: 0.95, PlainScore: 0.22, PlainTargetBest: 1},
-		"tsreject.xisf": {Score: 0, TargetBest: 0.95, GradingStatus: quality.GradingRejected},
+		"clear.xisf": {Score: 0.95, TargetBest: 0.95, Transparency: 0.97, PlainScore: 1, PlainTargetBest: 1},
+		"hazy.xisf":  {Score: 0.25, TargetBest: 0.95, Transparency: 0.57, PlainScore: 0.77, PlainTargetBest: 1},
+		"drift.xisf": {Score: 0.2, TargetBest: 0.95, Transparency: 0.95, PlainScore: 0.22, PlainTargetBest: 1},
+		subTSReject:  {Score: 0, TargetBest: 0.95, GradingStatus: quality.GradingRejected},
 		// M31: clear, weights within rescoreWeightTolerance.
 		"g1.xisf": {Score: 0.92, TargetBest: 0.92, Transparency: 0.96, PlainScore: 1, PlainTargetBest: 1},
 		"g2.xisf": {Score: 0.85, TargetBest: 0.92, Transparency: 0.97, PlainScore: 0.9, PlainTargetBest: 1},
 		// Would leave, but its master was scored this way already.
-		"r1.xisf": {Score: 0.1, TargetBest: 1, PlainScore: 1, PlainTargetBest: 1},
+		subR1: {Score: 0.1, TargetBest: 1, PlainScore: 1, PlainTargetBest: 1},
 		// Would leave, but a sub of its master has no photometry yet.
-		"b1.xisf": {Score: 0.1, TargetBest: 1, PlainScore: 1, PlainTargetBest: 1},
-		"b2.xisf": {Score: 0.9, TargetBest: 1, PlainScore: 1, PlainTargetBest: 1},
+		subB1: {Score: 0.1, TargetBest: 1, PlainScore: 1, PlainTargetBest: 1},
+		subB2: {Score: 0.9, TargetBest: 1, PlainScore: 1, PlainTargetBest: 1},
 	}
 	opts := DefaultPipelineOptions()
 	opts.Photometry = true
@@ -102,24 +96,7 @@ func TestRescoreAdded(t *testing.T) {
 		}
 		return sf
 	}
-	if sf := get("hazy.xisf"); sf.Status != app.StackStatusLowScore || sf.Score != 0.25 ||
-		sf.NextAttemptAt == nil || !sf.NextAttemptAt.Equal(now.Add(p.opts.RetryAfter)) {
-		t.Errorf("hazy sub = %s score %v next %v, want low_score 0.25 retried after RetryAfter", sf.Status, sf.Score, sf.NextAttemptAt)
-	}
-	if sf := get("clear.xisf"); sf.Status != app.StackStatusAdded || sf.Score != 0.95 || math.Abs(sf.Weight-0.95*300) > 1e-9 {
-		t.Errorf("clear sub = %s score %v weight %v, want added 0.95, weight 285", sf.Status, sf.Score, sf.Weight)
-	}
-	if sf := get("drift.xisf"); sf.Status != app.StackStatusAdded || sf.Score != 0.2 || math.Abs(sf.Weight-0.2*300) > 1e-9 {
-		t.Errorf("drifted sub = %s score %v weight %v, want kept added at 0.2, weight 60", sf.Status, sf.Score, sf.Weight)
-	}
-	for _, key := range []string{"lost.xisf", "tsreject.xisf", "r1.xisf", "b1.xisf"} {
-		if sf := get(key); sf.Status != app.StackStatusAdded || sf.Score != subs[key].score {
-			t.Errorf("%s = %s score %v, want left added at %v", key, sf.Status, sf.Score, subs[key].score)
-		}
-	}
-	if sf := get("g2.xisf"); sf.Score != 0.85 || math.Abs(sf.Weight-0.85*300) > 1e-9 {
-		t.Errorf("g2 = score %v weight %v, want 0.85 and 255", sf.Score, sf.Weight)
-	}
+	checkRescoredSubs(t, get, subs, now.Add(p.opts.RetryAfter))
 
 	stack := func(s *app.Stack) app.Stack {
 		t.Helper()
@@ -155,13 +132,56 @@ func TestRescoreAdded(t *testing.T) {
 	}
 }
 
+func addRescoreSubs(t *testing.T, db *gorm.DB, subs map[string]rescoreSub) map[string]int {
+	t.Helper()
+	ids := map[string]int{}
+	for key, s := range subs {
+		rev := measure.PhotometryRevision
+		f := app.Frame{Key: s.stack.Object + "/LIGHT/" + key, Type: frameTypeLight, LastModified: time.Now(), PhotometryRev: &rev}
+		if key == subB2 {
+			f.PhotometryRev = nil
+		}
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+		sf := app.StackFrame{FrameID: f.ID, StackID: &s.stack.ID, Status: app.StackStatusAdded, Score: s.score, Weight: s.score * 300, Exposure: 300}
+		if err := db.Create(&sf).Error; err != nil {
+			t.Fatal(err)
+		}
+		ids[key] = sf.ID
+	}
+	return ids
+}
+
+func checkRescoredSubs(t *testing.T, get func(string) app.StackFrame, subs map[string]rescoreSub, retryAt time.Time) {
+	t.Helper()
+	if sf := get("hazy.xisf"); sf.Status != app.StackStatusLowScore || sf.Score != 0.25 ||
+		sf.NextAttemptAt == nil || !sf.NextAttemptAt.Equal(retryAt) {
+		t.Errorf("hazy sub = %s score %v next %v, want low_score 0.25 retried after RetryAfter", sf.Status, sf.Score, sf.NextAttemptAt)
+	}
+	if sf := get("clear.xisf"); sf.Status != app.StackStatusAdded || sf.Score != 0.95 || math.Abs(sf.Weight-0.95*300) > 1e-9 {
+		t.Errorf("clear sub = %s score %v weight %v, want added 0.95, weight 285", sf.Status, sf.Score, sf.Weight)
+	}
+	if sf := get("drift.xisf"); sf.Status != app.StackStatusAdded || sf.Score != 0.2 || math.Abs(sf.Weight-0.2*300) > 1e-9 {
+		t.Errorf("drifted sub = %s score %v weight %v, want kept added at 0.2, weight 60", sf.Status, sf.Score, sf.Weight)
+	}
+	for _, key := range []string{"lost.xisf", subTSReject, subR1, subB1} {
+		if sf := get(key); sf.Status != app.StackStatusAdded || sf.Score != subs[key].score {
+			t.Errorf("%s = %s score %v, want left added at %v", key, sf.Status, sf.Score, subs[key].score)
+		}
+	}
+	if sf := get("g2.xisf"); sf.Score != 0.85 || math.Abs(sf.Weight-0.85*300) > 1e-9 {
+		t.Errorf("g2 = score %v weight %v, want 0.85 and 255", sf.Score, sf.Weight)
+	}
+}
+
 // A hazy sub's lower score keeps it out when it is classified. A reject in
 // Target Scheduler is final, unless it is the stacker's own verdict: that
 // sub is judged again like any other, so it can come back.
 func TestClassifyHazySubAndRejects(t *testing.T) {
 	t.Parallel()
 	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", DefaultPipelineOptions())
-	f := app.Frame{Key: "Orion/LIGHT/sub.xisf", Object: "Orion"}
+	f := app.Frame{Key: "Orion/LIGHT/sub.xisf", Object: objectOrion}
 	for _, c := range []struct {
 		name string
 		s    quality.SubScore
@@ -191,14 +211,15 @@ func TestRequeueStackerRejects(t *testing.T) {
 	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}); err != nil {
 		t.Fatal(err)
 	}
+	const verdict, graded, low = "verdict.xisf", "graded.xisf", "low.xisf"
 	ids := map[string]int{}
-	for _, key := range []string{"verdict.xisf", "graded.xisf", "low.xisf"} {
-		f := app.Frame{Key: "Orion/LIGHT/" + key, Type: "LIGHT", LastModified: time.Now()}
+	for _, key := range []string{verdict, graded, low} {
+		f := app.Frame{Key: "Orion/LIGHT/" + key, Type: frameTypeLight, LastModified: time.Now()}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}
 		status := app.StackStatusRejected
-		if key == "low.xisf" {
+		if key == low {
 			status = app.StackStatusLowScore
 		}
 		sf := app.StackFrame{FrameID: f.ID, Status: status}
@@ -208,9 +229,9 @@ func TestRequeueStackerRejects(t *testing.T) {
 		ids[key] = sf.ID
 	}
 	scores := map[string]quality.SubScore{
-		"verdict.xisf": {GradingStatus: quality.GradingRejected, StackerRejected: true, Score: 0.2, TargetBest: 1},
-		"graded.xisf":  {GradingStatus: quality.GradingRejected},
-		"low.xisf":     {GradingStatus: quality.GradingRejected, StackerRejected: true, Score: 0.2, TargetBest: 1},
+		verdict: {GradingStatus: quality.GradingRejected, StackerRejected: true, Score: 0.2, TargetBest: 1},
+		graded:  {GradingStatus: quality.GradingRejected},
+		low:     {GradingStatus: quality.GradingRejected, StackerRejected: true, Score: 0.2, TargetBest: 1},
 	}
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	now := time.Now()
@@ -218,7 +239,7 @@ func TestRequeueStackerRejects(t *testing.T) {
 		t.Fatal(err)
 	}
 	for key, want := range map[string]string{
-		"verdict.xisf": app.StackStatusLowScore, "graded.xisf": app.StackStatusRejected, "low.xisf": app.StackStatusLowScore,
+		verdict: app.StackStatusLowScore, graded: app.StackStatusRejected, low: app.StackStatusLowScore,
 	} {
 		var sf app.StackFrame
 		if err := db.First(&sf, ids[key]).Error; err != nil {
@@ -227,7 +248,7 @@ func TestRequeueStackerRejects(t *testing.T) {
 		if sf.Status != want {
 			t.Errorf("%s = %s, want %s", key, sf.Status, want)
 		}
-		if key == "verdict.xisf" && (sf.NextAttemptAt == nil || sf.NextAttemptAt.After(now)) {
+		if key == verdict && (sf.NextAttemptAt == nil || sf.NextAttemptAt.After(now)) {
 			t.Errorf("%s next attempt %v, want due now", key, sf.NextAttemptAt)
 		}
 	}
@@ -246,7 +267,7 @@ func TestLightsWaitForPhotometry(t *testing.T) {
 	}
 	old, cur := measure.PhotometryRevision-1, measure.PhotometryRevision
 	for key, rev := range map[string]*int{"none": nil, "old": &old, "measured": &cur} {
-		if err := db.Create(&app.Frame{Key: key, Type: "LIGHT", Object: "Orion", Filter: "Red", LastModified: time.Now(), PhotometryRev: rev}).Error; err != nil {
+		if err := db.Create(&app.Frame{Key: key, Type: frameTypeLight, Object: objectOrion, Filter: filterRed, LastModified: time.Now(), PhotometryRev: rev}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -278,7 +299,7 @@ func TestStackerMoonRejectStaysOut(t *testing.T) {
 	exp, night := 600.0, time.Now()
 	// A light classify would stack: delivered calibrated, so it needs no
 	// calibration frames.
-	f := app.Frame{Key: "Orion/LIGHT/moonlit_cal.fits", Object: "Orion", Filter: "H-a", Exposure: &exp, Night: &night}
+	f := app.Frame{Key: "Orion/LIGHT/moonlit_cal.fits", Object: objectOrion, Filter: filterHa, Exposure: &exp, Night: &night}
 	scores := map[string]quality.SubScore{"moonlit_cal.fits": {Score: 0.9, TargetBest: 1, GradingStatus: quality.GradingRejected, StackerRejected: true}}
 	_, status := p.classify(f, scores, nil, nil)
 	if status != "" {

@@ -25,7 +25,7 @@ func newLineField(t *testing.T, reflection bool) lineField {
 	f := lineField{w: w, h: h, nebulaX: 220, nebulaY: 160}
 	f.r, f.g, f.b, f.ha = make([]float32, w*h), make([]float32, w*h), make([]float32, w*h), make([]float32, w*h)
 	type st struct{ x, y, flux float64 }
-	var stars []st
+	stars := make([]st, 0, 150)
 	for range 150 {
 		stars = append(stars, st{8 + rng.Float64()*(w-16), 8 + rng.Float64()*(h-16), 0.005 + rng.Float64()*0.05})
 	}
@@ -74,7 +74,7 @@ func newLineField(t *testing.T, reflection bool) lineField {
 func TestAddLineMasked(t *testing.T) {
 	t.Parallel()
 	f := newLineField(t, false)
-	out := addLine(lineInputs{Name: "H-a", Line: f.ha, Cont: f.r, Proxy: f.g, Gate: f.b,
+	out := addLine(lineInputs{Name: filterHa, Line: f.ha, Cont: f.r, Proxy: f.g, Gate: f.b,
 		Into: []lineTarget{{Data: f.r}, {Data: f.b, MaxRel: haBlue}}}, f.w, f.h)
 	red, blue := out[0], out[1]
 	var changedOutside, starsChecked int
@@ -125,7 +125,7 @@ func TestAddLineMasked(t *testing.T) {
 func TestAddLineGatesBlueContinuum(t *testing.T) {
 	t.Parallel()
 	f := newLineField(t, true)
-	out := addLine(lineInputs{Name: "H-a", Line: f.ha, Cont: f.r, Proxy: f.g, Gate: f.b,
+	out := addLine(lineInputs{Name: filterHa, Line: f.ha, Cont: f.r, Proxy: f.g, Gate: f.b,
 		Into: []lineTarget{{Data: f.r}}}, f.w, f.h)
 	mean := func(cx int) float64 {
 		var s, n float64
@@ -158,7 +158,7 @@ func TestAddLineWithoutStars(t *testing.T) {
 		return p
 	}
 	r := flat(0.01)
-	out := addLine(lineInputs{Name: "H-a", Line: flat(0.02), Cont: r, Proxy: flat(0.01),
+	out := addLine(lineInputs{Name: filterHa, Line: flat(0.02), Cont: r, Proxy: flat(0.01),
 		Into: []lineTarget{{Data: r}}}, w, h)
 	for i := range r {
 		if out[0][i] != r[i] {
@@ -172,16 +172,16 @@ func TestCoverKeepsBackgroundColour(t *testing.T) {
 	t.Parallel()
 	f := newLineField(t, false)
 	planes := map[string]*linearImage{
-		"Red":   {W: f.w, H: f.h, Data: f.r},
-		"Green": {W: f.w, H: f.h, Data: f.g},
-		"Blue":  {W: f.w, H: f.h, Data: f.b},
-		"H-a":   {W: f.w, H: f.h, Data: f.ha},
+		filterRed:   {W: f.w, H: f.h, Data: f.r},
+		filterGreen: {W: f.w, H: f.h, Data: f.g},
+		filterBlue:  {W: f.w, H: f.h, Data: f.b},
+		filterHa:    {W: f.w, H: f.h, Data: f.ha},
 	}
-	withHa, err := composeCover(palettes[0], planes, f.w, f.h)
+	withHa, err := composeCover(palettes()[0], planes, f.w, f.h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, err := composeCover(palettes[1], planes, f.w, f.h)
+	plain, err := composeCover(palettes()[1], planes, f.w, f.h)
 	if err != nil {
 		t.Fatal(err)
 	}

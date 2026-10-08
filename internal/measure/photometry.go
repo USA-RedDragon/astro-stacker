@@ -69,49 +69,14 @@ func measureAt(im *imagedata.Image, r int) Photometry {
 	ringIn, ringOut := r+4, r+8
 	border := ringOut + 2
 
-	type peak struct {
-		i int
-		v float32
-	}
-	var peaks []peak
-	for y := border; y < h-border; y++ {
-		row := y * w
-		for x := border; x < w-border; x++ {
-			i := row + x
-			v := d[i]
-			if v < thresh {
-				continue
-			}
-			if v < d[i-1] || v < d[i+1] || v < d[i-w] || v < d[i+w] ||
-				v < d[i-w-1] || v < d[i-w+1] || v < d[i+w-1] || v < d[i+w+1] {
-				continue
-			}
-			if d[i-1] < thresh && d[i+1] < thresh && d[i-w] < thresh && d[i+w] < thresh {
-				continue // a lone hot pixel
-			}
-			peaks = append(peaks, peak{i, v})
-		}
-	}
-	slices.SortStableFunc(peaks, func(a, b peak) int {
-		switch {
-		case a.v > b.v:
-			return -1
-		case a.v < b.v:
-			return 1
-		}
-		return 0
-	})
+	peaks := photometryPeaks(d, w, h, border, thresh)
 
 	// One peak a star: the brightest, none within photometrySeparation of
 	// one taken, found through a grid of that cell size.
 	const sep = photometrySeparation
 	gw := w/sep + 1
 	grid := map[int][]int{}
-	type star struct {
-		flux      float64
-		saturated bool
-	}
-	var stars []star
+	var stars []photometryStar
 	ring := make([]float64, 0, 4*ringOut*ringOut)
 	for _, p := range peaks {
 		if len(stars) == photometryStars {
@@ -119,46 +84,16 @@ func measureAt(im *imagedata.Image, r int) Photometry {
 		}
 		px, py := p.i%w, p.i/w
 		gx, gy := px/sep, py/sep
-		clash := false
-		for dy := -1; dy <= 1 && !clash; dy++ {
-			for dx := -1; dx <= 1 && !clash; dx++ {
-				for _, c := range grid[(gy+dy)*gw+gx+dx] {
-					if ex, ey := c%w-px, c/w-py; ex*ex+ey*ey < sep*sep {
-						clash = true
-						break
-					}
-				}
-			}
-		}
-		if clash {
+		if gridClash(grid, gw, w, px, py) {
 			continue
 		}
 		grid[gy*gw+gx] = append(grid[gy*gw+gx], p.i)
 
-		ring = ring[:0]
-		var sum float64
-		n := 0
-		sat := false
-		for y := py - ringOut; y <= py+ringOut; y++ {
-			for x := px - ringOut; x <= px+ringOut; x++ {
-				dx, dy := x-px, y-py
-				r2 := dx*dx + dy*dy
-				v := d[y*w+x]
-				switch {
-				case r2 <= r*r:
-					sum += float64(v)
-					n++
-					sat = sat || v >= saturated
-				case r2 > ringIn*ringIn && r2 <= ringOut*ringOut:
-					ring = append(ring, float64(v))
-				}
-			}
-		}
-		slices.Sort(ring)
-		bg := ring[len(ring)/2]
-		stars = append(stars, star{flux: (sum - float64(n)*bg) * adu, saturated: sat})
+		var s photometryStar
+		s, ring = aperture(d, w, px, py, r, ringIn, ringOut, ring)
+		stars = append(stars, s)
 	}
-	slices.SortFunc(stars, func(a, b star) int {
+	slices.SortFunc(stars, func(a, b photometryStar) int {
 		switch {
 		case a.flux > b.flux:
 			return -1
@@ -177,4 +112,86 @@ func measureAt(im *imagedata.Image, r int) Photometry {
 		ph.Flux[j], ph.Saturated[j] = stars[k].flux, stars[k].saturated
 	}
 	return ph
+}
+
+type photometryPeak struct {
+	i int
+	v float32
+}
+
+type photometryStar struct {
+	flux      float64
+	saturated bool
+}
+
+func photometryPeaks(d []float32, w, h, border int, thresh float32) []photometryPeak {
+	var peaks []photometryPeak
+	for y := border; y < h-border; y++ {
+		row := y * w
+		for x := border; x < w-border; x++ {
+			i := row + x
+			v := d[i]
+			if v < thresh {
+				continue
+			}
+			if v < d[i-1] || v < d[i+1] || v < d[i-w] || v < d[i+w] ||
+				v < d[i-w-1] || v < d[i-w+1] || v < d[i+w-1] || v < d[i+w+1] {
+				continue
+			}
+			if d[i-1] < thresh && d[i+1] < thresh && d[i-w] < thresh && d[i+w] < thresh {
+				continue // a lone hot pixel
+			}
+			peaks = append(peaks, photometryPeak{i, v})
+		}
+	}
+	slices.SortStableFunc(peaks, func(a, b photometryPeak) int {
+		switch {
+		case a.v > b.v:
+			return -1
+		case a.v < b.v:
+			return 1
+		}
+		return 0
+	})
+	return peaks
+}
+
+func gridClash(grid map[int][]int, gw, w, px, py int) bool {
+	const sep = photometrySeparation
+	gx, gy := px/sep, py/sep
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			for _, c := range grid[(gy+dy)*gw+gx+dx] {
+				if ex, ey := c%w-px, c/w-py; ex*ex+ey*ey < sep*sep {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func aperture(d []float32, w, px, py, r, ringIn, ringOut int, ring []float64) (photometryStar, []float64) {
+	ring = ring[:0]
+	var sum float64
+	n := 0
+	sat := false
+	for y := py - ringOut; y <= py+ringOut; y++ {
+		for x := px - ringOut; x <= px+ringOut; x++ {
+			dx, dy := x-px, y-py
+			r2 := dx*dx + dy*dy
+			v := d[y*w+x]
+			switch {
+			case r2 <= r*r:
+				sum += float64(v)
+				n++
+				sat = sat || v >= saturated
+			case r2 > ringIn*ringIn && r2 <= ringOut*ringOut:
+				ring = append(ring, float64(v))
+			}
+		}
+	}
+	slices.Sort(ring)
+	bg := ring[len(ring)/2]
+	return photometryStar{flux: (sum - float64(n)*bg) * adu, saturated: sat}, ring
 }

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"image/jpeg"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,10 +18,16 @@ import (
 )
 
 func TestChoosePalette(t *testing.T) {
+	t.Parallel()
 	hours := func(pairs ...any) map[string]layer {
 		m := map[string]layer{}
-		for i := 0; i < len(pairs); i += 2 {
-			m[pairs[i].(string)] = layer{Key: "k", Effective: pairs[i+1].(float64) * 3600}
+		for i := 0; i+1 < len(pairs); i += 2 {
+			name, okName := pairs[i].(string)
+			hrs, okHours := pairs[i+1].(float64)
+			if !okName || !okHours {
+				t.Fatalf("hours(%v, %v): want a filter and its hours", pairs[i], pairs[i+1])
+			}
+			m[name] = layer{Key: "k", Effective: hrs * 3600}
 		}
 		return m
 	}
@@ -30,23 +37,23 @@ func TestChoosePalette(t *testing.T) {
 		want string
 		sho  bool
 	}{
-		{"all RGB and H-a", hours("Red", 3.0, "Green", 3.0, "Blue", 3.0, "H-a", 2.0), "RGB+Ha", false},
+		{"all RGB and H-a", hours(filterRed, 3.0, filterGreen, 3.0, filterBlue, 3.0, filterHa, 2.0), paletteRGBHa, false},
 		// Crab Nebula: 2 H-a subs against 38 of each colour.
-		{"too little H-a", hours("Red", 3.0, "Green", 3.0, "Blue", 3.0, "H-a", 0.3), "RGB", false},
-		{"one colour thin", hours("Red", 3.0, "Green", 3.0, "Blue", 0.5, "S-II", 2.0, "H-a", 3.0, "O-III", 2.5), "HOO", false},
-		{"shot for SHO", hours("S-II", 2.1, "H-a", 2.3, "O-III", 1.9), "SHO", true},
+		{"too little H-a", hours(filterRed, 3.0, filterGreen, 3.0, filterBlue, 3.0, filterHa, 0.3), paletteRGB, false},
+		{"one colour thin", hours(filterRed, 3.0, filterGreen, 3.0, filterBlue, 0.5, filterSII, 2.0, filterHa, 3.0, filterOIII, 2.5), paletteHOO, false},
+		{"shot for SHO", hours(filterSII, 2.1, filterHa, 2.3, filterOIII, 1.9), paletteSHO, true},
 		// California Nebula Panel 2: 1 S-II sub against 5 H-a.
-		{"thin S-II", hours("S-II", 0.1, "H-a", 0.8, "O-III", 0.3), "HOO", false},
-		{"H-a only", hours("H-a", 5.0), "", false},
+		{"thin S-II", hours(filterSII, 0.1, filterHa, 0.8, filterOIII, 0.3), paletteHOO, false},
+		{"H-a only", hours(filterHa, 5.0), "", false},
 		// Dolphin Head: 7.7 h H-a and 5 h O-III against under an hour of
 		// each colour.
-		{"mostly narrowband", hours("Red", 0.5, "Green", 0.25, "Blue", 0.4, "H-a", 7.7, "O-III", 5.0), "HOO", false},
+		{"mostly narrowband", hours(filterRed, 0.5, filterGreen, 0.25, filterBlue, 0.4, filterHa, 7.7, filterOIII, 5.0), paletteHOO, false},
 		// Cygnus Loop: S-II too, but SHO only when asked for.
-		{"narrowband with S-II", hours("Red", 1.0, "Green", 1.0, "Blue", 1.0, "S-II", 3.0, "H-a", 4.0, "O-III", 3.0), "HOO", false},
+		{"narrowband with S-II", hours(filterRed, 1.0, filterGreen, 1.0, filterBlue, 1.0, filterSII, 3.0, filterHa, 4.0, filterOIII, 3.0), paletteHOO, false},
 		// IC 1396 Panel 2: O-III goes into green and blue too.
-		{"RGB with H-a and O-III", hours("Red", 2.7, "Green", 2.9, "Blue", 3.1, "H-a", 3.4, "O-III", 3.4), "RGB+Ha+OIII", false},
-		{"RGB with O-III only", hours("Red", 2.7, "Green", 2.9, "Blue", 3.1, "O-III", 3.4), "RGB+OIII", false},
-		{"too little O-III", hours("Red", 2.7, "Green", 2.9, "Blue", 3.1, "H-a", 3.4, "O-III", 0.3), "RGB+Ha", false},
+		{"RGB with H-a and O-III", hours(filterRed, 2.7, filterGreen, 2.9, filterBlue, 3.1, filterHa, 3.4, filterOIII, 3.4), "RGB+Ha+OIII", false},
+		{"RGB with O-III only", hours(filterRed, 2.7, filterGreen, 2.9, filterBlue, 3.1, filterOIII, 3.4), "RGB+OIII", false},
+		{"too little O-III", hours(filterRed, 2.7, filterGreen, 2.9, filterBlue, 3.1, filterHa, 3.4, filterOIII, 0.3), paletteRGBHa, false},
 	} {
 		p, ok := choosePalette(c.have, c.sho)
 		if got := map[bool]string{true: p.Name, false: ""}[ok]; got != c.want {
@@ -56,13 +63,14 @@ func TestChoosePalette(t *testing.T) {
 }
 
 func TestPaletteFilters(t *testing.T) {
+	t.Parallel()
 	want := map[string][]string{
-		"RGB+Ha": {"Red", "Green", "Blue", "H-a"},
-		"RGB":    {"Red", "Green", "Blue"},
-		"SHO":    {"S-II", "H-a", "O-III"},
-		"HOO":    {"H-a", "O-III"},
+		paletteRGBHa: {filterRed, filterGreen, filterBlue, filterHa},
+		paletteRGB:   {filterRed, filterGreen, filterBlue},
+		paletteSHO:   {filterSII, filterHa, filterOIII},
+		paletteHOO:   {filterHa, filterOIII},
 	}
-	for _, p := range palettes {
+	for _, p := range palettes() {
 		if got := p.filters(); !slices.Equal(got, want[p.Name]) {
 			t.Errorf("%s reads %v, want %v", p.Name, got, want[p.Name])
 		}
@@ -70,6 +78,7 @@ func TestPaletteFilters(t *testing.T) {
 }
 
 func TestLinearPreviewRoundTrip(t *testing.T) {
+	t.Parallel()
 	im := &imagedata.Image{W: 4, H: 2, C: 1, Data: []float32{0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7}}
 	gz, err := linearPreview(im)
 	if err != nil {
@@ -90,6 +99,7 @@ func TestLinearPreviewRoundTrip(t *testing.T) {
 }
 
 func TestStretchKeepsUncoveredBlack(t *testing.T) {
+	t.Parallel()
 	p := make([]float32, 1000)
 	for i := 100; i < 1000; i++ {
 		p[i] = 0.01 + float32(i%13)*0.0001
@@ -107,15 +117,21 @@ func TestStretchKeepsUncoveredBlack(t *testing.T) {
 // TestCoverFromFiles renders a cover from downloaded linear previews named
 // after their filters (Red.bin, H-a.bin, ...) in COVER_DIR, to cover.jpg.
 func TestCoverFromFiles(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv("COVER_DIR")
 	if dir == "" {
 		t.Skip("COVER_DIR not set")
 	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
 	have := map[string]layer{}
 	planes := map[string]*linearImage{}
-	files, _ := filepath.Glob(filepath.Join(dir, "*.bin"))
+	files, _ := fs.Glob(root.FS(), "*.bin")
 	for _, f := range files {
-		raw, err := os.ReadFile(f)
+		raw, err := root.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -126,9 +142,9 @@ func TestCoverFromFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		name := strings.TrimSuffix(filepath.Base(f), ".bin")
+		name := strings.TrimSuffix(f, ".bin")
 		// Assume equal data; this test is about how the cover looks.
-		have[name], planes[name] = layer{Key: f, Effective: 1}, img
+		have[name], planes[name] = layer{Key: filepath.Join(dir, f), Effective: 1}, img
 	}
 	pal, ok := choosePalette(have, false)
 	if !ok {
@@ -140,7 +156,7 @@ func TestCoverFromFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("%s, %dx%d", pal.Name, w, h)
-	if err := os.WriteFile(filepath.Join(dir, "cover.jpg"), jpg, 0o644); err != nil {
+	if err := root.WriteFile("cover.jpg", jpg, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -158,11 +174,11 @@ func TestCoverNeedsEveryChannel(t *testing.T) {
 	}
 	sky := func(x int) float32 { return 0.01 + float32(x%7)*1e-4 }
 	planes := map[string]*linearImage{
-		"Red":   plane(func(x int) float32 { return map[bool]float32{true: sky(x), false: 0}[x < w/2] }),
-		"Green": plane(sky),
-		"Blue":  plane(sky),
+		filterRed:   plane(func(x int) float32 { return map[bool]float32{true: sky(x), false: 0}[x < w/2] }),
+		filterGreen: plane(sky),
+		filterBlue:  plane(sky),
 	}
-	jpg, err := composeCover(palettes[1], planes, w, h) // RGB
+	jpg, err := composeCover(palettes()[1], planes, w, h) // RGB
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,12 +217,12 @@ func TestCometCover(t *testing.T) {
 		stacks      []app.Stack
 		comet, wait bool
 	}{
-		{"every filter current", []app.Stack{master("Red", &now, true), master("Green", &now, true)}, true, false},
-		{"restack under way", []app.Stack{master("Red", &now, true), master("Green", &old, false)}, false, true},
-		{"new filter without one yet", []app.Stack{master("Red", &now, true), {Filter: "Blue", Subs: 20, MasterKey: &key}}, false, true},
-		{"new filter too small for one", []app.Stack{master("Red", &now, true), {Filter: "Blue", Subs: 2, MasterKey: &key}}, false, false},
-		{"old one left, nothing coming", []app.Stack{master("Red", &now, true), master("Green", &old, true)}, false, false},
-		{"not a comet", []app.Stack{{Filter: "Red", Subs: 20, MasterKey: &key}}, false, false},
+		{"every filter current", []app.Stack{master(filterRed, &now, true), master(filterGreen, &now, true)}, true, false},
+		{"restack under way", []app.Stack{master(filterRed, &now, true), master(filterGreen, &old, false)}, false, true},
+		{"new filter without one yet", []app.Stack{master(filterRed, &now, true), {Filter: filterBlue, Subs: 20, MasterKey: &key}}, false, true},
+		{"new filter too small for one", []app.Stack{master(filterRed, &now, true), {Filter: filterBlue, Subs: 2, MasterKey: &key}}, false, false},
+		{"old one left, nothing coming", []app.Stack{master(filterRed, &now, true), master(filterGreen, &old, true)}, false, false},
+		{"not a comet", []app.Stack{{Filter: filterRed, Subs: 20, MasterKey: &key}}, false, false},
 	} {
 		comet, wait := cometCover(c.stacks)
 		if comet != c.comet || wait != c.wait {
@@ -214,9 +230,9 @@ func TestCometCover(t *testing.T) {
 		}
 	}
 	// Comet masters from before the method was recorded are old ones.
-	pre := master("Green", &now, false)
+	pre := master(filterGreen, &now, false)
 	pre.CometMethod = nil
-	if comet, wait := cometCover([]app.Stack{master("Red", &now, true), pre}); comet || !wait {
+	if comet, wait := cometCover([]app.Stack{master(filterRed, &now, true), pre}); comet || !wait {
 		t.Errorf("a comet master of unknown method: comet %v wait %v, want false true", comet, wait)
 	}
 }

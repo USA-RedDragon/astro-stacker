@@ -63,13 +63,14 @@ func offTargetDB(t *testing.T) *gorm.DB {
 // reference is stacked; one that doesn't register is off target, and only
 // an on-target sub's failure counts against the reference.
 func TestOffPointingSubsStayOnlyIfTheyRegister(t *testing.T) {
+	t.Parallel()
 	s3, put := fakeS3(t)
 	db := offTargetDB(t)
 	p := NewPipeline(s3, "in", "out", db, nil, siril.Runner{}, t.TempDir(), DefaultPipelineOptions())
 	positions := map[string][2]float64{"Triangulum Galaxy": {23.46, 30.66}}
 	exp := 300.0
 	sub := func(id int, key string, ra, dec float64) calibrated {
-		f := app.Frame{ID: id, Key: "Triangulum Galaxy/LIGHT/" + key, Object: "Triangulum Galaxy", Filter: "Blue",
+		f := app.Frame{ID: id, Key: "Triangulum Galaxy/LIGHT/" + key, Object: "Triangulum Galaxy", Filter: filterBlue,
 			MountRA: &ra, MountDec: &dec, Exposure: &exp}
 		c := candidate{frame: f}
 		if pos := positions[f.Object]; separation(ra, dec, pos[0], pos[1]) > OffTargetDegrees {
@@ -89,7 +90,7 @@ func TestOffPointingSubsStayOnlyIfTheyRegister(t *testing.T) {
 	if err := os.WriteFile(reg, []byte("registered"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	added, unregistered, err := p.storeRegistered(context.Background(), "Triangulum Galaxy", "Blue", cals, []string{reg, "", ""})
+	added, unregistered, err := p.storeRegistered(context.Background(), "Triangulum Galaxy", filterBlue, cals, []string{reg, "", ""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +117,7 @@ func TestOffPointingSubsStayOnlyIfTheyRegister(t *testing.T) {
 // Subs left out on their mount pointing alone (no error recorded) are tried
 // again, once; those left out after failing to register stay out.
 func TestOffTargetSubsAreRequeuedOnce(t *testing.T) {
+	t.Parallel()
 	db := offTargetDB(t)
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	now := time.Now()
@@ -144,7 +146,7 @@ func TestOffTargetSubsAreRequeuedOnce(t *testing.T) {
 	}
 	// And it is due: the pending query picks it up.
 	for id := 1; id <= 3; id++ {
-		if err := db.Create(&app.Frame{ID: id, Key: string(rune('a' + id)), Type: "LIGHT", Object: "Orion", Filter: "H-a",
+		if err := db.Create(&app.Frame{ID: id, Key: string(rune('a' + id)), Type: frameTypeLight, Object: objectOrion, Filter: filterHa,
 			LastModified: now}).Error; err != nil {
 			t.Fatal(err)
 		}

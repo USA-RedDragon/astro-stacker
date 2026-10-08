@@ -14,14 +14,16 @@ import (
 	"gorm.io/gorm"
 )
 
+const cameraFLI = "FLI"
+
 // Only calibrated subs from the reference's camera are registered with its
 // distortion, and only when the reference has one.
 func TestRegisterWithDistortion(t *testing.T) {
 	t.Parallel()
-	ref := app.Frame{Key: "Telescope.live/Rho/AUS-2-CCD_Luminance_ID222389_cal.fits", Camera: "FLI"}
-	tl := candidate{frame: app.Frame{Key: "Telescope.live/Rho/AUS-2-CCD_Red_ID224166_cal.fits", Camera: "FLI"}}
+	ref := app.Frame{Key: "Telescope.live/Rho/AUS-2-CCD_Luminance_ID222389_cal.fits", Camera: cameraFLI}
+	tl := candidate{frame: app.Frame{Key: "Telescope.live/Rho/AUS-2-CCD_Red_ID224166_cal.fits", Camera: cameraFLI}}
 	other := candidate{frame: app.Frame{Key: "Telescope.live/Rho/CHI-1-CMOS_Red_ID1_cal.fits", Camera: "QHY"}}
-	nina := candidate{frame: app.Frame{Key: "Rho/LIGHT/2025-05-01_Red_0001.xisf", Camera: "FLI"}}
+	nina := candidate{frame: app.Frame{Key: "Rho/LIGHT/2025-05-01_Red_0001.xisf", Camera: cameraFLI}}
 	solved := app.TargetReference{Registration: registrationDistortion}
 	for _, c := range []struct {
 		name  string
@@ -87,15 +89,15 @@ func TestReregisterPrecalibrated(t *testing.T) {
 	for _, c := range []struct {
 		object, key, registration string
 	}{
-		{"Rho Ophiuchi", "Telescope.live/Rho Ophiuchi/AUS-2-CCD_Red_ID224166_cal.fits", ""},
+		{objectRhoOphiuchi, "Telescope.live/Rho Ophiuchi/AUS-2-CCD_Red_ID224166_cal.fits", ""},
 		{"Carina Nebula", "Telescope.live/Carina Nebula/CHI-1-CCD_Halpha_ID224182_cal.fits", registrationDistortion},
-		{"M31", "M31/LIGHT/2025-10-01_Red_0001.xisf", ""},
+		{objectM31, "M31/LIGHT/2025-10-01_Red_0001.xisf", ""},
 	} {
-		f := app.Frame{Key: c.key, Object: c.object, Type: "LIGHT", Filter: "Red", LastModified: time.Now()}
+		f := app.Frame{Key: c.key, Object: c.object, Type: frameTypeLight, Filter: filterRed, LastModified: time.Now()}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}
-		s := app.Stack{Object: c.object, Filter: "Red"}
+		s := app.Stack{Object: c.object, Filter: filterRed}
 		if err := db.Create(&s).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -116,7 +118,7 @@ func TestReregisterPrecalibrated(t *testing.T) {
 		t.Errorf("references left %v, want Carina Nebula and M31", left)
 	}
 	var stacks int64
-	if err := db.Model(&app.Stack{}).Where("object = ?", "Rho Ophiuchi").Count(&stacks).Error; err != nil {
+	if err := db.Model(&app.Stack{}).Where("object = ?", objectRhoOphiuchi).Count(&stacks).Error; err != nil {
 		t.Fatal(err)
 	}
 	if stacks != 0 {

@@ -12,6 +12,7 @@ func cand(id int, hfr float64, stars int, score float64) candidate {
 }
 
 func TestPickReferencePrefersSharpStars(t *testing.T) {
+	t.Parallel()
 	got, ok := pickReference([]candidate{
 		cand(1, 4.5, 2000, 1), // soft, best score
 		cand(2, 2.5, 1900, 0.8),
@@ -23,6 +24,7 @@ func TestPickReferencePrefersSharpStars(t *testing.T) {
 }
 
 func TestPickReferenceWithoutStarData(t *testing.T) {
+	t.Parallel()
 	got, ok := pickReference([]candidate{cand(1, 0, 0, 0.5), cand(2, 0, 0, 0.9)})
 	if !ok || got.frame.ID != 2 {
 		t.Fatalf("picked %d, want 2", got.frame.ID)

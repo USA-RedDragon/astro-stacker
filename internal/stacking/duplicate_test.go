@@ -10,6 +10,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const twinETag = "aaa"
+
 func duplicateDB(t *testing.T) (*gorm.DB, []app.Frame) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -22,14 +24,14 @@ func duplicateDB(t *testing.T) (*gorm.DB, []app.Frame) {
 	// Telescope.live's twins: the same ETag and size under two names. The
 	// same ETag on another target, or with another size, is another file.
 	frames := []app.Frame{
-		{Key: "Rho/ID224158_cal.fits", Object: "Rho Ophiuchi", ETag: "aaa", Size: 100},
-		{Key: "Rho/ID224159_cal.fits", Object: "Rho Ophiuchi", ETag: "aaa", Size: 100},
-		{Key: "Rho/ID224160_cal.fits", Object: "Rho Ophiuchi", ETag: "bbb", Size: 100},
-		{Key: "Rho/ID224161_cal.fits", Object: "Rho Ophiuchi", ETag: "bbb", Size: 101},
-		{Key: "Other/ID1_cal.fits", Object: "Other", ETag: "aaa", Size: 100},
+		{Key: "Rho/ID224158_cal.fits", Object: objectRhoOphiuchi, ETag: twinETag, Size: 100},
+		{Key: "Rho/ID224159_cal.fits", Object: objectRhoOphiuchi, ETag: twinETag, Size: 100},
+		{Key: "Rho/ID224160_cal.fits", Object: objectRhoOphiuchi, ETag: "bbb", Size: 100},
+		{Key: "Rho/ID224161_cal.fits", Object: objectRhoOphiuchi, ETag: "bbb", Size: 101},
+		{Key: "Other/ID1_cal.fits", Object: objectOther, ETag: twinETag, Size: 100},
 	}
 	for i := range frames {
-		frames[i].Type, frames[i].Filter, frames[i].LastModified = "LIGHT", "Red", time.Now()
+		frames[i].Type, frames[i].Filter, frames[i].LastModified = frameTypeLight, filterRed, time.Now()
 		if err := db.Create(&frames[i]).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -56,8 +58,8 @@ func TestDuplicates(t *testing.T) {
 func TestDropDuplicates(t *testing.T) {
 	t.Parallel()
 	db, frames := duplicateDB(t)
-	stack := app.Stack{Object: "Rho Ophiuchi", Filter: "Red"}
-	other := app.Stack{Object: "Other", Filter: "Red"}
+	stack := app.Stack{Object: objectRhoOphiuchi, Filter: filterRed}
+	other := app.Stack{Object: objectOther, Filter: filterRed}
 	for _, s := range []*app.Stack{&stack, &other} {
 		if err := db.Create(s).Error; err != nil {
 			t.Fatal(err)
@@ -65,7 +67,7 @@ func TestDropDuplicates(t *testing.T) {
 	}
 	for i, f := range frames {
 		id := stack.ID
-		if f.Object == "Other" {
+		if f.Object == objectOther {
 			id = other.ID
 		}
 		if err := db.Create(&app.StackFrame{ID: 100 + i, FrameID: f.ID, StackID: &id, Status: app.StackStatusAdded}).Error; err != nil {

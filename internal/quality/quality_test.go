@@ -9,6 +9,12 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	targetCrescent = "Crescent"
+	filterHa       = "H-a"
+	filterRed      = "Red"
+)
+
 func TestParseMetadataHandlesNaNStrings(t *testing.T) {
 	t.Parallel()
 	m, err := quality.ParseMetadata(`{"FileName":"A:\\NINA\\M31\\LIGHT\\x.xisf","FilterName":"Red",` +
@@ -19,7 +25,7 @@ func TestParseMetadataHandlesNaNStrings(t *testing.T) {
 	if !math.IsNaN(float64(m.FWHM)) {
 		t.Errorf("FWHM = %v, want NaN", m.FWHM)
 	}
-	if m.HFR != 1.57 || m.ADUMedian != 620 || m.ExposureDuration != 600 || m.FilterName != "Red" {
+	if m.HFR != 1.57 || m.ADUMedian != 620 || m.ExposureDuration != 600 || m.FilterName != filterRed {
 		t.Errorf("unexpected metadata: %+v", m)
 	}
 }
@@ -95,8 +101,8 @@ func TestPedestalAt(t *testing.T) {
 func TestCalibratedSubsScore(t *testing.T) {
 	t.Parallel()
 	scores, err := quality.LoadScores(t.Context(), emptyScheduler(t), 506, []quality.Measured{
-		{File: "a_cal.fits", Target: "Crescent", Filter: "H-a", Exposure: 600, SkyADU: 177, HFR: 2.5, Calibrated: true},
-		{File: "b_cal.fits", Target: "Crescent", Filter: "H-a", Exposure: 600, SkyADU: 180, HFR: 2.6, Calibrated: true},
+		{File: "a_cal.fits", Target: targetCrescent, Filter: filterHa, Exposure: 600, SkyADU: 177, HFR: 2.5, Calibrated: true},
+		{File: "b_cal.fits", Target: targetCrescent, Filter: filterHa, Exposure: 600, SkyADU: 180, HFR: 2.6, Calibrated: true},
 	})
 	if err != nil {
 		t.Fatal(err)

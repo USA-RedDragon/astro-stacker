@@ -12,6 +12,7 @@ import (
 )
 
 func TestStreamReplaysAfterLastEventID(t *testing.T) {
+	t.Parallel()
 	b := NewBroker()
 	b.Publish(Event{Type: TypeMaster, Object: "M31", Filter: "Red"})
 	b.Publish(Event{Type: TypePreview, Object: "M31", Key: "a"})
@@ -60,6 +61,7 @@ func TestStreamReplaysAfterLastEventID(t *testing.T) {
 }
 
 func TestNewListenerGetsLatestStatusFirst(t *testing.T) {
+	t.Parallel()
 	b := NewBroker()
 	b.SetStatus(Status{Backlog: Backlog{LightsPending: 1}})
 	b.SetStatus(Status{Backlog: Backlog{LightsPending: 2}})
@@ -71,19 +73,25 @@ func TestNewListenerGetsLatestStatusFirst(t *testing.T) {
 }
 
 func TestNilBrokerDropsEvents(t *testing.T) {
+	t.Parallel()
 	var b *Broker
 	b.Publish(Event{Type: TypeMaster})
 }
 
 // An open stream must not hold a shutting-down server to its timeout.
 func TestShutdownEndsStreams(t *testing.T) {
+	t.Parallel()
 	b := NewBroker()
 	srv := httptest.NewUnstartedServer(b)
 	srv.Config.RegisterOnShutdown(b.Close)
 	srv.Start()
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +111,7 @@ func TestShutdownEndsStreams(t *testing.T) {
 	rec := httptest.NewRecorder()
 	done := make(chan struct{})
 	go func() {
-		b.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		b.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil))
 		close(done)
 	}()
 	select {

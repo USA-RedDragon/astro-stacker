@@ -25,6 +25,7 @@ func sky(w, h int, seed uint64) *imagedata.Image {
 // grid, not on the frame: the same sky shown through different crops
 // carries it at the same sky position.
 func TestWatermarkOnSkyGrid(t *testing.T) {
+	t.Parallel()
 	opts := Options{Width: 400, Height: 240, Quality: 60, Amplitude: 0.5}
 	sub := sky(1600, 1000, 1)
 	p := NewPattern(sub.W)
@@ -64,6 +65,7 @@ func TestWatermarkOnSkyGrid(t *testing.T) {
 // TestPatternScalesWithReference checks the letters are sized by the
 // reference width, so they look the same whatever the camera's resolution.
 func TestPatternScalesWithReference(t *testing.T) {
+	t.Parallel()
 	small, big := NewPattern(3000), NewPattern(6000)
 	for _, xy := range [][2]float64{{10, 10}, {123.4, 56.7}, {1500, 900}, {2999, 42}} {
 		if a, b := small.At(xy[0], xy[1]), big.At(2*xy[0], 2*xy[1]); math.Abs(a-b) > 1e-6 {
@@ -75,6 +77,7 @@ func TestPatternScalesWithReference(t *testing.T) {
 // TestRenderedFrame checks the frame's size and that it carries no
 // metadata: no EXIF (APP1) or comment segments.
 func TestRenderedFrame(t *testing.T) {
+	t.Parallel()
 	res, err := Render(Input{Sub: sky(2000, 1300, 2), Pattern: NewPattern(2000)}, DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +103,7 @@ func TestRenderedFrame(t *testing.T) {
 // quantizing and JPEG at quality 60 on average over frames: the sky noise
 // dithers it.
 func TestWatermarkSurvivesJPEG(t *testing.T) {
+	t.Parallel()
 	opts := DefaultOptions()
 	const frames = 16
 	sum := make([]float64, opts.Width*opts.Height)
@@ -199,6 +203,7 @@ func stars(x, y int) float64 {
 // structure; a noise-limited sub, or one whose only structure is stars,
 // is rendered exactly as without the rule.
 func TestStructureNoise(t *testing.T) {
+	t.Parallel()
 	opts := DefaultOptions()
 	off := opts
 	off.StructureRatio = 0
@@ -238,6 +243,7 @@ func TestStructureNoise(t *testing.T) {
 
 // TestNoiseFresh checks the added noise differs every render unless seeded.
 func TestNoiseFresh(t *testing.T) {
+	t.Parallel()
 	sub, m := field(1600, 960, 0.0005, 3, nebula(0.002))
 	in := Input{Sub: sub, Pattern: NewPattern(sub.W), Master: m}
 	a, _ := Render(in, DefaultOptions())

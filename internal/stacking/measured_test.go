@@ -23,7 +23,7 @@ func TestMeasuredSubsCarryOffset(t *testing.T) {
 	}
 	now := time.Now()
 	offset, sky, hfr := 240.0, 2487.0, 2.4
-	if err := db.Create(&app.Frame{Key: "M 92/LIGHT/x.xisf", Type: "LIGHT", Object: "M 92", Filter: "Blue",
+	if err := db.Create(&app.Frame{Key: "M 92/LIGHT/x.xisf", Type: frameTypeLight, Object: "M 92", Filter: filterBlue,
 		LastModified: now, Offset: &offset, SkyADU: &sky, StarHFR: &hfr, MeasuredAt: &now}).Error; err != nil {
 		t.Fatal(err)
 	}

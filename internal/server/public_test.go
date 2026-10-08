@@ -12,6 +12,7 @@ import (
 )
 
 func TestPublicFrame(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -25,7 +26,7 @@ func TestPublicFrame(t *testing.T) {
 		status string
 		age    time.Duration
 	}{
-		{"Orion", app.StackStatusAdded, 2 * time.Hour},
+		{objectOrion, app.StackStatusAdded, 2 * time.Hour},
 		{"M 31", app.StackStatusAdded, time.Hour},
 		// Rescored out of its master since it was rendered: never served.
 		{"Leo Triplet", app.StackStatusLowScore, time.Minute},
@@ -40,7 +41,7 @@ func TestPublicFrame(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	for object, want := range map[string]string{"": "M 31", "Orion": "Orion"} {
+	for object, want := range map[string]string{"": "M 31", objectOrion: objectOrion} {
 		f, err := publicFrame(ctx, db, object)
 		if err != nil || f.Object != want {
 			t.Errorf("publicFrame(%q) = %q, %v; want %q", object, f.Object, err, want)
@@ -54,6 +55,7 @@ func TestPublicFrame(t *testing.T) {
 }
 
 func TestPublicSize(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		w, h string
 		ok   bool

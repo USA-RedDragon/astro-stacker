@@ -45,6 +45,7 @@ func (r *recorder) count(what string) int {
 }
 
 func TestRunLoopDrainsBacklogBackToBack(t *testing.T) {
+	t.Parallel()
 	r := &recorder{backlog: 20}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -69,6 +70,7 @@ func TestRunLoopDrainsBacklogBackToBack(t *testing.T) {
 }
 
 func TestRunLoopScansOnTimeDuringBacklog(t *testing.T) {
+	t.Parallel()
 	r := &recorder{backlog: 1 << 30}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -99,6 +101,7 @@ func TestRunLoopScansOnTimeDuringBacklog(t *testing.T) {
 }
 
 func TestRunLoopWaitsWithoutBacklog(t *testing.T) {
+	t.Parallel()
 	r := &recorder{}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

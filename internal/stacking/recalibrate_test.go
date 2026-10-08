@@ -25,20 +25,20 @@ func fp(v float64) *float64 { return &v }
 func TestLightsWaitForArrivingSets(t *testing.T) {
 	t.Parallel()
 	night := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
-	f := app.Frame{Key: "M31/LIGHT/a.xisf", Object: "M31", Filter: "Red", Exposure: fp(600), Gain: fp(0), Offset: fp(50),
+	f := app.Frame{Key: "M31/LIGHT/a.xisf", Object: objectM31, Filter: filterRed, Exposure: fp(600), Gain: fp(0), Offset: fp(50),
 		SetTemp: fp(-5), BinX: fp(1), Night: &night}
-	scores := map[string]quality.SubScore{"a.xisf": {Score: 1, TargetBest: 1}}
+	scores := map[string]quality.SubScore{subA: {Score: 1, TargetBest: 1}}
 	now := time.Now()
 	set := func(typ string, uploaded time.Time) calmatch.Set {
-		return calmatch.Set{Type: typ, Night: night, Filter: "Red", Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5,
+		return calmatch.Set{Type: typ, Night: night, Filter: filterRed, Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5,
 			BinX: 1, Rotator: math.NaN(), Count: 25, Uploaded: uploaded}
 	}
 	opts := DefaultPipelineOptions()
 	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", opts)
 	old := now.Add(-24 * time.Hour)
-	sets := []calmatch.Set{set("BIAS", old), set("FLAT", old), set("DARK", now.Add(-time.Hour))}
+	sets := []calmatch.Set{set("BIAS", old), set("FLAT", old), set(frameTypeDark, now.Add(-time.Hour))}
 	c, status := p.classify(f, scores, sets, nil)
-	if status != app.StackStatusCalibration || c.waiting == nil || c.waiting.Type != "DARK" {
+	if status != app.StackStatusCalibration || c.waiting == nil || c.waiting.Type != frameTypeDark {
 		t.Fatalf("with darks arriving: status %q, waiting %+v", status, c.waiting)
 	}
 	sets[2].Uploaded = now.Add(-4 * time.Hour)
@@ -55,7 +55,7 @@ func TestLightsWaitForArrivingSets(t *testing.T) {
 func TestRecalReason(t *testing.T) {
 	t.Parallel()
 	dark := func(temp float64, count int) *calmatch.Set {
-		return &calmatch.Set{Type: "DARK", Exposure: 600, Gain: 0, Offset: 50, SetTemp: temp, BinX: 1, Count: count}
+		return &calmatch.Set{Type: frameTypeDark, Exposure: 600, Gain: 0, Offset: 50, SetTemp: temp, BinX: 1, Count: count}
 	}
 	g := calmatch.Group{Exposure: 600, Gain: 0, Offset: 50, SetTemp: -8, BinX: 1, Rotator: math.NaN()}
 	now := calmatch.Match{Set: dark(-5, 25)}
@@ -96,8 +96,8 @@ func TestInferDark(t *testing.T) {
 	g := calmatch.Group{Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5, BinX: 1, Rotator: math.NaN()}
 	day := func(d int) time.Time { return time.Date(2026, 9, d, 0, 0, 0, 0, time.UTC) }
 	sets := []calmatch.Set{
-		{Type: "DARK", Exposure: 600, Gain: 0, Offset: 50, SetTemp: 0, BinX: 1, Uploaded: day(1)},
-		{Type: "DARK", Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5, BinX: 1, Uploaded: day(20)},
+		{Type: frameTypeDark, Exposure: 600, Gain: 0, Offset: 50, SetTemp: 0, BinX: 1, Uploaded: day(1)},
+		{Type: frameTypeDark, Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5, BinX: 1, Uploaded: day(20)},
 	}
 	if s := inferDark(g, sets, day(19)); s == nil || s.SetTemp != 0 {
 		t.Errorf("stacked while the -5 °C darks came: %+v", s)
@@ -125,24 +125,24 @@ func recalDB(t *testing.T) (*gorm.DB, func(key string, sf app.StackFrame) int) {
 	start := time.Date(2026, 9, 29, 4, 0, 0, 0, time.UTC)
 	for i := range 25 {
 		d := start.Add(time.Duration(i) * 10 * time.Minute)
-		if err := db.Create(&app.Frame{Key: fmt.Sprintf("dark-%d", i), Type: "DARK", Exposure: fp(600), Gain: fp(0),
+		if err := db.Create(&app.Frame{Key: fmt.Sprintf("dark-%d", i), Type: frameTypeDark, Exposure: fp(600), Gain: fp(0),
 			Offset: fp(50), SetTemp: fp(-5), BinX: fp(1), Night: &night, DateObs: &d, LastModified: d}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := db.Create(&app.CalibrationMaster{SetKey: "partial", Type: "DARK", ObjectKey: "x", Frames: 8,
+	if err := db.Create(&app.CalibrationMaster{SetKey: "partial", Type: frameTypeDark, ObjectKey: "x", Frames: 8,
 		Exposure: fp(600), Gain: fp(0), Offset: fp(50), SetTemp: fp(-5), BinX: fp(1)}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&app.CalibrationMaster{SetKey: "whole", Type: "DARK", ObjectKey: "y", Frames: 25,
+	if err := db.Create(&app.CalibrationMaster{SetKey: "whole", Type: frameTypeDark, ObjectKey: "y", Frames: 25,
 		Exposure: fp(600), Gain: fp(0), Offset: fp(50), SetTemp: fp(-5), BinX: fp(1)}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&app.Stack{ID: 7, Object: "M31", Filter: "Red"}).Error; err != nil {
+	if err := db.Create(&app.Stack{ID: 7, Object: objectM31, Filter: filterRed}).Error; err != nil {
 		t.Fatal(err)
 	}
 	light := func(key string, sf app.StackFrame) int {
-		f := app.Frame{Key: key, Type: "LIGHT", Object: "M31", Filter: "Red", Exposure: fp(600), Gain: fp(0),
+		f := app.Frame{Key: key, Type: frameTypeLight, Object: objectM31, Filter: filterRed, Exposure: fp(600), Gain: fp(0),
 			Offset: fp(50), SetTemp: fp(-5), BinX: fp(1), Night: &night, LastModified: start}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
@@ -167,7 +167,7 @@ func TestRecalibrateDarks(t *testing.T) {
 	t.Parallel()
 	db, light := recalDB(t)
 	s := func(v string) *string { return &v }
-	noDark := light("a.xisf", app.StackFrame{NoDark: true})
+	noDark := light(subA, app.StackFrame{NoDark: true})
 	partial := light("b.xisf", app.StackFrame{DarkMaster: s("partial")})
 	whole := light("c.xisf", app.StackFrame{DarkMaster: s("whole")})
 	unknown := light("d.xisf", app.StackFrame{})
@@ -178,7 +178,7 @@ func TestRecalibrateDarks(t *testing.T) {
 	oldNight := time.Date(2025, 2, 6, 0, 0, 0, 0, time.UTC)
 	for i := range 20 {
 		d := old.Add(time.Duration(i) * 10 * time.Minute)
-		if err := db.Create(&app.Frame{Key: fmt.Sprintf("old-dark-%d", i), Type: "DARK", Exposure: fp(600), Gain: fp(0),
+		if err := db.Create(&app.Frame{Key: fmt.Sprintf("old-dark-%d", i), Type: frameTypeDark, Exposure: fp(600), Gain: fp(0),
 			Offset: fp(50), SetTemp: fp(0), BinX: fp(1), Night: &oldNight, DateObs: &d, LastModified: d}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -186,7 +186,7 @@ func TestRecalibrateDarks(t *testing.T) {
 	during := light("f.xisf", app.StackFrame{ProcessedAt: time.Date(2026, 9, 29, 6, 0, 0, 0, time.UTC)})
 	after := light("g.xisf", app.StackFrame{ProcessedAt: time.Date(2026, 9, 30, 6, 0, 0, 0, time.UTC)})
 	recorded := light("h.xisf", app.StackFrame{DarkMaster: s("old"), ProcessedAt: time.Date(2026, 9, 30, 6, 0, 0, 0, time.UTC)})
-	if err := db.Create(&app.CalibrationMaster{SetKey: "old", Type: "DARK", ObjectKey: "z", Frames: 20,
+	if err := db.Create(&app.CalibrationMaster{SetKey: "old", Type: frameTypeDark, ObjectKey: "z", Frames: 20,
 		Exposure: fp(600), Gain: fp(0), Offset: fp(50), SetTemp: fp(0), BinX: fp(1)}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestRecalibrateDarksTrickles(t *testing.T) {
 	db, light := recalDB(t)
 	s := func(v string) *string { return &v }
 	light("waiting.xisf", app.StackFrame{Status: app.StackStatusRecalibrate})
-	var partial []int
+	partial := make([]int, 0, 3)
 	for i := range 3 {
 		partial = append(partial, light(fmt.Sprintf("p%d.xisf", i), app.StackFrame{DarkMaster: s("partial")}))
 	}
@@ -281,7 +281,7 @@ func TestMasterForSettleAndSetup(t *testing.T) {
 	}
 	var dark calmatch.Set
 	for _, s := range sets {
-		if s.Type == "DARK" && s.Master == "" {
+		if s.Type == frameTypeDark && s.Master == "" {
 			dark = s
 		}
 	}
@@ -289,7 +289,7 @@ func TestMasterForSettleAndSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := setKey("DARK", frames)
+	key := setKey(frameTypeDark, frames)
 
 	arriving := dark
 	arriving.Uploaded = time.Now().Add(-time.Hour)
@@ -297,7 +297,7 @@ func TestMasterForSettleAndSetup(t *testing.T) {
 		t.Fatalf("built from a set still arriving: %v", err)
 	}
 
-	if err := db.Create(&app.CalibrationMaster{SetKey: key, Type: "DARK", ObjectKey: "k", Frames: 25}).Error; err != nil {
+	if err := db.Create(&app.CalibrationMaster{SetKey: key, Type: frameTypeDark, ObjectKey: "k", Frames: 25}).Error; err != nil {
 		t.Fatal(err)
 	}
 	local := filepath.Join(dir, "masters", key+".fit")

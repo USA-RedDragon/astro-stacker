@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 )
 
 // Runner invokes siril-cli. Siril ships as an AppImage; extracted, its AppRun
@@ -115,8 +116,9 @@ var darkCoef = regexp.MustCompile(`Dark optimization of image \d+: k0=([0-9.eE+-
 // DarkScales returns the dark optimization coefficients Siril logged, in
 // the order the images were calibrated.
 func DarkScales(log string) []float64 {
-	var out []float64
-	for _, m := range darkCoef.FindAllStringSubmatch(log, -1) {
+	matches := darkCoef.FindAllStringSubmatch(log, -1)
+	out := make([]float64, 0, len(matches))
+	for _, m := range matches {
 		v, _ := strconv.ParseFloat(m[1], 64)
 		out = append(out, v)
 	}

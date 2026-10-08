@@ -39,8 +39,8 @@ func (s registeredPanel) cards() []imagedata.Card {
 func TestPlacementsFromRegisteredPanels(t *testing.T) {
 	t.Parallel()
 	panels := []registeredPanel{{0, 0, 478, 220}, {2, 140, 478, 220}}
-	var headers []frameheader.Keywords
-	var sizes [][2]int
+	headers := make([]frameheader.Keywords, 0, len(panels))
+	sizes := make([][2]int, 0, len(panels))
 	for _, p := range panels {
 		kw := frameheader.Keywords{}
 		for _, c := range p.cards() {
@@ -88,7 +88,7 @@ func TestMatchRegisteredPanels(t *testing.T) {
 	offset := func(c int) float64 { return 0.002 + 0.001*((float64(c)+0.5)/canvasW-0.5) }
 	panels := []registeredPanel{{0, 0, 478, 220}, {2, 140, 478, 220}}
 	dir := t.TempDir()
-	var files []string
+	files := make([]string, 0, len(panels))
 	for k, p := range panels {
 		data := make([]float32, p.W*p.H)
 		for y := range p.H {
@@ -204,7 +204,7 @@ func TestPublishableMosaic(t *testing.T) {
 		data[i] = float32(i+1) / 100
 	}
 	in := filepath.Join(dir, "mosaic.fit")
-	cards := append(registeredPanel{0, 0, w, h}.cards(), imagedata.StringCard("FILTER", "Luminance", ""))
+	cards := append(registeredPanel{0, 0, w, h}.cards(), imagedata.StringCard("FILTER", filterLuminance, ""))
 	if err := writeFITSFile(in, w, h, 1, data, cards); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestPublishableMosaic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if kw["FILTER"] != "Luminance" {
+		if kw["FILTER"] != filterLuminance {
 			t.Errorf("%s: keywords %v", filepath.Base(f), kw)
 		}
 		if f == fitsOut && kw["ROWORDER"] != "BOTTOM-UP" {

@@ -84,9 +84,9 @@ func TestTransparency(t *testing.T) {
 
 // transparencyMeta is an acquired image's metadata with the fields scoring
 // and transparency read.
-func transparencyMeta(file, filter string, gain int, rotation, hfr, median, mean float64) string {
+func transparencyMeta(file, filter string, gain int, rotation, median, mean float64) string {
 	return fmt.Sprintf(`{"FileName":"A:\\NINA\\T\\LIGHT\\%s","FilterName":%q,"ExposureDuration":300,"Gain":%d,"Offset":50,`+
-		`"DetectedStars":1500,"HFR":%v,"ADUMedian":%v,"ADUMean":%v,"RotatorPosition":%v}`, file, filter, gain, hfr, median, mean, rotation)
+		`"DetectedStars":1500,"HFR":1.7,"ADUMedian":%v,"ADUMean":%v,"RotatorPosition":%v}`, file, filter, gain, median, mean, rotation)
 }
 
 // A hazy sub keeps its old score times t^2, against the best subs of its
@@ -114,22 +114,22 @@ func TestScoresTakeTransparency(t *testing.T) {
 		if i%2 == 1 {
 			rot = 270.1
 		}
-		add(1, transparencyMeta(fmt.Sprintf("clear_%02d.xisf", i), "Luminance", 0, rot, 1.70, 900, 900+130+float64(i)), quality.GradingAccepted)
+		add(1, transparencyMeta(fmt.Sprintf("clear_%02d.xisf", i), "Luminance", 0, rot, 900, 900+130+float64(i)), quality.GradingAccepted)
 	}
 	// A rejected sub's light doesn't set the reference.
-	add(1, transparencyMeta("rejected.xisf", "Luminance", 0, 90, 1.70, 900, 900+400), quality.GradingRejected)
+	add(1, transparencyMeta("rejected.xisf", "Luminance", 0, 90, 900, 900+400), quality.GradingRejected)
 	// The hazy sub of 2025-12-26 02:36: as sharp to NINA, the sky up,
 	// 98.5 ADU of light.
-	add(1, transparencyMeta("hazy.xisf", "Luminance", 0, 89.9, 1.70, 993, 993+98.5), quality.GradingAccepted)
+	add(1, transparencyMeta("hazy.xisf", "Luminance", 0, 89.9, 993, 993+98.5), quality.GradingAccepted)
 	// The same light at another gain or turned to another angle has no
 	// reference of its own, so it is scored as before.
-	add(1, transparencyMeta("gain100.xisf", "Luminance", 100, 90, 1.70, 993, 993+98.5), quality.GradingAccepted)
-	add(1, transparencyMeta("turned.xisf", "Luminance", 0, 45, 1.70, 993, 993+98.5), quality.GradingAccepted)
+	add(1, transparencyMeta("gain100.xisf", "Luminance", 100, 90, 993, 993+98.5), quality.GradingAccepted)
+	add(1, transparencyMeta("turned.xisf", "Luminance", 0, 45, 993, 993+98.5), quality.GradingAccepted)
 	// One without ADU statistics.
 	add(1, `{"FileName":"A:\\NINA\\T\\LIGHT\\nostats.xisf","FilterName":"Luminance","ExposureDuration":300,"Offset":50,"HFR":1.7,"ADUMedian":993}`, quality.GradingAccepted)
 	// A dark field: 4 ADU of light, too little to tell haze by.
 	for i := range 12 {
-		add(2, transparencyMeta(fmt.Sprintf("dark_%02d.xisf", i), "Red", 0, 0, 1.70, 700, 700+4+float64(i%3)), quality.GradingAccepted)
+		add(2, transparencyMeta(fmt.Sprintf("dark_%02d.xisf", i), filterRed, 0, 0, 700, 700+4+float64(i%3)), quality.GradingAccepted)
 	}
 
 	scores, err := quality.LoadScores(t.Context(), db, 506, []quality.Measured{
@@ -140,7 +140,8 @@ func TestScoresTakeTransparency(t *testing.T) {
 	}
 	// The reference is the 90th percentile of the field's subs, the hazy
 	// one with the twelve clear ones.
-	field := []float64{98.5}
+	field := make([]float64, 0, 13)
+	field = append(field, 98.5)
 	for i := range 12 {
 		field = append(field, 130+float64(i))
 	}
@@ -233,7 +234,7 @@ func TestScoresTakeCoreTransparency(t *testing.T) {
 	add := func(id int, file string, grading int, reason any, median, mean float64, phot *measure.Photometry) {
 		t.Helper()
 		if err := db.Exec(`INSERT INTO acquiredimage ("Id", "targetId", "gradingStatus", metadata, rejectreason) VALUES (?, 1, ?, ?, ?)`,
-			id, grading, transparencyMeta(file, "Luminance", 0, 90, 1.7, median, mean), reason).Error; err != nil {
+			id, grading, transparencyMeta(file, "Luminance", 0, 90, median, mean), reason).Error; err != nil {
 			t.Fatal(err)
 		}
 		if phot != nil {

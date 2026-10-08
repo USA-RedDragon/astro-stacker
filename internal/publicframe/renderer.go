@@ -213,7 +213,7 @@ func choose(cands []Candidate, cur *app.PublicFrame, failed map[int]bool) []Cand
 }
 
 // candidates lists accepted lights newest first, of one object or all, taken
-// since since (zero for any time).
+// at or after since (zero for any time).
 func (r *Renderer) candidates(ctx context.Context, object string, since time.Time) ([]Candidate, error) {
 	q := r.db.WithContext(ctx).Table("stack_frames sf").
 		Select("f.id AS frame_id, f.object, f.filter, f.date_obs, sf.registered_key, sf.stack_id").

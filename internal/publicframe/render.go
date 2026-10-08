@@ -97,7 +97,7 @@ type Result struct {
 // strokes and letters (about 15-80 px) and drops pixel noise and
 // gradients. Stars don't hide the letters (the eye reads past them, and
 // the sky mask leaves the bright ones out); extended nebulosity does.
-var (
+const (
 	starRadius = 3
 	bandFine   = 4
 	bandCoarse = 24

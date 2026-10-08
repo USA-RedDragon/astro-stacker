@@ -129,12 +129,12 @@ func schedulerFixture(t testing.TB, n int) *gorm.DB {
 // fillScheduler adds the images schedulerFixture has to db's empty tables.
 func fillScheduler(t testing.TB, db *gorm.DB, n int) {
 	t.Helper()
-	for i, name := range []string{"M31", "Crescent", "Cygnus Loop Panel 1", "NGC 7000"} {
+	for i, name := range []string{"M31", targetCrescent, "Cygnus Loop Panel 1", "NGC 7000"} {
 		if err := db.Exec(`INSERT INTO target ("Id", name) VALUES (?, ?)`, i+1, name).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
-	filters := []string{"H-a", "O-III", "S-II", "Red", "Green", "Blue", "Lum"}
+	filters := []string{filterHa, "O-III", "S-II", filterRed, "Green", "Blue", "Lum"}
 	exposures := []float64{60, 120, 300, 600}
 	for i := range n {
 		f := filters[i%len(filters)]
@@ -231,8 +231,8 @@ func TestScorerMatchesLegacyAsImagesChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	measured := []quality.Measured{
-		{File: "tl_1.fits", Target: "Crescent", Filter: "H-a", Exposure: 600, SkyADU: 177, HFR: 2.5, Calibrated: true},
-		{File: "own_1.fits", Target: "M31", Filter: "Red", Exposure: 120, SkyADU: 700, Offset: 50, HFR: 1.9, Stars: 300},
+		{File: "tl_1.fits", Target: targetCrescent, Filter: filterHa, Exposure: 600, SkyADU: 177, HFR: 2.5, Calibrated: true},
+		{File: "own_1.fits", Target: "M31", Filter: filterRed, Exposure: 120, SkyADU: 700, Offset: 50, HFR: 1.9, Stars: 300},
 	}
 	var s quality.Scorer
 	check := func(step string, wantReads int64) {
