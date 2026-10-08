@@ -208,10 +208,15 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		}
 		ctx := c.Request.Context()
 		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+		// ?object= keeps the image on the target a dashboard is labelling,
+		// even before that target's first sub of the night is indexed.
+		q := di.AppStore.DB().WithContext(ctx).Select("key", "preview_key", "date_obs").
+			Where("type = ? AND preview_key IS NOT NULL AND date_obs IS NOT NULL", "LIGHT")
+		if object := c.Query("object"); object != "" {
+			q = q.Where("object = ?", object)
+		}
 		var f app.Frame
-		err := di.AppStore.DB().WithContext(ctx).Select("key", "preview_key", "date_obs").
-			Where("type = ? AND preview_key IS NOT NULL AND date_obs IS NOT NULL", "LIGHT").
-			Order("date_obs DESC").Limit(1).Take(&f).Error
+		err := q.Order("date_obs DESC").Limit(1).Take(&f).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.Status(http.StatusNotFound)
 			return
