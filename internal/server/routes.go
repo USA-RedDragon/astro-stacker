@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
@@ -15,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func applyRoutes(r *gin.Engine, signer *previewer.Signer, broker *events.Broker) {
@@ -194,6 +196,44 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 			out = append(out, PreviewURL{File: path.Base(f.Key), URL: u})
 		}
 		c.JSON(http.StatusOK, out)
+	})
+
+	// The newest light's preview as a JPEG, for dashboard cameras. NINA's own
+	// prepared-image endpoint has nothing to serve between its restart each
+	// morning and the night's first exposure.
+	r.GET("/latest-light.jpg", func(c *gin.Context) {
+		if signer == nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		ctx := c.Request.Context()
+		di := c.MustGet(middleware.DepInjectionKey).(*middleware.DepInjection)
+		var f app.Frame
+		err := di.AppStore.DB().WithContext(ctx).Select("key", "preview_key", "date_obs").
+			Where("type = ? AND preview_key IS NOT NULL AND date_obs IS NOT NULL", "LIGHT").
+			Order("date_obs DESC").Limit(1).Take(&f).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		obj, err := signer.Open(ctx, *f.PreviewKey)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		defer obj.Close()
+		info, err := obj.Stat()
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.Header("Cache-Control", "no-cache")
+		c.Header("X-Frame-Key", f.Key)
+		c.DataFromReader(http.StatusOK, info.Size, "image/jpeg", obj, nil)
 	})
 
 	// One preview per target and per mosaic project, for dashboard cards: a

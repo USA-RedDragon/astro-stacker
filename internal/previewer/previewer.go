@@ -169,15 +169,24 @@ func (p *Previewer) render(ctx context.Context, key string) ([]byte, error) {
 	return preview.Render(im, p.opts)
 }
 
-// Signer presigns preview URLs for browsers.
+// Signer presigns preview URLs for browsers, and reads previews for
+// clients that can't follow a presigned URL.
 type Signer struct {
 	client *minio.Client
+	reader *minio.Client
 	bucket string
 	ttl    time.Duration
 }
 
-func NewSigner(publicClient *minio.Client, bucket string, ttl time.Duration) *Signer {
-	return &Signer{client: publicClient, bucket: bucket, ttl: ttl}
+// NewSigner signs with publicClient (the host browsers use) and reads
+// through internalClient.
+func NewSigner(publicClient, internalClient *minio.Client, bucket string, ttl time.Duration) *Signer {
+	return &Signer{client: publicClient, reader: internalClient, bucket: bucket, ttl: ttl}
+}
+
+// Open reads an object in the processed bucket.
+func (s *Signer) Open(ctx context.Context, key string) (*minio.Object, error) {
+	return s.reader.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
 }
 
 // URL presigns a GET for an object in the processed bucket. It makes no

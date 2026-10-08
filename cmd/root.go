@@ -113,7 +113,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to create public S3 client: %w", err)
 		}
-		signer = previewer.NewSigner(public, cfg.S3.ProcessedBucket, time.Duration(cfg.Previews.URLTTLSeconds)*time.Second)
+		signer = previewer.NewSigner(public, s3, cfg.S3.ProcessedBucket, time.Duration(cfg.Previews.URLTTLSeconds)*time.Second)
 		if cfg.Stacking.Enabled {
 			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
 			p.Events = broker
