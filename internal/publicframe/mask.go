@@ -24,7 +24,7 @@ const (
 // maskGrow widens bright areas, in mask pixels (a mask pixel is about half
 // an output pixel), so star halos that vary with seeing are left out too.
 // Wider, a rich star field perforates the letters until they don't read.
-var maskGrow = 2
+const maskGrow = 2
 
 // SkyMask is the watermark's weight on the reference grid, from a binned
 // copy of the target's master.

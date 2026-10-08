@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"sync"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
@@ -120,12 +119,8 @@ func (c *moonChecker) moonlit(ctx context.Context, f app.Frame) bool {
 	return r.broken(*f.DateObs, *f.Exposure, pos[0], pos[1], site[0], site[1])
 }
 
-// sites caches each target's observing site (latitude, east longitude),
-// read from one of its lights' headers.
-var sites sync.Map // object -> [2]float64, or nil when the headers have none
-
 func (p *Pipeline) site(ctx context.Context, f app.Frame) ([2]float64, bool) {
-	if v, ok := sites.Load(f.Object); ok {
+	if v, ok := p.sites.Load(f.Object); ok {
 		s, ok := v.([2]float64)
 		return s, ok
 	}
@@ -136,11 +131,11 @@ func (p *Pipeline) site(ctx context.Context, f app.Frame) ([2]float64, bool) {
 	}
 	lat, lon := kw.Float("SITELAT"), kw.Float("SITELONG")
 	if math.IsNaN(lat) || math.IsNaN(lon) {
-		sites.Store(f.Object, nil)
+		p.sites.Store(f.Object, nil)
 		return [2]float64{}, false
 	}
 	s := [2]float64{lat, lon}
-	sites.Store(f.Object, s)
+	p.sites.Store(f.Object, s)
 	return s, true
 }
 
@@ -169,7 +164,7 @@ func (p *Pipeline) moonSweep(ctx context.Context) error {
 		next := time.Now().Add(p.opts.RetryAfter)
 		if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&app.StackFrame{}).Where("id IN ?", ids).
-				UpdateColumns(map[string]any{"status": app.StackStatusMoon, "next_attempt_at": next}).Error; err != nil {
+				UpdateColumns(map[string]any{columnStatus: app.StackStatusMoon, columnNextAttemptAt: next}).Error; err != nil {
 				return err
 			}
 			return tx.Model(&app.Stack{}).Where("id IN ?", ids2).UpdateColumn("needs_rebuild", true).Error

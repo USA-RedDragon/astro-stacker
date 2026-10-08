@@ -13,6 +13,12 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	filterRed = "Red"
+	typeDark  = "DARK"
+	gapNight  = "2025-11-16"
+)
+
 func f(v float64) *float64 { return &v }
 
 func day(s string) *time.Time {
@@ -43,18 +49,18 @@ func TestReport(t *testing.T) {
 			}
 		}
 	}
-	light := app.Frame{Type: "LIGHT", Object: "Andromeda", Filter: "Red", Exposure: f(600), Gain: f(0), Offset: f(50),
+	light := app.Frame{Type: "LIGHT", Object: "Andromeda", Filter: filterRed, Exposure: f(600), Gain: f(0), Offset: f(50),
 		SetTemp: f(-10), BinX: f(1), Rotator: f(142.38), Night: day("2025-11-15")}
 	add(light, 3)
 	light2 := light
 	light2.Rotator = f(142.41) // same session, tiny rotator jitter
 	add(light2, 2)
-	add(app.Frame{Type: "FLAT", Filter: "Red", Exposure: f(1.2), Gain: f(0), Offset: f(50), SetTemp: f(-10), BinX: f(1),
+	add(app.Frame{Type: "FLAT", Filter: filterRed, Exposure: f(1.2), Gain: f(0), Offset: f(50), SetTemp: f(-10), BinX: f(1),
 		Rotator: f(142.4), Night: day("2025-11-15")}, 30)
-	add(app.Frame{Type: "DARK", Exposure: f(600), Gain: f(0), Offset: f(50), SetTemp: f(0), BinX: f(1), Night: day("2025-02-06")}, 20)
+	add(app.Frame{Type: typeDark, Exposure: f(600), Gain: f(0), Offset: f(50), SetTemp: f(0), BinX: f(1), Night: day("2025-02-06")}, 20)
 	add(app.Frame{Type: "BIAS", Exposure: f(0.00003), Gain: f(0), Offset: f(50), SetTemp: f(0), BinX: f(1), Night: day("2025-02-05")}, 60)
 	errMsg := "unreadable"
-	add(app.Frame{Type: "LIGHT", Object: "Andromeda", Filter: "Red", IndexError: &errMsg, Night: day("2025-11-15")}, 1)
+	add(app.Frame{Type: "LIGHT", Object: "Andromeda", Filter: filterRed, IndexError: &errMsg, Night: day("2025-11-15")}, 1)
 
 	rows, err := coverage.Report(context.Background(), db, "Andromeda")
 	if err != nil {
@@ -84,17 +90,17 @@ func TestDarkGaps(t *testing.T) {
 	t.Parallel()
 	rows := []coverage.Row{
 		{Night: "2025-11-15", Gain: f(0), Offset: f(50), SetTemp: f(-13), Lights: 10},
-		{Night: "2025-11-16", Gain: f(0), Offset: f(50), SetTemp: f(-17), Lights: 5},
-		{Night: "2025-11-16", Gain: f(100), Offset: f(50), SetTemp: f(4), Lights: 7},
+		{Night: gapNight, Gain: f(0), Offset: f(50), SetTemp: f(-17), Lights: 5},
+		{Night: gapNight, Gain: f(100), Offset: f(50), SetTemp: f(4), Lights: 7},
 		{Night: "2025-11-17", Gain: f(0), Offset: f(50), SetTemp: f(-4), Lights: 3},
 		{Night: "2025-11-18", SetTemp: f(-13), Lights: 4}, // no gain recorded
 	}
-	have := []calmatch.Set{{Type: "DARK", Gain: 0, Offset: 50, SetTemp: -5}}
+	have := []calmatch.Set{{Type: typeDark, Gain: 0, Offset: 50, SetTemp: -5}}
 	gaps := coverage.DarkGaps(rows, have)
 	if len(gaps) != 2 {
 		t.Fatalf("got %+v", gaps)
 	}
-	if gaps[0].SetTemp != -15 || *gaps[0].Gain != 0 || gaps[0].Lights != 15 || gaps[0].Nights != 2 || gaps[0].Latest != "2025-11-16" {
+	if gaps[0].SetTemp != -15 || *gaps[0].Gain != 0 || gaps[0].Lights != 15 || gaps[0].Nights != 2 || gaps[0].Latest != gapNight {
 		t.Errorf("first gap %+v", gaps[0])
 	}
 	if gaps[1].SetTemp != 5 || *gaps[1].Gain != 100 || gaps[1].Lights != 7 {
@@ -124,7 +130,7 @@ func TestSetFramesMatchesGrouping(t *testing.T) {
 			}
 		}
 	}
-	flat := app.Frame{Type: "FLAT", Object: "M31", Filter: "Red", Exposure: f(1.2), Gain: f(0), Offset: f(50),
+	flat := app.Frame{Type: "FLAT", Object: "M31", Filter: filterRed, Exposure: f(1.2), Gain: f(0), Offset: f(50),
 		SetTemp: f(-10), BinX: f(1), Rotator: f(142.38), Night: day("2025-11-15")}
 	add(flat, 20)
 	jitter := flat
@@ -144,7 +150,7 @@ func TestSetFramesMatchesGrouping(t *testing.T) {
 	dark := func(start time.Time, count int, night, filter string) {
 		for i := range count {
 			d := start.Add(time.Duration(i) * 10 * time.Minute)
-			add(app.Frame{Type: "DARK", Filter: filter, Exposure: f(600), Gain: f(100), Offset: f(50), SetTemp: f(5),
+			add(app.Frame{Type: typeDark, Filter: filter, Exposure: f(600), Gain: f(100), Offset: f(50), SetTemp: f(5),
 				BinX: f(1), Night: day(night), DateObs: &d}, 1)
 		}
 	}
@@ -186,7 +192,7 @@ func TestSetFramesMatchesGrouping(t *testing.T) {
 		t.Errorf("sets %+v", sets)
 	}
 	for _, s := range sets {
-		if s.Type == "DARK" && s.Count == 25 {
+		if s.Type == typeDark && s.Count == 25 {
 			if got := s.Night.Format("2006-01-02"); got != "2026-09-29" {
 				t.Errorf("a library's night is its newest frame's, got %s", got)
 			}

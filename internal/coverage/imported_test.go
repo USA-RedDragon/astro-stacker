@@ -23,7 +23,7 @@ func TestImportedCalibrateOffset240(t *testing.T) {
 		{0, 120, -20, "300.00s"},
 	} {
 		r := calmatch.Choose(calmatch.Group{Night: night, Filter: "H-a", Exposure: c.exposure, Gain: c.gain,
-			Offset: 240, SetTemp: c.temp, BinX: 1, Rotator: math.NaN()}, coverage.Imported)
+			Offset: 240, SetTemp: c.temp, BinX: 1, Rotator: math.NaN()}, coverage.Imported())
 		if r.Bias.Set == nil || r.Bias.Set.Master == "" {
 			t.Errorf("gain %v: no bias", c.gain)
 		}

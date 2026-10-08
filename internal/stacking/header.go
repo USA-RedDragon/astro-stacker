@@ -31,12 +31,14 @@ const maxSolveAttempts = 3
 // wcsKey matches the keywords of a plate solution.
 var wcsKey = regexp.MustCompile(`^(WCSAXES|CTYPE\d|CUNIT\d|CRPIX\d|CRVAL\d|CDELT\d|CROTA\d|CD\d_\d|PC\d_\d|LONPOLE|LATPOLE|RADESYS|EQUINOX|PLTSOLVD|(A|B|AP|BP)_(ORDER|\d_\d|DMAX))$`)
 
-// replaced are reference keywords a master doesn't copy: the file's own
+// replacedKeywords are reference keywords a master doesn't copy: the file's own
 // structure, and what describes one sub rather than the master.
-var replaced = map[string]bool{
-	"SIMPLE": true, "BITPIX": true, "NAXIS": true, "NAXIS1": true, "NAXIS2": true, "NAXIS3": true,
-	"EXTEND": true, "BZERO": true, "BSCALE": true, "ROWORDER": true,
-	"IMAGETYP": true, "EXPOSURE": true, "EXPTIME": true, "DATE": true, "SWCREATE": true,
+func replacedKeywords() map[string]bool {
+	return map[string]bool{
+		keywordSIMPLE: true, keywordBITPIX: true, "NAXIS": true, "NAXIS1": true, "NAXIS2": true, "NAXIS3": true,
+		keywordEXTEND: true, keywordBZERO: true, keywordBSCALE: true, "ROWORDER": true,
+		"IMAGETYP": true, "EXPOSURE": true, "EXPTIME": true, "DATE": true, "SWCREATE": true,
+	}
 }
 
 // masterHeader is a master's FITS header: the keywords NINA wrote on the
@@ -65,6 +67,7 @@ func (p *Pipeline) masterHeader(ctx context.Context, stack *app.Stack, own []ima
 	for _, c := range solution {
 		skip[c.Name] = true
 	}
+	replaced := replacedKeywords()
 	var out []imagedata.Card
 	for _, c := range ninaCards {
 		if replaced[c.Name] || skip[c.Name] || wcsKey.MatchString(c.Name) {
@@ -162,7 +165,10 @@ func (p *Pipeline) plateSolution(ctx context.Context, tr *app.TargetReference, s
 		updates["solve_error"] = msg
 		slog.Warn("Could not plate solve master", "object", stack.Object, "filter", stack.Filter, "error", err)
 	} else {
-		b, _ := json.Marshal(cards)
+		b, err := json.Marshal(cards)
+		if err != nil {
+			slog.Warn("Could not encode plate solution", "object", stack.Object, "filter", stack.Filter, "error", err)
+		}
 		wcs := string(b)
 		updates["wcs"], updates["solve_error"] = wcs, nil
 		tr.WCS = &wcs
@@ -213,7 +219,7 @@ func (p *Pipeline) solveMaster(ctx context.Context, stack *app.Stack, nina []fra
 		return nil, err
 	}
 	var runErr error
-	for _, extra := range []string{"", " -downscale"} {
+	for _, extra := range []string{"", solveDownscale} {
 		script := p.sirilPreamble(true) + fmt.Sprintf("load master\nplatesolve %.6f,%.6f -focal=%.2f -pixelsize=%.3f -force%s\nsave solved\n",
 			ra, dec, focal, pixel, extra)
 		if _, runErr = p.siril.Run(ctx, solveDir, script); runErr == nil {

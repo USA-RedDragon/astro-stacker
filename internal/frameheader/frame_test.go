@@ -8,11 +8,17 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 )
 
+const (
+	filterHa   = "H-a"
+	filterRed  = "Red"
+	filterOIII = "O-III"
+)
+
 func TestNormalizeFilter(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[string]string{
-		"Halpha": "H-a", "H-alpha": "H-a", "H-a": "H-a", "OIII": "O-III", "Oiii": "O-III",
-		"O-III": "O-III", "SII": "S-II", "Sii": "S-II", "Red": "Red", "Luminance": "Luminance", "": "",
+		"Halpha": filterHa, "H-alpha": filterHa, filterHa: filterHa, "OIII": filterOIII, "Oiii": filterOIII,
+		filterOIII: filterOIII, "SII": "S-II", "Sii": "S-II", filterRed: filterRed, "Luminance": "Luminance", "": "",
 	} {
 		if got := frameheader.NormalizeFilter(in); got != want {
 			t.Errorf("NormalizeFilter(%q) = %q, want %q", in, got, want)

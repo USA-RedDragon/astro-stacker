@@ -145,7 +145,7 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 			// since it was stacked; it was judged then and stays.
 			if p.lowScore(s.Score, s.TargetBest) && !p.lowScore(s.PlainScore, s.PlainTargetBest) {
 				if err := tx.Model(&app.StackFrame{}).Where("id = ?", r.ID).UpdateColumns(map[string]any{
-					"status": app.StackStatusLowScore, "score": s.Score, "processed_at": now, "next_attempt_at": next,
+					columnStatus: app.StackStatusLowScore, "score": s.Score, "processed_at": now, columnNextAttemptAt: next,
 				}).Error; err != nil {
 					return err
 				}

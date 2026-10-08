@@ -74,14 +74,14 @@ func Sub(im *imagedata.Image) Result {
 			break
 		}
 		px, py := p.i%w, p.i/w
-		close := false
+		tooClose := false
 		for _, c := range chosen {
 			if dx, dy := c%w-px, c/w-py; dx*dx+dy*dy < separation*separation {
-				close = true
+				tooClose = true
 				break
 			}
 		}
-		if close {
+		if tooClose {
 			continue
 		}
 		if hfr, ok := starHFR(d, w, h, px, py, med); ok {

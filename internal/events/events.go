@@ -6,11 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 )
 
 const (
@@ -95,7 +96,9 @@ func (b *Broker) Publish(e Event) {
 	if len(b.recent) > keep {
 		b.recent = b.recent[len(b.recent)-keep:]
 	}
-	b.send(frame(e))
+	if msg, ok := frame(e); ok {
+		b.send(msg)
+	}
 }
 
 // SetStatus sends a status snapshot to listeners and keeps it for new ones.
@@ -130,9 +133,12 @@ func (b *Broker) send(msg []byte) {
 }
 
 // frame formats an event as an SSE message with its ID.
-func frame(e Event) []byte {
-	data, _ := json.Marshal(e)
-	return []byte(fmt.Sprintf("id: %d\ndata: %s\n\n", e.ID, data))
+func frame(e Event) ([]byte, bool) {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return nil, false
+	}
+	return []byte(fmt.Sprintf("id: %d\ndata: %s\n\n", e.ID, data)), true
 }
 
 // Subscribe returns the messages a listener that saw event after has
@@ -145,8 +151,11 @@ func (b *Broker) Subscribe(after uint64) (backlog [][]byte, ch <-chan []byte, ca
 		backlog = append(backlog, b.status)
 	}
 	for _, e := range b.recent {
-		if e.ID > after {
-			backlog = append(backlog, frame(e))
+		if e.ID <= after {
+			continue
+		}
+		if msg, ok := frame(e); ok {
+			backlog = append(backlog, msg)
 		}
 	}
 	b.subs[c] = struct{}{}

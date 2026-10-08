@@ -306,7 +306,7 @@ func (p *Pipeline) recrop(ctx context.Context, s *app.Stack) error {
 		return err
 	}
 	key := path.Join(stackPrefix(s), "preview.jpg")
-	if err := p.putBytes(ctx, key, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"}); err != nil {
+	if err := p.putBytes(ctx, key, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG}); err != nil {
 		return err
 	}
 	return p.db.WithContext(ctx).Model(s).Updates(map[string]any{

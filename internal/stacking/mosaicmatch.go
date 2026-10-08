@@ -457,8 +457,8 @@ func copiedCards(b []byte) ([]imagedata.Card, error) {
 	var cards []imagedata.Card
 	for _, c := range all {
 		switch {
-		case c.Name == "SIMPLE", c.Name == "BITPIX", c.Name == "EXTEND", c.Name == "BZERO", c.Name == "BSCALE",
-			c.Name == "ROWORDER", strings.HasPrefix(c.Name, "NAXIS"):
+		case c.Name == keywordSIMPLE, c.Name == keywordBITPIX, c.Name == keywordEXTEND, c.Name == keywordBZERO, c.Name == keywordBSCALE,
+			c.Name == keywordROWORDER, strings.HasPrefix(c.Name, "NAXIS"):
 		default:
 			cards = append(cards, imageCard(c))
 		}

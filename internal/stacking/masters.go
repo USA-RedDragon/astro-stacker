@@ -74,7 +74,7 @@ func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmat
 	}
 
 	var bias string
-	if set.Type == "FLAT" || set.Type == "DARK" {
+	if set.Type == "FLAT" || set.Type == frameTypeDark {
 		m := calmatch.Choose(calmatch.Group{
 			Night: set.Night, Filter: set.Filter, Exposure: set.Exposure, Gain: set.Gain,
 			Offset: set.Offset, SetTemp: set.SetTemp, BinX: set.BinX, Rotator: set.Rotator,
@@ -156,7 +156,7 @@ func (p *Pipeline) importMaster(ctx context.Context, set calmatch.Set, all []cal
 	if err != nil {
 		return "", err
 	}
-	if set.Type == "DARK" {
+	if set.Type == frameTypeDark {
 		m := calmatch.Choose(calmatch.Group{
 			Night: set.Night, Exposure: set.Exposure, Gain: set.Gain, Offset: set.Offset,
 			SetTemp: set.SetTemp, BinX: set.BinX, Rotator: set.Rotator,
@@ -226,7 +226,7 @@ func (p *Pipeline) buildMaster(ctx context.Context, typ string, frames []app.Fra
 			return err
 		}
 	}
-	if typ == "DARK" {
+	if typ == frameTypeDark {
 		left, err := p.dropLeakyDarks(ctx, frames, files)
 		if err != nil {
 			return err
@@ -242,14 +242,14 @@ func (p *Pipeline) buildMaster(ctx context.Context, typ string, frames []app.Fra
 	// The output is relative to Siril's working directory, w.
 	result := filepath.Join(dir, "w", "master")
 	switch typ {
-	case "FLAT", "DARK":
+	case "FLAT", frameTypeDark:
 		b, err := siril.Path(bias)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(&sb, "calibrate f_ -bias=%s\n", b)
 		norm := "-norm=mul"
-		if typ == "DARK" {
+		if typ == frameTypeDark {
 			norm = "-nonorm"
 		}
 		fmt.Fprintf(&sb, "stack pp_f_ rej w 3 3 %s -out=master\n", norm)

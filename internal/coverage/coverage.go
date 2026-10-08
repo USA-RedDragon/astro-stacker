@@ -130,15 +130,16 @@ func Sets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, error) {
 	var frames []calFrame
 	if err := db.WithContext(ctx).Table("frames").
 		Select(`type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, rotator, date_obs, last_modified`).
-		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL AND light_leak IS NULL", []string{"FLAT", "DARK", "BIAS"}).
+		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL AND light_leak IS NULL", []string{"FLAT", darkType, "BIAS"}).
 		Scan(&frames).Error; err != nil {
 		return nil, fmt.Errorf("load calibration frames: %w", err)
 	}
 	sort.SliceStable(frames, func(i, j int) bool {
 		return takenAt(frames[i].DateObs, frames[i].Night).Before(takenAt(frames[j].DateObs, frames[j].Night))
 	})
-	sets := make([]calmatch.Set, 0, len(Imported)+64)
-	sets = append(sets, Imported...)
+	imported := Imported()
+	sets := make([]calmatch.Set, 0, len(imported)+64)
+	sets = append(sets, imported...)
 	byKey := map[string][]int{} // group key -> indexes into sets, oldest session first
 	for _, f := range frames {
 		s := calmatch.Set{
@@ -183,9 +184,11 @@ func takenAt(dateObs *time.Time, night time.Time) time.Time {
 	return night
 }
 
+const darkType = "DARK"
+
 // library reports whether frames of a type make sets that span nights (see
 // SessionGap).
-func library(typ string) bool { return typ == "DARK" || typ == "BIAS" }
+func library(typ string) bool { return typ == darkType || typ == "BIAS" }
 
 // groupKey is what frames of one set share, besides a library's session.
 // Missing values format as NaN and so group together, as NULLs do in SQL.
@@ -204,7 +207,7 @@ func groupKey(s calmatch.Set) string {
 // the setpoint the file name's, and the gains the lights': 300 s at gain 0,
 // 600 s at gain 100. The 600 s dark has the stronger hot pixels, as gain 100
 // gives. One bias serves both gains: the offset sets the pedestal.
-var Imported = func() []calmatch.Set {
+func Imported() []calmatch.Set {
 	const dir = "offset240/masters/"
 	bias := dir + "masterBias_BIN-1_6248x4176.xisf"
 	night := func(s string) time.Time {
@@ -218,10 +221,10 @@ var Imported = func() []calmatch.Set {
 	return []calmatch.Set{
 		set("BIAS", bias, "2025-01-19", 0, 0, math.NaN()),
 		set("BIAS", bias, "2025-01-19", 100, 0, math.NaN()),
-		set("DARK", dir+"masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-300.00s.xisf", "2025-01-21", 0, 300, -20),
-		set("DARK", dir+"masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-600.00s.xisf", "2025-01-21", 100, 600, -20),
+		set(darkType, dir+"masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-300.00s.xisf", "2025-01-21", 0, 300, -20),
+		set(darkType, dir+"masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-600.00s.xisf", "2025-01-21", 100, 600, -20),
 	}
-}()
+}
 
 // SetFrames returns the frames that make up a set, matching the grouping in
 // Sets exactly, with missing values matched as NULL.
@@ -320,7 +323,9 @@ func toMatch(m calmatch.Match, dark bool) Match {
 
 // DarkLadder is the set of setpoints the dark library is kept at. Lights
 // between rungs use the nearest rung's darks, scaled.
-var DarkLadder = []float64{-25, -15, -5, 5}
+func DarkLadder() []float64 {
+	return []float64{-25, -15, -5, 5}
+}
 
 // DarkGap is a dark set the library should have but doesn't.
 type DarkGap struct {
@@ -341,7 +346,7 @@ func DarkGaps(rows []Row, have []calmatch.Set) []DarkGap {
 	}
 	covered := func(k key) bool {
 		for _, s := range have {
-			if s.Type == "DARK" && same(s.Gain, k.gain) && same(s.Offset, k.offset) &&
+			if s.Type == darkType && same(s.Gain, k.gain) && same(s.Offset, k.offset) &&
 				math.Abs(s.SetTemp-k.rung) <= calmatch.SetTempExactC {
 				return true
 			}
@@ -382,8 +387,9 @@ func DarkGaps(rows []Row, have []calmatch.Set) []DarkGap {
 }
 
 func nearestRung(t float64) float64 {
-	best := DarkLadder[0]
-	for _, r := range DarkLadder[1:] {
+	ladder := DarkLadder()
+	best := ladder[0]
+	for _, r := range ladder[1:] {
 		if math.Abs(r-t) < math.Abs(best-t) {
 			best = r
 		}

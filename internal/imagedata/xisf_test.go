@@ -16,7 +16,7 @@ import (
 )
 
 // build makes a monolithic XISF with one attached block.
-func build(t *testing.T, geometry, format, compression, extra string, block []byte) []byte {
+func build(t *testing.T, format, compression, extra string, block []byte) []byte {
 	t.Helper()
 	// The header length depends on the attachment offset, which depends on
 	// the header length; pad the offset to a fixed 4096 to break the cycle.
@@ -28,10 +28,15 @@ func build(t *testing.T, geometry, format, compression, extra string, block []by
 	xml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?><xisf version="1.0" xmlns="http://www.pixinsight.com/xisf">`+
 		`<Image geometry="%s" sampleFormat="%s" colorSpace="Gray" location="attachment:%d:%d"%s%s/>`+
 		`<Image geometry="1:1:1" sampleFormat="UInt8" location="attachment:0:1"/></xisf>`,
-		geometry, format, dataOff, len(block), comp, extra)
+		"3:2:1", format, dataOff, len(block), comp, extra)
+	n := len(xml)
+	if n > dataOff-16 {
+		t.Fatalf("xml header of %d bytes does not fit before the data", n)
+		return nil
+	}
 	b := make([]byte, dataOff, dataOff+len(block))
 	copy(b, "XISF0100")
-	binary.LittleEndian.PutUint32(b[8:12], uint32(len(xml)))
+	binary.LittleEndian.PutUint32(b[8:12], uint32(n))
 	copy(b[16:], xml)
 	return append(b, block...)
 }
@@ -55,14 +60,16 @@ func shuffle(b []byte, item int) []byte {
 	return out
 }
 
-var pixels = []uint16{0, 1000, 32768, 65535, 12345, 54321}
+func pixels() []uint16 {
+	return []uint16{0, 1000, 32768, 65535, 12345, 54321}
+}
 
 func check(t *testing.T, im *imagedata.Image) {
 	t.Helper()
 	if im.W != 3 || im.H != 2 || im.C != 1 {
 		t.Fatalf("geometry %dx%dx%d", im.W, im.H, im.C)
 	}
-	for i, v := range pixels {
+	for i, v := range pixels() {
 		if want := float32(v) / 65535; math.Abs(float64(im.Data[i]-want)) > 1e-7 {
 			t.Errorf("pixel %d = %v want %v", i, im.Data[i], want)
 		}
@@ -71,7 +78,7 @@ func check(t *testing.T, im *imagedata.Image) {
 
 func TestUncompressed(t *testing.T) {
 	t.Parallel()
-	im, err := imagedata.Decode(build(t, "3:2:1", "UInt16", "", "", u16(pixels...)))
+	im, err := imagedata.Decode(build(t, "UInt16", "", "", u16(pixels()...)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +87,7 @@ func TestUncompressed(t *testing.T) {
 
 func TestLZ4HCWithShuffle(t *testing.T) {
 	t.Parallel()
-	raw := shuffle(u16(pixels...), 2)
+	raw := shuffle(u16(pixels()...), 2)
 	dst := make([]byte, lz4.CompressBlockBound(len(raw)))
 	var c lz4.CompressorHC
 	n, err := c.CompressBlock(raw, dst)
@@ -88,7 +95,7 @@ func TestLZ4HCWithShuffle(t *testing.T) {
 		// Tiny inputs can be incompressible; LZ4 still encodes them as literals.
 		t.Fatalf("compress: n=%d err=%v", n, err)
 	}
-	b := build(t, "3:2:1", "UInt16", fmt.Sprintf("lz4hc+sh:%d:2", len(raw)), "", dst[:n])
+	b := build(t, "UInt16", fmt.Sprintf("lz4hc+sh:%d:2", len(raw)), "", dst[:n])
 	im, err := imagedata.Decode(b)
 	if err != nil {
 		t.Fatal(err)
@@ -98,8 +105,8 @@ func TestLZ4HCWithShuffle(t *testing.T) {
 
 func TestZlibSubblocks(t *testing.T) {
 	t.Parallel()
-	raw := u16(pixels...)
-	var blocks []byte
+	raw := u16(pixels()...)
+	blocks := make([]byte, 0, len(raw))
 	var sub string
 	for i, part := range [][]byte{raw[:4], raw[4:]} {
 		var z bytes.Buffer
@@ -112,7 +119,7 @@ func TestZlibSubblocks(t *testing.T) {
 		}
 		sub += fmt.Sprintf("%d,%d", z.Len(), len(part))
 	}
-	b := build(t, "3:2:1", "UInt16", fmt.Sprintf("zlib:%d", len(raw)), fmt.Sprintf(` subblocks="%s"`, sub), blocks)
+	b := build(t, "UInt16", fmt.Sprintf("zlib:%d", len(raw)), fmt.Sprintf(` subblocks="%s"`, sub), blocks)
 	im, err := imagedata.Decode(b)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +137,7 @@ func TestZstdFloat32Bounds(t *testing.T) {
 	}
 	enc, _ := zstd.NewWriter(nil)
 	block := enc.EncodeAll(shuffle(raw, 4), nil)
-	b := build(t, "3:2:1", "Float32", fmt.Sprintf("zstd+sh:%d:4", len(raw)), ` bounds="0:2"`, block)
+	b := build(t, "Float32", fmt.Sprintf("zstd+sh:%d:4", len(raw)), ` bounds="0:2"`, block)
 	im, err := imagedata.Decode(b)
 	if err != nil {
 		t.Fatal(err)
@@ -154,9 +161,10 @@ func TestFITSUnsigned16(t *testing.T) {
 		hdr.WriteByte(' ')
 	}
 	// FITS stores the bottom row first: write row 1, then row 0.
-	for _, row := range [][]uint16{pixels[3:], pixels[:3]} {
+	px := pixels()
+	for _, row := range [][]uint16{px[3:], px[:3]} {
 		for _, v := range row {
-			_ = binary.Write(&hdr, binary.BigEndian, int16(int32(v)-32768))
+			_ = binary.Write(&hdr, binary.BigEndian, v^0x8000)
 		}
 	}
 	im, err := imagedata.Decode(hdr.Bytes())
@@ -170,6 +178,7 @@ func TestFITSUnsigned16(t *testing.T) {
 // check a new format. With IMAGEDATA_PREVIEW set to a path, it also writes the
 // rendered preview there.
 func TestRealFile(t *testing.T) {
+	t.Parallel()
 	path := os.Getenv("IMAGEDATA_FILE")
 	if path == "" {
 		t.Skip("set IMAGEDATA_FILE to decode a real frame")

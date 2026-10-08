@@ -12,10 +12,16 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 )
 
+const lightType = "LIGHT"
+
 func xisf(xml string) []byte {
+	n := len(xml)
+	if n > math.MaxUint32 {
+		panic("xisf header too long")
+	}
 	b := make([]byte, 16, 16+len(xml))
 	copy(b, "XISF0100")
-	binary.LittleEndian.PutUint32(b[8:12], uint32(len(xml)))
+	binary.LittleEndian.PutUint32(b[8:12], uint32(n))
 	return append(b, xml...)
 }
 
@@ -58,7 +64,7 @@ func TestParseNINAXISF(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	f := frameheader.FromKeywords(kw)
-	if f.Type != "LIGHT" || f.Filter != "Red" || f.Object != "Cygnis Loop Panel 1" || f.Camera != "ZWO ASI2600MM Pro" {
+	if f.Type != lightType || f.Filter != filterRed || f.Object != "Cygnis Loop Panel 1" || f.Camera != "ZWO ASI2600MM Pro" {
 		t.Errorf("strings: %+v", f)
 	}
 	if f.Exposure != 300 || f.Gain != 0 || f.Offset != 50 || f.SetTemp != 0 || f.CCDTemp != 0.1 || f.BinX != 1 {
@@ -115,7 +121,7 @@ func TestParseFITS(t *testing.T) {
 func TestNormalizeTypes(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[string]string{
-		"'FLAT'": "FLAT", "'Bias Frame'": "BIAS", "'DARKFLAT'": "DARKFLAT", "'Flat Dark'": "DARKFLAT", "'Light Frame'": "LIGHT", "'Master Flat'": "MASTERFLAT",
+		"'FLAT'": "FLAT", "'Bias Frame'": "BIAS", "'DARKFLAT'": "DARKFLAT", "'Flat Dark'": "DARKFLAT", "'Light Frame'": lightType, "'Master Flat'": "MASTERFLAT",
 	} {
 		kw, _ := frameheader.Parse(fits("SIMPLE  = T", "IMAGETYP= "+in))
 		if got := frameheader.FromKeywords(kw).Type; got != want {
@@ -154,7 +160,7 @@ func TestXISFSpecEdgeCases(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	f := frameheader.FromKeywords(kw)
-	if f.Type != "MASTERFLAT" || f.Filter != "Red" || f.Exposure != 1.25 || f.Object != "Flat & Field" {
+	if f.Type != "MASTERFLAT" || f.Filter != filterRed || f.Exposure != 1.25 || f.Object != "Flat & Field" {
 		t.Errorf("got %+v", f)
 	}
 	if !math.IsNaN(f.Gain) {
@@ -168,7 +174,7 @@ func TestParseCardsKeepsOrderAndComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cards) != 14 || cards[0] != (frameheader.Card{Name: "IMAGETYP", Value: "LIGHT", Comment: "Type of exposure", Quoted: true}) {
+	if len(cards) != 14 || cards[0] != (frameheader.Card{Name: "IMAGETYP", Value: lightType, Comment: "Type of exposure", Quoted: true}) {
 		t.Errorf("xisf cards = %+v", cards)
 	}
 	if c := cards[2]; c.Name != "EXPTIME" || c.Value != "300.0" || c.Quoted {

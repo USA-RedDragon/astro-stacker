@@ -25,8 +25,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var nan = math.NaN()
-
 // WarmUpSubs is how many subs a master needs before it is updated
 // incrementally. Below it, every batch rebuilds the master with
 // median-anchored rejection, so an early satellite trail never gets in.
@@ -121,6 +119,29 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 		}
 	}
 
+	if err := p.addSubs(ctx, object, filter, stack, added, gains, scales, acc, rebuild); err != nil {
+		return err
+	}
+
+	if rebuild {
+		if acc, err = p.rebuild(ctx, stack); err != nil {
+			return fmt.Errorf("rebuild %s %s: %w", object, filter, err)
+		}
+		stack.RebuiltAtSubs = acc.Subs
+		stack.NeedsRebuild = false
+	}
+	p.progress(object, filter, StagePublishing, 0, 0)
+	if err := p.publish(ctx, stack, acc); err != nil {
+		return err
+	}
+	slog.Info("Updated master", "object", object, "filter", filter, "added", len(added), "subs", acc.Subs,
+		"rebuilt", rebuild, "duration", time.Since(start).Round(time.Second))
+	return nil
+}
+
+func (p *Pipeline) addSubs(ctx context.Context, object, filter string, stack *app.Stack, added []addedSub, gains []*float64,
+	scales gainTable, acc *Accumulator, rebuild bool,
+) error {
 	for i, a := range added {
 		p.progress(object, filter, StageAdding, i, len(added))
 		exp := *a.c.c.frame.Exposure
@@ -148,20 +169,6 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 			return err
 		}
 	}
-
-	if rebuild {
-		if acc, err = p.rebuild(ctx, stack); err != nil {
-			return fmt.Errorf("rebuild %s %s: %w", object, filter, err)
-		}
-		stack.RebuiltAtSubs = acc.Subs
-		stack.NeedsRebuild = false
-	}
-	p.progress(object, filter, StagePublishing, 0, 0)
-	if err := p.publish(ctx, stack, acc); err != nil {
-		return err
-	}
-	slog.Info("Updated master", "object", object, "filter", filter, "added", len(added), "subs", acc.Subs,
-		"rebuilt", rebuild, "duration", time.Since(start).Round(time.Second))
 	return nil
 }
 
@@ -302,9 +309,9 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 	next := 0
 	for i := range out {
 		if _, err := os.Stat(out[i].path); err != nil {
-			return nil, fmt.Errorf("calibrate: no output for %s", batch[i].frame.Key)
+			return nil, fmt.Errorf("calibrate: no output for %s", out[i].c.frame.Key)
 		}
-		if batch[i].cal.Dark.Set != nil && next < len(scales) {
+		if out[i].c.cal.Dark.Set != nil && next < len(scales) {
 			out[i].darkScale = scales[next]
 			next++
 		}

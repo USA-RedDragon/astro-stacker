@@ -10,6 +10,7 @@ import (
 )
 
 func TestObjectSubs(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -22,12 +23,12 @@ func TestObjectSubs(t *testing.T) {
 	phot := `{"flux":[1]}`
 	broken := "bad header"
 	frames := []app.Frame{
-		{Key: "lights/Orion/a.fits", Type: "LIGHT", Object: "Orion", Filter: "L", Exposure: &exp, PhotometryRev: &rev, Photometry: &phot},
-		{Key: "lights/Orion/b.fits", Type: "LIGHT", Object: "Orion", Filter: "L", Exposure: &exp, PhotometryRev: &rev},
-		{Key: "lights/Orion/c.fits", Type: "LIGHT", Object: "Orion", Filter: "L", Exposure: &exp},
-		{Key: "lights/Orion/d.fits", Type: "LIGHT", Object: "Orion", Filter: "L", IndexError: &broken},
-		{Key: "lights/M31/e.fits", Type: "LIGHT", Object: "M31", Filter: "L"},
-		{Key: "flats/Orion/f.fits", Type: "FLAT", Object: "Orion", Filter: "L"},
+		{Key: "lights/Orion/a.fits", Type: lightType, Object: objectOrion, Filter: "L", Exposure: &exp, PhotometryRev: &rev, Photometry: &phot},
+		{Key: "lights/Orion/b.fits", Type: lightType, Object: objectOrion, Filter: "L", Exposure: &exp, PhotometryRev: &rev},
+		{Key: "lights/Orion/c.fits", Type: lightType, Object: objectOrion, Filter: "L", Exposure: &exp},
+		{Key: "lights/Orion/d.fits", Type: lightType, Object: objectOrion, Filter: "L", IndexError: &broken},
+		{Key: "lights/M31/e.fits", Type: lightType, Object: objectM31, Filter: "L"},
+		{Key: "flats/Orion/f.fits", Type: "FLAT", Object: objectOrion, Filter: "L"},
 	}
 	for i := range frames {
 		frames[i].ETag = frames[i].Key
@@ -45,7 +46,7 @@ func TestObjectSubs(t *testing.T) {
 		}
 	}
 
-	subs, err := objectSubs(context.Background(), db, "Orion")
+	subs, err := objectSubs(context.Background(), db, objectOrion)
 	if err != nil {
 		t.Fatal(err)
 	}

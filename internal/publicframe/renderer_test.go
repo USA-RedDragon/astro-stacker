@@ -12,9 +12,10 @@ import (
 )
 
 func TestChoose(t *testing.T) {
+	t.Parallel()
 	cands := []Candidate{{FrameID: 3}, {FrameID: 2}, {FrameID: 1}, {FrameID: 0}}
 	ids := func(cs []Candidate) []int {
-		out := []int{}
+		out := make([]int, 0, len(cs))
 		for _, c := range cs {
 			out = append(out, c.FrameID)
 		}
@@ -55,6 +56,7 @@ func equal(a, b []int) bool {
 // never a low-score, moon or off-target one, falling back to the previous
 // good one when the newest won't render or leaves its master.
 func TestPass(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +108,7 @@ func TestPass(t *testing.T) {
 			return Result{}, errors.New("registered sub missing")
 		}
 		rendered = append(rendered, c.FrameID)
-		return Result{JPEG: []byte{byte(c.FrameID)}, Sigma: 5, Amplitude: 2.5}, nil
+		return Result{JPEG: []byte{byte(c.FrameID & 0xff)}, Sigma: 5, Amplitude: 2.5}, nil
 	}
 	// D was shown before; its light has since been rejected.
 	if err := db.Create(&app.PublicFrame{Object: "D", FrameID: d1, Key: Key("D", d1), ETag: `"x"`, Revision: Revision}).Error; err != nil {

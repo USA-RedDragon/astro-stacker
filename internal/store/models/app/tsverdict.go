@@ -19,7 +19,7 @@ const (
 
 // TSVerdict is the stacker's record of a verdict on one of Target
 // Scheduler's acquired images, sent through the scheduler database's
-// stacker_verdict table (see stacking.SendVerdicts). The row there only
+// stacker_verdict table (see stacking.sendVerdicts). The row there only
 // carries the verdict to the observatory; this one remembers what came of
 // it, which the observatory's trigger must never see.
 type TSVerdict struct {

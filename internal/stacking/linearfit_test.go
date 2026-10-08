@@ -97,18 +97,18 @@ func TestFitLinearUnrelated(t *testing.T) {
 		ref[i] = float32(0.02 - 0.5*(float64(target[i])-0.01) + 0.0001*r.NormFloat64()) // anticorrelated
 	}
 	_, _, err := fitLinear(target, ref, w, Rect{W: w, H: h})
-	var ff *fitFailure
+	var ff *fitError
 	if !errors.As(err, &ff) {
-		t.Errorf("err %v, want a fitFailure", err)
+		t.Errorf("err %v, want a fitError", err)
 	}
 	_, _, err = fitLinear(target, ref, w, Rect{W: 5, H: 5})
 	if !errors.As(err, &ff) {
-		t.Errorf("tiny overlap: err %v, want a fitFailure", err)
+		t.Errorf("tiny overlap: err %v, want a fitError", err)
 	}
 	_, _, err = fitMasters(&imagedata.Image{W: 2, H: 1, C: 1, Data: []float32{1, 1}},
 		&imagedata.Image{W: 1, H: 2, C: 1, Data: []float32{1, 1}}, Rect{W: 2, H: 1}, Rect{W: 1, H: 2})
 	if !errors.As(err, &ff) {
-		t.Errorf("mismatched sizes: err %v, want a fitFailure", err)
+		t.Errorf("mismatched sizes: err %v, want a fitError", err)
 	}
 }
 
@@ -120,10 +120,10 @@ func TestFitReference(t *testing.T) {
 		masters []app.Stack
 		want    string
 	}{
-		{[]app.Stack{{Filter: "H-a", EffectiveSeconds: 834}, {Filter: "O-III", EffectiveSeconds: 151}, {Filter: "S-II", EffectiveSeconds: 1043}}, "H-a"},
-		{[]app.Stack{{Filter: "O-III", EffectiveSeconds: 9}, {Filter: "S-II", EffectiveSeconds: 1}}, "O-III"},
-		{[]app.Stack{{Filter: "Blue", EffectiveSeconds: 9}, {Filter: "Green"}, {Filter: "Red", EffectiveSeconds: 1}}, "Red"},
-		{[]app.Stack{{Filter: "Blue", EffectiveSeconds: 9}, {Filter: "Green"}}, "Green"},
+		{[]app.Stack{{Filter: filterHa, EffectiveSeconds: 834}, {Filter: filterOIII, EffectiveSeconds: 151}, {Filter: filterSII, EffectiveSeconds: 1043}}, filterHa},
+		{[]app.Stack{{Filter: filterOIII, EffectiveSeconds: 9}, {Filter: filterSII, EffectiveSeconds: 1}}, filterOIII},
+		{[]app.Stack{{Filter: filterBlue, EffectiveSeconds: 9}, {Filter: filterGreen}, {Filter: filterRed, EffectiveSeconds: 1}}, filterRed},
+		{[]app.Stack{{Filter: filterBlue, EffectiveSeconds: 9}, {Filter: filterGreen}}, filterGreen},
 	} {
 		if got := c.masters[fitReference(c.masters)].Filter; got != c.want {
 			t.Errorf("fitReference(%v) = %s, want %s", c.masters, got, c.want)
@@ -144,7 +144,7 @@ func TestFailedFitWaitsForNewMasters(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := time.Now().Add(-time.Hour)
-	for _, f := range []string{"H-a", "O-III", "S-II"} {
+	for _, f := range []string{filterHa, filterOIII, filterSII} {
 		key := "stacks/T/" + f + "/master.fit"
 		if err := db.Create(&app.Stack{Object: "T", Filter: f, Subs: 1, MasterKey: &key, UpdatedAt: old}).Error; err != nil {
 			t.Fatal(err)
@@ -168,7 +168,7 @@ func TestFailedFitWaitsForNewMasters(t *testing.T) {
 	// The pass fitted H-a and S-II, then failed O-III.
 	p := &Pipeline{db: db}
 	for i, m := range masters {
-		if m.Filter == "O-III" {
+		if m.Filter == filterOIII {
 			if err := p.failFit(context.Background(), &masters[i], sig, "fitting O-III to H-a: no positive relation"); err != nil {
 				t.Fatal(err)
 			}
@@ -211,9 +211,9 @@ func TestSexagesimal(t *testing.T) {
 func TestFitGroup(t *testing.T) {
 	t.Parallel()
 	for filter, want := range map[string]string{
-		"Red": "Red/Green/Blue", "Blue": "Red/Green/Blue",
-		"H-a": "H-a/O-III/S-II", "S-II": "H-a/O-III/S-II",
-		"Luminance": "", "Clear": "",
+		filterRed: "Red/Green/Blue", filterBlue: "Red/Green/Blue",
+		filterHa: "H-a/O-III/S-II", filterSII: "H-a/O-III/S-II",
+		filterLuminance: "", "Clear": "",
 	} {
 		if got := fitGroup(filter); got != want {
 			t.Errorf("fitGroup(%q) = %q, want %q", filter, got, want)

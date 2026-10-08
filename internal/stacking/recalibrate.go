@@ -26,7 +26,16 @@ const (
 	recalCloser = "closer_dark"
 )
 
-var recalOrder = map[string]int{recalNoDark: 0, recalCloser: 1, recalGrown: 2}
+func recalOrder(why string) int {
+	switch why {
+	case recalCloser:
+		return 1
+	case recalGrown:
+		return 2
+	default:
+		return 0
+	}
+}
 
 // CloserDarkC is how much closer, in °C, a dark's setpoint must be to a
 // stacked light's for the light to be calibrated again with it. Dark
@@ -80,7 +89,7 @@ func recalReason(g calmatch.Group, h darkHistory, now calmatch.Match) string {
 func inferDark(g calmatch.Group, sets []calmatch.Set, at time.Time) *calmatch.Set {
 	var then []calmatch.Set
 	for _, s := range sets {
-		if s.Type == "DARK" && (s.Master != "" || (!s.Uploaded.IsZero() && s.Uploaded.Before(at))) {
+		if s.Type == frameTypeDark && (s.Master != "" || (!s.Uploaded.IsZero() && s.Uploaded.Before(at))) {
 			then = append(then, s)
 		}
 	}
@@ -103,16 +112,16 @@ func sameSetup(a, b calmatch.Set) bool {
 // recorded, by key: built masters that recorded theirs, and imported ones.
 func (p *Pipeline) darkMasters(ctx context.Context) (map[string]calmatch.Set, error) {
 	var cms []app.CalibrationMaster
-	if err := p.db.WithContext(ctx).Where("type = ? AND exposure IS NOT NULL", "DARK").Find(&cms).Error; err != nil {
+	if err := p.db.WithContext(ctx).Where("type = ? AND exposure IS NOT NULL", frameTypeDark).Find(&cms).Error; err != nil {
 		return nil, err
 	}
-	out := make(map[string]calmatch.Set, len(cms)+len(coverage.Imported))
+	out := make(map[string]calmatch.Set, len(cms)+len(coverage.Imported()))
 	for _, cm := range cms {
 		out[cm.SetKey] = calmatch.Set{Type: cm.Type, Exposure: val(cm.Exposure), Gain: val(cm.Gain), Offset: val(cm.Offset),
 			SetTemp: val(cm.SetTemp), BinX: val(cm.BinX), Count: cm.Frames}
 	}
-	for _, s := range coverage.Imported {
-		if s.Type == "DARK" {
+	for _, s := range coverage.Imported() {
+		if s.Type == frameTypeDark {
 			out[importedKey(s)] = s
 		}
 	}
@@ -206,8 +215,8 @@ func (p *Pipeline) recalibrateDarks(ctx context.Context) error {
 	// once for all its lights where the limit allows.
 	sort.Slice(found, func(i, j int) bool {
 		a, b := found[i], found[j]
-		if recalOrder[a.why] != recalOrder[b.why] {
-			return recalOrder[a.why] < recalOrder[b.why]
+		if recalOrder(a.why) != recalOrder(b.why) {
+			return recalOrder(a.why) < recalOrder(b.why)
 		}
 		if a.stack != b.stack {
 			return a.stack < b.stack
@@ -237,7 +246,7 @@ func (p *Pipeline) recalibrateDarks(ctx context.Context) error {
 	}
 	if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&app.StackFrame{}).Where("id IN ?", ids).
-			UpdateColumns(map[string]any{"status": app.StackStatusRecalibrate, "next_attempt_at": now}).Error; err != nil {
+			UpdateColumns(map[string]any{columnStatus: app.StackStatusRecalibrate, columnNextAttemptAt: now}).Error; err != nil {
 			return err
 		}
 		return tx.Model(&app.Stack{}).Where("id IN ?", stackIDs).UpdateColumn("needs_rebuild", true).Error

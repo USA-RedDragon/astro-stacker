@@ -10,6 +10,7 @@ import (
 )
 
 func TestMosaicGroupsFromSchedulerProjects(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)

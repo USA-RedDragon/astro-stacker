@@ -75,7 +75,7 @@ func flatSky(w, h int, perSecond float64) skyModel {
 	return skyModel{w: w, h: h, coef: c, scale: 1, mean: perSecond}
 }
 
-var lnTerms = (lnDegree + 1) * (lnDegree + 2) / 2
+const lnTerms = (lnDegree + 1) * (lnDegree + 2) / 2
 
 // terms fills t with the polynomial's terms x^i·y^j, i+j ≤ lnDegree.
 func terms(t []float64, x, y float64) {

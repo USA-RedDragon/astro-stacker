@@ -77,7 +77,7 @@ func TestXISFMaster(t *testing.T) {
 		}
 		var cards []imagedata.Card
 		for _, c := range all {
-			if !replaced[c.Name] || c.Name == "IMAGETYP" || c.Name == "EXPTIME" {
+			if !replacedKeywords()[c.Name] || c.Name == "IMAGETYP" || c.Name == "EXPTIME" {
 				cards = append(cards, imageCard(c))
 			}
 		}

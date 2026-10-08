@@ -130,8 +130,10 @@ func lights(db *gorm.DB) *gorm.DB {
 // missing calibration and scores can arrive later, a low score is relative
 // to the target's best, which changes as it is imaged, and moon avoidance
 // follows the exposure templates, which can change.
-var retried = []string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration,
-	app.StackStatusLowScore, app.StackStatusNoMetadata, app.StackStatusRecalibrate, app.StackStatusMoon}
+func retried() []string {
+	return []string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration,
+		app.StackStatusLowScore, app.StackStatusNoMetadata, app.StackStatusRecalibrate, app.StackStatusMoon}
+}
 
 // pendingLights are lights not yet decided, or due for a retry.
 func (p *Pipeline) pendingLights(db *gorm.DB, now time.Time) *gorm.DB {
@@ -139,7 +141,7 @@ func (p *Pipeline) pendingLights(db *gorm.DB, now time.Time) *gorm.DB {
 		Joins("LEFT JOIN stack_frames sf ON sf.frame_id = frames.id").
 		// Rows from before next_attempt_at existed wait RetryAfter.
 		Where("sf.id IS NULL OR (sf.status IN ? AND (sf.next_attempt_at < ? OR (sf.next_attempt_at IS NULL AND sf.processed_at < ?)))",
-			retried, now, now.Add(-p.opts.RetryAfter))
+			retried(), now, now.Add(-p.opts.RetryAfter))
 	if p.opts.Photometry {
 		// Scored without its photometry, a hazy light would pass, and a
 		// light in a master isn't scored again.

@@ -139,7 +139,7 @@ const (
 )
 
 // apertureArea is the number of pixels in measure.PhotometryAperture.
-var apertureArea = func() float64 {
+func apertureArea() float64 {
 	r := measure.PhotometryAperture
 	n := 0
 	for y := -r; y <= r; y++ {
@@ -150,7 +150,7 @@ var apertureArea = func() float64 {
 		}
 	}
 	return float64(n)
-}()
+}
 
 // CoreReference is a field's reference starlight, by rank: the
 // ReferencePercentile of the unclipped fluxes of its subs, NaN for a rank
@@ -167,6 +167,7 @@ func CoreReference(subs []*measure.Photometry) []float64 {
 		return nil
 	}
 	ranks := len(measure.Ranks())
+	area := apertureArea()
 	ref := make([]float64, ranks)
 	for j := range ranks {
 		var flux, snr []float64
@@ -180,7 +181,7 @@ func CoreReference(subs []*measure.Photometry) []float64 {
 				clipped++
 			case s.Flux[j] > 0:
 				flux = append(flux, s.Flux[j])
-				snr = append(snr, s.Flux[j]/(s.Noise*math.Sqrt(apertureArea)))
+				snr = append(snr, s.Flux[j]/(s.Noise*math.Sqrt(area)))
 			}
 		}
 		ref[j] = math.NaN()

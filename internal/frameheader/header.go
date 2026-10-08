@@ -86,17 +86,19 @@ func newCard(name, raw, comment string) Card {
 
 // xisfProperties maps XISF property ids to the FITS keyword they stand in
 // for, used only when the FITS keyword itself is absent.
-var xisfProperties = map[string]string{
-	"Instrument:ExposureTime":        "EXPTIME",
-	"Observation:Time:Start":         "DATE-OBS",
-	"Instrument:Filter:Name":         "FILTER",
-	"Instrument:Sensor:Temperature":  "CCD-TEMP",
-	"Instrument:Camera:Gain":         "GAIN",
-	"Instrument:Camera:XBinning":     "XBINNING",
-	"Instrument:Camera:YBinning":     "YBINNING",
-	"Instrument:Camera:Name":         "INSTRUME",
-	"Observation:Object:Name":        "OBJECT",
-	"Observation:Location:Longitude": "SITELONG",
+func xisfProperties() map[string]string {
+	return map[string]string{
+		"Instrument:ExposureTime":        "EXPTIME",
+		"Observation:Time:Start":         "DATE-OBS",
+		"Instrument:Filter:Name":         "FILTER",
+		"Instrument:Sensor:Temperature":  "CCD-TEMP",
+		"Instrument:Camera:Gain":         "GAIN",
+		"Instrument:Camera:XBinning":     "XBINNING",
+		"Instrument:Camera:YBinning":     "YBINNING",
+		"Instrument:Camera:Name":         "INSTRUME",
+		"Observation:Object:Name":        "OBJECT",
+		"Observation:Location:Longitude": "SITELONG",
+	}
 }
 
 // parseXISF reads the XML header of a monolithic XISF file: an 8-byte
@@ -116,6 +118,7 @@ func parseXISF(b []byte) ([]Card, Keywords, error) {
 
 	var cards []Card
 	props := Keywords{}
+	properties := xisfProperties()
 	dec := xml.NewDecoder(bytes.NewReader(header))
 	depth := 0 // nesting inside the first Image; 0 means not inside it
 	seenImage := false
@@ -153,7 +156,7 @@ func parseXISF(b []byte) ([]Card, Keywords, error) {
 					}
 					depth--
 				}
-				if key, ok := xisfProperties[id]; ok {
+				if key, ok := properties[id]; ok {
 					props[key] = strings.TrimSpace(value)
 				}
 			}

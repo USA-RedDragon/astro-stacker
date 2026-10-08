@@ -3,11 +3,10 @@ package store
 import (
 	"context"
 
-	gormlib "gorm.io/gorm"
-
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/gorm"
 	"github.com/USA-RedDragon/astro-stacker/internal/types"
+	gormlib "gorm.io/gorm"
 )
 
 type Store interface {

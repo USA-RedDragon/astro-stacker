@@ -55,7 +55,7 @@ func badColumns(im *imagedata.Image, saturation float32) []int {
 			}
 		}
 		if len(col) < h/stride/2 {
-			med[x] = float32(nan)
+			med[x] = float32(math.NaN())
 			continue
 		}
 		slices.Sort(col)

@@ -1,4 +1,4 @@
-package measure
+package measure_test
 
 import (
 	"math"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 )
 
 // starField is a sub of n Gaussian stars of width sigma, their light scaled
@@ -41,7 +42,7 @@ func starField(seed uint64, n int, sigma, gain float64) *imagedata.Image {
 }
 
 // medianRatio is the median over ranks unclipped in both of a's flux over b's.
-func medianRatio(t *testing.T, a, b Photometry) float64 {
+func medianRatio(t *testing.T, a, b measure.Photometry) float64 {
 	t.Helper()
 	var rs []float64
 	for j := range a.Flux {
@@ -62,9 +63,9 @@ func medianRatio(t *testing.T, a, b Photometry) float64 {
 // stars from HFR 1.8 to 2.3 is not taken for haze.
 func TestPhotometryRanks(t *testing.T) {
 	t.Parallel()
-	clear := Measure(starField(7, 3000, 1.45, 1))
+	clearSub := measure.Measure(starField(7, 3000, 1.45, 1))
 	clipped := 0
-	for _, s := range clear.Saturated {
+	for _, s := range clearSub.Saturated {
 		if s {
 			clipped++
 		}
@@ -72,14 +73,14 @@ func TestPhotometryRanks(t *testing.T) {
 	if clipped == 0 {
 		t.Fatal("no clipped ranks: the test should cover them")
 	}
-	if got := medianRatio(t, Measure(starField(7, 3000, 1.45, 0.44)), clear); math.Abs(got-0.44) > 0.03 {
+	if got := medianRatio(t, measure.Measure(starField(7, 3000, 1.45, 0.44)), clearSub); math.Abs(got-0.44) > 0.03 {
 		t.Errorf("hazy sub reads %.3f of the clear one, want 0.44", got)
 	}
-	if got := medianRatio(t, Measure(starField(7, 3000, 1.8, 1)), clear); got < 0.93 {
+	if got := medianRatio(t, measure.Measure(starField(7, 3000, 1.8, 1)), clearSub); got < 0.93 {
 		t.Errorf("softer seeing reads %.3f of the clear sub, want 0.93 or more", got)
 	}
 	// Star wings in so dense a field add a little to the sky's spread.
-	if want := 0.0005 * 65535; clear.Noise < want || clear.Noise > 1.25*want {
-		t.Errorf("noise = %.1f ADU, want %.1f to 25%% more", clear.Noise, want)
+	if want := 0.0005 * 65535; clearSub.Noise < want || clearSub.Noise > 1.25*want {
+		t.Errorf("noise = %.1f ADU, want %.1f to 25%% more", clearSub.Noise, want)
 	}
 }

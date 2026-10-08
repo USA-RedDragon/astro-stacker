@@ -24,6 +24,13 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	paletteRGBHa = "RGB+Ha"
+	paletteRGB   = "RGB"
+	paletteSHO   = "SHO"
+	paletteHOO   = "HOO"
+)
+
 // palette maps filters to red, green and blue; HaRed adds H-a to red, and
 // OIIIGB O-III to green and blue, where their masks are on (addLine).
 type palette struct {
@@ -41,11 +48,11 @@ func (p palette) filters() []string {
 			out = append(out, f)
 		}
 	}
-	if p.HaRed && !slices.Contains(out, "H-a") {
-		out = append(out, "H-a")
+	if p.HaRed && !slices.Contains(out, filterHa) {
+		out = append(out, filterHa)
 	}
-	if p.OIIIGB && !slices.Contains(out, "O-III") {
-		out = append(out, "O-III")
+	if p.OIIIGB && !slices.Contains(out, filterOIII) {
+		out = append(out, filterOIII)
 	}
 	return out
 }
@@ -54,11 +61,13 @@ func (p palette) filters() []string {
 var shoSubject = regexp.MustCompile(`\bSHO\b`)
 
 // palettes a cover can use; choosePalette orders them.
-var palettes = []palette{
-	{Name: "RGB+Ha", R: "Red", G: "Green", B: "Blue", HaRed: true},
-	{Name: "RGB", R: "Red", G: "Green", B: "Blue"},
-	{Name: "SHO", R: "S-II", G: "H-a", B: "O-III"},
-	{Name: "HOO", R: "H-a", G: "O-III", B: "O-III"},
+func palettes() []palette {
+	return []palette{
+		{Name: paletteRGBHa, R: filterRed, G: filterGreen, B: filterBlue, HaRed: true},
+		{Name: paletteRGB, R: filterRed, G: filterGreen, B: filterBlue},
+		{Name: paletteSHO, R: filterSII, G: filterHa, B: filterOIII},
+		{Name: paletteHOO, R: filterHa, G: filterOIII, B: filterOIII},
+	}
 }
 
 // minShare is the least effective exposure a palette channel may have,
@@ -126,22 +135,22 @@ const oiiiBlue = 1.2
 // it as RGB+Ha asks of H-a.
 func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 	var narrow, broad float64
-	for _, f := range []string{"H-a", "O-III", "S-II"} {
+	for _, f := range []string{filterHa, filterOIII, filterSII} {
 		narrow += have[f].Effective
 	}
-	for _, f := range []string{"Red", "Green", "Blue"} {
+	for _, f := range []string{filterRed, filterGreen, filterBlue} {
 		broad += have[f].Effective
 	}
 	byName := map[string]palette{}
-	for _, p := range palettes {
+	for _, p := range palettes() {
 		byName[p.Name] = p
 	}
-	names := []string{"RGB+Ha", "RGB", "HOO", "SHO"}
+	names := []string{paletteRGBHa, paletteRGB, paletteHOO, paletteSHO}
 	switch {
 	case sho:
-		names = []string{"SHO", "HOO", "RGB+Ha", "RGB"}
+		names = []string{paletteSHO, paletteHOO, paletteRGBHa, paletteRGB}
 	case narrow > broad:
-		names = []string{"HOO", "RGB+Ha", "RGB", "SHO"}
+		names = []string{paletteHOO, paletteRGBHa, paletteRGB, paletteSHO}
 	}
 	order := make([]palette, 0, len(names))
 	for _, n := range names {
@@ -169,12 +178,12 @@ func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 			}
 		}
 		if p.HaRed {
-			ha, found := have["H-a"]
+			ha, found := have[filterHa]
 			ok = ok && found && ha.Key != "" && ha.Effective >= minShare*sum/3
 		}
 		if ok {
-			if p.R == "Red" && p.G == "Green" && p.B == "Blue" {
-				if o, found := have["O-III"]; found && o.Key != "" && o.Effective >= minShare*sum/3 {
+			if p.R == filterRed && p.G == filterGreen && p.B == filterBlue {
+				if o, found := have[filterOIII]; found && o.Key != "" && o.Effective >= minShare*sum/3 {
 					p.OIIIGB = true
 					p.Name += "+OIII"
 				}
@@ -234,7 +243,7 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 		return err
 	}
 	key := path.Join(prefix, "color.jpg")
-	if err := p.putBytes(ctx, key, jpg, minio.PutObjectOptions{ContentType: "image/jpeg"}); err != nil {
+	if err := p.putBytes(ctx, key, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG}); err != nil {
 		return err
 	}
 	var c app.Cover
@@ -258,12 +267,12 @@ func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte
 	if pal.HaRed {
 		// H-a into red, and a little into blue, as the camera sees the
 		// line with H-b alongside: pink rather than pure red.
-		out := addLine(lineInputs{Name: "H-a", Line: planes["H-a"].Data, Cont: rawR, Proxy: rawG, Gate: rawB,
+		out := addLine(lineInputs{Name: filterHa, Line: planes[filterHa].Data, Cont: rawR, Proxy: rawG, Gate: rawB,
 			Into: []lineTarget{{Data: red}, {Data: blue, MaxRel: haBlue}}}, w, h)
 		red, blue = out[0], out[1]
 	}
 	if pal.OIIIGB {
-		out := addLine(lineInputs{Name: "O-III", Line: planes["O-III"].Data, Cont: rawG, Proxy: rawR,
+		out := addLine(lineInputs{Name: filterOIII, Line: planes[filterOIII].Data, Cont: rawG, Proxy: rawR,
 			Into: []lineTarget{{Data: green}, {Data: blue, MaxRel: oiiiBlue}}}, w, h)
 		green, blue = out[0], out[1]
 	}

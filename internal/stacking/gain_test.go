@@ -78,7 +78,7 @@ func TestMixedGains(t *testing.T) {
 		}
 	}
 	level := func(acc *Accumulator, px []int) float64 {
-		var q []float64
+		q := make([]float64, 0, len(px))
 		for _, i := range px {
 			q = append(q, float64(acc.Mean[i])/(hiGain*truth[i]))
 		}
@@ -124,8 +124,8 @@ func TestMixedGainMasters(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := "state.fit"
-	mixed := app.Stack{Object: "Orion", Filter: "H-a", StateKey: &state}
-	single := app.Stack{Object: "M31", Filter: "H-a", StateKey: &state}
+	mixed := app.Stack{Object: objectOrion, Filter: filterHa, StateKey: &state}
+	single := app.Stack{Object: objectM31, Filter: filterHa, StateKey: &state}
 	for _, s := range []*app.Stack{&mixed, &single} {
 		if err := db.Create(s).Error; err != nil {
 			t.Fatal(err)
@@ -136,7 +136,7 @@ func TestMixedGainMasters(t *testing.T) {
 		stack *app.Stack
 		gain  *float64
 	}{{&mixed, g(0)}, {&mixed, g(100)}, {&mixed, nil}, {&single, g(100)}, {&single, g(100)}, {&single, nil}} {
-		fr := app.Frame{Key: string(rune('a' + i)), Type: "LIGHT", LastModified: time.Now(), Gain: f.gain}
+		fr := app.Frame{Key: string(rune('a' + i)), Type: frameTypeLight, LastModified: time.Now(), Gain: f.gain}
 		if err := db.Create(&fr).Error; err != nil {
 			t.Fatal(err)
 		}

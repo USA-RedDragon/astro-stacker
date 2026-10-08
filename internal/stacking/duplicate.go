@@ -59,7 +59,7 @@ func (p *Pipeline) dropDuplicates(ctx context.Context) error {
 		// Marked together, so a restart before the sweep still stacks
 		// the masters again.
 		res := tx.Model(&app.StackFrame{}).Where("id IN ?", ids).
-			UpdateColumns(map[string]any{"status": app.StackStatusDuplicate, "next_attempt_at": nil})
+			UpdateColumns(map[string]any{columnStatus: app.StackStatusDuplicate, columnNextAttemptAt: nil})
 		if res.Error != nil {
 			return res.Error
 		}

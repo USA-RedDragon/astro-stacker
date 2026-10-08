@@ -60,17 +60,20 @@ func FromKeywords(k Keywords) Frame {
 // filterNames maps other names for the narrowband filters, lower-cased and
 // without spaces or dashes, onto NINA's: remote telescopes (Telescope.live)
 // write "Halpha", "OIII", "Sii".
-var filterNames = map[string]string{
-	"ha": "H-a", "halpha": "H-a", "hydrogenalpha": "H-a",
-	"oiii": "O-III", "o3": "O-III",
-	"sii": "S-II", "s2": "S-II",
+func filterNames() map[string]string {
+	const hAlpha, oIII, sII = "H-a", "O-III", "S-II"
+	return map[string]string{
+		"ha": hAlpha, "halpha": hAlpha, "hydrogenalpha": hAlpha,
+		"oiii": oIII, "o3": oIII,
+		"sii": sII, "s2": sII,
+	}
 }
 
 // NormalizeFilter names a filter as NINA does, so the same filter stacks
 // into one master whatever wrote the file.
 func NormalizeFilter(name string) string {
 	key := strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(name))
-	if n, ok := filterNames[key]; ok {
+	if n, ok := filterNames()[key]; ok {
 		return n
 	}
 	return name

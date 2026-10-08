@@ -1,26 +1,32 @@
-package measure
+package measure_test
 
 import (
 	"bufio"
 	"math"
 	"math/rand/v2"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 )
 
 // TestAgainstNINA compares measurements with NINA's for real subs in
 // HFR_DIR, listed in nina.txt as "file|hfr|adu median|stars|filter".
 func TestAgainstNINA(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv("HFR_DIR")
 	if dir == "" {
 		t.Skip("HFR_DIR not set")
 	}
-	f, err := os.Open(filepath.Join(dir, "nina.txt"))
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	f, err := root.Open("nina.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +34,7 @@ func TestAgainstNINA(t *testing.T) {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		p := strings.Split(sc.Text(), "|")
-		b, err := os.ReadFile(filepath.Join(dir, p[0]))
+		b, err := root.ReadFile(p[0])
 		if err != nil {
 			continue
 		}
@@ -36,7 +42,7 @@ func TestAgainstNINA(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r := Sub(im)
+		r := measure.Sub(im)
 		hfr, _ := strconv.ParseFloat(p[1], 64)
 		sky, _ := strconv.ParseFloat(p[2], 64)
 		t.Logf("%-10s NINA hfr %5.2f sky %6.0f stars %5s | ours hfr %5.2f sky %6.0f peaks %6d | hfr ratio %.2f",
@@ -62,7 +68,7 @@ func TestGaussianStars(t *testing.T) {
 			}
 		}
 	}
-	got := Sub(im)
+	got := measure.Sub(im)
 	if want := sigma * math.Sqrt(math.Pi/2); math.Abs(got.HFR-want) > 0.1*want {
 		t.Errorf("HFR = %.2f, want %.2f", got.HFR, want)
 	}

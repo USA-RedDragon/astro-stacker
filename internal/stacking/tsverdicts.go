@@ -22,7 +22,7 @@ import (
 // Target Scheduler (TS) counts a sub toward its exposure plan once its own
 // grader accepts it, and stops imaging a target when the plans are full. The
 // stacker leaves many of those subs out of its masters (low_score, moon), so
-// TS stops early. SendVerdicts tells TS: for each such sub TS still counts,
+// TS stops early. sendVerdicts tells TS: for each such sub TS still counts,
 // it writes a row into stacker_verdict in the scheduler database, which
 // SymmetricDS copies to the observatory, where a trigger rejects the image and
 // takes one off its plan's accepted count (observatory-verdicts.sql in the
@@ -42,7 +42,7 @@ import (
 // repairs decrements TS overwrote (its target editor saves the counts it
 // loaded).
 
-// VerdictOptions configure SendVerdicts.
+// VerdictOptions configure sendVerdicts.
 type VerdictOptions struct {
 	// Mode is config.TSVerdictsOff, DryRun or On.
 	Mode string
@@ -155,13 +155,7 @@ func planVerdicts(frames []verdictFrame, images []tsImage, known map[int]app.TSV
 			out.Skipped["no_grader"]++
 			continue
 		}
-		want := 0
-		switch f.Status {
-		case app.StackStatusLowScore, app.StackStatusMoon:
-			want = app.TSVerdictReject
-		case app.StackStatusAdded:
-			want = app.TSVerdictAccept
-		}
+		want := wantedVerdict(f.Status)
 		v, seen := known[im.ID]
 		if !seen {
 			// Only a reject starts a verdict, and only on an image TS counts;
@@ -184,60 +178,78 @@ func planVerdicts(frames []verdictFrame, images []tsImage, known map[int]app.TSV
 		if v.State == app.TSVerdictOverridden {
 			continue
 		}
-		before := v
-		// What TS shows now.
-		ours := im.Status == quality.GradingRejected && strings.HasPrefix(im.Reason, stackerReasonPrefix)
-		switch {
-		case v.Verdict == app.TSVerdictReject && ours,
-			v.Verdict == app.TSVerdictAccept && im.Status == quality.GradingAccepted:
-			if v.State != app.TSVerdictApplied {
-				v.State = app.TSVerdictApplied
-				v.AppliedAt = &now
-				v.NextAttemptAt = nil
-			}
-		case im.Status == quality.GradingRejected && !ours:
-			v.State = app.TSVerdictMoot
-			v.NextAttemptAt = nil
-		case v.Verdict == app.TSVerdictReject && im.Status == quality.GradingAccepted && v.State == app.TSVerdictApplied:
-			// It was rejected, and someone accepted it again.
-			v.State = app.TSVerdictOverridden
-			v.NextAttemptAt = nil
-		}
-		if v.State == app.TSVerdictMoot || v.State == app.TSVerdictOverridden {
-			if v != before {
-				out.Records = append(out.Records, v)
-			}
-			continue
-		}
-		reason := v.Reason
-		if want == app.TSVerdictReject {
-			reason = verdictReason(f.Status)
-		}
-		switch {
-		case want != 0 && want != v.Verdict && im.Status != quality.GradingPending:
-			// The stacker changed its mind: undo a reject, or reject again.
-			kind := "undo"
-			if want == app.TSVerdictReject {
-				kind = "redo"
-			}
-			next := now.Add(backoff(1))
-			v.Verdict, v.Reason, v.State = want, reason, app.TSVerdictSent
-			v.Attempts++
-			v.SentAt, v.NextAttemptAt, v.AppliedAt = now, &next, nil
-			out.Sends = append(out.Sends, verdictSend{Image: im, FrameID: f.FrameID, Filter: f.Filter, Verdict: want, Reason: reason, Kind: kind})
-		case v.State == app.TSVerdictSent && im.Status != quality.GradingPending &&
-			v.NextAttemptAt != nil && !now.Before(*v.NextAttemptAt):
-			// Not applied yet (TS was grading the plan): again.
-			v.Attempts++
-			next := now.Add(backoff(v.Attempts))
-			v.SentAt, v.NextAttemptAt = now, &next
-			out.Sends = append(out.Sends, verdictSend{Image: im, FrameID: f.FrameID, Filter: f.Filter, Verdict: v.Verdict, Reason: v.Reason, Kind: "retry"})
-		}
+		out.update(v, f, im, want, &now)
+	}
+	return out
+}
+
+func wantedVerdict(status string) int {
+	switch status {
+	case app.StackStatusLowScore, app.StackStatusMoon:
+		return app.TSVerdictReject
+	case app.StackStatusAdded:
+		return app.TSVerdictAccept
+	}
+	return 0
+}
+
+func (out *verdictPlan) update(v app.TSVerdict, f verdictFrame, im tsImage, want int, now *time.Time) {
+	before := v
+	observeVerdict(&v, im, now)
+	if v.State == app.TSVerdictMoot || v.State == app.TSVerdictOverridden {
 		if v != before {
 			out.Records = append(out.Records, v)
 		}
+		return
 	}
-	return out
+	reason := v.Reason
+	if want == app.TSVerdictReject {
+		reason = verdictReason(f.Status)
+	}
+	switch {
+	case want != 0 && want != v.Verdict && im.Status != quality.GradingPending:
+		// The stacker changed its mind: undo a reject, or reject again.
+		kind := "undo"
+		if want == app.TSVerdictReject {
+			kind = "redo"
+		}
+		next := now.Add(backoff(1))
+		v.Verdict, v.Reason, v.State = want, reason, app.TSVerdictSent
+		v.Attempts++
+		v.SentAt, v.NextAttemptAt, v.AppliedAt = *now, &next, nil
+		out.Sends = append(out.Sends, verdictSend{Image: im, FrameID: f.FrameID, Filter: f.Filter, Verdict: want, Reason: reason, Kind: kind})
+	case v.State == app.TSVerdictSent && im.Status != quality.GradingPending &&
+		v.NextAttemptAt != nil && !now.Before(*v.NextAttemptAt):
+		// Not applied yet (TS was grading the plan): again.
+		v.Attempts++
+		next := now.Add(backoff(v.Attempts))
+		v.SentAt, v.NextAttemptAt = *now, &next
+		out.Sends = append(out.Sends, verdictSend{Image: im, FrameID: f.FrameID, Filter: f.Filter, Verdict: v.Verdict, Reason: v.Reason, Kind: "retry"})
+	}
+	if v != before {
+		out.Records = append(out.Records, v)
+	}
+}
+
+func observeVerdict(v *app.TSVerdict, im tsImage, now *time.Time) {
+	// What TS shows now.
+	ours := im.Status == quality.GradingRejected && strings.HasPrefix(im.Reason, stackerReasonPrefix)
+	switch {
+	case v.Verdict == app.TSVerdictReject && ours,
+		v.Verdict == app.TSVerdictAccept && im.Status == quality.GradingAccepted:
+		if v.State != app.TSVerdictApplied {
+			v.State = app.TSVerdictApplied
+			v.AppliedAt = now
+			v.NextAttemptAt = nil
+		}
+	case im.Status == quality.GradingRejected && !ours:
+		v.State = app.TSVerdictMoot
+		v.NextAttemptAt = nil
+	case v.Verdict == app.TSVerdictReject && im.Status == quality.GradingAccepted && v.State == app.TSVerdictApplied:
+		// It was rejected, and someone accepted it again.
+		v.State = app.TSVerdictOverridden
+		v.NextAttemptAt = nil
+	}
 }
 
 // verdictFrames loads the lights the verdicts are about: left out for low
@@ -330,10 +342,10 @@ func (p *Pipeline) tsImages(ctx context.Context) ([]tsImage, error) {
 // metadataChunk bounds how many ids go in one IN list.
 const metadataChunk = 1000
 
-// SendVerdicts runs one sweep: it sends new verdicts, sends again those not
+// sendVerdicts runs one sweep: it sends new verdicts, sends again those not
 // applied, undoes rejects of subs since stacked, and asks for reconciles. In
 // dry-run mode it only logs what it would send. It returns the plan.
-func (p *Pipeline) SendVerdicts(ctx context.Context, opts VerdictOptions) (verdictPlan, error) {
+func (p *Pipeline) sendVerdicts(ctx context.Context, opts VerdictOptions) (verdictPlan, error) {
 	var plan verdictPlan
 	if opts.Mode != verdictModeOn && opts.Mode != verdictModeDryRun {
 		return plan, nil
@@ -370,25 +382,25 @@ func (p *Pipeline) SendVerdicts(ctx context.Context, opts VerdictOptions) (verdi
 	// next sweep sends the verdict again, which is harmless.
 	for _, s := range plan.Sends {
 		row := map[string]any{
-			"acquiredimage_id": s.Image.ID,
-			"guid":             s.Image.GUID,
-			"exposureplan_id":  s.Image.PlanID,
-			"verdict":          s.Verdict,
-			"reason":           s.Reason,
-			"attempt":          0,
-			"created_at":       now,
-			"updated_at":       now,
+			"acquiredimage_id":   s.Image.ID,
+			"guid":               s.Image.GUID,
+			columnExposurePlanID: s.Image.PlanID,
+			"verdict":            s.Verdict,
+			"reason":             s.Reason,
+			columnAttempt:        0,
+			"created_at":         now,
+			columnUpdatedAt:      now,
 		}
 		if err := sched.Table("stacker_verdict").Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "acquiredimage_id"}},
 			DoUpdates: clause.Assignments(map[string]any{
-				"guid":            s.Image.GUID,
-				"exposureplan_id": s.Image.PlanID,
-				"verdict":         s.Verdict,
-				"reason":          s.Reason,
+				"guid":               s.Image.GUID,
+				columnExposurePlanID: s.Image.PlanID,
+				"verdict":            s.Verdict,
+				"reason":             s.Reason,
 				// A new value fires the observatory's trigger again.
-				"attempt":    gorm.Expr("stacker_verdict.attempt + 1"),
-				"updated_at": now,
+				columnAttempt:   gorm.Expr("stacker_verdict.attempt + 1"),
+				columnUpdatedAt: now,
 			}),
 		}).Create(row).Error; err != nil {
 			return plan, fmt.Errorf("send verdict on acquired image %d: %w", s.Image.ID, err)
@@ -421,7 +433,7 @@ func (p *Pipeline) requestReconciles(ctx context.Context, now time.Time) error {
 	sched := p.sched.WithContext(ctx)
 	var recent []int
 	if err := sched.Table("stacker_reconcile").Where("updated_at > ?", now.Add(-reconcileEvery)).
-		Pluck("exposureplan_id", &recent).Error; err != nil {
+		Pluck(columnExposurePlanID, &recent).Error; err != nil {
 		return fmt.Errorf("load reconciles: %w", err)
 	}
 	skip := make(map[int]bool, len(recent))
@@ -434,12 +446,12 @@ func (p *Pipeline) requestReconciles(ctx context.Context, now time.Time) error {
 			continue
 		}
 		if err := sched.Table("stacker_reconcile").Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "exposureplan_id"}},
+			Columns: []clause.Column{{Name: columnExposurePlanID}},
 			DoUpdates: clause.Assignments(map[string]any{
-				"attempt":    gorm.Expr("stacker_reconcile.attempt + 1"),
-				"updated_at": now,
+				columnAttempt:   gorm.Expr("stacker_reconcile.attempt + 1"),
+				columnUpdatedAt: now,
 			}),
-		}).Create(map[string]any{"exposureplan_id": id, "attempt": 0, "updated_at": now}).Error; err != nil {
+		}).Create(map[string]any{columnExposurePlanID: id, columnAttempt: 0, columnUpdatedAt: now}).Error; err != nil {
 			return fmt.Errorf("request reconcile of plan %d: %w", id, err)
 		}
 		n++
@@ -501,7 +513,8 @@ func reportVerdicts(plan verdictPlan, mode string) {
 		slog.Info(msg, "target", k.target, "filter", k.filter, "kind", k.kind, "subs", counts[k])
 	}
 	if len(plan.Sends) > 0 || len(plan.Skipped) > 0 {
-		args := []any{"sends", len(plan.Sends)}
+		args := make([]any, 0, 2+2*len(plan.Skipped))
+		args = append(args, "sends", len(plan.Sends))
 		for why, n := range plan.Skipped {
 			args = append(args, "skipped_"+why, n)
 		}
@@ -512,7 +525,7 @@ func reportVerdicts(plan verdictPlan, mode string) {
 // runVerdicts sends verdicts every hour until the pipeline stops.
 func (p *Pipeline) runVerdicts(ctx context.Context, opts VerdictOptions) {
 	for !p.stopping(ctx) {
-		if _, err := p.SendVerdicts(ctx, opts); err != nil && !errors.Is(err, context.Canceled) {
+		if _, err := p.sendVerdicts(ctx, opts); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Sending verdicts to Target Scheduler failed", "error", err)
 		}
 		if !p.pause(ctx, time.Hour) {
@@ -566,7 +579,7 @@ func (p *Pipeline) requeueRejects(ctx context.Context, scores map[string]quality
 	}
 	for i := 0; i < len(ids); i += 1000 {
 		if err := p.db.WithContext(ctx).Model(&app.StackFrame{}).Where("id IN ?", ids[i:min(i+1000, len(ids))]).
-			UpdateColumns(map[string]any{"status": app.StackStatusLowScore, "next_attempt_at": now}).Error; err != nil {
+			UpdateColumns(map[string]any{columnStatus: app.StackStatusLowScore, columnNextAttemptAt: now}).Error; err != nil {
 			return err
 		}
 	}

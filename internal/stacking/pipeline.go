@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -67,7 +68,7 @@ type PipelineOptions struct {
 	// from; off, they are scored without it.
 	Photometry bool
 	// Verdicts tell Target Scheduler which subs were left out (see
-	// SendVerdicts).
+	// sendVerdicts).
 	Verdicts VerdictOptions
 	Stack    Options
 }
@@ -113,6 +114,9 @@ type Pipeline struct {
 	busy map[string]bool
 	// building serializes work on one calibration master's files.
 	building sync.Map // set key -> *sync.Mutex
+	// sites caches each target's observing site (latitude, east longitude),
+	// read from one of its lights' headers.
+	sites sync.Map // object -> [2]float64, or nil when the headers have none
 
 	// Events, if set, hears about updated masters and what workers do.
 	Events *events.Broker
@@ -273,7 +277,10 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	// Work one master at a time, oldest subs first, so a target's master
 	// grows in the order it was shot, on a target no other worker has.
 	first, err := p.claim(q)
-	if err != nil || first == nil {
+	if errors.Is(err, errNothingToClaim) {
+		return 0, nil
+	}
+	if err != nil {
 		return 0, err
 	}
 	defer p.release(first.Object)
@@ -301,52 +308,63 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	if err != nil {
 		return 0, err
 	}
-	moonCheck, err := p.moonChecker(ctx, positions)
+	moonlit, moonFree, err := p.moonlitFrames(ctx, positions, first, frames)
 	if err != nil {
 		return 0, err
+	}
+	batch, err := p.triage(ctx, frames, scores, sets, positions, moonlit, moonFree)
+	if err != nil {
+		return 0, err
+	}
+	if len(batch) > 0 {
+		if err := p.runBatch(ctx, first, batch, sets, scores, positions); err != nil {
+			return 0, err
+		}
+	}
+	return len(frames), nil
+}
+
+func (p *Pipeline) moonlitFrames(ctx context.Context, positions map[string][2]float64, first *app.Frame, frames []app.Frame) (map[int]bool, bool, error) {
+	moonCheck, err := p.moonChecker(ctx, positions)
+	if err != nil {
+		return nil, false, err
 	}
 	moonlit := make(map[int]bool, len(frames))
 	moonFree, err := p.hasMoonFree(ctx, moonCheck, first.Object, first.Filter)
 	if err != nil {
-		return 0, err
+		return nil, false, err
 	}
 	for _, f := range frames {
 		moonlit[f.ID] = moonCheck.moonlit(ctx, f)
 		moonFree = moonFree || !moonlit[f.ID]
 	}
+	return moonlit, moonFree, nil
+}
 
+func (p *Pipeline) triage(ctx context.Context, frames []app.Frame, scores map[string]quality.SubScore, sets []calmatch.Set,
+	positions map[string][2]float64, moonlit map[int]bool, moonFree bool,
+) ([]candidate, error) {
 	retrying, err := p.failedBefore(ctx, frames)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	dups, err := p.duplicates(ctx, frames)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	var batch []candidate
 	for _, f := range frames {
 		if dups[f.ID] {
 			if err := p.record(ctx, app.StackFrame{FrameID: f.ID, Status: app.StackStatusDuplicate, Exposure: val(f.Exposure)}); err != nil {
-				return 0, err
+				return nil, err
 			}
 			continue
 		}
 		c, status := p.classify(f, scores, sets, positions)
 		status = withMoon(status, moonlit[f.ID], moonFree)
 		if status != "" {
-			sf := app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}
-			if status == app.StackStatusCalibration {
-				sf.Error = missingCalibration(c.cal)
-				if w := c.waiting; w != nil {
-					msg := fmt.Sprintf("waiting for the %s set (%d frames) to settle: a frame was uploaded %s",
-						strings.ToLower(w.Type), w.Count, w.Uploaded.UTC().Format(time.RFC3339))
-					sf.Error = &msg
-					next := w.Uploaded.Add(p.opts.CalibrationSettle + time.Minute)
-					sf.NextAttemptAt = &next
-				}
-			}
-			if err := p.record(ctx, sf); err != nil {
-				return 0, err
+			if err := p.record(ctx, p.leftOut(c, status)); err != nil {
+				return nil, err
 			}
 			continue
 		}
@@ -363,28 +381,48 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 			break
 		}
 	}
-	if len(batch) > 0 {
-		start := time.Now()
-		err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores, positions)
-		metrics.BatchSeconds.Observe(time.Since(start).Seconds())
-		if err == nil {
-			metrics.Batches.WithLabelValues("ok").Inc()
-		} else {
-			if ctx.Err() != nil {
-				return 0, ctx.Err()
-			}
-			metrics.Batches.WithLabelValues("failed").Inc()
-			slog.Error("Stacking batch failed", "object", first.Object, "filter", first.Filter, "subs", len(batch), "error", err)
-			msg := err.Error()
-			for _, c := range batch {
-				if err := p.record(ctx, app.StackFrame{FrameID: c.frame.ID, Status: app.StackStatusFailed,
-					Score: c.score.Score, Exposure: val(c.frame.Exposure), Error: &msg}); err != nil {
-					return 0, err
-				}
-			}
+	return batch, nil
+}
+
+func (p *Pipeline) leftOut(c candidate, status string) app.StackFrame {
+	f := c.frame
+	sf := app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}
+	if status == app.StackStatusCalibration {
+		sf.Error = missingCalibration(c.cal)
+		if w := c.waiting; w != nil {
+			msg := fmt.Sprintf("waiting for the %s set (%d frames) to settle: a frame was uploaded %s",
+				strings.ToLower(w.Type), w.Count, w.Uploaded.UTC().Format(time.RFC3339))
+			sf.Error = &msg
+			next := w.Uploaded.Add(p.opts.CalibrationSettle + time.Minute)
+			sf.NextAttemptAt = &next
 		}
 	}
-	return len(frames), nil
+	return sf
+}
+
+func (p *Pipeline) runBatch(ctx context.Context, first *app.Frame, batch []candidate, sets []calmatch.Set,
+	scores map[string]quality.SubScore, positions map[string][2]float64,
+) error {
+	start := time.Now()
+	err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores, positions)
+	metrics.BatchSeconds.Observe(time.Since(start).Seconds())
+	if err == nil {
+		metrics.Batches.WithLabelValues("ok").Inc()
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	metrics.Batches.WithLabelValues("failed").Inc()
+	slog.Error("Stacking batch failed", "object", first.Object, "filter", first.Filter, "subs", len(batch), "error", err)
+	msg := err.Error()
+	for _, c := range batch {
+		if err := p.record(ctx, app.StackFrame{FrameID: c.frame.ID, Status: app.StackStatusFailed,
+			Score: c.score.Score, Exposure: val(c.frame.Exposure), Error: &msg}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // failedBefore returns the frames among these with failed attempts.
@@ -405,11 +443,14 @@ func (p *Pipeline) failedBefore(ctx context.Context, frames []app.Frame) (map[in
 	return out, nil
 }
 
+var errNothingToClaim = errors.New("no lights to claim")
+
 // LiveWindow is how recent a sub must be to go ahead of the backfill.
 const LiveWindow = 48 * time.Hour
 
 // claim picks the first light of a target no other worker is stacking and
-// marks the target busy. It returns nil when there is nothing to do.
+// marks the target busy. It returns errNothingToClaim when there is nothing
+// to do.
 func (p *Pipeline) claim(q *gorm.DB) (*app.Frame, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -430,7 +471,7 @@ func (p *Pipeline) claim(q *gorm.DB) (*app.Frame, error) {
 	}
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
+			return nil, errNothingToClaim
 		}
 		return nil, fmt.Errorf("find lights: %w", err)
 	}
@@ -458,7 +499,7 @@ func (p *Pipeline) release(object string) {
 // lockKey serializes work on one calibration master across workers.
 func (p *Pipeline) lockKey(key string) func() {
 	m, _ := p.building.LoadOrStore(key, &sync.Mutex{})
-	mu := m.(*sync.Mutex)
+	mu, _ := m.(*sync.Mutex)
 	mu.Lock()
 	return mu.Unlock
 }
@@ -555,7 +596,7 @@ func (p *Pipeline) requeueWeightless(ctx context.Context) {
 			return err
 		}
 		res := tx.Model(&app.StackFrame{}).Where("status = ? AND NOT (weight > 0)", app.StackStatusAdded).
-			UpdateColumns(map[string]any{"status": app.StackStatusLowScore, "next_attempt_at": now})
+			UpdateColumns(map[string]any{columnStatus: app.StackStatusLowScore, columnNextAttemptAt: now})
 		if res.Error != nil {
 			return res.Error
 		}
@@ -574,7 +615,7 @@ func (p *Pipeline) requeueWeightless(ctx context.Context) {
 func (p *Pipeline) requeueLeakFailures(ctx context.Context) {
 	res := p.db.WithContext(ctx).Model(&app.StackFrame{}).
 		Where("status IN ? AND error LIKE ?", []string{app.StackStatusFailed, app.StackStatusDead}, "%light leak%").
-		UpdateColumns(map[string]any{"status": app.StackStatusFailed, "attempts": 0, "next_attempt_at": time.Now()})
+		UpdateColumns(map[string]any{columnStatus: app.StackStatusFailed, "attempts": 0, columnNextAttemptAt: time.Now()})
 	if res.Error != nil {
 		if ctx.Err() == nil {
 			slog.Error("Requeueing lights failed on leaky darks failed", "error", res.Error)
@@ -598,7 +639,7 @@ func (p *Pipeline) requeueOffTarget(ctx context.Context) {
 	msg := "the mount pointed off target; trying whether the sub registers to the target reference"
 	res := p.db.WithContext(ctx).Model(&app.StackFrame{}).
 		Where("status = ? AND error IS NULL", app.StackStatusOffTarget).
-		UpdateColumns(map[string]any{"status": app.StackStatusFailed, "attempts": 0, "next_attempt_at": time.Now(), "error": msg})
+		UpdateColumns(map[string]any{columnStatus: app.StackStatusFailed, "attempts": 0, columnNextAttemptAt: time.Now(), "error": msg})
 	if res.Error != nil {
 		if ctx.Err() == nil {
 			slog.Error("Requeueing off-target subs failed", "error", res.Error)
@@ -752,7 +793,7 @@ func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 
 func val(p *float64) float64 {
 	if p == nil {
-		return nan
+		return math.NaN()
 	}
 	return *p
 }

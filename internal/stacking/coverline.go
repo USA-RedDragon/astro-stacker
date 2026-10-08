@@ -181,13 +181,7 @@ func lineMask(in lineInputs, w, h int) (net, mask []float32, ks []float64, ok bo
 	// for the grid (a galaxy's): the net line over its surroundings, well
 	// above the noise and a good part of the continuum there, which a
 	// star's colour residual isn't.
-	skyUp := upsampleGrid(sky, gw, gh, s, w, h)
-	net = make([]float32, w*h)
-	for i := range net {
-		if in.Line[i] != 0 && in.Cont[i] != 0 {
-			net[i] = float32(float64(in.Line[i]) - q*float64(in.Cont[i]) - float64(skyUp[i]))
-		}
-	}
+	net = netLine(in, q, upsampleGrid(sky, gw, gh, s, w, h))
 	netUp := upsampleGrid(netB, gw, gh, s, w, h)
 	local := gaussPlane(net, w, h, 1)
 	for i := range local {
@@ -198,42 +192,14 @@ func lineMask(in lineInputs, w, h int) (net, mask []float32, ks []float64, ok bo
 		}
 	}
 	contLocal := localPlane(in.Cont, contB, w, h, s, gw, gh)
-	_, sigmaF := statsNonZero(local)
-	compact := make([]float64, w*h)
-	var knots []int
-	if sigmaF > 0 {
-		for i, v := range local {
-			if v <= 0 {
-				continue
-			}
-			c := smoothstep((float64(v)/sigmaF - lineCompactLo) / lineCompactSpan)
-			if cl := q * float64(contLocal[i]); c > 0 && cl > 0 {
-				c *= smoothstep((float64(v)/cl - lineCompactShareLo) / lineCompactShareSpan)
-			}
-			compact[i] = c
-			if c > 0.5 {
-				knots = append(knots, i)
-			}
-		}
-		// Grown by two pixels before feathering, so a knot a few pixels
-		// across keeps its full weight.
-		compact = gaussGrid(dilateGrid(compact, w, h, 2), w, h, 2.5)
-	}
+	compact, knots, sigmaF := compactMask(local, contLocal, q, w, h)
 
 	// 3. The line's share of each target channel. Fitted on the sky and
 	// the blocks of clear emission, where the line is most of the
 	// narrowband's signal: elsewhere the net line varies with the colour
 	// of the continuum (a galaxy's old stars), not with the line. Without
 	// enough of those, on the compact knots over their surroundings.
-	fitCells := slices.Clone(skyCells)
-	emission := 0
-	contSky := skyLevel(contB)
-	for i, v := range netB {
-		if v > 3*noise && v > q*(contB[i]-contSky) {
-			fitCells[i] = true
-			emission++
-		}
-	}
+	fitCells, emission := emissionCells(netB, contB, skyCells, noise, q)
 	proxyB, _, _ := blockMedians(in.Proxy, w, h, s)
 	var proxyK, netK []float64
 	if len(knots) >= lineFitKnots {
@@ -279,34 +245,91 @@ func lineMask(in lineInputs, w, h int) (net, mask []float32, ks []float64, ok bo
 	// times the noise and is fully on lineLevelSpan noise above that, or
 	// the scatter of the sky's net line (faint emission and dust among the
 	// North America Nebula's dark clouds), whichever is more.
+	m, sigma, span := extendedMask(netB, gateB, skyCells, gw, gh, noise, wb, ks[0], in.Gate != nil)
+	mask = upsampleGrid(m, gw, gh, s, w, h)
+	on := mergeMasks(mask, net, compact)
+	slog.Debug("Line mask", "line", in.Name, "stars", n, "q", q, "wb", wb, "k", ks, "fit", how,
+		"emission", emission, "knots", len(knots), "sigma", sigma, "span", span, "sigmaF", sigmaF,
+		"masked", on/float64(len(mask)), "block", s)
+	return net, mask, ks, true
+}
+
+func netLine(in lineInputs, q float64, skyUp []float32) []float32 {
+	net := make([]float32, len(skyUp))
+	for i := range net {
+		if in.Line[i] != 0 && in.Cont[i] != 0 {
+			net[i] = float32(float64(in.Line[i]) - q*float64(in.Cont[i]) - float64(skyUp[i]))
+		}
+	}
+	return net
+}
+
+func compactMask(local, contLocal []float32, q float64, w, h int) (compact []float64, knots []int, sigmaF float64) {
+	_, sigmaF = statsNonZero(local)
+	compact = make([]float64, w*h)
+	if sigmaF <= 0 {
+		return compact, nil, sigmaF
+	}
+	for i, v := range local {
+		if v <= 0 {
+			continue
+		}
+		c := smoothstep((float64(v)/sigmaF - lineCompactLo) / lineCompactSpan)
+		if cl := q * float64(contLocal[i]); c > 0 && cl > 0 {
+			c *= smoothstep((float64(v)/cl - lineCompactShareLo) / lineCompactShareSpan)
+		}
+		compact[i] = c
+		if c > 0.5 {
+			knots = append(knots, i)
+		}
+	}
+	// Grown by two pixels before feathering, so a knot a few pixels
+	// across keeps its full weight.
+	return gaussGrid(dilateGrid(compact, w, h, 2), w, h, 2.5), knots, sigmaF
+}
+
+func emissionCells(netB, contB []float64, skyCells []bool, noise, q float64) ([]bool, int) {
+	fitCells := slices.Clone(skyCells)
+	emission := 0
+	contSky := skyLevel(contB)
+	for i, v := range netB {
+		if v > 3*noise && v > q*(contB[i]-contSky) {
+			fitCells[i] = true
+			emission++
+		}
+	}
+	return fitCells, emission
+}
+
+func extendedMask(netB, gateB []float64, skyCells []bool, gw, gh int, noise, wb, k0 float64, gated bool) (m []float64, sigma, span float64) {
 	sm := gaussGrid(netB, gw, gh, 1)
-	sigma := noise * 0.28 // σ of a σ=1 Gaussian mean
+	sigma = noise * 0.28 // σ of a σ=1 Gaussian mean
 	var skyRes []float64
 	for i, v := range sm {
 		if skyCells[i] && !math.IsNaN(v) {
 			skyRes = append(skyRes, math.Abs(v))
 		}
 	}
-	span := lineLevelSpan * sigma
+	span = lineLevelSpan * sigma
 	if len(skyRes) > 0 {
 		slices.Sort(skyRes)
 		span = max(span, skyRes[len(skyRes)/2]*madToSigma)
 	}
 	var gs []float64
 	var gzero float64
-	if in.Gate != nil {
+	if gated {
 		gs = gaussGrid(gateB, gw, gh, 1)
 		gzero = skyLevel(gateB)
 	}
-	m := make([]float64, len(sm))
+	m = make([]float64, len(sm))
 	for i, v := range sm {
 		if math.IsNaN(v) {
 			continue
 		}
 		g := smoothstep((v - lineLevelLo*sigma) / span)
-		if in.Gate != nil && g > 0 {
+		if gated && g > 0 {
 			if blue := (gs[i] - gzero) * wb; blue > 0 {
-				g *= smoothstep((ks[0]*v/blue - lineGateLo) / lineGateSpan)
+				g *= smoothstep((k0*v/blue - lineGateLo) / lineGateSpan)
 			}
 		}
 		m[i] = g
@@ -314,9 +337,10 @@ func lineMask(in lineInputs, w, h int) (net, mask []float32, ks []float64, ok bo
 	// A closing fills holes bright stars leave; a blur feathers the edge.
 	r := max(1, int(math.Round(float64(gw)/60)))
 	m = erodeGrid(dilateGrid(m, gw, gh, r), gw, gh, r)
-	m = gaussGrid(m, gw, gh, 2)
-	mask = upsampleGrid(m, gw, gh, s, w, h)
+	return gaussGrid(m, gw, gh, 2), sigma, span
+}
 
+func mergeMasks(mask, net []float32, compact []float64) float64 {
 	var on float64
 	for i := range mask {
 		if net[i] == 0 {
@@ -326,10 +350,7 @@ func lineMask(in lineInputs, w, h int) (net, mask []float32, ks []float64, ok bo
 		mask[i] = max(0, min(1, max(mask[i], float32(compact[i]))))
 		on += float64(mask[i])
 	}
-	slog.Debug("Line mask", "line", in.Name, "stars", n, "q", q, "wb", wb, "k", ks, "fit", how,
-		"emission", emission, "knots", len(knots), "sigma", sigma, "span", span, "sigmaF", sigmaF,
-		"masked", on/float64(len(mask)), "block", s)
-	return net, mask, ks, true
+	return on
 }
 
 // localPlane is p over its surroundings: p blurred by a pixel, less its

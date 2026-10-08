@@ -3,6 +3,7 @@ package stacking
 import "testing"
 
 func TestCoverageCropIsWhereAllSubsOverlap(t *testing.T) {
+	t.Parallel()
 	const w, h = 320, 200
 	acc := NewAccumulator(w, h)
 	for y := range h {
@@ -34,6 +35,7 @@ func TestCoverageCropIsWhereAllSubsOverlap(t *testing.T) {
 }
 
 func TestCoverageCropKeepsTheFrameWhenAnotherFramingOverlaps(t *testing.T) {
+	t.Parallel()
 	// 20 subs framed here, and 15 from a night framed 40% lower: only the
 	// top 60% has both. The crop is the master's own framing, not that.
 	const w, h = 320, 200
@@ -63,6 +65,7 @@ func TestCoverageCropKeepsTheFrameWhenAnotherFramingOverlaps(t *testing.T) {
 }
 
 func TestCoverageCropIgnoresHolesInsideTheFrame(t *testing.T) {
+	t.Parallel()
 	// Bode's Galaxy: every sub covers the frame, but saturated galaxy
 	// cores leave holes far bigger than a star.
 	const w, h = 320, 200
@@ -82,6 +85,7 @@ func TestCoverageCropIgnoresHolesInsideTheFrame(t *testing.T) {
 }
 
 func TestDataCropOfMosaic(t *testing.T) {
+	t.Parallel()
 	// Two panels offset vertically, as a mosaic canvas leaves them.
 	const w, h = 120, 160
 	data := make([]float32, w*h)
@@ -106,6 +110,7 @@ func TestDataCropOfMosaic(t *testing.T) {
 }
 
 func TestCommonCropIsTheOverlap(t *testing.T) {
+	t.Parallel()
 	a := fracCrop(layer{}, 10, 0, 80, 100, 100, 100) // x 0.1-0.9
 	b := fracCrop(layer{}, 0, 20, 100, 60, 100, 100) // y 0.2-0.8
 	whole := layer{}

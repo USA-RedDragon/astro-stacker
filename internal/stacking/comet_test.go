@@ -63,7 +63,7 @@ func TestCometStack(t *testing.T) {
 	const w, h, n = 200, 150, 20
 	r := rand.New(rand.NewPCG(7, 7))
 	type star struct{ x, y, f float64 }
-	var stars []star
+	stars := make([]star, 0, 40)
 	for range 40 {
 		stars = append(stars, star{20 + r.Float64()*160, 20 + r.Float64()*110, 0.2})
 	}
@@ -129,7 +129,7 @@ func TestCometStackShortDrift(t *testing.T) {
 	const w, h, n = 300, 120, 32
 	r := rand.New(rand.NewPCG(8, 8))
 	type star struct{ x, y float64 }
-	var stars []star
+	stars := make([]star, 0, 80)
 	for range 80 {
 		stars = append(stars, star{20 + r.Float64()*260, 20 + r.Float64()*80})
 	}
@@ -186,7 +186,7 @@ func TestSeparateCometFaintStars(t *testing.T) {
 	const w, h, n = 240, 120, 40
 	r := rand.New(rand.NewPCG(9, 9))
 	type star struct{ x, y, f float64 }
-	var stars []star
+	stars := make([]star, 0, 120)
 	for range 120 {
 		stars = append(stars, star{10 + r.Float64()*220, 10 + r.Float64()*100, 0.001 + 0.2*math.Pow(r.Float64(), 4)})
 	}

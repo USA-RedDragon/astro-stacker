@@ -6,6 +6,7 @@ import (
 )
 
 func TestTANRoundTrip(t *testing.T) {
+	t.Parallel()
 	g := wcs{ra0: 313.02, dec0: 31.5, px0: 3124.5, py0: 2088.5, width: 6248, height: 4176,
 		cd: [2][2]float64{{-0.000534 * 0.99, 0.000534 * 0.14}, {0.000534 * 0.14, 0.000534 * 0.99}}}
 	for _, p := range [][2]float64{{1, 1}, {6248, 4176}, {3000, 100}} {
@@ -23,8 +24,14 @@ func sky(ra, dec float64) float32 {
 	return float32(1 + 0.3*math.Sin(ra*8) + 0.3*math.Cos(dec*9))
 }
 
+const (
+	synthPanelW     = 120
+	synthPanelScale = 0.01
+)
+
 // synthPanel renders sky() into a panel centred at (ra, dec), top row first.
-func synthPanel(ra, dec float64, w, h int, scale float64) layoutPanel {
+func synthPanel(ra, dec float64, h int) layoutPanel {
+	const w, scale = synthPanelW, synthPanelScale
 	g := wcs{ra0: ra, dec0: dec, px0: float64(w+1) / 2, py0: float64(h+1) / 2, width: w, height: h,
 		cd: [2][2]float64{{-scale, 0}, {0, scale}}}
 	data := make([]float32, w*h)
@@ -38,13 +45,14 @@ func synthPanel(ra, dec float64, w, h int, scale float64) layoutPanel {
 }
 
 func TestLayoutPlacesPanelsAndLeavesMissingOnesBlack(t *testing.T) {
-	const w, h, scale = 120, 80, 0.01 // 1.2° x 0.8° panels
+	t.Parallel()
+	const w, h, scale = synthPanelW, 80, synthPanelScale // 1.2° x 0.8° panels
 	// Three panels in a row along declination; the middle one has no
 	// master yet.
-	p1 := synthPanel(83.0, 20.0, w, h, scale)
-	p2 := synthPanel(83.0, 20.7, w, h, scale)
+	p1 := synthPanel(83.0, 20.0, h)
+	p2 := synthPanel(83.0, 20.7, h)
 	p2.Data = nil
-	p3 := synthPanel(83.0, 21.4, w, h, scale)
+	p3 := synthPanel(83.0, 21.4, h)
 	panels := []layoutPanel{p1, p2, p3}
 	l, bin := newLayout(panels, p1.WCS, 1000)
 	if bin != 1 || l.H < 2*h || l.W < w-2 {
@@ -92,18 +100,19 @@ func TestLayoutPlacesPanelsAndLeavesMissingOnesBlack(t *testing.T) {
 }
 
 func TestLayoutIsTurnedLikeThePanels(t *testing.T) {
+	t.Parallel()
 	// Two panels turned 40° on the sky, side by side along their own x.
-	const w, h, scale = 120, 80, 0.01
+	const w, h, scale = synthPanelW, 80, synthPanelScale
 	turn := func(p layoutPanel) layoutPanel {
 		s, c := math.Sin(40*deg), math.Cos(40*deg)
 		cd := p.WCS.cd
 		p.WCS.cd = [2][2]float64{{c*cd[0][0] - s*cd[1][0], c*cd[0][1] - s*cd[1][1]}, {s*cd[0][0] + c*cd[1][0], s*cd[0][1] + c*cd[1][1]}}
 		return p
 	}
-	p1 := turn(synthPanel(83.0, 20.0, w, h, scale))
+	p1 := turn(synthPanel(83.0, 20.0, h))
 	// Panel 2 one panel-width along panel 1's x axis.
 	ra2, dec2 := p1.WCS.toSky(float64(w)+float64(w+1)/2, float64(h+1)/2)
-	p2 := turn(synthPanel(ra2, dec2, w, h, scale))
+	p2 := turn(synthPanel(ra2, dec2, h))
 	l, _ := newLayout([]layoutPanel{p1, p2}, p1.WCS, 1000)
 	// Upright: the canvas is two panels wide and one tall, not a tilted
 	// bounding box.
@@ -113,11 +122,12 @@ func TestLayoutIsTurnedLikeThePanels(t *testing.T) {
 }
 
 func TestLayoutOfAllPanelsHasNoEmptyEdges(t *testing.T) {
-	const w, h, scale = 120, 80, 0.01
-	p1 := synthPanel(83.0, 20.0, w, h, scale)
+	t.Parallel()
+	const w, h, scale = synthPanelW, 80, synthPanelScale
+	p1 := synthPanel(83.0, 20.0, h)
 	// Panel 2 above panel 1, overlapping, and shifted sideways a little so
 	// the layout's corners are uncovered.
-	p2 := synthPanel(83.08, 20.7, w, h, scale)
+	p2 := synthPanel(83.08, 20.7, h)
 	panels := []layoutPanel{p1, p2}
 	l, _ := newLayout(panels, p1.WCS, 1000)
 	canvas := l.render(panels)
@@ -133,10 +143,11 @@ func TestLayoutOfAllPanelsHasNoEmptyEdges(t *testing.T) {
 }
 
 func TestPanelCropKeepsTheGapButNotTheWedges(t *testing.T) {
-	const w, h, scale = 120, 80, 0.01
-	p1 := synthPanel(83.0, 20.0, w, h, scale)
-	p2 := synthPanel(83.08, 20.7, w, h, scale) // shifted: wedges at the corners
-	p2.Data = nil                              // not done yet
+	t.Parallel()
+	const w, h, scale = synthPanelW, 80, synthPanelScale
+	p1 := synthPanel(83.0, 20.0, h)
+	p2 := synthPanel(83.08, 20.7, h) // shifted: wedges at the corners
+	p2.Data = nil                    // not done yet
 	panels := []layoutPanel{p1, p2}
 	l, _ := newLayout(panels, p1.WCS, 1000)
 	canvas := l.render(panels)
@@ -164,14 +175,14 @@ func TestPanelCropKeepsTheGapButNotTheWedges(t *testing.T) {
 // panels' gaps outlined.
 func TestMosaicPreviewShowsTheMosaic(t *testing.T) {
 	t.Parallel()
-	const w, h, scale = 120, 80, 0.01
-	p1 := synthPanel(83.0, 20.0, w, h, scale)
-	p2 := synthPanel(83.0, 20.7, w, h, scale)
-	p3 := synthPanel(83.0, 21.4, w, h, scale)
+	const w, h, scale = synthPanelW, 80, synthPanelScale
+	p1 := synthPanel(83.0, 20.0, h)
+	p2 := synthPanel(83.0, 20.7, h)
+	p3 := synthPanel(83.0, 21.4, h)
 	p1.Data, p3.Data = []float32{}, []float32{} // present: pixels from the mosaic
 	p2.Data = nil                               // not done yet
 	// The mosaic of panels 1 and 3: one frame across both, no data between.
-	m := synthPanel(83.0, 20.7, w, 3*h, scale)
+	m := synthPanel(83.0, 20.7, 3*h)
 	for r := range m.H {
 		_, dec := m.WCS.toSky(float64(w+1)/2, float64(m.H-r))
 		if dec > 20.0+0.4 && dec < 21.4-0.4 {

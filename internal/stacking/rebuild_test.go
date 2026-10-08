@@ -20,7 +20,7 @@ func TestMedianAnchoredRemovesFirstSubTrail(t *testing.T) {
 	t.Parallel()
 	r := rand.New(rand.NewPCG(5, 5))
 	const n = 2500
-	var subs []memSub
+	subs := make([]memSub, 0, 4)
 	for i := range 4 {
 		sub := noisySub(r, n, 0.002, 0.0001)
 		if i == 0 {
@@ -60,7 +60,7 @@ func TestMedianAnchoredKeepsBothWithTwoSubs(t *testing.T) {
 func TestAddAgainstLeavesTheSubOut(t *testing.T) {
 	t.Parallel()
 	r := rand.New(rand.NewPCG(6, 6))
-	var subs [][]float32
+	subs := make([][]float32, 0, 12)
 	for i := range 12 {
 		sub := noisySub(r, 2500, 0.002, 0.0001)
 		if i == 5 {
