@@ -113,6 +113,18 @@ func localMax(in []float32, w, h, r int) []float32 {
 	return out
 }
 
+func localMin(in []float32, w, h, r int) []float32 {
+	neg := make([]float32, len(in))
+	for i, v := range in {
+		neg[i] = -v
+	}
+	out := localMax(neg, w, h, r)
+	for i := range out {
+		out[i] = -out[i]
+	}
+	return out
+}
+
 func boxBlur(in []float32, w, h, r int) []float32 {
 	tmp := make([]float32, len(in))
 	for y := range h {

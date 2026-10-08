@@ -157,30 +157,99 @@ func decode(t *testing.T, b []byte) []uint8 {
 	return g.Pix
 }
 
-// TestNoiseFloor checks noise is added only to frames smoother than the
-// floor, and the watermark scales with the noise shown.
-func TestNoiseFloor(t *testing.T) {
-	sub := sky(1600, 960, 3)
-	in := Input{Sub: sub, Pattern: NewPattern(sub.W)}
-	plain, err := Render(in, DefaultOptions)
-	if err != nil {
-		t.Fatal(err)
+// field is a synthetic registered sub w×h with Gaussian noise of sd over
+// sky (0.1) plus extra(x, y), and its master: the same without noise,
+// binned 4×.
+func field(w, h int, sd float64, seed uint64, extra func(x, y int) float64) (*imagedata.Image, *Master) {
+	rng := rand.New(rand.NewPCG(seed, 1))
+	im := &imagedata.Image{W: w, H: h, C: 1, Data: make([]float32, w*h)}
+	const bin = 4
+	mw, mh := w/bin, h/bin
+	m := &Master{W: mw, H: mh, Scale: bin, Plane: make([]float32, mw*mh)}
+	for y := range h {
+		for x := range w {
+			v := 0.1 + extra(x, y)
+			im.Data[y*w+x] = float32(v + sd*rng.NormFloat64())
+			if x/bin < mw && y/bin < mh {
+				m.Plane[(y/bin)*mw+x/bin] += float32(v / (bin * bin))
+			}
+		}
 	}
+	return im, m
+}
+
+// nebula is smooth structure at the letters' scale.
+func nebula(amp float64) func(x, y int) float64 {
+	return func(x, y int) float64 {
+		return amp * math.Sin(float64(x)/37) * math.Sin(float64(y)/29)
+	}
+}
+
+// stars is a dense field of point sources and nothing extended.
+func stars(x, y int) float64 {
+	if (x*7919+y*104729)%997 == 0 {
+		return 0.05
+	}
+	return 0
+}
+
+// TestStructureNoise checks noise is added only where the master's
+// structure would hide the watermark from a stack: a smooth sub of a
+// nebulous field gets enough to bring its noise to StructureRatio × the
+// structure; a noise-limited sub, or one whose only structure is stars,
+// is rendered exactly as without the rule.
+func TestStructureNoise(t *testing.T) {
 	opts := DefaultOptions
-	opts.NoiseFloor, opts.Seed = 3*plain.Sigma, 7
-	floored, err := Render(in, opts)
-	if err != nil {
-		t.Fatal(err)
+	off := opts
+	off.StructureRatio = 0
+	render := func(sub *imagedata.Image, m *Master, o Options) Result {
+		t.Helper()
+		res, err := Render(Input{Sub: sub, Pattern: NewPattern(sub.W), Master: m}, o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
 	}
-	if floored.Sigma != opts.NoiseFloor || floored.Amplitude != opts.Amplitude*opts.NoiseFloor {
-		t.Errorf("floored sigma %g, amplitude %g; floor %g", floored.Sigma, floored.Amplitude, opts.NoiseFloor)
+
+	sub, m := field(1600, 960, 0.0005, 1, nebula(0.002))
+	opts.Seed = 5
+	res := render(sub, m, opts)
+	if res.Added == 0 {
+		t.Fatalf("nebulous field: no noise added (noise %g, clutter %g)", res.NoiseLinear, res.Clutter)
 	}
-	opts.NoiseFloor = plain.Sigma / 2
-	low, err := Render(in, opts)
-	if err != nil {
-		t.Fatal(err)
+	if got := math.Hypot(res.NoiseLinear, res.Added); math.Abs(got-opts.StructureRatio*res.Clutter) > 1e-9 {
+		t.Errorf("noise brought to %g, want %g × clutter %g", got, opts.StructureRatio, res.Clutter)
 	}
-	if !bytes.Equal(low.JPEG, plain.JPEG) {
-		t.Error("a floor below the frame's noise changed it")
+
+	for name, f := range map[string]func(x, y int) float64{
+		"noise-limited": nebula(0.00002),
+		"stars only":    stars,
+	} {
+		sub, m := field(1600, 960, 0.004, 2, f)
+		with, without := render(sub, m, opts), render(sub, nil, off)
+		if with.Added != 0 {
+			t.Errorf("%s: noise added (noise %g, clutter %g)", name, with.NoiseLinear, with.Clutter)
+		}
+		if !bytes.Equal(with.JPEG, without.JPEG) {
+			t.Errorf("%s: frame differs from one rendered without the rule", name)
+		}
+	}
+}
+
+// TestNoiseFresh checks the added noise differs every render unless seeded.
+func TestNoiseFresh(t *testing.T) {
+	sub, m := field(1600, 960, 0.0005, 3, nebula(0.002))
+	in := Input{Sub: sub, Pattern: NewPattern(sub.W), Master: m}
+	a, _ := Render(in, DefaultOptions)
+	b, _ := Render(in, DefaultOptions)
+	if a.Added == 0 || bytes.Equal(a.JPEG, b.JPEG) {
+		t.Error("two unseeded renders added the same noise")
+	}
+	o := DefaultOptions
+	o.Seed = 9
+	c, _ := Render(in, o)
+	d, _ := Render(in, o)
+	if !bytes.Equal(c.JPEG, d.JPEG) {
+		t.Error("seeded renders differ")
 	}
 }

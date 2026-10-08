@@ -102,9 +102,20 @@ func Bin(im *imagedata.Image, factor int) *imagedata.Image {
 // median + ShadowsClip·σ (σ from the MAD), and a midtones transfer that puts
 // the median at TargetBackground.
 func Stretch(p []float32) []float32 {
+	c0, m := StretchParams(p)
+	return StretchWith(p, c0, m)
+}
+
+// StretchParams are the STF auto-stretch's shadows clip and midtones
+// balance for one channel.
+func StretchParams(p []float32) (c0, m float64) {
 	med, madn := medianMAD(p)
-	c0 := math.Max(0, math.Min(1, med+ShadowsClip*madn))
-	m := MTF(TargetBackground, med-c0)
+	c0 = math.Max(0, math.Min(1, med+ShadowsClip*madn))
+	return c0, MTF(TargetBackground, med-c0)
+}
+
+// StretchWith stretches with a shadows clip and midtones balance.
+func StretchWith(p []float32, c0, m float64) []float32 {
 	out := make([]float32, len(p))
 	span := 1 - c0
 	for i, v := range p {
