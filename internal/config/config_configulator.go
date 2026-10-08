@@ -112,7 +112,7 @@ func ConfigSchema() *configulator.Schema[Config] {
 	}
 }
 func configApplyDefaults(cfg *Config, set configulator.SetOrigin) error {
-	cfg.LogLevel = "info"
+	cfg.LogLevel = LogLevel("info")
 	set("log-level", configulator.LayerDefault, "default tag")
 	cfg.HTTP.Bind = "[::]"
 	set("http.bind", configulator.LayerDefault, "default tag")
@@ -126,7 +126,7 @@ func configApplyDefaults(cfg *Config, set configulator.SetOrigin) error {
 	set("pprof.bind", configulator.LayerDefault, "default tag")
 	cfg.PProf.Port = 9999
 	set("pprof.port", configulator.LayerDefault, "default tag")
-	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Type = types.StorageType("sqlite")
 	set("storage.type", configulator.LayerDefault, "default tag")
 	cfg.Storage.DSN.App = ":memory:?_pragma=foreign_keys(1)"
 	set("storage.dsn.app", configulator.LayerDefault, "default tag")
@@ -3024,8 +3024,8 @@ func (s *publicFramesShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 var _ v2.UnmarshalerFrom = (*publicFramesShadow)(nil)
 
 // PrintConfig renders every field as "path = value" lines, redacting
-// fields tagged secret:"true". Values never appear in the origin
-// Report; this method is the one place redaction is enforced.
+// fields tagged secret:"true". The origin Report holds no values,
+// so this is the only place redaction happens.
 func (c *Config) PrintConfig() string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("log-level = %v\n", c.LogLevel))
