@@ -11,7 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
-	"github.com/USA-RedDragon/configulator"
+	configulator "github.com/USA-RedDragon/configulator/v2"
 	"github.com/minio/minio-go/v7"
 	"github.com/spf13/cobra"
 )
