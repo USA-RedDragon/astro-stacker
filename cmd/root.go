@@ -17,7 +17,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
-	"github.com/USA-RedDragon/configulator"
+	configulator "github.com/USA-RedDragon/configulator/v2"
 	"github.com/lmittmann/tint"
 	"github.com/minio/minio-go/v7"
 	miniocreds "github.com/minio/minio-go/v7/pkg/credentials"
