@@ -255,7 +255,7 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 		}
 		if !publicSize(c.Query("width"), c.Query("height")) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("public frames are %dx%d",
-				publicframe.DefaultOptions.Width, publicframe.DefaultOptions.Height)})
+				publicframe.DefaultOptions().Width, publicframe.DefaultOptions().Height)})
 			return
 		}
 		ctx := c.Request.Context()

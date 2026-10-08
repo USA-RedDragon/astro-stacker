@@ -96,7 +96,7 @@ func TestCometStack(t *testing.T) {
 	for i := range stored {
 		stored[i] = storedSub{exposure: 10, weight: 10}
 	}
-	acc, err := streamStack(stored, 3, DefaultOptions, func(i int, _ storedSub) ([]float32, int, int, error) {
+	acc, err := streamStack(stored, 3, DefaultOptions(), func(i int, _ storedSub) ([]float32, int, int, error) {
 		return shiftImage(subs[i], w, h, shifts[i][0], shifts[i][1]), w, h, nil
 	})
 	if err != nil {
@@ -156,7 +156,7 @@ func TestCometStackShortDrift(t *testing.T) {
 		blob(img, 60+drift, 60, 0.05, 3)
 		shifted[i] = shiftImage(img, w, h, -drift, 0)
 	}
-	acc := cometAccumulator(shifted, w, h, 10, 10, DefaultOptions)
+	acc := cometAccumulator(shifted, w, h, 10, 10, DefaultOptions())
 	m := acc.Master(10)
 	bg := slices.Clone(m)
 	slices.Sort(bg)
@@ -219,7 +219,7 @@ func TestSeparateCometFaintStars(t *testing.T) {
 		stored[i] = storedSub{exposure: 10, weight: 10}
 	}
 	read := func(i int) ([]float32, int, int, error) { return slices.Clone(subs[i]), w, h, nil }
-	layers, err := separateComet(stored, shifts, nil, nil, DefaultOptions, read, func(int, int) {})
+	layers, err := separateComet(stored, shifts, nil, nil, DefaultOptions(), read, func(int, int) {})
 	if err != nil {
 		t.Fatal(err)
 	}

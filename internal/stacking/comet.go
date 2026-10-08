@@ -960,7 +960,7 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 		return err
 	}
 	r := coverageCrop(acc)
-	jpg, err := preview.Render(&imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}, preview.DefaultOptions)
+	jpg, err := preview.Render(&imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}, preview.DefaultOptions())
 	if err != nil {
 		return err
 	}

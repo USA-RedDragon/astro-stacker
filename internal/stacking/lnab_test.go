@@ -46,7 +46,7 @@ func TestLocalNormAB(t *testing.T) {
 	masters := map[string][]float32{}
 	var w, h int
 	for _, ln := range []bool{false, true} {
-		opts := DefaultOptions
+		opts := DefaultOptions()
 		opts.LocalNorm = ln
 		acc, err := streamStack(subs, passes, opts, load)
 		if err != nil {
@@ -64,14 +64,14 @@ func TestLocalNormAB(t *testing.T) {
 		if err := writeFITSFile(filepath.Join(dir, name+".fit"), w, h, 1, m, nil); err != nil {
 			t.Fatal(err)
 		}
-		jpg, err := preview.Render(&imagedata.Image{W: w, H: h, C: 1, Data: m}, preview.DefaultOptions)
+		jpg, err := preview.Render(&imagedata.Image{W: w, H: h, C: 1, Data: m}, preview.DefaultOptions())
 		if err != nil {
 			t.Fatal(err)
 		}
 		os.WriteFile(filepath.Join(dir, name+".jpg"), jpg, 0o644)
 	}
 	// Each sub's fitted transparency against the flat stack.
-	opts := DefaultOptions
+	opts := DefaultOptions()
 	opts.LocalNorm = false
 	ref, err := streamStack(subs, 1, opts, load)
 	if err != nil {
@@ -91,7 +91,7 @@ func TestLocalNormAB(t *testing.T) {
 	for i := range diff {
 		diff[i] = masters["local"][i] - masters["flat"][i] + 0.5
 	}
-	jpg, err := preview.Render(&imagedata.Image{W: w, H: h, C: 1, Data: diff}, preview.DefaultOptions)
+	jpg, err := preview.Render(&imagedata.Image{W: w, H: h, C: 1, Data: diff}, preview.DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}

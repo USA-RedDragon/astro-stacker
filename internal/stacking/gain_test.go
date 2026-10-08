@@ -46,7 +46,7 @@ func TestMixedGains(t *testing.T) {
 	add(8, 0, 1, 120)
 	add(6, 100, hiGain, 600)
 
-	opts := DefaultOptions
+	opts := DefaultOptions()
 	opts.MinSamples = math.MaxFloat32
 	opts.LocalNorm = false
 	groups := map[float64]*Accumulator{}
@@ -93,7 +93,7 @@ func TestMixedGains(t *testing.T) {
 				stored[i].exposure *= scales.scale(&s.gain)
 			}
 		}
-		acc, err := streamStack(stored, 2, DefaultOptions, func(i int, _ storedSub) ([]float32, int, int, error) {
+		acc, err := streamStack(stored, 2, DefaultOptions(), func(i int, _ storedSub) ([]float32, int, int, error) {
 			return slices.Clone(subs[i].px), w, h, nil
 		})
 		if err != nil {

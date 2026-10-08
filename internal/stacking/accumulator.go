@@ -33,7 +33,9 @@ type Options struct {
 	KeepMajority bool
 }
 
-var DefaultOptions = Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2, LocalNorm: true, KeepMajority: true}
+func DefaultOptions() Options {
+	return Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2, LocalNorm: true, KeepMajority: true}
+}
 
 // Accumulator holds the running state for one master: per pixel, the total
 // weight, the weighted mean and sum of squared deviations (West's weighted

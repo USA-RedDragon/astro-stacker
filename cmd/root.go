@@ -109,7 +109,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			slog.Info("Preview renderer started", "bucket", cfg.S3.ProcessedBucket, "concurrency", cfg.Previews.Concurrency)
 		}
 		if cfg.PublicFrames.Enabled {
-			pf := publicframe.NewRenderer(s3, cfg.S3.ProcessedBucket, appStore.DB(), publicframe.DefaultOptions,
+			pf := publicframe.NewRenderer(s3, cfg.S3.ProcessedBucket, appStore.DB(), publicframe.DefaultOptions(),
 				time.Duration(cfg.PublicFrames.MaxAgeDays)*24*time.Hour)
 			go pf.Run(indexCtx, time.Duration(cfg.PublicFrames.IntervalSeconds)*time.Second)
 			slog.Info("Public frame renderer started", "bucket", cfg.S3.ProcessedBucket, "max_age_days", cfg.PublicFrames.MaxAgeDays)

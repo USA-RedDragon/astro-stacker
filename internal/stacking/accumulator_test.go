@@ -31,7 +31,7 @@ func TestWeightedMeanMatchesBatch(t *testing.T) {
 		}
 		sub := frame(r, 10000, 0.002, 1e-5, exp, 0.0001)
 		w := float64(1+i%3) * exp
-		if _, err := a.Add(sub, exp, w, stacking.DefaultOptions); err != nil {
+		if _, err := a.Add(sub, exp, w, stacking.DefaultOptions()); err != nil {
 			t.Fatal(err)
 		}
 		// The same quantity, computed directly: signal per second, weighted.
@@ -58,7 +58,7 @@ func TestMoonlitSkyIsNormalizedNotRejected(t *testing.T) {
 		if i >= 10 {
 			sky = 0.03 // moonlit
 		}
-		res, err := a.Add(frame(r, 2500, sky, 1e-5, 300, 0.0001), 300, 300, stacking.DefaultOptions)
+		res, err := a.Add(frame(r, 2500, sky, 1e-5, 300, 0.0001), 300, 300, stacking.DefaultOptions())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +73,7 @@ func TestSatelliteTrailIsRejectedAfterWarmUp(t *testing.T) {
 	r := rand.New(rand.NewPCG(3, 3))
 	a := stacking.NewAccumulator(50, 50)
 	for range 12 {
-		if _, err := a.Add(frame(r, 2500, 0.002, 0, 300, 0.0001), 300, 300, stacking.DefaultOptions); err != nil {
+		if _, err := a.Add(frame(r, 2500, 0.002, 0, 300, 0.0001), 300, 300, stacking.DefaultOptions()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -82,7 +82,7 @@ func TestSatelliteTrailIsRejectedAfterWarmUp(t *testing.T) {
 	for i := 100; i < 150; i++ {
 		trail[i] = 0.5
 	}
-	res, err := a.Add(trail, 300, 300, stacking.DefaultOptions)
+	res, err := a.Add(trail, 300, 300, stacking.DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestSaturatedAndEmptyPixelsAreSkipped(t *testing.T) {
 	t.Parallel()
 	a := stacking.NewAccumulator(2, 2)
 	sub := []float32{0, 0.95, 0.002, 0.003}
-	res, err := a.Add(sub, 600, 600, stacking.DefaultOptions)
+	res, err := a.Add(sub, 600, 600, stacking.DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestSaturatedAndEmptyPixelsAreSkipped(t *testing.T) {
 		t.Errorf("skipped pixels got weight: %v", a.Weight)
 	}
 	// A 300 s sub where that star is below saturation fills it in.
-	if _, err := a.Add([]float32{0, 0.5, 0.002, 0.003}, 300, 300, stacking.DefaultOptions); err != nil {
+	if _, err := a.Add([]float32{0, 0.5, 0.002, 0.003}, 300, 300, stacking.DefaultOptions()); err != nil {
 		t.Fatal(err)
 	}
 	if a.Weight[1] == 0 {
@@ -122,7 +122,7 @@ func TestMasterScalesAndRestoresSky(t *testing.T) {
 	r := rand.New(rand.NewPCG(4, 4))
 	a := stacking.NewAccumulator(100, 100)
 	for range 10 {
-		if _, err := a.Add(frame(r, 10000, 0.004, 2e-5, 600, 0.00005), 600, 600, stacking.DefaultOptions); err != nil {
+		if _, err := a.Add(frame(r, 10000, 0.004, 2e-5, 600, 0.00005), 600, 600, stacking.DefaultOptions()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -136,7 +136,7 @@ func TestMasterScalesAndRestoresSky(t *testing.T) {
 func TestPlanesRoundTrip(t *testing.T) {
 	t.Parallel()
 	a := stacking.NewAccumulator(3, 2)
-	if _, err := a.Add([]float32{0.1, 0.2, 0.3, 0.4, 0.5, 0.6}, 300, 150, stacking.DefaultOptions); err != nil {
+	if _, err := a.Add([]float32{0.1, 0.2, 0.3, 0.4, 0.5, 0.6}, 300, 150, stacking.DefaultOptions()); err != nil {
 		t.Fatal(err)
 	}
 	b, err := stacking.FromPlanes(3, 2, a.Planes(), a.BackgroundSum, a.WeightSum, a.Subs)
@@ -167,7 +167,7 @@ func TestSaturatedCoreIsFullScale(t *testing.T) {
 			}
 		}
 		sub[10*w+10] = 0.95
-		if _, err := a.Add(sub, 300, 300, stacking.DefaultOptions); err != nil {
+		if _, err := a.Add(sub, 300, 300, stacking.DefaultOptions()); err != nil {
 			t.Fatal(err)
 		}
 	}

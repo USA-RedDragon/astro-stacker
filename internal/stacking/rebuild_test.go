@@ -28,9 +28,9 @@ func TestMedianAnchoredRemovesFirstSubTrail(t *testing.T) {
 				sub[j] = 0.4
 			}
 		}
-		subs = append(subs, toMemSub(sub, 300, 300, DefaultOptions.SaturationLevel))
+		subs = append(subs, toMemSub(sub, 300, 300, DefaultOptions().SaturationLevel))
 	}
-	acc := medianAnchored(subs, 50, 50, DefaultOptions)
+	acc := medianAnchored(subs, 50, 50, DefaultOptions())
 	for j := 100; j < 150; j++ {
 		if acc.Count[j] != 3 {
 			t.Fatalf("pixel %d kept %v values, want 3 (trail rejected)", j, acc.Count[j])
@@ -49,7 +49,7 @@ func TestMedianAnchoredKeepsBothWithTwoSubs(t *testing.T) {
 	t.Parallel()
 	a := toMemSub([]float32{0.002, 0.4}, 300, 300, 0.9)
 	b := toMemSub([]float32{0.002, 0.002}, 300, 300, 0.9)
-	acc := medianAnchored([]memSub{a, b}, 2, 1, DefaultOptions)
+	acc := medianAnchored([]memSub{a, b}, 2, 1, DefaultOptions())
 	if acc.Count[1] != 2 {
 		t.Errorf("kept %v, want 2", acc.Count[1])
 	}
@@ -71,7 +71,7 @@ func TestAddAgainstLeavesTheSubOut(t *testing.T) {
 		subs = append(subs, sub)
 	}
 	first := NewAccumulator(50, 50)
-	noRejection := DefaultOptions
+	noRejection := DefaultOptions()
 	noRejection.MinSamples = math.MaxFloat32
 	for _, sub := range subs {
 		if _, err := first.Add(sub, 300, 300, noRejection); err != nil {
@@ -82,7 +82,7 @@ func TestAddAgainstLeavesTheSubOut(t *testing.T) {
 		second := NewAccumulator(50, 50)
 		var trail AddResult
 		for i, sub := range subs {
-			res, err := second.AddAgainst(sub, 300, 300, first, leaveOut, noiseLevel(sub, 0.9), DefaultOptions)
+			res, err := second.AddAgainst(sub, 300, 300, first, leaveOut, noiseLevel(sub, 0.9), DefaultOptions())
 			if err != nil {
 				t.Fatal(err)
 			}

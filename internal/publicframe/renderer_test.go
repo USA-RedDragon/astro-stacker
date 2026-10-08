@@ -98,7 +98,7 @@ func TestPass(t *testing.T) {
 	light("C", "c1", app.StackStatusAdded, 60*24*time.Hour) // not imaged lately
 	d1 := light("D", "d1", app.StackStatusAdded, 60*24*time.Hour)
 
-	r := NewRenderer(nil, "processed", db, DefaultOptions, 14*24*time.Hour)
+	r := NewRenderer(nil, "processed", db, DefaultOptions(), 14*24*time.Hour)
 	var rendered []int
 	broken := map[int]bool{b2: true}
 	r.render = func(_ context.Context, c Candidate) (Result, error) {

@@ -72,23 +72,25 @@ type PipelineOptions struct {
 	Stack    Options
 }
 
-var DefaultPipelineOptions = PipelineOptions{
-	MinScore:  0.3,
-	Pedestal:  quality.DefaultPedestal,
-	BatchSize: 12,
-	// Tonight's subs usually wait for the morning's flats; rechecking is
-	// only a database query.
-	RetryAfter:        3 * time.Hour,
-	FailureBackoff:    30 * time.Minute,
-	MaxAttempts:       5,
-	SirilThreads:      4,
-	SirilMemoryRatio:  0.5,
-	Workers:           1,
-	MosaicInterval:    10 * time.Minute,
-	MosaicQuiet:       30 * time.Minute,
-	CalibrationSettle: 3 * time.Hour,
-	RecalibrateLimit:  300,
-	Stack:             DefaultOptions,
+func DefaultPipelineOptions() PipelineOptions {
+	return PipelineOptions{
+		MinScore:  0.3,
+		Pedestal:  quality.DefaultPedestal,
+		BatchSize: 12,
+		// Tonight's subs usually wait for the morning's flats; rechecking is
+		// only a database query.
+		RetryAfter:        3 * time.Hour,
+		FailureBackoff:    30 * time.Minute,
+		MaxAttempts:       5,
+		SirilThreads:      4,
+		SirilMemoryRatio:  0.5,
+		Workers:           1,
+		MosaicInterval:    10 * time.Minute,
+		MosaicQuiet:       30 * time.Minute,
+		CalibrationSettle: 3 * time.Hour,
+		RecalibrateLimit:  300,
+		Stack:             DefaultOptions(),
+	}
 }
 
 // Pipeline calibrates, registers and stacks lights as they arrive.
@@ -169,17 +171,17 @@ func (p *Pipeline) pause(ctx context.Context, d time.Duration) bool {
 
 func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runner siril.Runner, workDir string, opts PipelineOptions) *Pipeline {
 	if opts.BatchSize < 1 {
-		opts.BatchSize = DefaultPipelineOptions.BatchSize
+		opts.BatchSize = DefaultPipelineOptions().BatchSize
 	}
 	opts.Workers = max(1, opts.Workers)
 	if opts.MaxAttempts < 1 {
-		opts.MaxAttempts = DefaultPipelineOptions.MaxAttempts
+		opts.MaxAttempts = DefaultPipelineOptions().MaxAttempts
 	}
 	if opts.FailureBackoff <= 0 {
-		opts.FailureBackoff = DefaultPipelineOptions.FailureBackoff
+		opts.FailureBackoff = DefaultPipelineOptions().FailureBackoff
 	}
 	if opts.RecalibrateLimit < 1 {
-		opts.RecalibrateLimit = DefaultPipelineOptions.RecalibrateLimit
+		opts.RecalibrateLimit = DefaultPipelineOptions().RecalibrateLimit
 	}
 	return &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
 		busy: map[string]bool{}, working: map[string]*events.Worker{}, drain: make(chan struct{})}

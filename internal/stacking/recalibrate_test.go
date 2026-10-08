@@ -33,7 +33,7 @@ func TestLightsWaitForArrivingSets(t *testing.T) {
 		return calmatch.Set{Type: typ, Night: night, Filter: "Red", Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5,
 			BinX: 1, Rotator: math.NaN(), Count: 25, Uploaded: uploaded}
 	}
-	opts := DefaultPipelineOptions
+	opts := DefaultPipelineOptions()
 	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", opts)
 	old := now.Add(-24 * time.Hour)
 	sets := []calmatch.Set{set("BIAS", old), set("FLAT", old), set("DARK", now.Add(-time.Hour))}
@@ -195,7 +195,7 @@ func TestRecalibrateDarks(t *testing.T) {
 	if err := db.Model(&app.StackFrame{}).Where("id = ?", unknown).Update("no_dark", gorm.Expr("NULL")).Error; err != nil {
 		t.Fatal(err)
 	}
-	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions)
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	if err := p.recalibrateDarks(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestRecalibrateDarksTrickles(t *testing.T) {
 	}
 	noDark := light("n.xisf", app.StackFrame{NoDark: true})
 
-	opts := DefaultPipelineOptions
+	opts := DefaultPipelineOptions()
 	opts.RecalibrateLimit = 3
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", opts)
 	count := func() int64 {
@@ -273,7 +273,7 @@ func TestMasterForSettleAndSetup(t *testing.T) {
 	t.Parallel()
 	db, _ := recalDB(t)
 	dir := t.TempDir()
-	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, dir, DefaultPipelineOptions)
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, dir, DefaultPipelineOptions())
 	ctx := context.Background()
 	sets, err := coverage.Sets(ctx, db)
 	if err != nil {
