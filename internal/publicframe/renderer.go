@@ -291,6 +291,7 @@ func (r *Renderer) renderAndStore(ctx context.Context, c Candidate, cur *app.Pub
 	}
 	slog.Info("Rendered public frame", "object", c.Object, "filter", c.Filter, "frame", c.FrameID,
 		"sigma_dn", math.Round(res.Sigma*100)/100, "watermark_dn", math.Round(res.Amplitude*100)/100,
+		"noise_added", res.Added > 0,
 		"duration", time.Since(start).Round(time.Millisecond))
 	return nil
 }
@@ -315,10 +316,7 @@ func (r *Renderer) renderCandidate(ctx context.Context, c Candidate) (Result, er
 		// watermark is laid on.
 		return Result{}, fmt.Errorf("registered sub is %dx%d, master %dx%d", im.W, im.H, stack.Width, stack.Height)
 	}
-	mask, err := r.mask(ctx, stack, im)
-	if err != nil {
-		return Result{}, err
-	}
+	mask, master := r.mask(ctx, stack, im)
 	r.mu.Lock()
 	pattern, ok := r.patterns[im.W]
 	if !ok {
@@ -326,20 +324,23 @@ func (r *Renderer) renderCandidate(ctx context.Context, c Candidate) (Result, er
 		r.patterns[im.W] = pattern
 	}
 	r.mu.Unlock()
-	return Render(Input{Sub: im, Crop: Rect{stack.CropX, stack.CropY, stack.CropW, stack.CropH}, Pattern: pattern, Mask: mask}, r.opts)
+	return Render(Input{Sub: im, Crop: Rect{stack.CropX, stack.CropY, stack.CropW, stack.CropH}, Pattern: pattern, Mask: mask, Master: master}, r.opts)
 }
 
 // maskWidth is the width the sky mask is built at when there is no master
 // preview to build it from; the master's linear preview is about this wide.
 const maskWidth = 1600
 
-// mask builds the sky mask from the master's linear preview, or, for a
-// target's first light (no master yet), from the light itself.
-func (r *Renderer) mask(ctx context.Context, stack app.Stack, im *imagedata.Image) (*SkyMask, error) {
+// mask builds the sky mask from the master's linear preview, which it also
+// returns for the master's structure; for a target's first light (no master
+// yet) the mask comes from the light itself, and there is no structure to
+// measure.
+func (r *Renderer) mask(ctx context.Context, stack app.Stack, im *imagedata.Image) (*SkyMask, *Master) {
 	if stack.LinearKey != nil {
 		plane, w, h, err := r.linear(ctx, *stack.LinearKey)
 		if err == nil {
-			return NewSkyMask(plane, w, h, math.Round(float64(im.W)/float64(w))), nil
+			scale := math.Round(float64(im.W) / float64(w))
+			return NewSkyMask(plane, w, h, scale), &Master{Plane: plane, W: w, H: h, Scale: scale}
 		}
 		slog.Warn("Could not read the master's linear preview; masking the sky from the light", "object", stack.Object, "filter", stack.Filter, "error", err)
 	}

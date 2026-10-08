@@ -30,13 +30,14 @@ const (
 )
 
 // The letters' size and weight, tuned on real subs (Leo Triplet RGB, Orion
-// H-a): big, bold and soft enough to come through 8× binning, JPEG at
-// quality 60 and a thief's registration, and still read in a stack. A font
-// pixel is about 9 output pixels, so the text is about 80 px tall with its
-// descender, and a word about 650 px wide. Variables only so the local demo
-// can try others.
+// H-a): bold and soft enough to come through 8× binning, JPEG at quality 60
+// and a thief's registration, and still read in a stack. A font pixel is
+// about 6 output pixels, so the text is about 55 px tall with its
+// descender and a word about 450 px wide: smaller than that, the rows read
+// as bands in one blurred frame; larger, nebulosity (strongest at large
+// scales) hides them. Variables only so the local demo can try others.
 var (
-	fontPixelsAcross = 90.0
+	fontPixelsAcross = 130.0
 	// strokeGrow thickens the strokes, in samples each side (a stroke is
 	// 1¾ font pixels); blurSigma softens the letters' edges, in font
 	// pixels, so they hold little high-frequency energy for JPEG to
