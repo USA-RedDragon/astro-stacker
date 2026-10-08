@@ -47,7 +47,7 @@ func WriteXISF(out io.Writer, w, h int, data []float32, keywords []Card, props [
 		return fmt.Errorf("xisf header of %d bytes does not fit before %d", len(header), pos)
 	}
 	n := len(header)
-	if n > math.MaxUint32 {
+	if uint64(n) > math.MaxUint32 {
 		return fmt.Errorf("xisf header of %d bytes is too long", n)
 	}
 	bw := bufio.NewWriterSize(out, 1<<20)

@@ -16,7 +16,7 @@ const lightType = "LIGHT"
 
 func xisf(xml string) []byte {
 	n := len(xml)
-	if n > math.MaxUint32 {
+	if uint64(n) > math.MaxUint32 {
 		panic("xisf header too long")
 	}
 	b := make([]byte, 16, 16+len(xml))

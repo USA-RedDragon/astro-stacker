@@ -160,7 +160,7 @@ func (p *Pipeline) putBytes(ctx context.Context, key string, b []byte, opts mini
 func linearPreview(im *imagedata.Image) ([]byte, error) {
 	factor := max(1, int(math.Ceil(float64(im.W)/LinearMaxWidth)))
 	b := preview.Bin(im, factor)
-	if b.W < 0 || b.W > math.MaxUint32 || b.H < 0 || b.H > math.MaxUint32 {
+	if b.W < 0 || uint64(b.W) > math.MaxUint32 || b.H < 0 || uint64(b.H) > math.MaxUint32 {
 		return nil, fmt.Errorf("linear preview is %dx%d", b.W, b.H)
 	}
 	var raw bytes.Buffer
