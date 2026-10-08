@@ -301,7 +301,7 @@ func (p *Pipeline) recrop(ctx context.Context, s *app.Stack) error {
 	}
 	r := coverageCrop(acc)
 	master := acc.Master(s.ScaleExposure)
-	jpg, err := preview.Render(&imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}, preview.DefaultOptions)
+	jpg, err := preview.Render(&imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}, preview.DefaultOptions())
 	if err != nil {
 		return err
 	}

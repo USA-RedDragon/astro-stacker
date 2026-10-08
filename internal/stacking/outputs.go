@@ -97,7 +97,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	stack.CropX, stack.CropY, stack.CropW, stack.CropH = r.X, r.Y, r.W, r.H
 	stack.CropVersion = CropVersion
 	cropped := &imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}
-	jpg, err := preview.Render(cropped, preview.DefaultOptions)
+	jpg, err := preview.Render(cropped, preview.DefaultOptions())
 	if err != nil {
 		return err
 	}

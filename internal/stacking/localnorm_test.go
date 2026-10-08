@@ -88,7 +88,7 @@ func TestLocalNormalization(t *testing.T) {
 		stored[i] = storedSub{exposure: exposure, weight: exposure}
 	}
 	stack := func(ln bool) *Accumulator {
-		opts := DefaultOptions
+		opts := DefaultOptions()
 		opts.LocalNorm = ln
 		acc, err := streamStack(stored, 2, opts, func(i int, _ storedSub) ([]float32, int, int, error) {
 			return slices.Clone(subs[i]), w, h, nil

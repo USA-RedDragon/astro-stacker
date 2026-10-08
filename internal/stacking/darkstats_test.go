@@ -92,7 +92,7 @@ func TestDropLeakyDarksRecordsClean(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, dir, DefaultPipelineOptions)
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, dir, DefaultPipelineOptions())
 	left, err := p.dropLeakyDarks(context.Background(), frames, files)
 	if err != nil || left != 1 {
 		t.Fatalf("%d left, %v", left, err)

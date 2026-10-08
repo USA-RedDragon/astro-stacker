@@ -86,7 +86,7 @@ func TestRescoreAdded(t *testing.T) {
 		"b1.xisf": {Score: 0.1, TargetBest: 1, PlainScore: 1, PlainTargetBest: 1},
 		"b2.xisf": {Score: 0.9, TargetBest: 1, PlainScore: 1, PlainTargetBest: 1},
 	}
-	opts := DefaultPipelineOptions
+	opts := DefaultPipelineOptions()
 	opts.Photometry = true
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", opts)
 	now := time.Now()
@@ -160,7 +160,7 @@ func TestRescoreAdded(t *testing.T) {
 // sub is judged again like any other, so it can come back.
 func TestClassifyHazySubAndRejects(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", DefaultPipelineOptions)
+	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	f := app.Frame{Key: "Orion/LIGHT/sub.xisf", Object: "Orion"}
 	for _, c := range []struct {
 		name string
@@ -212,7 +212,7 @@ func TestRequeueStackerRejects(t *testing.T) {
 		"graded.xisf":  {GradingStatus: quality.GradingRejected},
 		"low.xisf":     {GradingStatus: quality.GradingRejected, StackerRejected: true, Score: 0.2, TargetBest: 1},
 	}
-	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions)
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	now := time.Now()
 	if err := p.requeueRejects(context.Background(), scores, now); err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestLightsWaitForPhotometry(t *testing.T) {
 	}
 	pending := func(photometry bool) []string {
 		t.Helper()
-		opts := DefaultPipelineOptions
+		opts := DefaultPipelineOptions()
 		opts.Photometry = photometry
 		p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", opts)
 		var keys []string
@@ -274,7 +274,7 @@ func TestLightsWaitForPhotometry(t *testing.T) {
 // its verdict isn't undone.
 func TestStackerMoonRejectStaysOut(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", DefaultPipelineOptions)
+	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	exp, night := 600.0, time.Now()
 	// A light classify would stack: delivered calibrated, so it needs no
 	// calibration frames.

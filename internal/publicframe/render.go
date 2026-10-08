@@ -35,7 +35,9 @@ type Options struct {
 // the frame's sky noise (one frame doesn't show it; a stack of 25-100 of a
 // noise-limited field does), and noise added to frames whose master's
 // structure would hide the watermark from a stack (StructureRatio).
-var DefaultOptions = Options{Width: 800, Height: 480, Quality: 60, Amplitude: 0.5, StructureRatio: defaultStructureRatio}
+func DefaultOptions() Options {
+	return Options{Width: 800, Height: 480, Quality: 60, Amplitude: 0.5, StructureRatio: defaultStructureRatio}
+}
 
 // defaultStructureRatio is the smallest at which "astro.garden" read by eye
 // in a 100-frame stack of Orion H-a subs (H-a 120/600 s, 2025-12 to

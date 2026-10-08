@@ -65,7 +65,7 @@ func offTargetDB(t *testing.T) *gorm.DB {
 func TestOffPointingSubsStayOnlyIfTheyRegister(t *testing.T) {
 	s3, put := fakeS3(t)
 	db := offTargetDB(t)
-	p := NewPipeline(s3, "in", "out", db, nil, siril.Runner{}, t.TempDir(), DefaultPipelineOptions)
+	p := NewPipeline(s3, "in", "out", db, nil, siril.Runner{}, t.TempDir(), DefaultPipelineOptions())
 	positions := map[string][2]float64{"Triangulum Galaxy": {23.46, 30.66}}
 	exp := 300.0
 	sub := func(id int, key string, ra, dec float64) calibrated {
@@ -117,7 +117,7 @@ func TestOffPointingSubsStayOnlyIfTheyRegister(t *testing.T) {
 // again, once; those left out after failing to register stay out.
 func TestOffTargetSubsAreRequeuedOnce(t *testing.T) {
 	db := offTargetDB(t)
-	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions)
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	now := time.Now()
 	for _, sf := range []app.StackFrame{
 		{FrameID: 1, Status: app.StackStatusOffTarget, ProcessedAt: now},

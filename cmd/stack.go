@@ -79,7 +79,7 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	if err := os.MkdirAll(cfg.Stacking.WorkDir, 0o700); err != nil {
 		slog.Warn("Could not create stacking work dir", "dir", cfg.Stacking.WorkDir, "error", err)
 	}
-	opts := stacking.DefaultPipelineOptions
+	opts := stacking.DefaultPipelineOptions()
 	opts.MinScore = cfg.Stacking.MinScore
 	opts.Pedestal = cfg.Stacking.Pedestal
 	opts.BatchSize = cfg.Stacking.BatchSize

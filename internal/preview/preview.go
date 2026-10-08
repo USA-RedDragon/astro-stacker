@@ -27,13 +27,13 @@ type Options struct {
 	Quality  int
 }
 
-var DefaultOptions = Options{MaxWidth: 1600, Quality: 85}
+func DefaultOptions() Options { return Options{MaxWidth: 1600, Quality: 85} }
 
 // Render bins im to at most MaxWidth pixels wide, stretches each channel, and
 // encodes a JPEG.
 func Render(im *imagedata.Image, opts Options) ([]byte, error) {
 	if opts.MaxWidth <= 0 {
-		opts = DefaultOptions
+		opts = DefaultOptions()
 	}
 	factor := max(1, int(math.Ceil(float64(im.W)/float64(opts.MaxWidth))))
 	binned := Bin(im, factor)

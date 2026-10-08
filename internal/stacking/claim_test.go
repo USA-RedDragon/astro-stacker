@@ -102,7 +102,7 @@ func TestFailuresBackOffThenDie(t *testing.T) {
 	if err := db.AutoMigrate(&app.StackFrame{}); err != nil {
 		t.Fatal(err)
 	}
-	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions)
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	ctx := context.Background()
 	var waits []time.Duration
 	for range 5 {

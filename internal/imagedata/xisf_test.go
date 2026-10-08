@@ -189,7 +189,7 @@ func TestRealFile(t *testing.T) {
 	t.Logf("%dx%dx%d, channel 0 mean %.6f (×65535 = %.3f)", im.W, im.H, im.C, sum/float64(im.W*im.H), 65535*sum/float64(im.W*im.H))
 
 	if out := os.Getenv("IMAGEDATA_PREVIEW"); out != "" {
-		jpg, err := preview.Render(im, preview.DefaultOptions)
+		jpg, err := preview.Render(im, preview.DefaultOptions())
 		if err != nil {
 			t.Fatal(err)
 		}

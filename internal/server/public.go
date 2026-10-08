@@ -34,5 +34,5 @@ func publicSize(width, height string) bool {
 		n, err := strconv.Atoi(v)
 		return err == nil && n == want
 	}
-	return ok(width, publicframe.DefaultOptions.Width) && ok(height, publicframe.DefaultOptions.Height)
+	return ok(width, publicframe.DefaultOptions().Width) && ok(height, publicframe.DefaultOptions().Height)
 }

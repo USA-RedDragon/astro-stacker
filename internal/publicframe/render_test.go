@@ -75,7 +75,7 @@ func TestPatternScalesWithReference(t *testing.T) {
 // TestRenderedFrame checks the frame's size and that it carries no
 // metadata: no EXIF (APP1) or comment segments.
 func TestRenderedFrame(t *testing.T) {
-	res, err := Render(Input{Sub: sky(2000, 1300, 2), Pattern: NewPattern(2000)}, DefaultOptions)
+	res, err := Render(Input{Sub: sky(2000, 1300, 2), Pattern: NewPattern(2000)}, DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestRenderedFrame(t *testing.T) {
 			t.Errorf("frame contains metadata marker % x", marker)
 		}
 	}
-	if res.Sigma <= 0 || math.Abs(res.Amplitude-DefaultOptions.Amplitude*res.Sigma) > 1e-9 {
+	if res.Sigma <= 0 || math.Abs(res.Amplitude-DefaultOptions().Amplitude*res.Sigma) > 1e-9 {
 		t.Errorf("sigma %g, amplitude %g", res.Sigma, res.Amplitude)
 	}
 }
@@ -100,7 +100,7 @@ func TestRenderedFrame(t *testing.T) {
 // quantizing and JPEG at quality 60 on average over frames: the sky noise
 // dithers it.
 func TestWatermarkSurvivesJPEG(t *testing.T) {
-	opts := DefaultOptions
+	opts := DefaultOptions()
 	const frames = 16
 	sum := make([]float64, opts.Width*opts.Height)
 	var weight []float32
@@ -199,7 +199,7 @@ func stars(x, y int) float64 {
 // structure; a noise-limited sub, or one whose only structure is stars,
 // is rendered exactly as without the rule.
 func TestStructureNoise(t *testing.T) {
-	opts := DefaultOptions
+	opts := DefaultOptions()
 	off := opts
 	off.StructureRatio = 0
 	render := func(sub *imagedata.Image, m *Master, o Options) Result {
@@ -240,12 +240,12 @@ func TestStructureNoise(t *testing.T) {
 func TestNoiseFresh(t *testing.T) {
 	sub, m := field(1600, 960, 0.0005, 3, nebula(0.002))
 	in := Input{Sub: sub, Pattern: NewPattern(sub.W), Master: m}
-	a, _ := Render(in, DefaultOptions)
-	b, _ := Render(in, DefaultOptions)
+	a, _ := Render(in, DefaultOptions())
+	b, _ := Render(in, DefaultOptions())
 	if a.Added == 0 || bytes.Equal(a.JPEG, b.JPEG) {
 		t.Error("two unseeded renders added the same noise")
 	}
-	o := DefaultOptions
+	o := DefaultOptions()
 	o.Seed = 9
 	c, _ := Render(in, o)
 	d, _ := Render(in, o)

@@ -41,7 +41,7 @@ func TestSatelliteTrail(t *testing.T) {
 		t.Fatal("trail sub not found")
 	}
 	load := func(_ int, s storedSub) ([]float32, int, int, error) { return readSub(s.key) }
-	opts := DefaultOptions
+	opts := DefaultOptions()
 	t.Logf("trail sub %s, %d clean subs", filepath.Base(trail.key), len(clean))
 
 	// The master without the trail sub is the truth to compare against.
