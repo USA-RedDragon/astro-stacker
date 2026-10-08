@@ -9,7 +9,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/klauspost/compress v1.20.1
-	github.com/lmittmann/tint v1.2.0
+	github.com/lmittmann/tint v1.2.1
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/pierrec/lz4/v4 v4.1.31
 	github.com/prometheus/client_golang v1.25.0
