@@ -32,6 +32,8 @@ func (im *Image) Plane(c int) []float32 {
 
 var ErrUnsupported = errors.New("unsupported image")
 
+const sampleUInt16 = "UInt16"
+
 // Decode reads a whole XISF or FITS file.
 func Decode(b []byte) (*Image, error) {
 	switch {
@@ -133,7 +135,7 @@ func decodeXISF(b []byte) (*Image, error) {
 }
 
 func codeMapping(img xisfImage) (step, zero float64, empty int, ok bool) {
-	if img.SampleFormat != "UInt16" {
+	if img.SampleFormat != sampleUInt16 {
 		return 0, 0, 0, false
 	}
 	vals := map[string]float64{}
@@ -199,7 +201,7 @@ func sampleBytes(format string) (int, error) {
 	switch format {
 	case "UInt8":
 		return 1, nil
-	case "UInt16":
+	case sampleUInt16:
 		return 2, nil
 	case "UInt32", "Float32":
 		return 4, nil
@@ -324,7 +326,7 @@ func toFloat(raw []byte, order binary.ByteOrder, format string, w, h, c int, lo,
 		for i := range count {
 			im.Data[i] = float32(raw[i]) / math.MaxUint8
 		}
-	case "UInt16":
+	case sampleUInt16:
 		for i := range count {
 			im.Data[i] = float32(order.Uint16(raw[2*i:])) / math.MaxUint16
 		}
