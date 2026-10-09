@@ -218,6 +218,11 @@ type StackFrame struct {
 	FlatMaster *string
 }
 
+type RegisteredOrphan struct {
+	Key    string `gorm:"primaryKey"`
+	SeenAt time.Time
+}
+
 // PublicFrame is the frame the public site shows of a target: its newest
 // light in a master, rendered small, stretched and watermarked
 // (publicframe.Render) and stored in the processed bucket, so serving it
