@@ -30,7 +30,7 @@ internal/server/routes.go	321	19
 internal/server/server.go	81	0
 internal/server/subs.go	32	19
 internal/siril/siril.go	52	5
-internal/stacking/accumulator.go	155	150
+internal/stacking/accumulator.go	155	151
 internal/stacking/comet.go	518	252
 internal/stacking/cosmetic.go	61	50
 internal/stacking/cover.go	256	138
@@ -53,7 +53,7 @@ internal/stacking/outputs.go	104	17
 internal/stacking/pipeline.go	350	120
 internal/stacking/pointing.go	73	53
 internal/stacking/process.go	259	37
-internal/stacking/rebuild.go	240	155
+internal/stacking/rebuild.go	242	158
 internal/stacking/recalibrate.go	100	89
 internal/stacking/rescore.go	75	48
 internal/stacking/status.go	68	14
