@@ -119,6 +119,12 @@ stacking:
   # ts-verdicts-targets: []
   # Most new verdicts sent per hourly sweep
   ts-verdicts-max: 200
+  # Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all
+  registered-grace-hours: 24
+  # Milliseconds between deletions of unreferenced registered subs
+  registered-delete-pause-ms: 200
+  # Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion
+  registered-backfill-rate: 0.5
 # Small watermarked frames of each target's newest accepted light, for the public site
 public-frames:
   # Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg
