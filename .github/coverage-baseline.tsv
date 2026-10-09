@@ -1,5 +1,5 @@
 cmd/root.go	92	0
-cmd/stack.go	54	0
+cmd/stack.go	57	0
 internal/calmatch/calmatch.go	81	75
 internal/config/config.go	23	16
 internal/coverage/coverage.go	148	132
@@ -9,8 +9,9 @@ internal/frameheader/header.go	108	101
 internal/frameheader/wcs.go	67	58
 internal/imagedata/fits.go	62	51
 internal/imagedata/fitswrite.go	49	41
-internal/imagedata/xisf.go	157	118
-internal/imagedata/xisfwrite.go	55	47
+internal/imagedata/pedestal16.go	9	9
+internal/imagedata/xisf.go	177	138
+internal/imagedata/xisfwrite.go	78	65
 internal/indexer/indexer.go	266	16
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	81
@@ -40,7 +41,7 @@ internal/stacking/crop.go	161	127
 internal/stacking/distortion.go	87	35
 internal/stacking/duplicate.go	34	29
 internal/stacking/gain.go	122	80
-internal/stacking/header.go	188	53
+internal/stacking/header.go	188	54
 internal/stacking/lightleak.go	44	40
 internal/stacking/linearfit.go	198	86
 internal/stacking/localnorm.go	203	194
@@ -50,11 +51,12 @@ internal/stacking/mosaic.go	339	70
 internal/stacking/mosaiclayout.go	211	172
 internal/stacking/mosaicmatch.go	254	226
 internal/stacking/outputs.go	104	17
-internal/stacking/pipeline.go	350	120
+internal/stacking/pipeline.go	354	123
 internal/stacking/pointing.go	73	53
-internal/stacking/process.go	259	37
-internal/stacking/rebuild.go	242	158
+internal/stacking/process.go	262	44
+internal/stacking/rebuild.go	237	153
 internal/stacking/recalibrate.go	100	89
+internal/stacking/registered.go	263	176
 internal/stacking/rescore.go	75	48
 internal/stacking/status.go	68	14
 internal/stacking/tsverdicts.go	252	209
