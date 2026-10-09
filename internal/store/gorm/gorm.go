@@ -29,7 +29,7 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	}
 	err = store.db.AutoMigrate(app.ImageProcess{}, app.PreStackedImage{}, app.Frame{},
 		app.CalibrationMaster{}, app.TargetReference{}, app.Stack{}, app.StackFrame{}, app.Mosaic{}, app.Cover{}, app.ReferenceReset{},
-		app.TSVerdict{}, app.PublicFrame{})
+		app.TSVerdict{}, app.PublicFrame{}, app.RegisteredOrphan{})
 	if err != nil {
 		return nil, err
 	}

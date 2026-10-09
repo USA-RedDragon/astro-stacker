@@ -195,7 +195,6 @@ func (p *Pipeline) registeredStore() registeredStore {
 
 type subRow struct {
 	Status        string
-	ProcessedAt   time.Time
 	RegisteredKey *string
 }
 
@@ -204,7 +203,8 @@ type gcVerdict int
 const (
 	gcKeep gcVerdict = iota
 	gcYoung
-	gcLeftRecently
+	gcNew
+	gcPending
 	gcAmbiguous
 	gcDelete
 )
@@ -213,7 +213,12 @@ func registeredStem(key string) string {
 	return strings.TrimSuffix(key, path.Ext(key))
 }
 
-func gcDecide(obj registeredObject, rows []subRow, referenced map[string]bool, listed map[string]registeredObject, now time.Time, grace time.Duration) gcVerdict {
+func registeredTarget(key string) string {
+	parts := strings.SplitN(strings.TrimPrefix(key, registeredPrefix), "/", 2)
+	return parts[0]
+}
+
+func gcDecide(obj registeredObject, rows []subRow, referenced map[string]bool, listed map[string]registeredObject, seen *time.Time, now time.Time, grace time.Duration) gcVerdict {
 	if referenced[obj.Key] {
 		return gcKeep
 	}
@@ -222,9 +227,6 @@ func gcDecide(obj registeredObject, rows []subRow, referenced map[string]bool, l
 	}
 	for _, r := range rows {
 		if r.Status != app.StackStatusAdded {
-			if now.Sub(r.ProcessedAt) < grace {
-				return gcLeftRecently
-			}
 			continue
 		}
 		if r.RegisteredKey == nil || registeredStem(*r.RegisteredKey) != registeredStem(obj.Key) {
@@ -234,13 +236,44 @@ func gcDecide(obj registeredObject, rows []subRow, referenced map[string]bool, l
 		if !ok || now.Sub(cur.LastModified) < grace {
 			return gcYoung
 		}
+		return gcDelete
+	}
+	if seen == nil {
+		return gcNew
+	}
+	if now.Sub(*seen) < grace {
+		return gcPending
 	}
 	return gcDelete
 }
 
 type gcResult struct {
-	listed, referenced, deleted, young, left, ambiguous, failed int
-	deletedBytes                                                int64
+	listed, referenced, deleted, young, pending, ambiguous, busy, failed int
+	deletedBytes                                                         int64
+}
+
+const orphanTrackingKey = ""
+
+func (p *Pipeline) orphanSightings(ctx context.Context, now time.Time) (map[string]time.Time, bool, error) {
+	var rows []app.RegisteredOrphan
+	if err := p.db.WithContext(ctx).Find(&rows).Error; err != nil {
+		return nil, false, err
+	}
+	seen := make(map[string]time.Time, len(rows))
+	tracking := false
+	for _, r := range rows {
+		if r.Key == orphanTrackingKey {
+			tracking = true
+			continue
+		}
+		seen[r.Key] = r.SeenAt
+	}
+	if !tracking {
+		if err := p.db.WithContext(ctx).Create(&app.RegisteredOrphan{Key: orphanTrackingKey, SeenAt: now}).Error; err != nil {
+			return nil, false, err
+		}
+	}
+	return seen, !tracking, nil
 }
 
 func (p *Pipeline) collectRegistered(ctx context.Context, store registeredStore, now time.Time) (gcResult, error) {
@@ -251,6 +284,10 @@ func (p *Pipeline) collectRegistered(ctx context.Context, store registeredStore,
 		return res, fmt.Errorf("list registered subs: %w", err)
 	}
 	res.listed = len(objs)
+	sightings, first, err := p.orphanSightings(ctx, now)
+	if err != nil {
+		return res, err
+	}
 	var keys []string
 	if err := p.db.WithContext(ctx).Model(&app.StackFrame{}).Where("registered_key IS NOT NULL").
 		Pluck("registered_key", &keys).Error; err != nil {
@@ -262,35 +299,46 @@ func (p *Pipeline) collectRegistered(ctx context.Context, store registeredStore,
 	}
 	var rows []struct {
 		Status        string
-		ProcessedAt   time.Time
 		RegisteredKey *string
 		Key           string
 	}
 	if err := p.db.WithContext(ctx).Table("stack_frames AS sf").
-		Select("sf.status, sf.processed_at, sf.registered_key, f.key").
+		Select("sf.status, sf.registered_key, f.key").
 		Joins("JOIN frames f ON f.id = sf.frame_id").Scan(&rows).Error; err != nil {
 		return res, err
 	}
 	byBase := map[string][]subRow{}
 	for _, r := range rows {
 		base := strings.TrimSuffix(path.Base(r.Key), path.Ext(r.Key))
-		byBase[base] = append(byBase[base], subRow{Status: r.Status, ProcessedAt: r.ProcessedAt, RegisteredKey: r.RegisteredKey})
+		byBase[base] = append(byBase[base], subRow{Status: r.Status, RegisteredKey: r.RegisteredKey})
 	}
 	listed := make(map[string]registeredObject, len(objs))
 	for _, o := range objs {
 		listed[o.Key] = o
 	}
+	var fresh []app.RegisteredOrphan
+	var done []string
 	for _, o := range objs {
+		var seen *time.Time
+		if t, ok := sightings[o.Key]; ok {
+			seen = &t
+		} else if first {
+			seen = &time.Time{}
+		}
 		base := path.Base(registeredStem(o.Key))
-		switch gcDecide(o, byBase[base], referenced, listed, now, grace) {
+		switch gcDecide(o, byBase[base], referenced, listed, seen, now, grace) {
 		case gcKeep:
 			res.referenced++
 			continue
 		case gcYoung:
 			res.young++
 			continue
-		case gcLeftRecently:
-			res.left++
+		case gcNew:
+			res.pending++
+			fresh = append(fresh, app.RegisteredOrphan{Key: o.Key, SeenAt: now})
+			continue
+		case gcPending:
+			res.pending++
 			continue
 		case gcAmbiguous:
 			res.ambiguous++
@@ -300,17 +348,42 @@ func (p *Pipeline) collectRegistered(ctx context.Context, store registeredStore,
 		if p.stopping(ctx) {
 			break
 		}
-		if err := p.removeUnreferenced(ctx, store, o); err != nil {
+		target := registeredTarget(o.Key)
+		if !p.hold(target) {
+			res.busy++
+			continue
+		}
+		err := p.removeUnreferenced(ctx, store, o)
+		p.release(target)
+		if err != nil {
 			res.failed++
 			slog.Warn("Could not delete an unreferenced registered sub", "key", o.Key, "error", err)
 			continue
 		}
+		done = append(done, o.Key)
 		res.deleted++
 		res.deletedBytes += o.Size
 		metrics.RegisteredDeleted.Inc()
 		metrics.RegisteredDeletedBytes.Add(float64(o.Size))
 		if !p.pause(ctx, p.opts.RegisteredDeletePause) {
 			break
+		}
+	}
+	if len(fresh) > 0 {
+		if err := p.db.WithContext(ctx).CreateInBatches(fresh, 500).Error; err != nil {
+			return res, err
+		}
+	}
+	var stale []string
+	for k := range sightings {
+		if _, ok := listed[k]; !ok || referenced[k] {
+			stale = append(stale, k)
+		}
+	}
+	stale = append(stale, done...)
+	for i := 0; i < len(stale); i += 500 {
+		if err := p.db.WithContext(ctx).Where("key IN ?", stale[i:min(i+500, len(stale))]).Delete(&app.RegisteredOrphan{}).Error; err != nil {
+			return res, err
 		}
 	}
 	return res, nil
@@ -328,7 +401,7 @@ func (p *Pipeline) removeUnreferenced(ctx context.Context, store registeredStore
 	if err != nil {
 		return err
 	}
-	if !cur.LastModified.Equal(o.LastModified) {
+	if cur.LastModified.Sub(o.LastModified).Abs() > time.Second {
 		return fmt.Errorf("rewritten since listed")
 	}
 	return store.remove(ctx, o.Key)
@@ -348,7 +421,7 @@ func (p *Pipeline) runRegisteredGC(ctx context.Context) {
 		} else {
 			slog.Info("Collected unreferenced registered subs", "listed", res.listed, "referenced", res.referenced,
 				"deleted", res.deleted, "deleted_gib", fmt.Sprintf("%.1f", float64(res.deletedBytes)/(1<<30)),
-				"young", res.young, "left_recently", res.left, "ambiguous", res.ambiguous, "failed", res.failed,
+				"young", res.young, "pending", res.pending, "ambiguous", res.ambiguous, "busy", res.busy, "failed", res.failed,
 				"duration", time.Since(start).Round(time.Second))
 		}
 		if !p.pause(ctx, time.Hour) {

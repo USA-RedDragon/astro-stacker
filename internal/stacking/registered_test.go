@@ -223,29 +223,32 @@ func TestGCDecide(t *testing.T) {
 		xisfB: {Key: xisfB, LastModified: recent},
 	}
 	keyX, keyB, keyOther := xisf, xisfB, "registered/M33/Ha/a.xisf"
+	longAgo, lately := now.Add(-30*time.Hour), now.Add(-2*time.Hour)
 	cases := []struct {
 		name       string
 		obj        registeredObject
 		rows       []subRow
 		referenced bool
+		seen       *time.Time
 		want       gcVerdict
 	}{
-		{"referenced", registeredObject{Key: xisf, LastModified: old}, []subRow{{Status: app.StackStatusAdded, RegisteredKey: &keyX}}, true, gcKeep},
-		{"just uploaded", registeredObject{Key: fit, LastModified: recent}, nil, false, gcYoung},
-		{"no row", registeredObject{Key: fit, LastModified: old}, nil, false, gcDelete},
-		{"left long ago", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusMoon, ProcessedAt: old}}, false, gcDelete},
-		{"left within grace", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusLowScore, ProcessedAt: recent}}, false, gcLeftRecently},
-		{"converted long ago", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusAdded, RegisteredKey: &keyX}}, false, gcDelete},
-		{"converted within grace", registeredObject{Key: "registered/M31/Ha/b.fit", LastModified: old}, []subRow{{Status: app.StackStatusAdded, RegisteredKey: &keyB}}, false, gcYoung},
-		{"name shared with an added sub elsewhere", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusAdded, RegisteredKey: &keyOther}}, false, gcAmbiguous},
-		{"added without key", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusAdded}}, false, gcAmbiguous},
+		{"referenced", registeredObject{Key: xisf, LastModified: old}, []subRow{{Status: app.StackStatusAdded, RegisteredKey: &keyX}}, true, nil, gcKeep},
+		{"just uploaded", registeredObject{Key: fit, LastModified: recent}, nil, false, nil, gcYoung},
+		{"first seen unreferenced", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusMoon}}, false, nil, gcNew},
+		{"unreferenced within grace", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusLowScore}}, false, &lately, gcPending},
+		{"unreferenced past grace", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusMoon}}, false, &longAgo, gcDelete},
+		{"no row past grace", registeredObject{Key: fit, LastModified: old}, nil, false, &longAgo, gcDelete},
+		{"converted long ago", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusAdded, RegisteredKey: &keyX}}, false, nil, gcDelete},
+		{"converted within grace", registeredObject{Key: "registered/M31/Ha/b.fit", LastModified: old}, []subRow{{Status: app.StackStatusAdded, RegisteredKey: &keyB}}, false, nil, gcYoung},
+		{"name shared with an added sub elsewhere", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusAdded, RegisteredKey: &keyOther}}, false, &longAgo, gcAmbiguous},
+		{"added without key", registeredObject{Key: fit, LastModified: old}, []subRow{{Status: app.StackStatusAdded}}, false, &longAgo, gcAmbiguous},
 	}
 	for _, c := range cases {
 		ref := map[string]bool{}
 		if c.referenced {
 			ref[c.obj.Key] = true
 		}
-		if got := gcDecide(c.obj, c.rows, ref, listed, now, grace); got != c.want {
+		if got := gcDecide(c.obj, c.rows, ref, listed, c.seen, now, grace); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
 	}
@@ -257,7 +260,7 @@ func registeredDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&app.Frame{}, &app.Stack{}, &app.StackFrame{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.Stack{}, &app.StackFrame{}, &app.RegisteredOrphan{}); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -286,28 +289,55 @@ func TestCollectRegistered(t *testing.T) {
 	now := time.Now()
 	old, recent := now.Add(-72*time.Hour), now.Add(-time.Hour)
 	store := newFakeStore(now)
-	kept := "registered/M31/Ha/kept.fit"
+	kept := "registered/M31/Ha/kept.xisf"
 	addRegisteredRow(t, db, stack.ID, "lights/M31/kept.fits", app.StackStatusAdded, &kept, old)
 	addRegisteredRow(t, db, stack.ID, "lights/M31/moon.fits", app.StackStatusMoon, nil, old)
-	addRegisteredRow(t, db, stack.ID, "lights/M31/fresh.fits", app.StackStatusLowScore, nil, recent)
-	for _, k := range []string{kept, "registered/M31/Ha/moon.fit", "registered/M31/Ha/fresh.fit", "registered/M31/Ha/gone.fit"} {
-		store.set(k, make([]byte, 10), old)
-	}
+	store.set(kept, make([]byte, 10), old)
+	store.set("registered/M31/Ha/moon.fit", make([]byte, 10), old)
+	store.set("registered/M31/Ha/gone.fit", make([]byte, 10), old)
 	store.set("registered/M31/Ha/new.xisf", make([]byte, 10), recent)
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	p.opts.RegisteredDeletePause = 0
-	res, err := p.collectRegistered(context.Background(), store, now)
+	ctx := context.Background()
+
+	res, err := p.collectRegistered(ctx, store, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.deleted != 2 || res.deletedBytes != 20 || res.referenced != 1 || res.left != 1 || res.young != 1 {
-		t.Errorf("result %+v", res)
+	if res.deleted != 2 || res.deletedBytes != 20 || res.referenced != 1 || res.young != 1 {
+		t.Errorf("first sweep %+v: the orphans from before tracking go at once", res)
+	}
+
+	leaving := "registered/M31/Ha/leaving.xisf"
+	sf := addRegisteredRow(t, db, stack.ID, "lights/M31/leaving.fits", app.StackStatusAdded, &leaving, old)
+	store.set(leaving, make([]byte, 10), old)
+	if err := db.Model(&sf).Updates(map[string]any{"status": app.StackStatusLowScore, "registered_key": nil}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if res, err = p.collectRegistered(ctx, store, now); err != nil || res.deleted != 0 || res.pending != 1 {
+		t.Errorf("a sub that just left: %+v %v", res, err)
+	}
+	if res, err = p.collectRegistered(ctx, store, now.Add(time.Hour)); err != nil || res.deleted != 0 || res.pending != 1 {
+		t.Errorf("an hour later: %+v %v", res, err)
+	}
+	p.hold(objectM31)
+	if res, err = p.collectRegistered(ctx, store, now.Add(25*time.Hour)); err != nil || res.deleted != 0 || res.busy != 1 {
+		t.Errorf("target busy: %+v %v", res, err)
+	}
+	p.release(objectM31)
+	if res, err = p.collectRegistered(ctx, store, now.Add(26*time.Hour)); err != nil || res.deleted != 1 {
+		t.Errorf("past the grace: %+v %v", res, err)
 	}
 	for k, want := range map[string]bool{kept: true, "registered/M31/Ha/moon.fit": false, "registered/M31/Ha/gone.fit": false,
-		"registered/M31/Ha/fresh.fit": true, "registered/M31/Ha/new.xisf": true} {
+		"registered/M31/Ha/new.xisf": true, leaving: false} {
 		if store.has(k) != want {
 			t.Errorf("%s kept = %v, want %v", k, !want, want)
 		}
+	}
+	var left int64
+	db.Model(&app.RegisteredOrphan{}).Where("key <> ''").Count(&left)
+	if left != 1 {
+		t.Errorf("%d sightings left, want new.xisf's", left)
 	}
 }
 
