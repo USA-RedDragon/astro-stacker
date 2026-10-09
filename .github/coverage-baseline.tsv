@@ -56,7 +56,7 @@ internal/stacking/pointing.go	73	53
 internal/stacking/process.go	262	44
 internal/stacking/rebuild.go	237	153
 internal/stacking/recalibrate.go	100	89
-internal/stacking/registered.go	274	183
+internal/stacking/registered.go	324	227
 internal/stacking/rescore.go	75	48
 internal/stacking/status.go	68	14
 internal/stacking/tsverdicts.go	252	209
