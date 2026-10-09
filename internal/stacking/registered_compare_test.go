@@ -12,6 +12,7 @@ import (
 )
 
 func TestRegisteredFormatsStackAlike(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv("REGISTERED_COMPARE_DIR")
 	if dir == "" {
 		t.Skip("set REGISTERED_COMPARE_DIR to a folder of registered subs and a subs.txt of key|exposure|weight")

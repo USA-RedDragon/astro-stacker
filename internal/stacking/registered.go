@@ -26,9 +26,11 @@ const (
 	registeredContentType = "application/xisf"
 )
 
-var structuralKeywords = map[string]bool{
-	"SIMPLE": true, "BITPIX": true, "NAXIS": true, "NAXIS1": true, "NAXIS2": true, "NAXIS3": true,
-	"EXTEND": true, "BZERO": true, "BSCALE": true, "ROWORDER": true,
+func structuralKeywords() map[string]bool {
+	return map[string]bool{
+		"SIMPLE": true, "BITPIX": true, "NAXIS": true, "NAXIS1": true, "NAXIS2": true, "NAXIS3": true,
+		"EXTEND": true, "BZERO": true, "BSCALE": true, "ROWORDER": true,
+	}
 }
 
 func registeredKey(object, filter, frameKey string) string {
@@ -44,9 +46,10 @@ func encodeRegistered(src []byte) ([]byte, *imagedata.Image, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	structural := structuralKeywords()
 	var cards []imagedata.Card
 	for _, c := range all {
-		if !structuralKeywords[c.Name] {
+		if !structural[c.Name] {
 			cards = append(cards, imageCard(c))
 		}
 	}
@@ -73,7 +76,15 @@ func encodeRegisteredFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", path.Base(src), err)
 	}
-	return os.WriteFile(dst, enc, 0o600)
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(enc); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 type subStats struct {
@@ -284,6 +295,7 @@ func (p *Pipeline) collectRegistered(ctx context.Context, store registeredStore,
 		case gcAmbiguous:
 			res.ambiguous++
 			continue
+		case gcDelete:
 		}
 		if p.stopping(ctx) {
 			break
@@ -383,9 +395,13 @@ func (p *Pipeline) convertRegistered(ctx context.Context, store registeredStore,
 	if err := store.put(ctx, newKey, enc, registeredContentType); err != nil {
 		return 0, int64(len(old)), 0, fmt.Errorf("put: %w", err)
 	}
-	if st, err := store.stat(ctx, newKey); err != nil || st.Size != int64(len(enc)) {
+	st, err := store.stat(ctx, newKey)
+	if err != nil {
+		return 0, int64(len(old)), int64(len(enc)), fmt.Errorf("stat: %w", err)
+	}
+	if st.Size != int64(len(enc)) {
 		_ = store.remove(ctx, newKey)
-		return 0, int64(len(old)), int64(len(enc)), fmt.Errorf("stored copy is %d bytes, want %d: %v", st.Size, len(enc), err)
+		return 0, int64(len(old)), int64(len(enc)), fmt.Errorf("stored copy is %d bytes, want %d", st.Size, len(enc))
 	}
 	res := p.db.WithContext(ctx).Model(&app.StackFrame{}).
 		Where("id = ? AND status = ? AND registered_key = ?", r.ID, app.StackStatusAdded, r.RegisteredKey).

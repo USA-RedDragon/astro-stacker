@@ -182,7 +182,7 @@ func TestRegisteredEncodingRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
+	names := make([]string, 0, len(cards))
 	for _, c := range cards {
 		names = append(names, c.Name)
 	}
@@ -217,12 +217,12 @@ func TestGCDecide(t *testing.T) {
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 	grace := 24 * time.Hour
 	old, recent := now.Add(-48*time.Hour), now.Add(-time.Hour)
-	xisf, fit := "registered/M31/Ha/a.xisf", "registered/M31/Ha/a.fit"
+	xisf, fit, xisfB := "registered/M31/Ha/a.xisf", "registered/M31/Ha/a.fit", "registered/M31/Ha/b.xisf"
 	listed := map[string]registeredObject{
-		xisf:                       {Key: xisf, LastModified: old},
-		"registered/M31/Ha/b.xisf": {Key: "registered/M31/Ha/b.xisf", LastModified: recent},
+		xisf:  {Key: xisf, LastModified: old},
+		xisfB: {Key: xisfB, LastModified: recent},
 	}
-	keyX, keyB, keyOther := xisf, "registered/M31/Ha/b.xisf", "registered/M33/Ha/a.xisf"
+	keyX, keyB, keyOther := xisf, xisfB, "registered/M33/Ha/a.xisf"
 	cases := []struct {
 		name       string
 		obj        registeredObject
@@ -265,7 +265,7 @@ func registeredDB(t *testing.T) *gorm.DB {
 
 func addRegisteredRow(t *testing.T, db *gorm.DB, stackID int, frameKey, status string, key *string, at time.Time) app.StackFrame {
 	t.Helper()
-	f := app.Frame{Key: frameKey, ETag: frameKey, Type: "LIGHT", Object: "M31", Filter: "Ha"}
+	f := app.Frame{Key: frameKey, ETag: frameKey, Type: "LIGHT", Object: objectM31, Filter: "Ha"}
 	if err := db.Create(&f).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func addRegisteredRow(t *testing.T, db *gorm.DB, stackID int, frameKey, status s
 func TestCollectRegistered(t *testing.T) {
 	t.Parallel()
 	db := registeredDB(t)
-	stack := app.Stack{Object: "M31", Filter: "Ha"}
+	stack := app.Stack{Object: objectM31, Filter: "Ha"}
 	if err := db.Create(&stack).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestCollectRegistered(t *testing.T) {
 func TestConvertRegistered(t *testing.T) {
 	t.Parallel()
 	db := registeredDB(t)
-	stack := app.Stack{Object: "M31", Filter: "Ha"}
+	stack := app.Stack{Object: objectM31, Filter: "Ha"}
 	if err := db.Create(&stack).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestConvertRegistered(t *testing.T) {
 	store := newFakeStore(now)
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
 	ctx := context.Background()
-	var rows []app.StackFrame
+	rows := make([]app.StackFrame, 0, 4)
 	for i := range 4 {
 		key := fmt.Sprintf("registered/M31/Ha/s%d.fit", i)
 		fit, _ := registeredFITS(t, 60, 40, uint64(i+10))
@@ -330,7 +330,7 @@ func TestConvertRegistered(t *testing.T) {
 		rows = append(rows, addRegisteredRow(t, db, stack.ID, fmt.Sprintf("lights/M31/s%d.fits", i), app.StackStatusAdded, &key, now))
 	}
 	row := func(i int) backfillRow {
-		return backfillRow{ID: rows[i].ID, RegisteredKey: *rows[i].RegisteredKey, Object: "M31"}
+		return backfillRow{ID: rows[i].ID, RegisteredKey: *rows[i].RegisteredKey, Object: objectM31}
 	}
 	keyOf := func(i int) string {
 		var sf app.StackFrame
@@ -351,9 +351,9 @@ func TestConvertRegistered(t *testing.T) {
 		t.Errorf("after converting: key %s, objects %v", keyOf(0), store.objs)
 	}
 
-	p.hold("M31")
+	p.hold(objectM31)
 	out, _, _, err = p.convertRegistered(ctx, store, row(1))
-	p.release("M31")
+	p.release(objectM31)
 	if err != nil || out != backfillBusy || keyOf(1) != "registered/M31/Ha/s1.fit" || store.has("registered/M31/Ha/s1.xisf") {
 		t.Errorf("busy master: %v %v, key %s", out, err, keyOf(1))
 	}
@@ -367,10 +367,10 @@ func TestConvertRegistered(t *testing.T) {
 	}
 
 	store.failPut = true
-	_, _, _, err = p.convertRegistered(ctx, store, row(3))
+	out, _, _, err = p.convertRegistered(ctx, store, row(3))
 	store.failPut = false
 	if err == nil || keyOf(3) != "registered/M31/Ha/s3.fit" || !store.has("registered/M31/Ha/s3.fit") {
-		t.Errorf("failed upload: %v, key %s", err, keyOf(3))
+		t.Errorf("failed upload: %v %v, key %s", out, err, keyOf(3))
 	}
 
 	again, _, _, err := p.convertRegistered(ctx, store, row(3))
@@ -382,7 +382,7 @@ func TestConvertRegistered(t *testing.T) {
 func TestRegisteredBackfillRunsToTheEnd(t *testing.T) {
 	t.Parallel()
 	db := registeredDB(t)
-	stack := app.Stack{Object: "M31", Filter: "Ha"}
+	stack := app.Stack{Object: objectM31, Filter: "Ha"}
 	if err := db.Create(&stack).Error; err != nil {
 		t.Fatal(err)
 	}
