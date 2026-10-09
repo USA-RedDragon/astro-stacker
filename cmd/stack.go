@@ -90,6 +90,9 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	opts.MosaicQuiet = time.Duration(cfg.Stacking.MosaicQuiet) * time.Minute
 	opts.CalibrationSettle = time.Duration(cfg.Stacking.CalibrationSettle) * time.Minute
 	opts.RecalibrateLimit = cfg.Stacking.RecalibrateLimit
+	opts.RegisteredGrace = time.Duration(cfg.Stacking.RegisteredGraceHours) * time.Hour
+	opts.RegisteredDeletePause = time.Duration(cfg.Stacking.RegisteredDeletePause) * time.Millisecond
+	opts.RegisteredBackfillRate = cfg.Stacking.RegisteredBackfillRate
 	// The indexer measures the lights' starlight; without it, nothing would.
 	opts.Photometry = cfg.Indexer.Enabled
 	opts.Verdicts = stacking.VerdictOptions{Mode: cfg.Stacking.TSVerdicts, Targets: cfg.Stacking.TSVerdictsTargets, Max: cfg.Stacking.TSVerdictsMax}

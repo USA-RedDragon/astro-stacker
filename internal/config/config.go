@@ -58,10 +58,13 @@ type Stacking struct {
 	// TSVerdicts sends the subs left out of masters (low score, moon) back to
 	// Target Scheduler as rejected, so they stop counting toward its
 	// exposure plans and it images the targets further.
-	TSVerdicts        string   `name:"ts-verdicts" description:"Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on" default:"off"`
-	TSVerdictsSince   string   `name:"ts-verdicts-since" description:"Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all"`
-	TSVerdictsTargets []string `name:"ts-verdicts-targets" description:"Only subs of these targets; empty for all"`
-	TSVerdictsMax     int      `name:"ts-verdicts-max" description:"Most new verdicts sent per hourly sweep" default:"200"`
+	TSVerdicts             string   `name:"ts-verdicts" description:"Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on" default:"off"`
+	TSVerdictsSince        string   `name:"ts-verdicts-since" description:"Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all"`
+	TSVerdictsTargets      []string `name:"ts-verdicts-targets" description:"Only subs of these targets; empty for all"`
+	TSVerdictsMax          int      `name:"ts-verdicts-max" description:"Most new verdicts sent per hourly sweep" default:"200"`
+	RegisteredGraceHours   int      `name:"registered-grace-hours" description:"Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all" default:"24"`
+	RegisteredDeletePause  int      `name:"registered-delete-pause-ms" description:"Milliseconds between deletions of unreferenced registered subs" default:"200"`
+	RegisteredBackfillRate float64  `name:"registered-backfill-rate" description:"Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion" default:"0.5"`
 }
 
 // TS verdict modes.
