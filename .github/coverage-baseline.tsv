@@ -11,7 +11,7 @@ internal/imagedata/fits.go	62	51
 internal/imagedata/fitswrite.go	49	41
 internal/imagedata/pedestal16.go	9	9
 internal/imagedata/xisf.go	177	138
-internal/imagedata/xisfwrite.go	78	65
+internal/imagedata/xisfwrite.go	79	66
 internal/indexer/indexer.go	266	16
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	81
@@ -56,7 +56,7 @@ internal/stacking/pointing.go	73	53
 internal/stacking/process.go	262	44
 internal/stacking/rebuild.go	237	153
 internal/stacking/recalibrate.go	100	89
-internal/stacking/registered.go	263	176
+internal/stacking/registered.go	274	183
 internal/stacking/rescore.go	75	48
 internal/stacking/status.go	68	14
 internal/stacking/tsverdicts.go	252	209
