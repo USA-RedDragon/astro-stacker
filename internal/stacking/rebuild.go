@@ -124,7 +124,9 @@ type storedSub struct {
 
 // rejectMethod is how rebuilds reject pixels. 2: a pixel keeps all its
 // samples when rejection would drop most of them (keepMajority).
-const rejectMethod = 2
+const rejectMethod = 3
+
+const rejectMethodKeepMajority = 2
 
 // rejectMethodMaxSubs bounds the masters restacked for an older rejectMethod:
 // the rule only bites with few subs, and bigger masters pick it up at their
@@ -135,7 +137,8 @@ const rejectMethodMaxSubs = 40
 // moon sweep to restack.
 func (p *Pipeline) markOldRejection(ctx context.Context) {
 	res := p.db.WithContext(ctx).Model(&app.Stack{}).
-		Where("state_key IS NOT NULL AND subs < ? AND (reject_method IS NULL OR reject_method < ?)", rejectMethodMaxSubs, rejectMethod).
+		Where("state_key IS NOT NULL AND ((subs < ? AND (reject_method IS NULL OR reject_method < ?)) OR (subs < ? AND (reject_method IS NULL OR reject_method < ?)))",
+			rejectMethodMaxSubs, rejectMethodKeepMajority, WarmUpSubs, rejectMethod).
 		UpdateColumn("needs_rebuild", true)
 	if res.Error != nil {
 		slog.Warn("Could not mark masters for restacking", "error", res.Error)
@@ -213,20 +216,23 @@ func (p *Pipeline) frameGains(ctx context.Context, rows []app.StackFrame) ([]*fl
 	return gains, nil
 }
 
-// memOffset lets memSub store slightly negative calibrated values: samples
-// are stored as round((v+memOffset)/(1+memOffset)·65535), and 0 means empty.
 const memOffset = 0.02
+
+const memStep = (1 + memOffset) / 65535
 
 func quantize(v float32) uint16 {
 	if v == 0 {
 		return 0
 	}
-	q := math.Round(float64(v+memOffset) / (1 + memOffset) * 65535)
+	q := math.Round((float64(v)+memOffset)/memStep + 0.5)
 	return uint16(min(max(q, 1), 65535))
 }
 
 func dequantize(q uint16) float32 {
-	return float32(q)/65535*(1+memOffset) - memOffset
+	if q == 0 {
+		return 0
+	}
+	return float32((float64(q)-0.5)*memStep - memOffset)
 }
 
 // memSub is one sub held in memory for a median-anchored rebuild.

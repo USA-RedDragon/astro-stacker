@@ -115,6 +115,48 @@ func TestQuantizeKeepsNegativeSky(t *testing.T) {
 	}
 }
 
+func TestQuantizeKeepsValuesNearZero(t *testing.T) {
+	t.Parallel()
+	for q := 1; q <= 65535; q++ {
+		if dequantize(uint16(q)) == 0 {
+			t.Fatalf("code %d decodes to the empty value", q)
+		}
+	}
+	near := []float32{1e-9, -1e-9, 1e-7, -1e-7, 3e-6, -3e-6, 7e-6, -7e-6}
+	for _, v := range near {
+		q := quantize(v)
+		got := dequantize(q)
+		if q == 0 || got == 0 {
+			t.Errorf("%v -> code %d -> %v, empty", v, q, got)
+		}
+		if abs32(got-v) > float32(memStep) {
+			t.Errorf("%v -> %v, off by more than a step", v, got)
+		}
+	}
+	const w, h = 64, 64
+	l := toMemSub(make([]float32, w*h), 60, 1, 0.9)
+	for i := range l.px {
+		l.px[i] = quantize(near[i%len(near)])
+	}
+	sub := make([]float32, w*h)
+	for i, q := range l.px {
+		sub[i] = dequantize(q)
+	}
+	res, err := NewAccumulator(w, h).Add(sub, 60, 1, DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Empty != 0 {
+		t.Errorf("%d pixels near zero counted as empty", res.Empty)
+	}
+	acc := medianAnchored([]memSub{l, l, l}, w, h, DefaultOptions())
+	for i, n := range acc.Count {
+		if n != 3 {
+			t.Fatalf("pixel %d kept %v of 3 samples", i, n)
+		}
+	}
+}
+
 // Sky below zero must still give the right background, not one measured from
 // the few bright pixels.
 func TestBackgroundWithNegativeSky(t *testing.T) {
