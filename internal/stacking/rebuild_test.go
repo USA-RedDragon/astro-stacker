@@ -4,6 +4,8 @@ import (
 	"math"
 	"math/rand/v2"
 	"testing"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 )
 
 func noisySub(r *rand.Rand, n int, sky, noise float64) []float32 {
@@ -129,7 +131,7 @@ func TestQuantizeKeepsValuesNearZero(t *testing.T) {
 		if q == 0 || got == 0 {
 			t.Errorf("%v -> code %d -> %v, empty", v, q, got)
 		}
-		if abs32(got-v) > float32(memStep) {
+		if abs32(got-v) > float32(imagedata.Pedestal16Step) {
 			t.Errorf("%v -> %v, off by more than a step", v, got)
 		}
 	}

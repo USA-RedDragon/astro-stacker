@@ -45,13 +45,19 @@ func Decode(b []byte) (*Image, error) {
 }
 
 type xisfImage struct {
-	Geometry     string `xml:"geometry,attr"`
-	SampleFormat string `xml:"sampleFormat,attr"`
-	Location     string `xml:"location,attr"`
-	Compression  string `xml:"compression,attr"`
-	Subblocks    string `xml:"subblocks,attr"`
-	ByteOrder    string `xml:"byteOrder,attr"`
-	Bounds       string `xml:"bounds,attr"`
+	Geometry     string         `xml:"geometry,attr"`
+	SampleFormat string         `xml:"sampleFormat,attr"`
+	Location     string         `xml:"location,attr"`
+	Compression  string         `xml:"compression,attr"`
+	Subblocks    string         `xml:"subblocks,attr"`
+	ByteOrder    string         `xml:"byteOrder,attr"`
+	Bounds       string         `xml:"bounds,attr"`
+	Properties   []xisfProperty `xml:"Property"`
+}
+
+type xisfProperty struct {
+	ID    string `xml:"id,attr"`
+	Value string `xml:"value,attr"`
 }
 
 type xisfDoc struct {
@@ -115,7 +121,37 @@ func decodeXISF(b []byte) (*Image, error) {
 			lo, hi = l, u
 		}
 	}
+	if step, zero, empty, ok := codeMapping(img); ok {
+		count := w * h * c
+		im := &Image{W: w, H: h, C: c, Data: make([]float32, count)}
+		for i := range count {
+			im.Data[i] = decodeCode(order.Uint16(raw[2*i:]), step, zero, empty)
+		}
+		return im, nil
+	}
 	return toFloat(raw, order, img.SampleFormat, w, h, c, lo, hi)
+}
+
+func codeMapping(img xisfImage) (step, zero float64, empty int, ok bool) {
+	if img.SampleFormat != "UInt16" {
+		return 0, 0, 0, false
+	}
+	vals := map[string]float64{}
+	for _, p := range img.Properties {
+		if v, err := strconv.ParseFloat(p.Value, 64); err == nil {
+			vals[p.ID] = v
+		}
+	}
+	step, okStep := vals[PropCodeStep]
+	zero, okZero := vals[PropCodeZero]
+	if !okStep || !okZero || !(step > 0) {
+		return 0, 0, 0, false
+	}
+	empty = -1
+	if e, okEmpty := vals[PropEmptyCode]; okEmpty {
+		empty = int(e)
+	}
+	return step, zero, empty, true
 }
 
 func parseGeometry(g string) (w, h, c int, err error) {

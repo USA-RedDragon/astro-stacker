@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
@@ -216,24 +217,9 @@ func (p *Pipeline) frameGains(ctx context.Context, rows []app.StackFrame) ([]*fl
 	return gains, nil
 }
 
-const memOffset = 0.02
+func quantize(v float32) uint16 { return imagedata.Quantize16(v) }
 
-const memStep = (1 + memOffset) / 65535
-
-func quantize(v float32) uint16 {
-	if v == 0 {
-		return 0
-	}
-	q := math.Round((float64(v)+memOffset)/memStep + 0.5)
-	return uint16(min(max(q, 1), 65535))
-}
-
-func dequantize(q uint16) float32 {
-	if q == 0 {
-		return 0
-	}
-	return float32((float64(q)-0.5)*memStep - memOffset)
-}
+func dequantize(q uint16) float32 { return imagedata.Dequantize16(q) }
 
 // memSub is one sub held in memory for a median-anchored rebuild.
 type memSub struct {

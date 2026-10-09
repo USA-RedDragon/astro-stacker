@@ -49,6 +49,16 @@ var (
 	TSVerdicts = promauto.NewGaugeVec(prometheus.GaugeOpts{Namespace: ns, Name: "ts_verdicts",
 		Help: "Verdicts sent to Target Scheduler, by verdict (reject, accept) and state (sent, applied, moot, overridden)."},
 		[]string{"verdict", "state"})
+	RegisteredDeleted = promauto.NewCounter(prometheus.CounterOpts{Namespace: ns, Name: "registered_deleted_total",
+		Help: "Registered subs deleted because no stacked sub references them."})
+	RegisteredDeletedBytes = promauto.NewCounter(prometheus.CounterOpts{Namespace: ns, Name: "registered_deleted_bytes_total",
+		Help: "Bytes of registered subs deleted because no stacked sub references them."})
+	RegisteredBackfill = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "registered_backfill_total",
+		Help: "Registered subs the backfill handled, by result (converted, busy, moved, failed)."}, []string{resultLabel})
+	RegisteredBackfillBytes = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "registered_backfill_bytes_total",
+		Help: "Bytes the registered sub backfill read and wrote, by direction."}, []string{"direction"})
+	RegisteredBackfillRemaining = promauto.NewGauge(prometheus.GaugeOpts{Namespace: ns, Name: "registered_backfill_remaining",
+		Help: "Stacked subs whose registered copy is still 32-bit FITS."})
 	TSVerdictsSent = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "ts_verdicts_sent_total",
 		Help: "Verdicts written for Target Scheduler, by kind (new, retry, undo, redo)."}, []string{"kind"})
 )

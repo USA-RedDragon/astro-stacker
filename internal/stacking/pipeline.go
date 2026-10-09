@@ -71,6 +71,10 @@ type PipelineOptions struct {
 	// sendVerdicts).
 	Verdicts VerdictOptions
 	Stack    Options
+
+	RegisteredGrace        time.Duration
+	RegisteredDeletePause  time.Duration
+	RegisteredBackfillRate float64
 }
 
 func DefaultPipelineOptions() PipelineOptions {
@@ -91,6 +95,10 @@ func DefaultPipelineOptions() PipelineOptions {
 		CalibrationSettle: 3 * time.Hour,
 		RecalibrateLimit:  300,
 		Stack:             DefaultOptions(),
+
+		RegisteredGrace:        24 * time.Hour,
+		RegisteredDeletePause:  200 * time.Millisecond,
+		RegisteredBackfillRate: 0.5,
 	}
 }
 
@@ -138,6 +146,8 @@ type Pipeline struct {
 	// finish what it has (Drain).
 	drain     chan struct{}
 	drainOnce sync.Once
+
+	objects registeredStore
 }
 
 // Drain stops the pipeline taking on new work: each loop finishes the batch,
@@ -225,6 +235,8 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 			}
 		}
 	})
+	wg.Go(func() { p.runRegisteredGC(ctx) })
+	wg.Go(func() { p.runRegisteredBackfill(ctx) })
 	if p.opts.MosaicInterval > 0 {
 		wg.Go(func() { p.runMosaics(ctx, p.opts.MosaicInterval) })
 	}

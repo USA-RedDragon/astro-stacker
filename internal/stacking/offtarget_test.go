@@ -1,6 +1,7 @@
 package stacking
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
@@ -87,7 +89,11 @@ func TestOffPointingSubsStayOnlyIfTheyRegister(t *testing.T) {
 		sub(3, "cloud.xisf", 23.46, 30.66),
 	}
 	reg := filepath.Join(t.TempDir(), "r_seq_00002.fit")
-	if err := os.WriteFile(reg, []byte("registered"), 0o600); err != nil {
+	var fit bytes.Buffer
+	if err := imagedata.WriteFITS(&fit, 4, 3, 1, make([]float32, 12), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reg, fit.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	added, unregistered, err := p.storeRegistered(context.Background(), "Triangulum Galaxy", filterBlue, cals, []string{reg, "", ""})
@@ -95,7 +101,7 @@ func TestOffPointingSubsStayOnlyIfTheyRegister(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(added) != 1 || added[0].c.c.frame.ID != cals[0].c.frame.ID ||
-		!put["registered/Triangulum Galaxy/Blue/2026-10-06_02-57-05_Blue_-11.00_300.00s_0047.fit"] {
+		!put["registered/Triangulum Galaxy/Blue/2026-10-06_02-57-05_Blue_-11.00_300.00s_0047.xisf"] {
 		t.Errorf("the registered off-pointing sub wasn't added: %+v, uploads %v", added, put)
 	}
 	if unregistered != 1 {

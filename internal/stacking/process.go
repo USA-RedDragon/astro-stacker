@@ -201,11 +201,15 @@ func (p *Pipeline) storeRegistered(ctx context.Context, object, filter string, c
 			slog.Info("Sub registered though its mount pointed elsewhere", "object", object, "filter", filter,
 				"frame", c.c.frame.Key, "off_by", fmt.Sprintf("%.1f°", c.c.offBy))
 		}
-		key := path.Join("registered", object, filter, strings.TrimSuffix(path.Base(c.c.frame.Key), path.Ext(c.c.frame.Key))+".fit")
-		if err := p.upload(ctx, reg, key, "application/fits"); err != nil {
+		key := registeredKey(object, filter, c.c.frame.Key)
+		local := strings.TrimSuffix(reg, filepath.Ext(reg)) + registeredExt
+		if err := encodeRegisteredFile(reg, local); err != nil {
 			return nil, 0, err
 		}
-		added = append(added, addedSub{c: c, local: reg, key: key})
+		if err := p.upload(ctx, local, key, registeredContentType); err != nil {
+			return nil, 0, err
+		}
+		added = append(added, addedSub{c: c, local: local, key: key})
 	}
 	return added, unregistered, nil
 }
@@ -336,8 +340,6 @@ func (p *Pipeline) register(ctx context.Context, dir, ref string, cals []calibra
 			return nil, err
 		}
 	}
-	// Registered subs are stored as 16-bit: calibrated data comes from a
-	// 16-bit sensor, and the rounding is far below the noise.
 	script := p.sirilPreamble(false) + "cd reg\nsetref seq_ 1\n" + registerCommand(disto)
 	if res, err := p.siril.Run(ctx, dir, script); err != nil {
 		// When no sub matches the reference, Siril fails the whole script.

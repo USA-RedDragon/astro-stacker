@@ -9,6 +9,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // Property is an XISF image property. Value is a string, a float64 or a
@@ -30,37 +32,9 @@ func WriteXISF(out io.Writer, w, h int, data []float32, keywords []Card, props [
 	if len(data) != w*h {
 		return fmt.Errorf("have %d samples, want %d", len(data), w*h)
 	}
-	size := 4 * len(data)
-	// The header states where the data starts, which depends on the
-	// header's length; a few passes settle it.
-	pos := xisfAlign
-	var header string
-	for range 4 {
-		header = xisfHeader(w, h, pos, size, keywords, props)
-		next := (16 + len(header) + xisfAlign - 1) / xisfAlign * xisfAlign
-		if next == pos {
-			break
-		}
-		pos = next
-	}
-	if 16+len(header) > pos {
-		return fmt.Errorf("xisf header of %d bytes does not fit before %d", len(header), pos)
-	}
-	n := len(header)
-	if uint64(n) > math.MaxUint32 {
-		return fmt.Errorf("xisf header of %d bytes is too long", n)
-	}
-	bw := bufio.NewWriterSize(out, 1<<20)
-	var prefix [16]byte
-	copy(prefix[:], "XISF0100")
-	binary.LittleEndian.PutUint32(prefix[8:], uint32(n))
-	if _, err := bw.Write(prefix[:]); err != nil {
-		return err
-	}
-	if _, err := bw.WriteString(header); err != nil {
-		return err
-	}
-	if _, err := bw.Write(make([]byte, pos-16-len(header))); err != nil {
+	attrs := `sampleFormat="Float32" bounds="0:1"`
+	bw, err := writeXISFHeader(out, w, h, attrs, 4*len(data), keywords, props)
+	if err != nil {
 		return err
 	}
 	buf := make([]byte, 4)
@@ -73,11 +47,72 @@ func WriteXISF(out io.Writer, w, h int, data []float32, keywords []Card, props [
 	return bw.Flush()
 }
 
-func xisfHeader(w, h, pos, size int, keywords []Card, props []Property) string {
+func WriteXISF16(out io.Writer, w, h int, codes []uint16, keywords []Card, props []Property) error {
+	if len(codes) != w*h {
+		return fmt.Errorf("have %d samples, want %d", len(codes), w*h)
+	}
+	raw := make([]byte, 2*len(codes))
+	n := len(codes)
+	for i, q := range codes {
+		raw[i] = byte(q)
+		raw[n+i] = byte(q >> 8)
+	}
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBetterCompression))
+	if err != nil {
+		return err
+	}
+	block := enc.EncodeAll(raw, nil)
+	enc.Close()
+	attrs := fmt.Sprintf(`sampleFormat="UInt16" compression="zstd+sh:%d:2"`, len(raw))
+	bw, err := writeXISFHeader(out, w, h, attrs, len(block), keywords, props)
+	if err != nil {
+		return err
+	}
+	if _, err := bw.Write(block); err != nil {
+		return err
+	}
+	return bw.Flush()
+}
+
+func writeXISFHeader(out io.Writer, w, h int, attrs string, size int, keywords []Card, props []Property) (*bufio.Writer, error) {
+	pos := xisfAlign
+	var header string
+	for range 4 {
+		header = xisfHeader(w, h, attrs, pos, size, keywords, props)
+		next := (16 + len(header) + xisfAlign - 1) / xisfAlign * xisfAlign
+		if next == pos {
+			break
+		}
+		pos = next
+	}
+	if 16+len(header) > pos {
+		return nil, fmt.Errorf("xisf header of %d bytes does not fit before %d", len(header), pos)
+	}
+	n := len(header)
+	if uint64(n) > math.MaxUint32 {
+		return nil, fmt.Errorf("xisf header of %d bytes is too long", n)
+	}
+	bw := bufio.NewWriterSize(out, 1<<20)
+	var prefix [16]byte
+	copy(prefix[:], "XISF0100")
+	binary.LittleEndian.PutUint32(prefix[8:], uint32(n))
+	if _, err := bw.Write(prefix[:]); err != nil {
+		return nil, err
+	}
+	if _, err := bw.WriteString(header); err != nil {
+		return nil, err
+	}
+	if _, err := bw.Write(make([]byte, pos-16-len(header))); err != nil {
+		return nil, err
+	}
+	return bw, nil
+}
+
+func xisfHeader(w, h int, attrs string, pos, size int, keywords []Card, props []Property) string {
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	sb.WriteString(`<xisf version="1.0" xmlns="http://www.pixinsight.com/xisf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.pixinsight.com/xisf http://pixinsight.com/xisf/xisf-1.0.xsd">`)
-	fmt.Fprintf(&sb, `<Image geometry="%d:%d:1" sampleFormat="Float32" bounds="0:1" colorSpace="Gray" location="attachment:%d:%d">`, w, h, pos, size)
+	fmt.Fprintf(&sb, `<Image geometry="%d:%d:1" %s colorSpace="Gray" location="attachment:%d:%d">`, w, h, attrs, pos, size)
 	for _, p := range props {
 		switch v := p.Value.(type) {
 		case string:

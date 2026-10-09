@@ -77,25 +77,28 @@ type previewsShadow struct {
 }
 
 type stackingShadow struct {
-	Enabled           *bool     `json:"enabled"                    toml:"enabled"                    yaml:"enabled"`
-	IntervalSeconds   *int      `json:"interval-seconds"           toml:"interval-seconds"           yaml:"interval-seconds"`
-	MinScore          *float64  `json:"min-score"                  toml:"min-score"                  yaml:"min-score"`
-	BatchSize         *int      `json:"batch-size"                 toml:"batch-size"                 yaml:"batch-size"`
-	WorkDir           *string   `json:"work-dir"                   toml:"work-dir"                   yaml:"work-dir"`
-	SirilCommand      *string   `json:"siril-command"              toml:"siril-command"              yaml:"siril-command"`
-	SirilThreads      *int      `json:"siril-threads"              toml:"siril-threads"              yaml:"siril-threads"`
-	SirilMemory       *float64  `json:"siril-memory"               toml:"siril-memory"               yaml:"siril-memory"`
-	Workers           *int      `json:"workers"                    toml:"workers"                    yaml:"workers"`
-	MosaicMinutes     *int      `json:"mosaic-minutes"             toml:"mosaic-minutes"             yaml:"mosaic-minutes"`
-	MosaicQuiet       *int      `json:"mosaic-quiet-minutes"       toml:"mosaic-quiet-minutes"       yaml:"mosaic-quiet-minutes"`
-	Pedestal          *float64  `json:"pedestal"                   toml:"pedestal"                   yaml:"pedestal"`
-	CalibrationSettle *int      `json:"calibration-settle-minutes" toml:"calibration-settle-minutes" yaml:"calibration-settle-minutes"`
-	RecalibrateLimit  *int      `json:"recalibrate-limit"          toml:"recalibrate-limit"          yaml:"recalibrate-limit"`
-	DrainSeconds      *int      `json:"drain-seconds"              toml:"drain-seconds"              yaml:"drain-seconds"`
-	TSVerdicts        *string   `json:"ts-verdicts"                toml:"ts-verdicts"                yaml:"ts-verdicts"`
-	TSVerdictsSince   *string   `json:"ts-verdicts-since"          toml:"ts-verdicts-since"          yaml:"ts-verdicts-since"`
-	TSVerdictsTargets *[]string `json:"ts-verdicts-targets"        toml:"ts-verdicts-targets"        yaml:"ts-verdicts-targets"`
-	TSVerdictsMax     *int      `json:"ts-verdicts-max"            toml:"ts-verdicts-max"            yaml:"ts-verdicts-max"`
+	Enabled                *bool     `json:"enabled"                    toml:"enabled"                    yaml:"enabled"`
+	IntervalSeconds        *int      `json:"interval-seconds"           toml:"interval-seconds"           yaml:"interval-seconds"`
+	MinScore               *float64  `json:"min-score"                  toml:"min-score"                  yaml:"min-score"`
+	BatchSize              *int      `json:"batch-size"                 toml:"batch-size"                 yaml:"batch-size"`
+	WorkDir                *string   `json:"work-dir"                   toml:"work-dir"                   yaml:"work-dir"`
+	SirilCommand           *string   `json:"siril-command"              toml:"siril-command"              yaml:"siril-command"`
+	SirilThreads           *int      `json:"siril-threads"              toml:"siril-threads"              yaml:"siril-threads"`
+	SirilMemory            *float64  `json:"siril-memory"               toml:"siril-memory"               yaml:"siril-memory"`
+	Workers                *int      `json:"workers"                    toml:"workers"                    yaml:"workers"`
+	MosaicMinutes          *int      `json:"mosaic-minutes"             toml:"mosaic-minutes"             yaml:"mosaic-minutes"`
+	MosaicQuiet            *int      `json:"mosaic-quiet-minutes"       toml:"mosaic-quiet-minutes"       yaml:"mosaic-quiet-minutes"`
+	Pedestal               *float64  `json:"pedestal"                   toml:"pedestal"                   yaml:"pedestal"`
+	CalibrationSettle      *int      `json:"calibration-settle-minutes" toml:"calibration-settle-minutes" yaml:"calibration-settle-minutes"`
+	RecalibrateLimit       *int      `json:"recalibrate-limit"          toml:"recalibrate-limit"          yaml:"recalibrate-limit"`
+	DrainSeconds           *int      `json:"drain-seconds"              toml:"drain-seconds"              yaml:"drain-seconds"`
+	TSVerdicts             *string   `json:"ts-verdicts"                toml:"ts-verdicts"                yaml:"ts-verdicts"`
+	TSVerdictsSince        *string   `json:"ts-verdicts-since"          toml:"ts-verdicts-since"          yaml:"ts-verdicts-since"`
+	TSVerdictsTargets      *[]string `json:"ts-verdicts-targets"        toml:"ts-verdicts-targets"        yaml:"ts-verdicts-targets"`
+	TSVerdictsMax          *int      `json:"ts-verdicts-max"            toml:"ts-verdicts-max"            yaml:"ts-verdicts-max"`
+	RegisteredGraceHours   *int      `json:"registered-grace-hours"     toml:"registered-grace-hours"     yaml:"registered-grace-hours"`
+	RegisteredDeletePause  *int      `json:"registered-delete-pause-ms" toml:"registered-delete-pause-ms" yaml:"registered-delete-pause-ms"`
+	RegisteredBackfillRate *float64  `json:"registered-backfill-rate"   toml:"registered-backfill-rate"   yaml:"registered-backfill-rate"`
 }
 
 type publicFramesShadow struct {
@@ -207,6 +210,12 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("stacking.ts-verdicts", configulator.LayerDefault, "default tag")
 	cfg.Stacking.TSVerdictsMax = 200
 	set("stacking.ts-verdicts-max", configulator.LayerDefault, "default tag")
+	cfg.Stacking.RegisteredGraceHours = 24
+	set("stacking.registered-grace-hours", configulator.LayerDefault, "default tag")
+	cfg.Stacking.RegisteredDeletePause = 200
+	set("stacking.registered-delete-pause-ms", configulator.LayerDefault, "default tag")
+	cfg.Stacking.RegisteredBackfillRate = 0.5
+	set("stacking.registered-backfill-rate", configulator.LayerDefault, "default tag")
 	cfg.PublicFrames.IntervalSeconds = 60
 	set("public-frames.interval-seconds", configulator.LayerDefault, "default tag")
 	cfg.PublicFrames.MaxAgeDays = 14
@@ -446,6 +455,18 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Stacking.TSVerdictsMax != nil {
 			cfg.Stacking.TSVerdictsMax = *s.Stacking.TSVerdictsMax
 			set("stacking.ts-verdicts-max", configulator.LayerFile, file)
+		}
+		if s.Stacking.RegisteredGraceHours != nil {
+			cfg.Stacking.RegisteredGraceHours = *s.Stacking.RegisteredGraceHours
+			set("stacking.registered-grace-hours", configulator.LayerFile, file)
+		}
+		if s.Stacking.RegisteredDeletePause != nil {
+			cfg.Stacking.RegisteredDeletePause = *s.Stacking.RegisteredDeletePause
+			set("stacking.registered-delete-pause-ms", configulator.LayerFile, file)
+		}
+		if s.Stacking.RegisteredBackfillRate != nil {
+			cfg.Stacking.RegisteredBackfillRate = *s.Stacking.RegisteredBackfillRate
+			set("stacking.registered-backfill-rate", configulator.LayerFile, file)
 		}
 	}
 	if s.PublicFrames != nil {
@@ -942,6 +963,45 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Stacking.TSVerdictsMax = int(p)
 		set("stacking.ts-verdicts-max", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "registered-grace-hours"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.registered-grace-hours",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Stacking.RegisteredGraceHours = int(p)
+		set("stacking.registered-grace-hours", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "registered-delete-pause-ms"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.registered-delete-pause-ms",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Stacking.RegisteredDeletePause = int(p)
+		set("stacking.registered-delete-pause-ms", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "registered-backfill-rate"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.registered-backfill-rate",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Stacking.RegisteredBackfillRate = p
+		set("stacking.registered-backfill-rate", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "public-frames", "enabled"); ok {
 		p, err := strconv.ParseBool(v)
 		if err != nil {
@@ -1045,6 +1105,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"stacking" + o.Separator + "ts-verdicts-since",
 		"stacking" + o.Separator + "ts-verdicts-targets",
 		"stacking" + o.Separator + "ts-verdicts-max",
+		"stacking" + o.Separator + "registered-grace-hours",
+		"stacking" + o.Separator + "registered-delete-pause-ms",
+		"stacking" + o.Separator + "registered-backfill-rate",
 		"public-frames" + o.Separator + "enabled",
 		"public-frames" + o.Separator + "interval-seconds",
 		"public-frames" + o.Separator + "max-age-days",
@@ -1114,9 +1177,12 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[48], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
 	fs.StringSlice(names[49], nil, "Only subs of these targets; empty for all")
 	fs.Var(impl.NewInt(200), names[50], "Most new verdicts sent per hourly sweep")
-	fs.Bool(names[51], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
-	fs.Var(impl.NewInt(60), names[52], "Seconds between checks for newly accepted lights")
-	fs.Var(impl.NewInt(14), names[53], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
+	fs.Var(impl.NewInt(24), names[51], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
+	fs.Var(impl.NewInt(200), names[52], "Milliseconds between deletions of unreferenced registered subs")
+	fs.Float64(names[53], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
+	fs.Bool(names[54], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
+	fs.Var(impl.NewInt(60), names[55], "Seconds between checks for newly accepted lights")
+	fs.Var(impl.NewInt(14), names[56], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
 	return nil
 }
 
@@ -1732,6 +1798,42 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Stacking.TSVerdictsMax = v
 		set("stacking.ts-verdicts-max", configulator.LayerCLI, "--"+n)
+	}
+	if n := "stacking" + o.Separator + "registered-grace-hours"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.registered-grace-hours",
+				Source: "--" + n,
+			}
+		}
+		cfg.Stacking.RegisteredGraceHours = v
+		set("stacking.registered-grace-hours", configulator.LayerCLI, "--"+n)
+	}
+	if n := "stacking" + o.Separator + "registered-delete-pause-ms"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.registered-delete-pause-ms",
+				Source: "--" + n,
+			}
+		}
+		cfg.Stacking.RegisteredDeletePause = v
+		set("stacking.registered-delete-pause-ms", configulator.LayerCLI, "--"+n)
+	}
+	if n := "stacking" + o.Separator + "registered-backfill-rate"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.registered-backfill-rate",
+				Source: "--" + n,
+			}
+		}
+		cfg.Stacking.RegisteredBackfillRate = v
+		set("stacking.registered-backfill-rate", configulator.LayerCLI, "--"+n)
 	}
 	if n := "public-frames" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
@@ -3034,6 +3136,62 @@ func (s *stackingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".ts-verdicts-max", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "registered-grace-hours":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".registered-grace-hours", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".registered-grace-hours", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.RegisteredGraceHours = &num
+			default:
+				return configJSONError(path+".registered-grace-hours", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "registered-delete-pause-ms":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".registered-delete-pause-ms", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".registered-delete-pause-ms", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.RegisteredDeletePause = &num
+			default:
+				return configJSONError(path+".registered-delete-pause-ms", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "registered-backfill-rate":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".registered-backfill-rate", v, err)
+				}
+				s.RegisteredBackfillRate = &num
+			default:
+				return configJSONError(path+".registered-backfill-rate", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -3186,6 +3344,9 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "stacking.ts-verdicts-since = %v\n", c.Stacking.TSVerdictsSince)
 	fmt.Fprintf(&b, "stacking.ts-verdicts-targets = %v\n", c.Stacking.TSVerdictsTargets)
 	fmt.Fprintf(&b, "stacking.ts-verdicts-max = %v\n", c.Stacking.TSVerdictsMax)
+	fmt.Fprintf(&b, "stacking.registered-grace-hours = %v\n", c.Stacking.RegisteredGraceHours)
+	fmt.Fprintf(&b, "stacking.registered-delete-pause-ms = %v\n", c.Stacking.RegisteredDeletePause)
+	fmt.Fprintf(&b, "stacking.registered-backfill-rate = %v\n", c.Stacking.RegisteredBackfillRate)
 	fmt.Fprintf(&b, "public-frames.enabled = %v\n", c.PublicFrames.Enabled)
 	fmt.Fprintf(&b, "public-frames.interval-seconds = %v\n", c.PublicFrames.IntervalSeconds)
 	fmt.Fprintf(&b, "public-frames.max-age-days = %v\n", c.PublicFrames.MaxAgeDays)
