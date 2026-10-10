@@ -42,7 +42,7 @@ func capitalise(name string) string {
 func (b *builder) preferMessier(o *catalog.Object) {
 	for i, a := range o.Aliases {
 		c, ok := catalog.Canonical(a)
-		if !ok || !strings.HasPrefix(c, "M ") || strings.HasPrefix(o.Designation, "M ") {
+		if !ok || !strings.HasPrefix(c, "M ") || strings.HasPrefix(o.Designation, "M ") || b.lookup(c) != o {
 			continue
 		}
 		o.Aliases[i] = o.Designation

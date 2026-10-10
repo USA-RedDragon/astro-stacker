@@ -293,3 +293,21 @@ func TestMissingShapeStaysNull(t *testing.T) {
 		t.Errorf("Markarian's Chain is not computed from its members: %+v", chain)
 	}
 }
+
+func TestIDsAreUnique(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, o := range ix.All() {
+		if seen[o.ID] {
+			t.Errorf("duplicate id %s (%s)", o.ID, o.Designation)
+		}
+		seen[o.ID] = true
+	}
+	if m65, _ := ix.Get("M65"); m65.Type != catalog.TypeGalaxy {
+		t.Errorf("M 65 resolves to %+v", m65)
+	}
+}
