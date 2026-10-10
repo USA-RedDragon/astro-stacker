@@ -78,12 +78,25 @@ type SeasonPlan struct {
 	SiteKnown       bool                  `json:"siteKnown"`
 	Items           []mosaics.Item        `json:"items"`
 	GoalHoursSource string                `json:"goalHoursSource"`
+	EffectivePerRaw *EffectiveRatio       `json:"effectivePerRaw"`
 	PanelPriority   []PanelSeasonPriority `json:"panelPriority"`
 }
+
+type EffectiveRatio struct {
+	Value float64 `json:"value"`
+	Subs  int     `json:"subs"`
+	Scope string  `json:"scope"`
+}
+
+const (
+	RatioProject = "project"
+	RatioAll     = "all"
+)
 
 type PanelSeasonPriority struct {
 	Panel      int     `json:"panel"`
 	HoursLeft  float64 `json:"hoursLeft"`
+	RawLeft    float64 `json:"rawHoursLeft"`
 	MonthsLeft int     `json:"monthsLeft"`
 	Priority   float64 `json:"priority"`
 	LastUsable string  `json:"lastUsableMonth,omitempty"`
@@ -127,7 +140,13 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 		strategy = string(mosaics.StrategyWeakest)
 	}
 	plan := SeasonPlan{Project: d.Project, Strategy: strategy, Pace: pace, Compare: map[string]int{}, Months: []Month{}, Rows: []SeasonRow{}}
-	plan.Items, plan.GoalHoursSource = seasonItems(d)
+	ratio, err := s.effectivePerRaw(ctx, d)
+	if err != nil {
+		return SeasonPlan{}, err
+	}
+	plan.EffectivePerRaw = ratio
+	var unconverted int
+	plan.Items, plan.GoalHoursSource, unconverted = seasonItems(d, ratio)
 	centres := make([]mosaics.Point, len(d.Panels))
 	var meanRA float64
 	var sx, sy float64
@@ -177,6 +196,11 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 		if plan.Basis.Reason == nil {
 			plan.Basis.Reason = reason("this project has no completed season yet")
 		}
+		return plan, nil
+	}
+	if unconverted > 0 {
+		plan.Basis.Reason = reason(fmt.Sprintf("%d panel filters have only a scheduler plan in raw exposure hours, and no accepted sub has been scored yet to convert raw hours to effective hours", unconverted))
+		plan.HoursPerSeason = nil
 		return plan, nil
 	}
 	rows, finish := mosaics.Simulate(plan.Items, mosaics.Strategy(strategy), *plan.HoursPerSeason, maxSeasons)
@@ -302,23 +326,38 @@ func nightsLeft(now time.Time, months [12]float64) int {
 	return n
 }
 
-func seasonItems(d Detail) ([]mosaics.Item, string) {
+func seasonItems(d Detail, ratio *EffectiveRatio) ([]mosaics.Item, string, int) {
 	src := SourceGoal
-	var items []mosaics.Item
+	items := []mosaics.Item{}
+	unconverted := 0
+	toEffective := func(raw float64) (float64, bool) {
+		if ratio == nil {
+			unconverted++
+			return 0, false
+		}
+		src = SourceTS
+		return raw * ratio.Value, true
+	}
 	for _, p := range d.Panels {
 		for _, f := range p.Filters {
 			it := mosaics.Item{Panel: p.Number, Filter: f.Filter, DoneHours: f.EffectiveHours}
 			switch {
 			case f.Done:
 				it.GoalHours = f.EffectiveHours
-			case f.HoursNeeded >= 0:
+			case f.HoursNeeded >= 0 && f.HoursBasis == HoursEffective:
 				it.GoalHours = f.EffectiveHours + f.HoursNeeded
-				if f.Source != SourceGoal {
-					src = SourceTS
+			case f.HoursNeeded >= 0 && f.HoursBasis == HoursRaw:
+				h, ok := toEffective(f.HoursNeeded)
+				if !ok {
+					continue
 				}
+				it.GoalHours = f.EffectiveHours + h
 			case f.PlannedHours > 0:
-				it.GoalHours = math.Max(f.PlannedHours, f.EffectiveHours)
-				src = SourceTS
+				h, ok := toEffective(f.PlannedHours)
+				if !ok {
+					continue
+				}
+				it.GoalHours = math.Max(h, f.EffectiveHours)
 			default:
 				continue
 			}
@@ -328,10 +367,42 @@ func seasonItems(d Detail) ([]mosaics.Item, string) {
 			items = append(items, it)
 		}
 	}
-	if items == nil {
-		items = []mosaics.Item{}
+	return items, src, unconverted
+}
+
+func (s *Service) effectivePerRaw(ctx context.Context, d Detail) (*EffectiveRatio, error) {
+	var objects []string
+	for _, p := range d.Panels {
+		objects = append(objects, p.Objects...)
 	}
-	return items, src
+	measure := func(scope string, objects []string) (*EffectiveRatio, error) {
+		var row struct {
+			Effective float64
+			Raw       float64
+			Subs      int
+		}
+		q := s.App.WithContext(ctx).Table("stack_frames sf").
+			Select("COALESCE(SUM(sf.score*sf.exposure),0) AS effective, COALESCE(SUM(sf.exposure),0) AS raw, COUNT(*) AS subs").
+			Joins("JOIN frames f ON f.id = sf.frame_id").
+			Where("sf.status = ? AND sf.exposure > 0", app.StackStatusAdded)
+		if objects != nil {
+			q = q.Where("f.object IN ?", objects)
+		}
+		if err := q.Scan(&row).Error; err != nil {
+			return nil, fmt.Errorf("load effective ratio: %w", err)
+		}
+		if row.Subs == 0 || row.Raw <= 0 {
+			return nil, nil
+		}
+		return &EffectiveRatio{Value: math.Round(row.Effective/row.Raw*1000) / 1000, Subs: row.Subs, Scope: scope}, nil
+	}
+	if len(objects) > 0 {
+		r, err := measure(RatioProject, objects)
+		if err != nil || r != nil {
+			return r, err
+		}
+	}
+	return measure(RatioAll, nil)
 }
 
 func (s *Service) seasonPaces(ctx context.Context, d Detail, ra float64) ([]SeasonPace, error) {
@@ -383,7 +454,11 @@ func (s *Service) panelPriorities(ctx context.Context, d Detail, now time.Time) 
 	for _, p := range d.Panels {
 		pp := PanelSeasonPriority{Panel: p.Number}
 		for _, f := range p.Filters {
-			if f.HoursNeeded > 0 {
+			switch {
+			case f.Done || f.HoursNeeded <= 0:
+			case f.HoursBasis == HoursRaw:
+				pp.RawLeft += f.HoursNeeded
+			default:
 				pp.HoursLeft += f.HoursNeeded
 			}
 		}
@@ -398,7 +473,7 @@ func (s *Service) panelPriorities(ctx context.Context, d Detail, now time.Time) 
 				pp.LastUsable = t.Month().String()[:3]
 			}
 		}
-		pp.ThisSeason = pp.HoursLeft > 0 && pp.MonthsLeft > 0
+		pp.ThisSeason = pp.HoursLeft+pp.RawLeft > 0 && pp.MonthsLeft > 0
 		if pp.ThisSeason {
 			pp.Priority = (1 - schedulingProgress(p)) / float64(pp.MonthsLeft)
 		}

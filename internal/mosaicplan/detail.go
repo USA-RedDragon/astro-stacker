@@ -24,6 +24,8 @@ const (
 	DoneGoal             = "goal"
 	DonePlateau          = "plateau"
 	DonePlan             = "plan"
+	HoursEffective       = "effective"
+	HoursRaw             = "raw"
 	noiseWarn            = 1.5
 	gapWarn              = 0.02
 )
@@ -39,6 +41,7 @@ type PanelFilter struct {
 	Progress       float64 `json:"progress"`
 	EffectiveHours float64 `json:"effectiveHours"`
 	HoursNeeded    float64 `json:"hoursNeeded"`
+	HoursBasis     string  `json:"hoursBasis,omitempty"`
 	PlannedHours   float64 `json:"plannedHours,omitempty"`
 	Desired        int     `json:"desired,omitempty"`
 	Accepted       int     `json:"accepted,omitempty"`
@@ -98,8 +101,7 @@ type Detail struct {
 	WeakestPanel   int                     `json:"weakestPanel"`
 	WeakestFilter  string                  `json:"weakestFilter"`
 	EffectiveHours float64                 `json:"effectiveHours"`
-	HoursLeft      float64                 `json:"hoursLeft"`
-	HoursUnknown   bool                    `json:"hoursUnknown"`
+	HoursLeft      HoursLeft               `json:"hoursLeft"`
 	Balancing      Balancing               `json:"balancing"`
 	Seams          []app.MosaicSeam        `json:"seams"`
 	Health         []app.MosaicPanelHealth `json:"health"`
@@ -107,6 +109,28 @@ type Detail struct {
 	Mosaics        []app.Mosaic            `json:"mosaics"`
 	Noise          []MosaicNoise           `json:"noise"`
 	SeamStatus     []SeamStatus            `json:"seamStatus"`
+}
+
+type HoursLeft struct {
+	Effective        float64 `json:"effective"`
+	EffectiveFilters int     `json:"effectiveFilters"`
+	Raw              float64 `json:"raw"`
+	RawFilters       int     `json:"rawFilters"`
+	UnknownFilters   int     `json:"unknownFilters"`
+}
+
+func (h *HoursLeft) add(pf PanelFilter) {
+	switch {
+	case pf.Done:
+	case pf.HoursNeeded < 0:
+		h.UnknownFilters++
+	case pf.HoursBasis == HoursEffective:
+		h.Effective += pf.HoursNeeded
+		h.EffectiveFilters++
+	case pf.HoursBasis == HoursRaw:
+		h.Raw += pf.HoursNeeded
+		h.RawFilters++
+	}
 }
 
 type MosaicNoise struct {
@@ -295,11 +319,7 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 				p.Progress, p.Weakest = c, f
 			}
 			d.EffectiveHours += pf.EffectiveHours
-			if pf.HoursNeeded >= 0 {
-				d.HoursLeft += pf.HoursNeeded
-			} else if !pf.Done {
-				d.HoursUnknown = true
-			}
+			d.HoursLeft.add(pf)
 		}
 		if len(p.Filters) == 0 {
 			p.Progress = 0
@@ -398,8 +418,8 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 		case gp.Done:
 			pf.DoneReason = DonePlateau
 		}
-		if !math.IsInf(gp.HoursNeeded, 0) && !math.IsNaN(gp.HoursNeeded) {
-			pf.HoursNeeded = gp.HoursNeeded
+		if !math.IsInf(gp.HoursNeeded, 0) && !math.IsNaN(gp.HoursNeeded) && gp.HoursNeeded >= 0 {
+			pf.HoursNeeded, pf.HoursBasis = gp.HoursNeeded, HoursEffective
 		}
 		if gp.EffectiveHours > 0 {
 			pf.EffectiveHours = gp.EffectiveHours
@@ -411,7 +431,7 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 		if pf.Done {
 			pf.DoneReason = DonePlan
 		}
-		pf.HoursNeeded = math.Max(0, pf.PlannedHours*(1-math.Min(1, pf.Progress)))
+		pf.HoursNeeded, pf.HoursBasis = math.Max(0, pf.PlannedHours*(1-math.Min(1, pf.Progress))), HoursRaw
 	case !have:
 		return pf, false
 	}
