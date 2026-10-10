@@ -182,6 +182,7 @@ type Stack struct {
 const (
 	StackStatusAdded        = "added"
 	StackStatusLowScore     = "low_score"
+	StackStatusUnmeasured   = "unmeasured"
 	StackStatusRejected     = "rejected"    // graded as rejected in Target Scheduler
 	StackStatusNoMetadata   = "no_metadata" // no scheduler record to score it
 	StackStatusCalibration  = "calibration" // no usable flat, dark or bias yet

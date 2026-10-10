@@ -129,3 +129,20 @@ func emptyScheduler(t testing.TB) *gorm.DB {
 	}
 	return db
 }
+
+func TestMissing(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		median, ped, hfr float64
+		want             string
+	}{
+		{900, 506, 2, ""},
+		{900, 506, math.NaN(), "no HFR"},
+		{500, 506, 2, "ADU median 500 is not above the pedestal 506"},
+		{math.NaN(), 506, 0, "no ADU median; no HFR"},
+	} {
+		if got := quality.Missing(c.median, c.ped, c.hfr); got != c.want {
+			t.Errorf("Missing(%v, %v, %v) = %q, want %q", c.median, c.ped, c.hfr, got, c.want)
+		}
+	}
+}

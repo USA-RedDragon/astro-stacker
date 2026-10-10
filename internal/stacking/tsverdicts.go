@@ -185,7 +185,7 @@ func planVerdicts(frames []verdictFrame, images []tsImage, known map[int]app.TSV
 
 func wantedVerdict(status string) int {
 	switch status {
-	case app.StackStatusLowScore, app.StackStatusMoon:
+	case app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon:
 		return app.TSVerdictReject
 	case app.StackStatusAdded:
 		return app.TSVerdictAccept
@@ -259,7 +259,7 @@ func (p *Pipeline) verdictFrames(ctx context.Context, opts VerdictOptions) ([]ve
 		Select("sf.frame_id, f.key, f.object, f.filter, sf.status").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
 		Where("sf.status IN ? OR (sf.status = ? AND EXISTS (SELECT 1 FROM ts_verdicts v WHERE v.frame_id = sf.frame_id))",
-			[]string{app.StackStatusLowScore, app.StackStatusMoon}, app.StackStatusAdded)
+			[]string{app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon}, app.StackStatusAdded)
 	if !opts.Since.IsZero() {
 		q = q.Where("f.date_obs >= ?", opts.Since)
 	}
