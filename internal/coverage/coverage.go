@@ -42,7 +42,12 @@ type Match struct {
 	// RotationMismatch marks a flat taken at another rotator angle.
 	RotationMismatch bool `json:"rotation_mismatch,omitempty"`
 	// Scaled marks a dark whose thermal signal must be scaled to the lights.
-	Scaled bool `json:"scaled,omitempty"`
+	Scaled      bool     `json:"scaled,omitempty"`
+	Exposure    *float64 `json:"exposure,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Master      string   `json:"master,omitempty"`
+	Basis       *Basis   `json:"basis,omitempty"`
+	HeaderError string   `json:"header_error,omitempty"`
 }
 
 type groupRow struct {
@@ -127,19 +132,31 @@ type calFrame struct {
 // light leak are left out, so a set shot while daylight reached the sensor
 // counts only its clean frames.
 func Sets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, error) {
+	sets, _, err := loadSets(ctx, db)
+	return sets, err
+}
+
+func loadSets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, map[string]ImportedSet, error) {
 	var frames []calFrame
 	if err := db.WithContext(ctx).Table("frames").
 		Select(`type, night, object, filter, exposure, gain, "offset", set_temp, bin_x, rotator, date_obs, last_modified`).
-		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL AND light_leak IS NULL", []string{"FLAT", darkType, "BIAS"}).
+		Where("type IN ? AND night IS NOT NULL AND index_error IS NULL AND light_leak IS NULL", []string{"FLAT", darkType, biasType}).
 		Scan(&frames).Error; err != nil {
-		return nil, fmt.Errorf("load calibration frames: %w", err)
+		return nil, nil, fmt.Errorf("load calibration frames: %w", err)
 	}
 	sort.SliceStable(frames, func(i, j int) bool {
 		return takenAt(frames[i].DateObs, frames[i].Night).Before(takenAt(frames[j].DateObs, frames[j].Night))
 	})
-	imported := Imported()
+	imported, err := ImportedSets(ctx, db)
+	if err != nil {
+		return nil, nil, err
+	}
+	byMaster := make(map[string]ImportedSet, len(imported))
 	sets := make([]calmatch.Set, 0, len(imported)+64)
-	sets = append(sets, imported...)
+	for _, s := range imported {
+		sets = append(sets, s.Set)
+		byMaster[s.Master] = s
+	}
 	byKey := map[string][]int{} // group key -> indexes into sets, oldest session first
 	for _, f := range frames {
 		s := calmatch.Set{
@@ -172,7 +189,7 @@ func Sets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, error) {
 		sets = append(sets, s)
 		byKey[k] = append(idx, len(sets)-1)
 	}
-	return sets, nil
+	return sets, byMaster, nil
 }
 
 // takenAt is when a frame was taken, for placing it in a session: its
@@ -184,11 +201,14 @@ func takenAt(dateObs *time.Time, night time.Time) time.Time {
 	return night
 }
 
-const darkType = "DARK"
+const (
+	darkType = "DARK"
+	biasType = "BIAS"
+)
 
 // library reports whether frames of a type make sets that span nights (see
 // SessionGap).
-func library(typ string) bool { return typ == darkType || typ == "BIAS" }
+func library(typ string) bool { return typ == darkType || typ == biasType }
 
 // groupKey is what frames of one set share, besides a library's session.
 // Missing values format as NaN and so group together, as NULLs do in SQL.
@@ -199,31 +219,6 @@ func groupKey(s calmatch.Set) string {
 		k += "\x00" + strings.Join([]string{s.Night.Format("2006-01-02"), s.Object, s.Filter, num(s.Rotator)}, "\x00")
 	}
 	return k
-}
-
-// Imported are masters WBPP made for the offset-240 lights of December 2024
-// to February 2025, whose raw bias and darks were never uploaded. Their
-// headers carry no gain, offset or temperature; the offset is the folder's,
-// the setpoint the file name's, and the gains the lights': 300 s at gain 0,
-// 600 s at gain 100. The 600 s dark has the stronger hot pixels, as gain 100
-// gives. One bias serves both gains: the offset sets the pedestal.
-func Imported() []calmatch.Set {
-	const dir = "offset240/masters/"
-	bias := dir + "masterBias_BIN-1_6248x4176.xisf"
-	night := func(s string) time.Time {
-		t, _ := time.Parse("2006-01-02", s)
-		return t
-	}
-	set := func(typ, key, date string, gain, exposure, temp float64) calmatch.Set {
-		return calmatch.Set{Type: typ, Night: night(date), Exposure: exposure, Gain: gain, Offset: 240,
-			SetTemp: temp, BinX: 1, Rotator: math.NaN(), Master: key}
-	}
-	return []calmatch.Set{
-		set("BIAS", bias, "2025-01-19", 0, 0, math.NaN()),
-		set("BIAS", bias, "2025-01-19", 100, 0, math.NaN()),
-		set(darkType, dir+"masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-300.00s.xisf", "2025-01-21", 0, 300, -20),
-		set(darkType, dir+"masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-600.00s.xisf", "2025-01-21", 100, 600, -20),
-	}
 }
 
 // SetFrames returns the frames that make up a set, matching the grouping in
@@ -268,7 +263,7 @@ func SetFrames(ctx context.Context, db *gorm.DB, s calmatch.Set) ([]app.Frame, e
 }
 
 func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.Set, error) {
-	sets, err := Sets(ctx, db)
+	sets, imported, err := loadSets(ctx, db)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -285,15 +280,17 @@ func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.
 
 	rows := make([]Row, 0, len(lights))
 	for _, l := range lights {
-		res := calmatch.Choose(calmatch.Group{
+		g := calmatch.Group{
 			Night: l.Night, Filter: l.Filter, Exposure: val(l.Exposure), Gain: val(l.Gain),
 			Offset: val(l.Offset), SetTemp: val(l.SetTemp), BinX: val(l.BinX), Rotator: val(l.Rotator),
-		}, sets)
+		}
+		res := calmatch.Choose(g, sets)
 		rows = append(rows, Row{
 			Night: l.Night.Format("2006-01-02"), Object: l.Object, Filter: l.Filter,
 			Exposure: val(l.Exposure), Gain: l.Gain, Offset: l.Offset, SetTemp: l.SetTemp,
 			Rotator: l.Rotator, Lights: l.N,
-			Flat: toMatch(res.Flat, false), Dark: toMatch(res.Dark, true), Bias: toMatch(res.Bias, false),
+			Flat: toMatch(res.Flat, g, false, imported), Dark: toMatch(res.Dark, g, true, imported),
+			Bias: toMatch(res.Bias, g, false, imported),
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -308,15 +305,27 @@ func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.
 	return rows, sets, nil
 }
 
-func toMatch(m calmatch.Match, dark bool) Match {
+func toMatch(m calmatch.Match, g calmatch.Group, dark bool, imported map[string]ImportedSet) Match {
 	out := Match{Quality: string(m.Quality), AgeDays: m.AgeDays, RotationMismatch: m.RotationMismatch, Scaled: m.Scaled}
-	if m.Set != nil {
-		out.Night = m.Set.Night.Format("2006-01-02")
-		out.Frames = m.Set.Count
-		if dark {
-			out.TempOff = ptr(m.TempOff)
-			out.SetTemp = ptr(m.Set.SetTemp)
+	if m.Set == nil {
+		return out
+	}
+	out.Night = m.Set.Night.Format("2006-01-02")
+	out.Frames = m.Set.Count
+	out.Source = SourceFrames
+	if m.Set.Master != "" {
+		out.Source, out.Master = SourceImported, m.Set.Master
+		if im, ok := imported[m.Set.Master]; ok {
+			b := im.Basis
+			out.Basis, out.HeaderError = &b, im.HeaderError
 		}
+	}
+	if dark {
+		if !math.IsNaN(g.SetTemp) && !math.IsNaN(m.Set.SetTemp) {
+			out.TempOff = ptr(m.TempOff)
+		}
+		out.SetTemp = ptr(m.Set.SetTemp)
+		out.Exposure = ptr(m.Set.Exposure)
 	}
 	return out
 }

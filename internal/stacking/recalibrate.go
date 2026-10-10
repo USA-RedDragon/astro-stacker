@@ -115,14 +115,18 @@ func (p *Pipeline) darkMasters(ctx context.Context) (map[string]calmatch.Set, er
 	if err := p.db.WithContext(ctx).Where("type = ? AND exposure IS NOT NULL", frameTypeDark).Find(&cms).Error; err != nil {
 		return nil, err
 	}
-	out := make(map[string]calmatch.Set, len(cms)+len(coverage.Imported()))
+	imported, err := coverage.ImportedSets(ctx, p.db)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]calmatch.Set, len(cms)+len(imported))
 	for _, cm := range cms {
 		out[cm.SetKey] = calmatch.Set{Type: cm.Type, Exposure: val(cm.Exposure), Gain: val(cm.Gain), Offset: val(cm.Offset),
 			SetTemp: val(cm.SetTemp), BinX: val(cm.BinX), Count: cm.Frames}
 	}
-	for _, s := range coverage.Imported() {
+	for _, s := range imported {
 		if s.Type == frameTypeDark {
-			out[importedKey(s)] = s
+			out[importedKey(s.Set)] = s.Set
 		}
 	}
 	return out, nil
