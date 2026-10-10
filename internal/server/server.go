@@ -47,7 +47,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applyPlanningRoutes(r.Group("/api/v1"))
 	applyMosaicPlanRoutes(r.Group("/api/v1"), extras.Mosaics)
 	applySkyCutoutRoutes(r.Group("/api/v1"), extras.Cutouts)
-	applyWebUI(r)
+	applyWebUI(r, config.HTTP.WebURL)
 
 	var metricsServer *http.Server
 	var pprofServer *http.Server

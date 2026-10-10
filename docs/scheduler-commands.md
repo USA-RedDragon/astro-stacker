@@ -71,9 +71,11 @@ The kind string and the payload JSON must match exactly on both sides.
 
 ## Adding a page
 
-1. Put the page in `web/src/pages/`. Each route in `web/src/router.ts` already points at a placeholder page.
-2. Call the API through `web/src/api/client.ts`, and send changes with `submitCommand` or `editEntity` from `web/src/api/commands.ts`.
-3. Show the result with `notifyCommand(record)` from `web/src/shell.ts`. It raises the toast with Undo and updates the top-bar indicator.
-4. Use the shared classes in `web/src/styles.css` (`page`, `card`, `btn`, `badge`, `field`, `input`, `dialog`, `grid`).
+The web UI lives in astro-processing (`frontend/src/scheduler/`), at https://astro-processing.jackal-stargazer.ts.net. It calls this API same-origin at `/api/v1`, through a path on the astro-processing tailnet ingress. The stacker's own `/` and old page paths redirect there (`--http.web-url`).
 
-Build with `cd web && npm ci && npm run build`, or `go generate ./internal/webui`. `npm run dev` proxies `/api` to `STACKER_URL` (default `http://localhost:8080`).
+1. Put the page in `frontend/src/scheduler/pages/`, add its route in `frontend/src/router/routes.ts` and its menu entry in `frontend/src/router/nav.ts`.
+2. Call the API through `src/scheduler/api/client.ts`, and send changes with `submitCommand` or `editEntity` from `src/scheduler/api/commands.ts`.
+3. Show the result with `notifyCommand(record)` from `src/scheduler/shell.ts`. It raises the toast with Undo and updates the top-bar indicator.
+4. Use the shared classes in `src/styles/scheduler.css` (`page`, `card`, `btn`, `badge`, `field`, `input`, `dialog`, `dgrid`).
+
+`npm run dev` in `frontend/` proxies `/api/v1` to `STACKER_URL` and `/query` and `/events` to `BACKEND_URL`.

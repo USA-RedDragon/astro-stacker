@@ -24,6 +24,7 @@ type hTTPShadow struct {
 	Bind           *string   `json:"bind"            toml:"bind"            yaml:"bind"`
 	Port           *int      `json:"port"            toml:"port"            yaml:"port"`
 	TrustedProxies *[]string `json:"trusted-proxies" toml:"trusted-proxies" yaml:"trusted-proxies"`
+	WebURL         *string   `json:"web-url"         toml:"web-url"         yaml:"web-url"`
 }
 
 type metricsShadow struct {
@@ -180,6 +181,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("http.bind", configulator.LayerDefault, "default tag")
 	cfg.HTTP.Port = 8080
 	set("http.port", configulator.LayerDefault, "default tag")
+	cfg.HTTP.WebURL = "https://astro-processing.jackal-stargazer.ts.net"
+	set("http.web-url", configulator.LayerDefault, "default tag")
 	cfg.Metrics.Bind = "127.0.0.1"
 	set("metrics.bind", configulator.LayerDefault, "default tag")
 	cfg.Metrics.Port = 9000
@@ -325,6 +328,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.HTTP.TrustedProxies != nil {
 			cfg.HTTP.TrustedProxies = *s.HTTP.TrustedProxies
 			set("http.trusted-proxies", configulator.LayerFile, file)
+		}
+		if s.HTTP.WebURL != nil {
+			cfg.HTTP.WebURL = *s.HTTP.WebURL
+			set("http.web-url", configulator.LayerFile, file)
 		}
 	}
 	if s.Metrics != nil {
@@ -720,6 +727,10 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		lst := impl.SplitList(v, ec.ArraySeparator)
 		cfg.HTTP.TrustedProxies = lst
 		set("http.trusted-proxies", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "http", "web-url"); ok {
+		cfg.HTTP.WebURL = v
+		set("http.web-url", configulator.LayerEnv, n)
 	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "metrics", "enabled"); ok {
 		p, err := strconv.ParseBool(v)
@@ -1603,6 +1614,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"http" + o.Separator + "bind",
 		"http" + o.Separator + "port",
 		"http" + o.Separator + "trusted-proxies",
+		"http" + o.Separator + "web-url",
 		"metrics" + o.Separator + "enabled",
 		"metrics" + o.Separator + "bind",
 		"metrics" + o.Separator + "port",
@@ -1707,91 +1719,92 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[1], "[::]", "Address to listen on")
 	fs.Var(impl.NewInt(8080), names[2], "Port to listen on")
 	fs.StringSlice(names[3], nil, "Trusted proxies for the HTTP server")
-	fs.Bool(names[4], false, "Enable metrics server")
-	fs.String(names[5], "127.0.0.1", "Address to listen on")
-	fs.Var(impl.NewInt(9000), names[6], "Port to listen on")
-	fs.Bool(names[7], false, "Enable pprof server")
-	fs.String(names[8], "127.0.0.1", "Address to listen on")
-	fs.Var(impl.NewInt(9999), names[9], "Port to listen on")
-	fs.String(names[10], "sqlite", "Storage type. One of mysql, postgres, sqlite")
-	fs.String(names[11], "", "Storage type of the scheduler database, if different from type")
-	fs.String(names[12], ":memory:?_pragma=foreign_keys(1)", "Data source name for the application storage")
-	fs.String(names[13], ":memory:?_pragma=foreign_keys(1)", "Data source name for the scheduler database")
-	fs.String(names[14], "s3.mcswain.dev", "S3 endpoint host, without scheme")
-	fs.Bool(names[15], true, "Use HTTPS for the S3 endpoint")
-	fs.String(names[16], "us-east-1", "S3 region")
-	fs.String(names[17], "astro", "Bucket holding the raw frames")
-	fs.String(names[18], "", "S3 access key")
-	fs.String(names[19], "", "S3 secret key")
-	fs.String(names[20], "astro-processed", "Bucket for previews and processed frames")
-	fs.String(names[21], "s3.mcswain.dev", "S3 host browsers use for presigned URLs")
-	fs.Bool(names[22], true, "Presigned URLs use HTTPS")
-	fs.Bool(names[23], false, "Index frame headers from the bucket")
-	fs.Var(impl.NewInt(600), names[24], "Seconds between bucket scans")
-	fs.Var(impl.NewInt(8), names[25], "Headers to fetch in parallel")
-	fs.Bool(names[26], false, "Render auto-stretched JPEG previews of lights into the processed bucket")
-	fs.Var(impl.NewInt(120), names[27], "Seconds between checks for frames without previews")
-	fs.Var(impl.NewInt(2), names[28], "Frames rendered in parallel; each needs about 200 MB")
-	fs.Var(impl.NewInt(1280), names[29], "Preview width in pixels")
-	fs.Var(impl.NewInt(80), names[30], "JPEG quality")
-	fs.Var(impl.NewInt(3600), names[31], "Lifetime of presigned preview URLs")
-	fs.Bool(names[32], false, "Stack good lights into masters as they arrive")
-	fs.Var(impl.NewInt(120), names[33], "Seconds between checks for new lights when idle")
-	fs.Float64(names[34], 0.3, "Lowest sub score (0-1) that goes into a master")
-	fs.Var(impl.NewInt(12), names[35], "Subs calibrated and registered per Siril run")
-	fs.String(names[36], "/tmp/stacking", "Scratch space for downloads, masters and Siril output")
-	fs.String(names[37], "siril-cli", "siril-cli, or an extracted Siril AppImage's AppRun")
-	fs.Var(impl.NewInt(4), names[38], "Threads Siril may use")
-	fs.Float64(names[39], 0.5, "Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread")
-	fs.Var(impl.NewInt(1), names[40], "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
-	fs.Var(impl.NewInt(10), names[41], "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
-	fs.Var(impl.NewInt(30), names[42], "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
-	fs.Bool(names[43], true, "Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way")
-	fs.Float64(names[44], 506.0, "Camera pedestal in ADU, for scoring subs")
-	fs.Var(impl.NewInt(180), names[45], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
-	fs.Var(impl.NewInt(300), names[46], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
-	fs.Var(impl.NewInt(1200), names[47], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
-	fs.String(names[48], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
-	fs.String(names[49], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
-	fs.StringSlice(names[50], nil, "Only subs of these targets; empty for all")
-	fs.Var(impl.NewInt(200), names[51], "Most new verdicts sent per hourly sweep")
-	fs.Var(impl.NewInt(24), names[52], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
-	fs.Var(impl.NewInt(200), names[53], "Milliseconds between deletions of unreferenced registered subs")
-	fs.Float64(names[54], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
-	fs.Bool(names[55], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
-	fs.Var(impl.NewInt(60), names[56], "Seconds between checks for newly accepted lights")
-	fs.Var(impl.NewInt(14), names[57], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
-	fs.Float64(names[58], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
-	fs.Float64(names[59], 0.0, "Observatory east longitude in degrees")
-	fs.Float64(names[60], 0.0, "Observatory elevation in metres")
-	fs.Float64(names[61], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
-	fs.Float64(names[62], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky")
-	fs.Float64(names[63], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
-	fs.Float64(names[64], 0.0, "Ignored: the pixel size is read from lights' XPIXSZ")
-	fs.Var(impl.NewInt(0), names[65], "Ignored: the image width is read from lights' headers")
-	fs.Var(impl.NewInt(0), names[66], "Ignored: the image height is read from lights' headers")
-	fs.Bool(names[67], false, "Ignored: a colour camera is recognised by BAYERPAT in lights' headers")
-	fs.StringSlice(names[68], nil, "Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights")
-	fs.Float64(names[69], 0.0, "Ignored: the typical HFR is measured from recent lights")
-	fs.Float64(names[70], 0.0, "Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights")
-	fs.StringSlice(names[71], nil, "Ignored: sub lengths per filter are read from recent lights")
-	fs.Bool(names[72], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
-	fs.String(names[73], "https://collab.starfront.space", "Starfront collaboration server")
-	fs.Var(impl.NewInt(30), names[74], "Minutes between fetches of the collaboration list")
-	fs.Bool(names[75], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
-	fs.Bool(names[76], true, "Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database")
-	fs.String(names[77], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
-	fs.Var(impl.NewInt(20), names[78], "Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit")
-	fs.String(names[79], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
-	fs.String(names[80], "", "Bearer token for the plugin's API")
-	fs.Bool(names[81], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
-	fs.String(names[82], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
-	fs.String(names[83], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
-	fs.Var(impl.NewInt(60), names[84], "Seconds on battery before the observatory PC shuts itself down, for the Power card; 0 if it never does")
-	fs.Bool(names[85], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
-	fs.Var(impl.NewInt(30), names[86], "Minutes between checks for masters to measure")
-	fs.Var(impl.NewInt(200), names[87], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
-	fs.String(names[88], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.String(names[4], "https://astro-processing.jackal-stargazer.ts.net", "The web app that the old web UI paths redirect to")
+	fs.Bool(names[5], false, "Enable metrics server")
+	fs.String(names[6], "127.0.0.1", "Address to listen on")
+	fs.Var(impl.NewInt(9000), names[7], "Port to listen on")
+	fs.Bool(names[8], false, "Enable pprof server")
+	fs.String(names[9], "127.0.0.1", "Address to listen on")
+	fs.Var(impl.NewInt(9999), names[10], "Port to listen on")
+	fs.String(names[11], "sqlite", "Storage type. One of mysql, postgres, sqlite")
+	fs.String(names[12], "", "Storage type of the scheduler database, if different from type")
+	fs.String(names[13], ":memory:?_pragma=foreign_keys(1)", "Data source name for the application storage")
+	fs.String(names[14], ":memory:?_pragma=foreign_keys(1)", "Data source name for the scheduler database")
+	fs.String(names[15], "s3.mcswain.dev", "S3 endpoint host, without scheme")
+	fs.Bool(names[16], true, "Use HTTPS for the S3 endpoint")
+	fs.String(names[17], "us-east-1", "S3 region")
+	fs.String(names[18], "astro", "Bucket holding the raw frames")
+	fs.String(names[19], "", "S3 access key")
+	fs.String(names[20], "", "S3 secret key")
+	fs.String(names[21], "astro-processed", "Bucket for previews and processed frames")
+	fs.String(names[22], "s3.mcswain.dev", "S3 host browsers use for presigned URLs")
+	fs.Bool(names[23], true, "Presigned URLs use HTTPS")
+	fs.Bool(names[24], false, "Index frame headers from the bucket")
+	fs.Var(impl.NewInt(600), names[25], "Seconds between bucket scans")
+	fs.Var(impl.NewInt(8), names[26], "Headers to fetch in parallel")
+	fs.Bool(names[27], false, "Render auto-stretched JPEG previews of lights into the processed bucket")
+	fs.Var(impl.NewInt(120), names[28], "Seconds between checks for frames without previews")
+	fs.Var(impl.NewInt(2), names[29], "Frames rendered in parallel; each needs about 200 MB")
+	fs.Var(impl.NewInt(1280), names[30], "Preview width in pixels")
+	fs.Var(impl.NewInt(80), names[31], "JPEG quality")
+	fs.Var(impl.NewInt(3600), names[32], "Lifetime of presigned preview URLs")
+	fs.Bool(names[33], false, "Stack good lights into masters as they arrive")
+	fs.Var(impl.NewInt(120), names[34], "Seconds between checks for new lights when idle")
+	fs.Float64(names[35], 0.3, "Lowest sub score (0-1) that goes into a master")
+	fs.Var(impl.NewInt(12), names[36], "Subs calibrated and registered per Siril run")
+	fs.String(names[37], "/tmp/stacking", "Scratch space for downloads, masters and Siril output")
+	fs.String(names[38], "siril-cli", "siril-cli, or an extracted Siril AppImage's AppRun")
+	fs.Var(impl.NewInt(4), names[39], "Threads Siril may use")
+	fs.Float64(names[40], 0.5, "Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread")
+	fs.Var(impl.NewInt(1), names[41], "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
+	fs.Var(impl.NewInt(10), names[42], "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
+	fs.Var(impl.NewInt(30), names[43], "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
+	fs.Bool(names[44], true, "Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way")
+	fs.Float64(names[45], 506.0, "Camera pedestal in ADU, for scoring subs")
+	fs.Var(impl.NewInt(180), names[46], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
+	fs.Var(impl.NewInt(300), names[47], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
+	fs.Var(impl.NewInt(1200), names[48], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
+	fs.String(names[49], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
+	fs.String(names[50], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
+	fs.StringSlice(names[51], nil, "Only subs of these targets; empty for all")
+	fs.Var(impl.NewInt(200), names[52], "Most new verdicts sent per hourly sweep")
+	fs.Var(impl.NewInt(24), names[53], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
+	fs.Var(impl.NewInt(200), names[54], "Milliseconds between deletions of unreferenced registered subs")
+	fs.Float64(names[55], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
+	fs.Bool(names[56], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
+	fs.Var(impl.NewInt(60), names[57], "Seconds between checks for newly accepted lights")
+	fs.Var(impl.NewInt(14), names[58], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
+	fs.Float64(names[59], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
+	fs.Float64(names[60], 0.0, "Observatory east longitude in degrees")
+	fs.Float64(names[61], 0.0, "Observatory elevation in metres")
+	fs.Float64(names[62], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
+	fs.Float64(names[63], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky")
+	fs.Float64(names[64], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
+	fs.Float64(names[65], 0.0, "Ignored: the pixel size is read from lights' XPIXSZ")
+	fs.Var(impl.NewInt(0), names[66], "Ignored: the image width is read from lights' headers")
+	fs.Var(impl.NewInt(0), names[67], "Ignored: the image height is read from lights' headers")
+	fs.Bool(names[68], false, "Ignored: a colour camera is recognised by BAYERPAT in lights' headers")
+	fs.StringSlice(names[69], nil, "Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights")
+	fs.Float64(names[70], 0.0, "Ignored: the typical HFR is measured from recent lights")
+	fs.Float64(names[71], 0.0, "Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights")
+	fs.StringSlice(names[72], nil, "Ignored: sub lengths per filter are read from recent lights")
+	fs.Bool(names[73], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
+	fs.String(names[74], "https://collab.starfront.space", "Starfront collaboration server")
+	fs.Var(impl.NewInt(30), names[75], "Minutes between fetches of the collaboration list")
+	fs.Bool(names[76], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
+	fs.Bool(names[77], true, "Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database")
+	fs.String(names[78], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
+	fs.Var(impl.NewInt(20), names[79], "Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit")
+	fs.String(names[80], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
+	fs.String(names[81], "", "Bearer token for the plugin's API")
+	fs.Bool(names[82], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
+	fs.String(names[83], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
+	fs.String(names[84], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
+	fs.Var(impl.NewInt(60), names[85], "Seconds on battery before the observatory PC shuts itself down, for the Power card; 0 if it never does")
+	fs.Bool(names[86], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
+	fs.Var(impl.NewInt(30), names[87], "Minutes between checks for masters to measure")
+	fs.Var(impl.NewInt(200), names[88], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
+	fs.String(names[89], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -1843,6 +1856,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.HTTP.TrustedProxies = v
 		set("http.trusted-proxies", configulator.LayerCLI, "--"+n)
+	}
+	if n := "http" + o.Separator + "web-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "http.web-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.HTTP.WebURL = v
+		set("http.web-url", configulator.LayerCLI, "--"+n)
 	}
 	if n := "metrics" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
@@ -3212,6 +3237,19 @@ func (s *hTTPShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 					return err
 				}
 				s.TrustedProxies = &out
+			}
+		case "web-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.WebURL = &str
+			default:
+				return configJSONError(path+".web-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -4942,6 +4980,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "http.bind = %v\n", c.HTTP.Bind)
 	fmt.Fprintf(&b, "http.port = %v\n", c.HTTP.Port)
 	fmt.Fprintf(&b, "http.trusted-proxies = %v\n", c.HTTP.TrustedProxies)
+	fmt.Fprintf(&b, "http.web-url = %v\n", c.HTTP.WebURL)
 	fmt.Fprintf(&b, "metrics.enabled = %v\n", c.Metrics.Enabled)
 	fmt.Fprintf(&b, "metrics.bind = %v\n", c.Metrics.Bind)
 	fmt.Fprintf(&b, "metrics.port = %v\n", c.Metrics.Port)
