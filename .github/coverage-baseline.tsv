@@ -1,7 +1,7 @@
 cmd/discover.go	50	0
 cmd/mosaics.go	8	0
-cmd/root.go	149	1
-cmd/stack.go	58	0
+cmd/root.go	150	1
+cmd/stack.go	59	0
 internal/calmatch/calmatch.go	81	75
 internal/catalog/catalog.go	6	6
 internal/catalog/classify.go	71	66
@@ -18,12 +18,12 @@ internal/catalog/gen/nina.go	193	0
 internal/catalog/notcatalogue.go	29	28
 internal/conditions/conditions.go	204	151
 internal/conditions/moon.go	45	45
-internal/config/config.go	29	22
+internal/config/config.go	36	24
 internal/coverage/coverage.go	179	158
 internal/coverage/darkbacklog.go	182	157
 internal/coverage/imported.go	56	54
 internal/darkcheck/darkcheck.go	97	91
-internal/darkcheck/pass.go	105	79
+internal/darkcheck/pass.go	107	81
 internal/darkneed/darkneed.go	83	71
 internal/discover/adding.go	45	38
 internal/discover/collabs.go	312	238
@@ -143,7 +143,7 @@ internal/stacking/distortion.go	87	35
 internal/stacking/duplicate.go	34	29
 internal/stacking/gain.go	122	80
 internal/stacking/header.go	188	54
-internal/stacking/lightleak.go	34	25
+internal/stacking/lightleak.go	34	26
 internal/stacking/linearfit.go	198	86
 internal/stacking/localnorm.go	203	194
 internal/stacking/masters.go	186	48
