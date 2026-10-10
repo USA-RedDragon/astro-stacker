@@ -41,9 +41,10 @@ func ProjectEdit() EditSpec {
 		EntityLabel:  "Project",
 		CategoryName: CategoryPriority,
 		Fields: map[string]FieldSpec{
-			"state":       {Label: fieldState, Format: EnumFormat(ProjectStates())},
-			"priority":    {Label: "Priority", Format: EnumFormat(ProjectPriorities())},
-			"minimumtime": {Label: "Minimum time", Format: SuffixFormat(" min")},
+			"state":           {Label: fieldState, Format: EnumFormat(ProjectStates())},
+			"priority":        {Label: "Priority", Format: EnumFormat(ProjectPriorities())},
+			"minimumtime":     {Label: "Minimum time", Format: SuffixFormat(" min")},
+			"minimumaltitude": {Label: "Minimum altitude", Format: SuffixFormat("°")},
 		},
 	}
 }
@@ -287,7 +288,7 @@ func ReplanSpec() Spec {
 }
 
 func Builtin() []Spec {
-	return []Spec{
+	return append([]Spec{
 		ProjectEdit(),
 		TargetEdit(),
 		ExposurePlanEdit(),
@@ -296,5 +297,5 @@ func Builtin() []Spec {
 		PauseSpec(),
 		ResumeSpec(),
 		ReplanSpec(),
-	}
+	}, PlanningSpecs()...)
 }
