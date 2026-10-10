@@ -89,6 +89,16 @@ func TestFilterSteeringIsAProjectSwitchNotARule(t *testing.T) {
 	}
 }
 
+func checkCountDriven(t *testing.T, p1 Target) {
+	t.Helper()
+	if p1.Driven || p1.Goals[0].Goal != nil || p1.Goals[0].Progress != nil || p1.Goals[0].Measurement == nil || p1.Goals[0].Measurement.SNR != 8.4 {
+		t.Fatalf("a target without goals must not be judged against the default goal: %+v", p1.Goals[0])
+	}
+	if math.Abs(p1.Percent-(60+200.0/3)/2/100) > 1e-9 || p1.HoursSrc != "accepted subs × exposure" || math.Abs(p1.EffHours-380*600.0/3600) > 1e-9 {
+		t.Fatalf("panel 1 percent %v hours %v %q", p1.Percent, p1.EffHours, p1.HoursSrc)
+	}
+}
+
 func TestLoadBuildsProjects(t *testing.T) {
 	t.Parallel()
 	sched, appDB := testDBs(t)
@@ -104,9 +114,10 @@ func TestLoadBuildsProjects(t *testing.T) {
 	if !cyg.IsMosaic || cyg.Priority != "Low" || len(cyg.Targets) != 2 {
 		t.Fatalf("%+v", cyg)
 	}
-	if cyg.WeakestTarget != "Cygnis Loop Panel 2" || cyg.Progress != 0 {
-		t.Fatalf("weakest %q %v", cyg.WeakestTarget, cyg.Progress)
+	if cyg.WeakestTarget != "Cygnis Loop Panel 2" || math.Abs(cyg.Progress-10.0/300) > 1e-9 || cyg.Weakest.Basis != BasisProvisional {
+		t.Fatalf("weakest %q %v %+v", cyg.WeakestTarget, cyg.Progress, cyg.Weakest)
 	}
+	checkCountDriven(t, cyg.Targets[0])
 	if cyg.Season == nil || cyg.Season.NightsLeft != 35 || math.Abs(cyg.Rarity-85.0/110) > 1e-9 {
 		t.Fatalf("season %+v rarity %v", cyg.Season, cyg.Rarity)
 	}
@@ -183,7 +194,7 @@ func TestDeriveSetsFromProjects(t *testing.T) {
 
 func TestNoveltyRarity(t *testing.T) {
 	t.Parallel()
-	if Novelty(0, 0) != 1 || Novelty(0.5, 2) != 0.4 || Novelty(1.2, 5) != 0 {
+	if noveltyScore(0, 0) != 1 || noveltyScore(0.5, 2) != 0.4 || noveltyScore(1.2, 5) != 0 {
 		t.Fatal("novelty")
 	}
 	if Rarity(&Season{NightsLeft: 10}) != 1 || Rarity(&Season{NightsLeft: 130}) != 0 || Rarity(&Season{OutOfSeason: true}) != 0 || Rarity(nil) != 0 {
