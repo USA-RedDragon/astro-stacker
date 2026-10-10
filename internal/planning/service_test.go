@@ -18,6 +18,7 @@ const (
 	filterO3     = "O-III"
 	garlicNebula = "Garlic Nebula"
 	setHOO       = "H-a, O-III"
+	cygPanel1    = "Cygnis Loop Panel 1"
 )
 
 func testDBs(t *testing.T) (*gorm.DB, *gorm.DB) {
@@ -56,8 +57,8 @@ func testDBs(t *testing.T) (*gorm.DB, *gorm.DB) {
 	}
 	now := time.Now()
 	ms := []app.GoalMeasurement{
-		{Object: "Cygnis Loop Panel 1", Filter: filterHa, Subs: 200, SNR: 8.4, EffectiveHours: 33.7, GainPerHourPct: 1.4, MeasuredAt: now},
-		{Object: "Cygnis Loop Panel 1", Filter: filterO3, Subs: 200, SNR: 5.3, EffectiveHours: 35.2, GainPerHourPct: 1.3, MeasuredAt: now},
+		{Object: cygPanel1, Filter: filterHa, Subs: 200, SNR: 8.4, EffectiveHours: 33.7, GainPerHourPct: 1.4, MeasuredAt: now},
+		{Object: cygPanel1, Filter: filterO3, Subs: 200, SNR: 5.3, EffectiveHours: 35.2, GainPerHourPct: 1.3, MeasuredAt: now},
 		{Object: garlicNebula, Filter: filterHa, Subs: 64, SNR: 11, EffectiveHours: 10.7, GainPerHourPct: 4, MeasuredAt: now},
 		{Object: garlicNebula, Filter: filterO3, Subs: 47, SNR: 4.4, EffectiveHours: 7.8, GainPerHourPct: 5.8, MeasuredAt: now},
 	}
@@ -139,11 +140,23 @@ func TestLoadBuildsProjects(t *testing.T) {
 	if !o3.GoalSet || o3.Progress == nil || math.Abs(o3.Progress.Progress-(4.4/5)*(4.4/5)) > 1e-9 {
 		t.Fatalf("%+v", o3)
 	}
-	if tg.Weakest.Filter != filterO3 || math.Abs(tg.Novelty-(1-0.7744)*0.8) > 1e-9 || !garlic.GoalDriven {
-		t.Fatalf("novelty %v weakest %+v", tg.Novelty, tg.Weakest)
+	if !garlic.GoalDriven {
+		t.Fatalf("%+v", garlic)
 	}
+	checkGarlicPlans(t, tg)
 	if tg.Plans[2].Exposure != 300 || tg.Plans[0].Exposure != 600 {
 		t.Fatalf("%+v", tg.Plans)
+	}
+}
+
+func checkGarlicPlans(t *testing.T, tg Target) {
+	t.Helper()
+	if tg.Weakest.Filter != filterHa || tg.Weakest.Basis != BasisProvisional || math.Abs(tg.Novelty-(1-0.64)*0.8) > 1e-9 {
+		t.Fatalf("a filter without its own goal row must follow its count like the plugin: novelty %v weakest %+v", tg.Novelty, tg.Weakest)
+	}
+	o3 := tg.Goals[1]
+	if tg.Plans[0].GoalDriven || !tg.Plans[1].GoalDriven || tg.Plans[1].Complete || o3.Readiness == nil || o3.Readiness.State != goals.StateMeasured || !o3.Readiness.Open {
+		t.Fatalf("plans %+v readiness %+v", tg.Plans, o3.Readiness)
 	}
 }
 
@@ -199,5 +212,63 @@ func TestNoveltyRarity(t *testing.T) {
 	}
 	if Rarity(&Season{NightsLeft: 10}) != 1 || Rarity(&Season{NightsLeft: 130}) != 0 || Rarity(&Season{OutOfSeason: true}) != 0 || Rarity(nil) != 0 {
 		t.Fatal("rarity")
+	}
+}
+
+func TestGoalDrivenPlansIgnoreDesired(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	if err := appDB.AutoMigrate(&app.Stack{}, &app.StackFrame{}); err != nil {
+		t.Fatal(err)
+	}
+	panel2 := "Cygnis Loop Panel 2"
+	st := app.Stack{Object: panel2, Filter: filterHa, Width: 100, Height: 100}
+	if err := appDB.Create(&st).Error; err != nil {
+		t.Fatal(err)
+	}
+	key := "reg"
+	addSubs := func(n int) {
+		for range n {
+			var c int64
+			appDB.Model(&app.StackFrame{}).Count(&c)
+			if err := appDB.Create(&app.StackFrame{FrameID: int(c) + 1, StackID: &st.ID, Status: app.StackStatusAdded, Weight: 1, Exposure: 600, RegisteredKey: &key}).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	addSubs(goals.MinSubs - 1)
+	if err := sched.Exec(`update exposureplan set acquired = 400, accepted = 400 where "Id" = 42`).Error; err != nil {
+		t.Fatal(err)
+	}
+	g := map[goals.Key]goals.Goal{
+		{Object: panel2, Filter: filterHa}:    {Kind: goals.KindSNR, SNR: 10},
+		{Object: cygPanel1, Filter: filterHa}: {Kind: goals.KindSNR, SNR: 5, PlateauStop: true},
+	}
+	load := func() (Target, Target) {
+		s, err := Load(context.Background(), sched, appDB, Inputs{Goals: g})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cyg, _ := s.Project(5)
+		return cyg.Targets[0], cyg.Targets[1]
+	}
+	p1, p2 := load()
+	ha := p2.Goals[0]
+	if ha.Readiness == nil || ha.Readiness.State != goals.StateCollecting || ha.Readiness.StackSubs != goals.MinSubs-1 || !ha.Readiness.Open {
+		t.Fatalf("collecting %+v", ha.Readiness)
+	}
+	if pl := p2.Plans[0]; !pl.GoalDriven || pl.Complete || pl.Percent != 0 || pl.Basis != BasisCollecting || pl.Accepted < pl.Desired {
+		t.Fatalf("a goal-driven plan past its desired count must stay open while collecting: %+v", pl)
+	}
+	if pl := p2.Plans[1]; pl.GoalDriven || pl.Complete || pl.Basis != BasisProvisional {
+		t.Fatalf("O-III has no goal row and keeps its count: %+v", pl)
+	}
+	if pl := p1.Plans[0]; !pl.GoalDriven || !pl.Complete || pl.Percent != 100 || pl.Accepted >= pl.Desired {
+		t.Fatalf("a goal met below the desired count completes the plan: %+v", pl)
+	}
+	addSubs(1)
+	_, p2 = load()
+	if pl := p2.Plans[0]; !pl.Complete || p2.Goals[0].Readiness.Open {
+		t.Fatalf("at the stacker's minimum the plan waits for the measurement: %+v %+v", pl, p2.Goals[0].Readiness)
 	}
 }

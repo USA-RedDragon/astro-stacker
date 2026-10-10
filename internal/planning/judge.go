@@ -56,19 +56,23 @@ func Judge(ctx context.Context, sched, appDB *gorm.DB) (map[int]map[string]Judge
 		byTarget := map[string]Judgement{}
 		for _, t := range p.Targets {
 			j := Judgement{Project: p.Name, Target: t.Name, Percent: t.Percent, GoalDriven: t.Driven}
-			enabled := 0
+			enabled, complete := 0, true
 			for _, pl := range t.Plans {
 				if pl.Enabled {
 					enabled++
+					complete = complete && pl.Complete
 				}
 			}
-			j.Done = enabled > 0 && t.Percent >= 1
+			collecting := false
 			for _, g := range t.Goals {
 				j.Filters = append(j.Filters, FilterJudgement{Filter: g.Filter, Percent: g.Percent, Basis: g.Basis, Status: g.Status})
-				if t.Driven && g.Status == StatusNotMeasured {
+				waiting := g.Readiness != nil && g.Readiness.State == goals.StateCollecting
+				collecting = collecting || waiting
+				if t.Driven && (g.Status == StatusNotMeasured || waiting) {
 					j.Unmeasured++
 				}
 			}
+			j.Done = enabled > 0 && complete && !collecting
 			byTarget[t.Name] = j
 		}
 		out[p.ID] = byTarget

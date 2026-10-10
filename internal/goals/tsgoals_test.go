@@ -46,6 +46,7 @@ const (
 
 const (
 	objGarlic = "Garlic"
+	objM31    = "M31"
 	guidGar   = "g-garlic"
 	tsHa      = "Ha"
 	filterHa  = "H-a"
@@ -121,7 +122,7 @@ func TestLoadGoals(t *testing.T) {
 		t.Errorf("goals %v", goals)
 	}
 	if filters[Key{Object: objGarlic, Filter: filterHa}] != tsHa || filters[Key{Object: objGarlic, Filter: filterO3}] != "OIII" ||
-		filters[Key{Object: "M31", Filter: "L"}] != "L" {
+		filters[Key{Object: objM31, Filter: "L"}] != "L" {
 		t.Errorf("filters %v", filters)
 	}
 	guids, err := ObjectGUIDs(ctx, db, sched)
@@ -172,7 +173,7 @@ func TestPublish(t *testing.T) {
 		{Object: objGarlic, Filter: filterHa, Subs: 64, SNR: 5, EffectiveHours: 8, GainPerHourPct: 5, MeasuredAt: at},
 		{Object: objGarlic, Filter: filterO3, Subs: 47, SNR: 4.4, EffectiveHours: 7.8, GainPerHourPct: 5.8, Depth: &depth, MeasuredAt: at},
 		{Object: objGarlic, Filter: "S-II", Subs: 6, Error: &errMsg, MeasuredAt: at},
-		{Object: "M31", Filter: "L", Subs: 100, SNR: 50, EffectiveHours: 10, GainPerHourPct: 4, MeasuredAt: at},
+		{Object: objM31, Filter: "L", Subs: 100, SNR: 50, EffectiveHours: 10, GainPerHourPct: 4, MeasuredAt: at},
 	}
 	if err := db.Create(&ms).Error; err != nil {
 		t.Fatal(err)
