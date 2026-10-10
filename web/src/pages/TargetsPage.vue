@@ -168,7 +168,7 @@ function open(p: Project) {
     </div>
 
     <div class="row" style="align-items: flex-end; gap: 0.75rem">
-      <label class="field" style="flex: 1 1 16rem">
+      <label class="field" style="flex: 0 1 26rem; min-width: 14rem">
         <span>Search name or catalogue ID</span>
         <input v-model="f.q" class="input" type="search" placeholder="Cygnis, IC 1318, M 31" />
       </label>
@@ -209,7 +209,7 @@ function open(p: Project) {
       <p v-if="loading" class="empty">Loading the scheduler's projects…</p>
       <p v-else-if="loadError" class="empty" style="color: var(--bad)">Could not load projects: {{ loadError }}</p>
       <div v-else class="scroll-x" style="border: 1px solid var(--border); border-radius: 0.5rem">
-        <table class="grid num" style="min-width: 62rem">
+        <table class="grid num" style="min-width: 52rem">
           <thead>
             <tr>
               <th><input type="checkbox" :checked="allChecked" aria-label="Select every shown project" @change="toggleAll" /></th>
@@ -243,13 +243,13 @@ function open(p: Project) {
                   <option>Active</option><option>Inactive</option><option>Closed</option><option v-if="p.state === 'Draft'">Draft</option>
                 </select>
               </td>
-              <td style="white-space: nowrap">{{ p.exposureSet }}</td>
+              <td class="set">{{ p.exposureSet }}</td>
               <td>
                 <div class="row" style="flex-wrap: nowrap">
                   <div class="bar"><div :style="{ width: pct(p.progress) }" /></div>
                   <span style="font-weight: 600; width: 2.75rem; text-align: right">{{ p.weakest?.progress ? pct(p.progress) : '—' }}</span>
                 </div>
-                <div class="xsmall muted" style="white-space: nowrap">{{ weakestText(p) }}<span v-if="!p.goalDriven"> · finishes on counts</span></div>
+                <div class="xsmall muted">{{ weakestText(p) }}<span v-if="!p.goalDriven"> · finishes on counts</span></div>
               </td>
               <td style="white-space: nowrap">
                 <span class="badge" :class="{ violet: seasonLabel(p.season).cls === 'violet' }">{{ seasonLabel(p.season).label }}</span>
@@ -295,6 +295,11 @@ function open(p: Project) {
   padding: 0;
   font-weight: 600;
   text-align: left;
+}
+.set {
+  min-width: 9rem;
+  max-width: 16rem;
+  overflow-wrap: anywhere;
 }
 .badge.violet {
   border: 0;
