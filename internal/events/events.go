@@ -70,6 +70,7 @@ type Broker struct {
 	recent []Event
 	subs   map[chan []byte]struct{}
 	status []byte // latest Status, sent to new listeners first
+	sticky map[string][]byte
 	// done is closed by Close, which ends every stream.
 	done      chan struct{}
 	closeOnce sync.Once
@@ -121,6 +122,30 @@ func (b *Broker) SetStatus(s Status) {
 	b.send(msg)
 }
 
+func (b *Broker) Broadcast(typ string, v any, sticky bool) {
+	if b == nil {
+		return
+	}
+	data, err := json.Marshal(struct {
+		Type string    `json:"type"`
+		Time time.Time `json:"time"`
+		Data any       `json:"data"`
+	}{typ, time.Now(), v})
+	if err != nil {
+		return
+	}
+	msg := []byte(fmt.Sprintf("data: %s\n\n", data))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if sticky {
+		if b.sticky == nil {
+			b.sticky = map[string][]byte{}
+		}
+		b.sticky[typ] = msg
+	}
+	b.send(msg)
+}
+
 // send must be called with b.mu held.
 func (b *Broker) send(msg []byte) {
 	for ch := range b.subs {
@@ -149,6 +174,9 @@ func (b *Broker) Subscribe(after uint64) (backlog [][]byte, ch <-chan []byte, ca
 	b.mu.Lock()
 	if b.status != nil {
 		backlog = append(backlog, b.status)
+	}
+	for _, m := range b.sticky {
+		backlog = append(backlog, m)
 	}
 	for _, e := range b.recent {
 		if e.ID <= after {

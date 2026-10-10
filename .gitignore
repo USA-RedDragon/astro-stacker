@@ -2,3 +2,6 @@ config.yaml
 test-dir/
 test-local-dir/
 astro-stacker*
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+web/node_modules/

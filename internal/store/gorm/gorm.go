@@ -9,6 +9,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/types"
 	"github.com/glebarez/sqlite"
@@ -29,7 +30,7 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	}
 	err = store.db.AutoMigrate(app.ImageProcess{}, app.PreStackedImage{}, app.Frame{},
 		app.CalibrationMaster{}, app.TargetReference{}, app.Stack{}, app.StackFrame{}, app.Mosaic{}, app.Cover{}, app.ReferenceReset{},
-		app.TSVerdict{}, app.PublicFrame{}, app.RegisteredOrphan{}, app.GoalMeasurement{})
+		app.TSVerdict{}, app.PublicFrame{}, app.RegisteredOrphan{}, app.GoalMeasurement{}, schedcmd.Record{})
 	if err != nil {
 		return nil, err
 	}
