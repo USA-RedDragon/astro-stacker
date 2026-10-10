@@ -38,6 +38,9 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err := store.db.AutoMigrate(app.ObjectXref{}, app.StarfrontCache{}); err != nil {
 		return nil, err
 	}
+	if err := store.db.AutoMigrate(app.ObservatoryContact{}); err != nil {
+		return nil, err
+	}
 	if err := normalizeFilters(store.db); err != nil {
 		return nil, err
 	}

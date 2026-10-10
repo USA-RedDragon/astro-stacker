@@ -230,8 +230,8 @@ func TestMonitorWebSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := m.View()
-	if v.Reachable != observatory.Online || v.Status == nil || v.State != stateImaging || v.LastAnswer == nil || v.Since == nil {
-		t.Fatalf("view %+v", v)
+	if v.Reachable != observatory.Online || v.Status == nil || v.State != stateImaging || v.LastAnswer == nil || v.Since != nil {
+		t.Fatalf("online from the start has no known since: %+v", v)
 	}
 	if s.count() != 1 || s.results[0].ID != "cmd-1" || s.results[0].Status != schedcmd.StatusApplied {
 		t.Fatalf("results %+v", s.results)

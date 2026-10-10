@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/coder/websocket"
+	"gorm.io/gorm"
 )
 
 const (
@@ -23,6 +25,13 @@ type Broadcaster interface {
 	Broadcast(typ string, v any, sticky bool)
 }
 
+type ContactStore interface {
+	LoadLastAnswer(ctx context.Context) (time.Time, error)
+	SaveLastAnswer(ctx context.Context, t time.Time) error
+}
+
+const contactSaveEvery = time.Minute
+
 type ResultSink interface {
 	ApplyResult(ctx context.Context, res schedcmd.Result) (schedcmd.Record, error)
 }
@@ -32,6 +41,7 @@ type Monitor struct {
 	Results      ResultSink
 	Broker       Broadcaster
 	OnOnline     func()
+	Contacts     ContactStore
 	PollInterval time.Duration
 	Now          func() time.Time
 
@@ -39,6 +49,7 @@ type Monitor struct {
 	status     *Status
 	reachable  Reachability
 	lastAnswer time.Time
+	savedAt    time.Time
 	since      time.Time
 	live       bool
 	lastErr    string
@@ -100,8 +111,16 @@ func (m *Monitor) setReachable(r Reachability, live bool, errText string) bool {
 	changed := m.reachable != r
 	becameOnline := changed && r == Online
 	if changed {
+		was := m.reachable
 		m.reachable = r
-		m.since = m.now()
+		switch {
+		case r != Online:
+			m.since = m.lastAnswer
+		case was == "":
+			m.since = time.Time{}
+		default:
+			m.since = m.now()
+		}
 	}
 	if r != Online {
 		live = false
@@ -145,12 +164,66 @@ func (m *Monitor) isLive() bool {
 	return m.live
 }
 
+func (m *Monitor) LoadLastAnswer(ctx context.Context) {
+	if m.Contacts == nil {
+		return
+	}
+	t, err := m.Contacts.LoadLastAnswer(ctx)
+	if err != nil {
+		slog.Warn("Loading the scheduler's last answer failed", "error", err)
+		return
+	}
+	m.mu.Lock()
+	if m.lastAnswer.IsZero() && !t.IsZero() {
+		m.lastAnswer, m.savedAt = t.UTC(), t.UTC()
+	}
+	m.mu.Unlock()
+}
+
+func (m *Monitor) SaveLastAnswer(ctx context.Context) {
+	if m.Contacts == nil {
+		return
+	}
+	m.mu.Lock()
+	at := m.lastAnswer
+	stale := at.After(m.savedAt)
+	m.mu.Unlock()
+	if !stale {
+		return
+	}
+	if err := m.Contacts.SaveLastAnswer(ctx, at); err != nil {
+		slog.Warn("Saving the scheduler's last answer failed", "error", err)
+		return
+	}
+	m.mu.Lock()
+	if at.After(m.savedAt) {
+		m.savedAt = at
+	}
+	m.mu.Unlock()
+}
+
+func (m *Monitor) saveLoop(ctx context.Context) {
+	t := time.NewTicker(contactSaveEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			m.SaveLastAnswer(context.WithoutCancel(ctx))
+			return
+		case <-t.C:
+			m.SaveLastAnswer(ctx)
+		}
+	}
+}
+
 func (m *Monitor) Run(ctx context.Context) {
+	m.LoadLastAnswer(ctx)
 	if !m.Client.Configured() {
 		m.MarkDown(nil)
 		return
 	}
 	var wg sync.WaitGroup
+	wg.Go(func() { m.saveLoop(ctx) })
 	wg.Go(func() { m.pollLoop(ctx) })
 	m.socketLoop(ctx)
 	wg.Wait()
@@ -284,4 +357,18 @@ func (m *Monitor) SchedulerState() (schedcmd.SchedulerState, bool) {
 		out.Skips = append(out.Skips, schedcmd.SkipState{Scope: k.Scope, TargetID: k.TargetID, ProjectID: k.ProjectID, Until: k.Until})
 	}
 	return out, true
+}
+
+type GormContacts struct {
+	DB *gorm.DB
+}
+
+func (g GormContacts) LoadLastAnswer(ctx context.Context) (time.Time, error) {
+	var row app.ObservatoryContact
+	err := g.DB.WithContext(ctx).Limit(1).Find(&row, 1).Error
+	return row.LastAnswer, err
+}
+
+func (g GormContacts) SaveLastAnswer(ctx context.Context, t time.Time) error {
+	return g.DB.WithContext(ctx).Save(&app.ObservatoryContact{ID: 1, LastAnswer: t.UTC()}).Error
 }
