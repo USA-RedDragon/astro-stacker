@@ -72,16 +72,10 @@ func TestSampleFollowsTheCARProjection(t *testing.T) {
 	}
 }
 
-func TestLabelsAndScores(t *testing.T) {
+func TestScores(t *testing.T) {
 	t.Parallel()
-	if halpha.Label(nil) != "Unknown" || halpha.Score(nil) != 0 {
+	if halpha.Score(nil) != 0 {
 		t.Error("unknown")
-	}
-	cases := map[float64]string{1: "Little H-α (<2 R)", 4: "Faint H-α (4 R)", 12: "H-α (12 R)", 300: "Strong H-α (300 R)"}
-	for r, want := range cases {
-		if got := halpha.Label(&halpha.Sample{Rayleigh: r}); got != want {
-			t.Errorf("%v R: %q", r, got)
-		}
 	}
 	if s := halpha.Score(&halpha.Sample{Rayleigh: 500}); s != 1 {
 		t.Errorf("score at 500 R %v", s)

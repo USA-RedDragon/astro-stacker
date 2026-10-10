@@ -3,6 +3,7 @@ package discover_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -455,7 +456,7 @@ func TestUnknownRigIsNotInvented(t *testing.T) {
 	}
 }
 
-func TestUnmeasuredSkyLeavesBrightnessUnscored(t *testing.T) {
+func TestBrightnessIsLabelledNotScored(t *testing.T) {
 	t.Parallel()
 	s := newService(t)
 	s.Sky = func(context.Context) skybright.Value {
@@ -469,14 +470,20 @@ func TestUnmeasuredSkyLeavesBrightnessUnscored(t *testing.T) {
 	if res.Mag != nil || res.Basis.Reason == nil {
 		t.Fatalf("sky %+v", res.Value)
 	}
-	unscored := 0
+	kinds := map[string]int{}
 	for _, r := range res.Rows {
-		if r.BrightScore == nil {
-			unscored++
+		kinds[r.Brightness.Kind]++
+		if r.Brightness.Kind == discover.BrightComputed && (r.Brightness.Value == nil || !strings.Contains(r.Brightness.Text, "computed")) {
+			t.Errorf("computed brightness not marked: %+v", r.Brightness)
+		}
+		for _, term := range r.Terms {
+			if term.Key == "brightness" {
+				t.Errorf("brightness in the sort key: %+v", r.Terms)
+			}
 		}
 	}
-	if unscored == 0 {
-		t.Error("every row has a brightness score against an unmeasured sky")
+	if kinds[discover.BrightNone]+kinds[discover.BrightComputed]+kinds[discover.BrightCatalogued]+kinds[discover.BrightClass] != len(res.Rows) {
+		t.Errorf("brightness kinds %+v", kinds)
 	}
 	s.Sky = func(context.Context) skybright.Value { return skybright.Configured(21.2) }
 	v, err := s.Collabs(context.Background(), nil)
@@ -494,8 +501,13 @@ func TestFinderUsesTheHAlphaMap(t *testing.T) {
 		t.Fatalf("%+v %v", res, err)
 	}
 	for _, r := range res.Rows {
-		if r.HAlpha != nil || r.Narrowband != "Unknown" {
+		if r.HAlpha != nil {
 			t.Fatalf("H-α without a map: %+v", r)
+		}
+		for _, term := range r.Terms {
+			if term.Key == discover.TermHAlpha && term.Value != nil {
+				t.Fatalf("H-α term scored without a map: %+v", term)
+			}
 		}
 	}
 	if res.HAlphaMap.State != halpha.StateOff {
@@ -511,12 +523,21 @@ func TestFinderUsesTheHAlphaMap(t *testing.T) {
 		t.Fatalf("%+v %v", withMap, err)
 	}
 	for _, r := range withMap.Rows {
-		if r.HAlpha == nil || r.HAlpha.Rayleigh != 50 || r.Narrowband != "Strong H-α (50 R)" {
+		if r.HAlpha == nil || r.HAlpha.Rayleigh != 50 {
 			t.Fatalf("row %+v", r)
 		}
 	}
 	if d, err := s.Object(ctx, "M42"); err != nil || d.HAlpha == nil || d.HAlpha.Rayleigh != 50 {
 		t.Errorf("object H-α %+v %v", d.HAlpha, err)
+	}
+	for _, r := range withMap.Rows {
+		var sum float64
+		for _, term := range r.Terms {
+			sum += term.Points
+		}
+		if math.Abs(sum-r.Score) > 0.002 {
+			t.Errorf("score %v is not the sum of its terms %+v", r.Score, r.Terms)
+		}
 	}
 	if withMap.Rows[0].Score <= res.Rows[0].Score {
 		t.Errorf("H-α did not raise the emission score: %v <= %v", withMap.Rows[0].Score, res.Rows[0].Score)
