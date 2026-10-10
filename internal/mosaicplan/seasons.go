@@ -26,13 +26,13 @@ type SeasonBasis struct {
 	HoursPerImagingNight   *float64      `json:"hoursPerImagingNight"`
 	ImagingNightsPerSeason *float64      `json:"imagingNightsPerSeason"`
 	ImagingNightsPerMonth  []MonthNights `json:"imagingNightsPerMonth"`
-	UsableMonths         []int         `json:"usableMonths"`
-	HistoryFrom          *time.Time    `json:"historyFrom"`
-	HistoryTo            *time.Time    `json:"historyTo"`
-	HistoryNights        int           `json:"historyNights"`
-	ProjectNights        int           `json:"projectNights"`
-	InsufficientHistory  bool          `json:"insufficientHistory"`
-	Reason               *string       `json:"reason"`
+	UsableMonths           []int         `json:"usableMonths"`
+	HistoryFrom            *time.Time    `json:"historyFrom"`
+	HistoryTo              *time.Time    `json:"historyTo"`
+	HistoryNights          int           `json:"historyNights"`
+	ProjectNights          int           `json:"projectNights"`
+	InsufficientHistory    bool          `json:"insufficientHistory"`
+	Reason                 *string       `json:"reason"`
 }
 
 type SiteSource func(ctx context.Context) (mosaics.Site, bool)
@@ -403,7 +403,7 @@ func (s *Service) effectivePerRaw(ctx context.Context, d Detail) (*EffectiveRati
 	for _, p := range d.Panels {
 		objects = append(objects, p.Objects...)
 	}
-	measure := func(scope string, objects []string) (*EffectiveRatio, error) {
+	measure := func(scope string, objects []string) (*EffectiveRatio, bool, error) {
 		var row struct {
 			Effective float64
 			Raw       float64
@@ -417,20 +417,20 @@ func (s *Service) effectivePerRaw(ctx context.Context, d Detail) (*EffectiveRati
 			q = q.Where("f.object IN ?", objects)
 		}
 		if err := q.Scan(&row).Error; err != nil {
-			return nil, fmt.Errorf("load effective ratio: %w", err)
+			return nil, false, fmt.Errorf("load effective ratio: %w", err)
 		}
 		if row.Subs == 0 || row.Raw <= 0 {
-			return nil, nil
+			return nil, false, nil
 		}
-		return &EffectiveRatio{Value: math.Round(row.Effective/row.Raw*1000) / 1000, Subs: row.Subs, Scope: scope}, nil
+		return &EffectiveRatio{Value: math.Round(row.Effective/row.Raw*1000) / 1000, Subs: row.Subs, Scope: scope}, true, nil
 	}
 	if len(objects) > 0 {
-		r, err := measure(RatioProject, objects)
-		if err != nil || r != nil {
+		if r, ok, err := measure(RatioProject, objects); err != nil || ok {
 			return r, err
 		}
 	}
-	return measure(RatioAll, nil)
+	r, _, err := measure(RatioAll, nil)
+	return r, err
 }
 
 func (s *Service) seasonPaces(ctx context.Context, d Detail, ra float64) ([]SeasonPace, error) {

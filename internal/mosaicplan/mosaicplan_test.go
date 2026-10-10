@@ -24,6 +24,7 @@ const (
 	markarian = "Markarian Chain"
 	filterHa  = "H-a"
 	filterRed = "Red"
+	filterLum = "Luminance"
 )
 
 func open(t *testing.T, name string) *gorm.DB {
@@ -344,6 +345,12 @@ func TestSeasonsPlanWithSite(t *testing.T) {
 	if plan.Last == nil || plan.Last.Nights != 2 || math.Abs(plan.Last.Hours-3) > 1e-9 {
 		t.Errorf("last season %+v", plan.Last)
 	}
+	checkBestSeason(ctx, t, svc, now)
+	checkMeasuredSeasons(t, svc, appDB, now)
+}
+
+func checkBestSeason(ctx context.Context, t *testing.T, svc *mosaicplan.Service, now time.Time) {
+	t.Helper()
 	if _, err := svc.Seasons(ctx, markarian, "bogus", "", now); !errors.Is(err, mosaicplan.ErrBadRequest) {
 		t.Errorf("unknown strategy: %v", err)
 	}
@@ -360,8 +367,6 @@ func TestSeasonsPlanWithSite(t *testing.T) {
 	if pr := best.Projection; pr == nil || pr.HoursPerSeason != 3 || pr.Pace != mosaicplan.PaceBest || pr.Items == 0 || pr.StepHours != mosaics.StepHours || pr.EffectivePerRaw == nil {
 		t.Errorf("projection inputs %+v", best.Projection)
 	}
-
-	checkMeasuredSeasons(t, svc, appDB, now)
 }
 
 func checkMeasuredSeasons(t *testing.T, svc *mosaicplan.Service, appDB *gorm.DB, now time.Time) {
@@ -455,9 +460,9 @@ func TestHistoryIsCumulativePerPanel(t *testing.T) {
 func TestNeedsSmallHoursAndUnknownGapLocation(t *testing.T) {
 	t.Parallel()
 	d := mosaicplan.Detail{
-		Panels: []mosaicplan.Panel{{Number: 1, Filters: []mosaicplan.PanelFilter{{Filter: "Luminance", EffectiveHours: 0.0006}}}, {Number: 2}},
-		Seams:  []app.MosaicSeam{{Filter: "Luminance", PanelA: 1, PanelB: 2, NoiseA: 8.3, NoiseB: 1, NoiseRatio: 8.3}},
-		Health: []app.MosaicPanelHealth{{Filter: "Luminance", Panel: 2, GapFraction: 0.05, GapDeg2: 0.2}},
+		Panels: []mosaicplan.Panel{{Number: 1, Filters: []mosaicplan.PanelFilter{{Filter: filterLum, EffectiveHours: 0.0006}}}, {Number: 2}},
+		Seams:  []app.MosaicSeam{{Filter: filterLum, PanelA: 1, PanelB: 2, NoiseA: 8.3, NoiseB: 1, NoiseRatio: 8.3}},
+		Health: []app.MosaicPanelHealth{{Filter: filterLum, Panel: 2, GapFraction: 0.05, GapDeg2: 0.2}},
 	}
 	got := mosaicplan.Needs(d)
 	if len(got) != 2 || !strings.Contains(got[0], "+2 min effective Luminance") || !strings.Contains(got[1], "location not measured") {
