@@ -133,3 +133,39 @@ public-frames:
   interval-seconds: 60
   # Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered
   max-age-days: 14
+# Catalogue completion, the target finder and Starfront collaborations
+discover:
+  # Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)
+  # site-latitude: 0.0
+  # Observatory east longitude in degrees
+  # site-longitude: 0.0
+  # Observatory elevation in metres
+  # site-elevation: 0.0
+  # Altitude in degrees an object must clear in astronomical darkness to count as up
+  min-altitude: 30
+  # Dark-sky brightness at the site in mag/arcsec², for brightness scores
+  sky-brightness: 21.4
+  # Telescope focal length in mm
+  focal-length: 405
+  # Camera pixel size in µm
+  pixel-size: 3.76
+  # Camera width in pixels
+  sensor-width: 6248
+  # Camera height in pixels
+  sensor-height: 4176
+  # The camera is one-shot colour
+  colour: false
+  # Filters on the wheel as L, R, G, B, H, O or S, each optionally =bandpass in nm (H=3)
+  filters: ["L", "R", "G", "B", "H", "O", "S"]
+  # Typical star HFR in arcseconds, for collaboration limits; 0 if unknown
+  # typical-hfr: 0.0
+  # Typical guiding RMS in arcseconds, for collaboration limits; 0 if unknown
+  # typical-guide-rms: 0.0
+  # Sub lengths in seconds per filter (H=600), for collaboration limits
+  # exposures: []
+  # Read Starfront's public collaboration list for the Collabs page; read-only, no account
+  starfront: true
+  # Starfront collaboration server
+  starfront-url: "https://collab.starfront.space"
+  # Minutes between fetches of the collaboration list
+  starfront-minutes: 30
