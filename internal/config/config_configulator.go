@@ -128,6 +128,12 @@ type discoverShadow struct {
 	StarfrontMinutes *int      `json:"starfront-minutes" toml:"starfront-minutes" yaml:"starfront-minutes"`
 }
 
+type schedulerShadow struct {
+	URL   *string `json:"url"   toml:"url"   yaml:"url"`
+	Token *string `json:"token" toml:"token" yaml:"token"`
+	Queue *bool   `json:"queue" toml:"queue" yaml:"queue"`
+}
+
 type configShadow struct {
 	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
 	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
@@ -140,6 +146,7 @@ type configShadow struct {
 	Stacking     *stackingShadow     `json:"stacking"      toml:"stacking"      yaml:"stacking"`
 	PublicFrames *publicFramesShadow `json:"public-frames" toml:"public-frames" yaml:"public-frames"`
 	Discover     *discoverShadow     `json:"discover"      toml:"discover"      yaml:"discover"`
+	Scheduler    *schedulerShadow    `json:"scheduler"     toml:"scheduler"     yaml:"scheduler"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -267,6 +274,8 @@ func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) er
 	set("discover.starfront-url", configulator.LayerDefault, "default tag")
 	cfg.Discover.StarfrontMinutes = 30
 	set("discover.starfront-minutes", configulator.LayerDefault, "default tag")
+	cfg.Scheduler.Queue = true
+	set("scheduler.queue", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -602,6 +611,20 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Discover.StarfrontMinutes != nil {
 			cfg.Discover.StarfrontMinutes = *s.Discover.StarfrontMinutes
 			set("discover.starfront-minutes", configulator.LayerFile, file)
+		}
+	}
+	if s.Scheduler != nil {
+		if s.Scheduler.URL != nil {
+			cfg.Scheduler.URL = *s.Scheduler.URL
+			set("scheduler.url", configulator.LayerFile, file)
+		}
+		if s.Scheduler.Token != nil {
+			cfg.Scheduler.Token = *s.Scheduler.Token
+			set("scheduler.token", configulator.LayerFile, file)
+		}
+		if s.Scheduler.Queue != nil {
+			cfg.Scheduler.Queue = *s.Scheduler.Queue
+			set("scheduler.queue", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -1371,6 +1394,27 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Discover.StarfrontMinutes = int(p)
 		set("discover.starfront-minutes", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduler", "url"); ok {
+		cfg.Scheduler.URL = v
+		set("scheduler.url", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduler", "token"); ok {
+		cfg.Scheduler.Token = v
+		set("scheduler.token", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduler", "queue"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "scheduler.queue",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Scheduler.Queue = p
+		set("scheduler.queue", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -1459,6 +1503,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"discover" + o.Separator + "starfront",
 		"discover" + o.Separator + "starfront-url",
 		"discover" + o.Separator + "starfront-minutes",
+		"scheduler" + o.Separator + "url",
+		"scheduler" + o.Separator + "token",
+		"scheduler" + o.Separator + "queue",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -1550,6 +1597,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Bool(names[72], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
 	fs.String(names[73], "https://collab.starfront.space", "Starfront collaboration server")
 	fs.Var(impl.NewInt(30), names[74], "Minutes between fetches of the collaboration list")
+	fs.String(names[75], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
+	fs.String(names[76], "", "Bearer token for the plugin's API")
+	fs.Bool(names[77], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
 	return nil
 }
 
@@ -2454,6 +2504,42 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Discover.StarfrontMinutes = v
 		set("discover.starfront-minutes", configulator.LayerCLI, "--"+n)
 	}
+	if n := "scheduler" + o.Separator + "url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "scheduler.url",
+				Source: "--" + n,
+			}
+		}
+		cfg.Scheduler.URL = v
+		set("scheduler.url", configulator.LayerCLI, "--"+n)
+	}
+	if n := "scheduler" + o.Separator + "token"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "scheduler.token",
+				Source: "--" + n,
+			}
+		}
+		cfg.Scheduler.Token = v
+		set("scheduler.token", configulator.LayerCLI, "--"+n)
+	}
+	if n := "scheduler" + o.Separator + "queue"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "scheduler.queue",
+				Source: "--" + n,
+			}
+		}
+		cfg.Scheduler.Queue = v
+		set("scheduler.queue", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -2676,6 +2762,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Discover = &sub
+			}
+		case "scheduler":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("scheduler", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub schedulerShadow
+				if err := sub.decodeJSON(dec, "scheduler"); err != nil {
+					return err
+				}
+				s.Scheduler = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -4220,6 +4325,68 @@ func (s *discoverShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *schedulerShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.URL = &str
+			default:
+				return configJSONError(path+".url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "token":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Token = &str
+			default:
+				return configJSONError(path+".token", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "queue":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Queue = &b
+			default:
+				return configJSONError(path+".queue", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -4309,6 +4476,9 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "discover.starfront = %v\n", c.Discover.Starfront)
 	fmt.Fprintf(&b, "discover.starfront-url = %v\n", c.Discover.StarfrontURL)
 	fmt.Fprintf(&b, "discover.starfront-minutes = %v\n", c.Discover.StarfrontMinutes)
+	fmt.Fprintf(&b, "scheduler.url = %v\n", c.Scheduler.URL)
+	fmt.Fprintf(&b, "scheduler.token = %v\n", c.Scheduler.Token)
+	fmt.Fprintf(&b, "scheduler.queue = %v\n", c.Scheduler.Queue)
 	return b.String()
 }
 

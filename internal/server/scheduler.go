@@ -10,6 +10,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
+	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/gin-gonic/gin"
@@ -29,9 +30,17 @@ type Extras struct {
 	Mosaics   *mosaicplan.Service
 	Discover  *discover.Service
 	Collabs   *starfront.Poller
+	Previews  PreviewSource
+	Now       func() time.Time
 }
 
-func applySchedulerRoutes(g *gin.RouterGroup, x Extras) {
+func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer) {
+	now := x.Now
+	if now == nil {
+		now = time.Now
+	}
+	applyPreviewRoutes(g, x.Previews, now)
+	applySchedDataRoutes(g, signer, now)
 	status := x.Scheduler
 	if status == nil {
 		status = unconfiguredStatus{}
