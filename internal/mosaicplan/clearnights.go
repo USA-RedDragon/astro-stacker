@@ -16,10 +16,11 @@ const (
 )
 
 type MonthNights struct {
-	Month  int      `json:"month"`
-	Name   string   `json:"name"`
-	Nights *float64 `json:"nights"`
-	Years  int      `json:"years"`
+	Month     int      `json:"month"`
+	Name      string   `json:"name"`
+	Nights    *float64 `json:"nights"`
+	Years     int      `json:"years"`
+	SpanYears int      `json:"spanYears"`
 }
 
 type nightHistory struct {
@@ -59,18 +60,23 @@ func (s *Service) clearNights(ctx context.Context) (nightHistory, error) {
 }
 
 func (h nightHistory) perMonth() []MonthNights {
-	var counts, years [12]int
+	var counts, years, span [12]int
+	active := map[int]bool{}
 	for d := range h.hours {
 		counts[int(d.Month())-1]++
+		active[d.Year()] = true
 	}
 	if !h.first.IsZero() {
 		for m := time.Date(h.first.Year(), h.first.Month(), 1, 0, 0, 0, 0, time.UTC); !m.After(h.last); m = m.AddDate(0, 1, 0) {
-			years[int(m.Month())-1]++
+			span[int(m.Month())-1]++
+			if active[m.Year()] {
+				years[int(m.Month())-1]++
+			}
 		}
 	}
 	out := make([]MonthNights, 12)
 	for i := range 12 {
-		out[i] = MonthNights{Month: i + 1, Name: time.Month(i + 1).String()[:3], Years: years[i]}
+		out[i] = MonthNights{Month: i + 1, Name: time.Month(i + 1).String()[:3], Years: years[i], SpanYears: span[i]}
 		if years[i] > 0 {
 			v := math.Round(float64(counts[i])/float64(years[i])*10) / 10
 			out[i].Nights = &v
