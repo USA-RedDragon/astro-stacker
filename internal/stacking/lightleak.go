@@ -48,9 +48,9 @@ func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files
 		v := refs.Judge(s, m)
 		cols := map[string]any{
 			"dark_spread": m.Spread, "cal_median_adu": m.Median, "cal_spread_adu": m.Spread, "cal_noise_adu": m.Noise,
-			"cal_measured_at": time.Now().UTC(), "cal_check": v.State, "cal_check_reason": v.Reason, "light_leak": nil,
+			"cal_measured_at": time.Now().UTC(), "cal_check": v.State, "cal_check_reason": v.Reason,
 		}
-		if v.State == darkcheck.StateLeak || v.State == darkcheck.StateOffTemp {
+		if v.State == darkcheck.StateLeak && !p.opts.RejectDarksSince.IsZero() && !s.TakenAt.Before(p.opts.RejectDarksSince) {
 			cols["light_leak"] = m.Spread
 			slog.Warn("Leaving out a rejected dark", "key", f.Key, "reason", v.Reason)
 			if err := os.Remove(files[i]); err != nil {

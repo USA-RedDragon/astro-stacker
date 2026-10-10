@@ -150,7 +150,8 @@ type goalsShadow struct {
 }
 
 type darksShadow struct {
-	Publish *string `json:"publish" toml:"publish" yaml:"publish"`
+	RejectSince *string `json:"reject-since" toml:"reject-since" yaml:"reject-since"`
+	Publish     *string `json:"publish"      toml:"publish"      yaml:"publish"`
 }
 
 type configShadow struct {
@@ -302,6 +303,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("goals.workers", configulator.LayerDefault, "default tag")
 	cfg.Goals.Publish = "off"
 	set("goals.publish", configulator.LayerDefault, "default tag")
+	cfg.Darks.RejectSince = "2026-10-10"
+	set("darks.reject-since", configulator.LayerDefault, "default tag")
 	cfg.Darks.Publish = "off"
 	set("darks.publish", configulator.LayerDefault, "default tag")
 	return nil
@@ -707,6 +710,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		}
 	}
 	if s.Darks != nil {
+		if s.Darks.RejectSince != nil {
+			cfg.Darks.RejectSince = *s.Darks.RejectSince
+			set("darks.reject-since", configulator.LayerFile, file)
+		}
 		if s.Darks.Publish != nil {
 			cfg.Darks.Publish = *s.Darks.Publish
 			set("darks.publish", configulator.LayerFile, file)
@@ -1612,6 +1619,10 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Goals.Publish = v
 		set("goals.publish", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "darks", "reject-since"); ok {
+		cfg.Darks.RejectSince = v
+		set("darks.reject-since", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "darks", "publish"); ok {
 		cfg.Darks.Publish = v
 		set("darks.publish", configulator.LayerEnv, n)
@@ -1719,6 +1730,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"goals" + o.Separator + "max-subs",
 		"goals" + o.Separator + "workers",
 		"goals" + o.Separator + "publish",
+		"darks" + o.Separator + "reject-since",
 		"darks" + o.Separator + "publish",
 	}
 	for i, name := range names {
@@ -1825,7 +1837,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(200), names[87], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
 	fs.Var(impl.NewInt(3), names[88], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
 	fs.String(names[89], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
-	fs.String(names[90], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[90], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
+	fs.String(names[91], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -2910,6 +2923,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Goals.Publish = v
 		set("goals.publish", configulator.LayerCLI, "--"+n)
+	}
+	if n := "darks" + o.Separator + "reject-since"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "darks.reject-since",
+				Source: "--" + n,
+			}
+		}
+		cfg.Darks.RejectSince = v
+		set("darks.reject-since", configulator.LayerCLI, "--"+n)
 	}
 	if n := "darks" + o.Separator + "publish"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -5027,6 +5052,19 @@ func (s *darksShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			return nil
 		}
 		switch key := tok.String(); key {
+		case "reject-since":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.RejectSince = &str
+			default:
+				return configJSONError(path+".reject-since", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
 		case "publish":
 			v, err := dec.ReadToken()
 			if err != nil {
@@ -5159,6 +5197,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "goals.max-subs = %v\n", c.Goals.MaxSubs)
 	fmt.Fprintf(&b, "goals.workers = %v\n", c.Goals.Workers)
 	fmt.Fprintf(&b, "goals.publish = %v\n", c.Goals.Publish)
+	fmt.Fprintf(&b, "darks.reject-since = %v\n", c.Darks.RejectSince)
 	fmt.Fprintf(&b, "darks.publish = %v\n", c.Darks.Publish)
 	return b.String()
 }

@@ -42,7 +42,8 @@ type Indexer struct {
 	// Events, if set, hears when new frames are indexed.
 	Events *events.Broker
 
-	AfterScan func(context.Context)
+	AfterScan        func(context.Context)
+	RejectDarksSince time.Time
 }
 
 func New(client *minio.Client, bucket string, db *gorm.DB, concurrency int) *Indexer {
@@ -119,7 +120,7 @@ func (ix *Indexer) scan(ctx context.Context) {
 	} else if n > 0 {
 		slog.Info("Measured lights without a scheduler record", "lights", n)
 	}
-	darkcheck.Run(ctx, ix.db, ix.download, photometryWorkers, coverage.SessionGap)
+	darkcheck.Run(ctx, ix.db, ix.download, photometryWorkers, coverage.SessionGap, ix.RejectDarksSince)
 	if ix.AfterScan != nil && ctx.Err() == nil {
 		ix.AfterScan(ctx)
 	}

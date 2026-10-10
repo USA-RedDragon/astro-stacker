@@ -129,7 +129,7 @@ func checkComputed(t *testing.T, db *gorm.DB, fx *fixture) {
 	if _, err := darkcheck.MeasurePending(ctx, db, fx.download, 2); err != nil {
 		t.Fatal(err)
 	}
-	clean, leak, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap)
+	clean, leak, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil || clean != 4 || leak != 1 {
 		t.Fatalf("clean %d leak %d err %v", clean, leak, err)
 	}
@@ -189,7 +189,7 @@ func checkPublished(t *testing.T, db, sched *gorm.DB, fx *fixture) {
 	if _, err := darkcheck.MeasurePending(ctx, db, fx.download, 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap); err != nil {
+	if _, _, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	s, err = p.Publish(ctx)
@@ -258,5 +258,60 @@ func TestPublishSkipsWithoutTable(t *testing.T) {
 	var nilPub *darkneed.Publisher
 	if s := nilPub.Status(); s.Mode != darkneed.PublishOff {
 		t.Errorf("nil publisher %+v", s)
+	}
+}
+
+func TestExistingDarksAreRecordedOnly(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := db.DB(); err == nil {
+		raw.SetMaxOpenConns(1)
+	}
+	fx := seed(t, db)
+	ctx := context.Background()
+	oldLeak := 9.0
+	if err := db.Model(&app.Frame{}).Where("key = ?", "DARK/d5_0.fits").Update("light_leak", oldLeak).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := darkcheck.MeasurePending(ctx, db, fx.download, 1); err != nil {
+		t.Fatal(err)
+	}
+	before, err := coverage.Sets(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap, fx.now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var lit, kept app.Frame
+	db.Where("key = ?", "DARK/d13_1.fits").First(&lit)
+	db.Where("key = ?", "DARK/d5_0.fits").First(&kept)
+	if lit.CalCheck == nil || *lit.CalCheck != darkcheck.StateLeak || lit.LightLeak != nil {
+		t.Errorf("existing lit dark: check %v leak %v, want the verdict recorded and the dark kept", lit.CalCheck, lit.LightLeak)
+	}
+	if kept.LightLeak == nil || *kept.LightLeak != oldLeak {
+		t.Errorf("an earlier rejection was cleared: %v", kept.LightLeak)
+	}
+	after, err := coverage.Sets(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("sets changed: %d to %d", len(before), len(after))
+	}
+	for i := range before {
+		if before[i].Count != after[i].Count {
+			t.Errorf("set %d changed from %d to %d frames", i, before[i].Count, after[i].Count)
+		}
+	}
+	if _, _, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap, fx.now.Add(-6*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	db.Where("key = ?", "DARK/d13_1.fits").First(&lit)
+	if lit.LightLeak != nil {
+		t.Errorf("a recorded verdict was applied later: %v", lit.LightLeak)
 	}
 }
