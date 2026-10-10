@@ -68,22 +68,33 @@ func newService(t *testing.T) *discover.Service {
 	t.Helper()
 	sched := openDB(t, "sched")
 	for _, q := range []string{
-		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, name TEXT, state INTEGER, "isMosaic" INTEGER, minimumaltitude REAL, "profileId" TEXT, enablegrader INTEGER)`,
-		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, ra REAL, dec REAL, projectid INTEGER, rotation REAL)`,
-		`CREATE TABLE exposureplan ("Id" INTEGER PRIMARY KEY, desired INTEGER, acquired INTEGER, accepted INTEGER, targetid INTEGER, enabled INTEGER)`,
-		`INSERT INTO project VALUES (1, 'Garlic Nebula', 1, 0, 30, 'p', 1), (2, 'Cygnis Loop', 1, 1, 30, 'p', 1), (3, 'M13', 1, 0, 42, 'p', 1),
-			(4, 'C/2025 R2', 1, 0, 30, 'p', 1), (5, 'Andromeda Galaxy', 1, 0, 30, 'p', 1), (6, 'Pleiades', 0, 0, 30, 'p', 1)`,
-		`INSERT INTO target VALUES (1, 'Garlic Nebula', 23.986944, 62.436667, 1, 0), (2, 'Cygnis Loop Panel 1', 20.868, 31.537, 2, 0),
-			(3, 'Cygnis Loop Panel 2', 20.868, 29.760, 2, 0), (4, 'M 13', 16.6949, 36.4613, 3, 0),
-			(5, 'C/2025 R2', 13.4, 10.2, 4, 0), (6, 'Andromeda Galaxy', 23.986944, 62.436667, 5, 0), (7, 'Pleiades', 3.7911, 24.1167, 6, 0)`,
-		`INSERT INTO exposureplan VALUES (1, 20, 20, 12, 1, 1), (2, 40, 50, 40, 4, 1), (3, 10, 0, 0, 4, 0)`,
+		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, "profileId" TEXT, name TEXT, description TEXT, state INTEGER, priority INTEGER, minimumtime INTEGER,
+			minimumaltitude REAL, "maximumAltitude" REAL, "isMosaic" INTEGER, enablegrader INTEGER, guid TEXT)`,
+		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, active INTEGER, ra REAL, dec REAL, rotation REAL, projectid INTEGER, guid TEXT)`,
+		`CREATE TABLE exposureplan ("Id" INTEGER PRIMARY KEY, "profileId" TEXT, exposure REAL, desired INTEGER, acquired INTEGER, accepted INTEGER,
+			targetid INTEGER, "exposureTemplateId" INTEGER, enabled INTEGER, guid TEXT)`,
+		`CREATE TABLE exposuretemplate ("Id" INTEGER PRIMARY KEY, "profileId" TEXT, name TEXT, filtername TEXT, gain INTEGER, "offset" INTEGER, bin INTEGER,
+			twilightlevel INTEGER, moonavoidanceenabled INTEGER, moonavoidanceseparation REAL, moonavoidancewidth INTEGER, maximumhumidity REAL,
+			defaultexposure REAL, moonrelaxscale REAL, moondownenabled INTEGER, ditherevery INTEGER, guid TEXT)`,
+		`CREATE TABLE ruleweight ("Id" INTEGER PRIMARY KEY, name TEXT, weight REAL, projectid INTEGER)`,
+		`INSERT INTO project ("Id", "profileId", name, state, minimumaltitude, "isMosaic", enablegrader, guid) VALUES
+			(1, 'p', 'Garlic Nebula', 1, 30, 0, 1, 'pg'), (2, 'p', 'Cygnis Loop', 1, 30, 1, 1, 'pc'), (3, 'p', 'M13', 1, 42, 0, 1, 'pm'),
+			(4, 'p', 'C/2025 R2', 1, 30, 0, 1, 'pk'), (5, 'p', 'Andromeda Galaxy', 1, 30, 0, 1, 'pa'), (6, 'p', 'Pleiades', 0, 30, 0, 1, 'pp')`,
+		`INSERT INTO target ("Id", name, active, ra, dec, rotation, projectid, guid) VALUES (1, 'Garlic Nebula', 1, 23.986944, 62.436667, 0, 1, 'tg'),
+			(2, 'Cygnis Loop Panel 1', 1, 20.868, 31.537, 0, 2, 'tc1'), (3, 'Cygnis Loop Panel 2', 1, 20.868, 29.760, 0, 2, 'tc2'),
+			(4, 'M 13', 1, 16.6949, 36.4613, 0, 3, 'tm'), (5, 'C/2025 R2', 1, 13.4, 10.2, 0, 4, 'tk'),
+			(6, 'Andromeda Galaxy', 1, 23.986944, 62.436667, 0, 5, 'ta'), (7, 'Pleiades', 1, 3.7911, 24.1167, 0, 6, 'tp')`,
+		`INSERT INTO exposuretemplate ("Id", "profileId", name, filtername, defaultexposure) VALUES (1, 'p', 'Ha', 'H-a', 600), (2, 'p', 'OIII', 'O-III', 600),
+			(3, 'p', 'L', 'L', 300)`,
+		`INSERT INTO exposureplan ("Id", "profileId", exposure, desired, acquired, accepted, targetid, "exposureTemplateId", enabled) VALUES
+			(1, 'p', 600, 120, 130, 120, 1, 1, 1), (2, 'p', 600, 80, 60, 60, 1, 2, 1), (3, 'p', 300, 40, 50, 40, 4, 3, 1), (4, 'p', 300, 10, 0, 0, 4, 1, 0)`,
 	} {
 		if err := sched.Exec(q).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
 	appDB := openDB(t, "app")
-	if err := appDB.AutoMigrate(&app.Stack{}, &app.Frame{}, &app.ObjectXref{}, &app.TargetReference{}, &app.GoalMeasurement{}); err != nil {
+	if err := appDB.AutoMigrate(&app.Stack{}, &app.Frame{}, &app.ObjectXref{}, &app.TargetReference{}, &app.GoalMeasurement{}, &app.FrameTarget{}); err != nil {
 		t.Fatal(err)
 	}
 	ra, dec, night := 170.06, 13.26, time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC)
@@ -216,9 +227,9 @@ func TestReviewAndDecisions(t *testing.T) {
 	}
 }
 
-func entryFor(entries []discover.CatalogueEntry, id string) discover.CatalogueEntry {
+func garlicEntry(entries []discover.CatalogueEntry) discover.CatalogueEntry {
 	for _, e := range entries {
-		if e.Object.ID == catalog.Key(id) {
+		if e.Object.ID == catalog.Key(garlicID) {
 			return e
 		}
 	}
@@ -252,7 +263,7 @@ func TestCatalogues(t *testing.T) {
 	if scheduled == 0 {
 		t.Error("nothing counted as scheduled with nothing captured")
 	}
-	if messier.Total != 110 || messier.Done != 1 || messier.DoneTS != 1 ||
+	if messier.Total != 110 || messier.Done != 1 || messier.DoneCounts != 1 ||
 		messier.Done+messier.InProgress+messier.Measuring+messier.NotStarted != 110 || messier.UpTonight == 0 {
 		t.Errorf("messier summary %+v", messier)
 	}
@@ -261,7 +272,8 @@ func TestCatalogues(t *testing.T) {
 		t.Fatal(err)
 	}
 	m13 := entries[12]
-	if m13.Label != m13Name || m13.Index != 13 || m13.Status != discover.CompletionDone || m13.DoneBy != discover.DoneByTS || len(m13.Subjects) == 0 ||
+	if m13.Label != m13Name || m13.Index != 13 || m13.Status != discover.CompletionDone || m13.ByGoal ||
+		!strings.Contains(m13.Judged, "100% complete: L by accepted subs against desired") || len(m13.Subjects) == 0 ||
 		m13.Tonight == nil || m13.Tonight.MinAltitude != 42 || !strings.Contains(m13.Tonight.AltitudeSource, "M13") {
 		t.Errorf("M 13 entry %+v %+v", m13, m13.Tonight)
 	}
@@ -275,7 +287,8 @@ func TestObjectEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e := entryFor(green, garlicID); e.Status != discover.CompletionMeasuring || e.Hours[hydrogen] != 10 || e.Tally.Filters != 2 || e.Tally.Measured != 0 {
+	if e := garlicEntry(green); e.Status != discover.CompletionInProgress || e.Hours[hydrogen] != 10 || e.Tally.Filters != 2 || e.Tally.Measured != 0 ||
+		!strings.Contains(e.Judged, "Garlic Nebula 87% complete") || !strings.Contains(e.Judged, "by accepted subs against desired") {
 		t.Errorf("garlic entry %+v", e)
 	}
 	if _, err := s.Catalogue(ctx, "nope"); err == nil {
@@ -297,18 +310,31 @@ func TestCompletionBuckets(t *testing.T) {
 	t.Parallel()
 	s := newService(t)
 	ctx := context.Background()
+	for _, q := range []string{
+		`CREATE TABLE ts_goal (target_guid TEXT, filter TEXT, kind INTEGER, snr_goal REAL, depth_goal REAL, plateau_stop INTEGER, region TEXT, updated_at TEXT)`,
+		`INSERT INTO ts_goal VALUES ('tg', 'H-a', 0, 10, NULL, 0, NULL, NULL), ('tg', 'O-III', 0, 10, NULL, 0, NULL, NULL)`,
+	} {
+		if err := s.SchedDB.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	green, _ := s.Catalogue(ctx, "green")
+	if e := garlicEntry(green); e.Status != discover.CompletionMeasuring || !strings.Contains(e.Judged, "2 filters with a goal not measured yet") {
+		t.Errorf("goals set but nothing measured %+v", e)
+	}
 	s.AppDB.Create(&[]app.GoalMeasurement{
 		{Object: garlicName, Filter: hydrogen, MethodRevision: goals.MethodRevision, Subs: 120, SNR: 12, GainPerHourPct: 3, EffectiveHours: 10},
 		{Object: garlicName, Filter: "O-III", MethodRevision: goals.MethodRevision, Subs: 60, SNR: 4, GainPerHourPct: 6, EffectiveHours: 5},
 	})
-	green, _ := s.Catalogue(ctx, "green")
-	if e := entryFor(green, garlicID); e.Status != discover.CompletionInProgress || e.Tally.Measured != 2 || e.Tally.Done != 1 {
+	s.Invalidate()
+	green, _ = s.Catalogue(ctx, "green")
+	if e := garlicEntry(green); e.Status != discover.CompletionInProgress || e.Tally.Measured != 2 || !strings.Contains(e.Judged, "by its goal") {
 		t.Errorf("one filter short of its goal %+v", e)
 	}
 	s.AppDB.Model(&app.GoalMeasurement{}).Where("filter = ?", "O-III").Update("snr", 11)
 	s.Invalidate()
 	green, _ = s.Catalogue(ctx, "green")
-	if e := entryFor(green, garlicID); e.Status != discover.CompletionDone || e.DoneBy != discover.DoneByGoals {
+	if e := garlicEntry(green); e.Status != discover.CompletionDone || !e.ByGoal {
 		t.Errorf("every filter at its goal %+v", e)
 	}
 	ov, _ := s.Overview(ctx)

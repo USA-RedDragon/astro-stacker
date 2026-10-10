@@ -13,6 +13,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
+	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
@@ -22,9 +23,6 @@ const (
 	CompletionInProgress = "in-progress"
 	CompletionMeasuring  = "measuring"
 	CompletionNotStarted = "not-started"
-
-	DoneByGoals = "goals"
-	DoneByTS    = "ts-complete"
 
 	upTonightHours = 1.0
 )
@@ -41,7 +39,8 @@ type SubjectRef struct {
 	Basis      string   `json:"basis,omitempty"`
 	Coverage   *float64 `json:"coverage"`
 	Done       bool     `json:"done"`
-	DoneBy     string   `json:"doneBy,omitempty"`
+	DoneByGoal bool     `json:"doneByGoal"`
+	Judged     string   `json:"completionBasis"`
 	Completion string   `json:"completion"`
 	Tally      Tally    `json:"tally"`
 	Why        string   `json:"why,omitempty"`
@@ -68,7 +67,8 @@ type CatalogueEntry struct {
 	Label     string             `json:"label"`
 	Object    catalog.Object     `json:"object"`
 	Status    string             `json:"status"`
-	DoneBy    string             `json:"doneBy,omitempty"`
+	Judged    string             `json:"completionBasis"`
+	ByGoal    bool               `json:"doneByGoal"`
 	Scheduled bool               `json:"scheduled"`
 	Tally     Tally              `json:"tally"`
 	Hours     map[string]float64 `json:"hours"`
@@ -82,8 +82,8 @@ type CatalogueSummary struct {
 	Name       string `json:"name"`
 	Total      int    `json:"total"`
 	Done       int    `json:"done"`
-	DoneGoals  int    `json:"doneByGoals"`
-	DoneTS     int    `json:"doneByTs"`
+	DoneGoals  int    `json:"doneByGoal"`
+	DoneCounts int    `json:"doneByCounts"`
 	InProgress int    `json:"inProgress"`
 	Measuring  int    `json:"measuring"`
 	NotStarted int    `json:"notStarted"`
@@ -209,18 +209,20 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 		}
 		seen[l.Subject] = true
 		t := snap.linkTally(subj, l)
+		targets := l.Targets
+		if len(targets) == 0 {
+			targets = subj.Targets
+		}
+		completion, basis, byGoal := judge(t, subj.judged, targets)
 		ref := SubjectRef{Key: subj.Key, Name: subj.Name, ProjectID: subj.ProjectID, State: subj.StateName, Status: l.Status, Method: l.Method,
-			Basis: l.Basis, Coverage: l.Coverage, Why: l.Why, Tally: t, Completion: t.status(subj.TSDone), DoneBy: t.doneBy(subj.TSDone),
+			Basis: l.Basis, Coverage: l.Coverage, Why: l.Why, Tally: t, Completion: completion, Judged: basis,
 			Hours: math.Round(t.Hours*100) / 100}
-		ref.Done = ref.DoneBy != ""
+		ref.Done = completion == CompletionDone
+		ref.DoneByGoal = ref.Done && byGoal
 		ref.Tally.Hours = ref.Hours
 		e.Subjects = append(e.Subjects, ref)
 		if !l.Linked() {
 			continue
-		}
-		targets := l.Targets
-		if len(targets) == 0 {
-			targets = subj.Targets
 		}
 		for _, name := range targets {
 			d := snap.objects[name]
@@ -234,7 +236,7 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 			e.Tally.add(d)
 		}
 		if completionRank(ref.Completion) > completionRank(e.Status) {
-			e.Status, e.DoneBy = ref.Completion, ref.DoneBy
+			e.Status, e.Judged, e.ByGoal = ref.Completion, ref.Judged, ref.DoneByGoal
 		}
 	}
 	for f, h := range e.Hours {
@@ -313,10 +315,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 			switch e.Status {
 			case CompletionDone:
 				sum.Done++
-				if e.DoneBy == DoneByTS {
-					sum.DoneTS++
-				} else {
+				if e.ByGoal {
 					sum.DoneGoals++
+				} else {
+					sum.DoneCounts++
 				}
 			case CompletionInProgress:
 				sum.InProgress++
@@ -422,7 +424,6 @@ var ErrNotFound = errors.New("not found")
 type Tally struct {
 	Filters  int     `json:"filters"`
 	Measured int     `json:"measured"`
-	Done     int     `json:"done"`
 	Short    int     `json:"short"`
 	Hours    float64 `json:"hours"`
 }
@@ -430,33 +431,89 @@ type Tally struct {
 func (t *Tally) add(d *objectData) {
 	t.Filters += d.filters
 	t.Measured += d.measured
-	t.Done += d.done
 	t.Short += d.short
 	for _, h := range d.hours {
 		t.Hours += h
 	}
 }
 
-func (t Tally) doneBy(tsComplete bool) string {
-	switch {
-	case tsComplete:
-		return DoneByTS
-	case t.Filters > 0 && t.Measured == t.Filters && t.Done == t.Filters:
-		return DoneByGoals
+func basisPhrase(b string) string {
+	switch b {
+	case planning.BasisGoal:
+		return "by its goal"
+	case planning.BasisAccepted:
+		return "by accepted subs against desired"
+	case planning.BasisProvisional:
+		return "by acquired subs against desired, grading delayed"
+	case planning.BasisThrottle:
+		return "by acquired subs against the exposure throttle, no grading"
 	}
-	return ""
+	return "with no enabled exposure plan"
 }
 
-func (t Tally) status(tsComplete bool) string {
-	switch {
-	case t.doneBy(tsComplete) != "":
-		return CompletionDone
-	case t.Filters == 0:
-		return CompletionNotStarted
-	case t.Measured < t.Filters:
-		return CompletionMeasuring
+func describeJudgement(j planning.Judgement) (string, bool) {
+	var order []string
+	byBasis := map[string][]string{}
+	byGoal := len(j.Filters) > 0
+	for _, f := range j.Filters {
+		if _, ok := byBasis[f.Basis]; !ok {
+			order = append(order, f.Basis)
+		}
+		byBasis[f.Basis] = append(byBasis[f.Basis], f.Filter)
+		byGoal = byGoal && f.Basis == planning.BasisGoal
 	}
-	return CompletionInProgress
+	parts := make([]string, 0, len(order))
+	for _, b := range order {
+		parts = append(parts, strings.Join(byBasis[b], ", ")+" "+basisPhrase(b))
+	}
+	text := fmt.Sprintf("Target Scheduler judges %s %.0f%% complete", j.Target, math.Floor(j.Percent*100))
+	if len(parts) > 0 {
+		text += ": " + strings.Join(parts, "; ")
+	}
+	return text, byGoal
+}
+
+func judge(t Tally, judged map[string]planning.Judgement, targets []string) (string, string, bool) {
+	var weakest *planning.Judgement
+	done, unmeasured, byGoal, n := true, 0, true, 0
+	for _, name := range targets {
+		j, ok := judged[name]
+		if !ok {
+			continue
+		}
+		n++
+		done = done && j.Done
+		unmeasured += j.Unmeasured
+		_, g := describeJudgement(j)
+		byGoal = byGoal && g
+		if weakest == nil || j.Percent < weakest.Percent {
+			weakest = &j
+		}
+	}
+	if n == 0 {
+		if t.Filters == 0 {
+			return CompletionNotStarted, "No frames, and no Target Scheduler plan to judge it against.", false
+		}
+		return CompletionInProgress, "Frames but no Target Scheduler goal or exposure plan, so nothing to judge it done against.", false
+	}
+	text, _ := describeJudgement(*weakest)
+	text += "."
+	switch {
+	case done:
+		return CompletionDone, text, byGoal
+	case unmeasured > 0:
+		return CompletionMeasuring, text + fmt.Sprintf(" %d %s with a goal not measured yet.", unmeasured, plural(unmeasured, "filter", "filters")), false
+	case t.Filters == 0 && weakest.Percent <= 0:
+		return CompletionNotStarted, text, false
+	}
+	return CompletionInProgress, text, false
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func (s *Service) backfill(ctx context.Context) *goals.Backfill {

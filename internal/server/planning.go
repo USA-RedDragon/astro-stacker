@@ -15,14 +15,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func loadGoalSettings(ctx context.Context, appDB, sched *gorm.DB) (map[goals.Key]goals.Goal, error) {
-	if appDB == nil {
-		return map[goals.Key]goals.Goal{}, nil
-	}
-	gs, _, err := goals.LoadGoals(ctx, appDB, sched)
-	return gs, err
-}
-
 func backfillReport(ctx context.Context, appDB *gorm.DB, live func() goals.BackfillLive) *goals.Backfill {
 	var l goals.BackfillLive
 	if live != nil {
@@ -118,18 +110,10 @@ func planningSnapshot(c *gin.Context, backfill func() goals.BackfillLive) (*plan
 	if di.AppStore != nil {
 		appDB = di.AppStore.DB()
 	}
-	gs, err := loadGoalSettings(ctx, appDB, sched)
+	in, err := planning.AppInputs(ctx, appDB, sched)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: "load goal settings: " + err.Error()})
 		return nil, false
-	}
-	in := planning.Inputs{Goals: gs, ObjectsByGUID: map[string][]string{}}
-	if appDB != nil {
-		if byObject, err := goals.ObjectGUIDs(ctx, appDB, sched); err == nil {
-			for obj, guid := range byObject {
-				in.ObjectsByGUID[guid] = append(in.ObjectsByGUID[guid], obj)
-			}
-		}
 	}
 	s, err := planning.Load(ctx, sched, appDB, in)
 	if err == nil {
