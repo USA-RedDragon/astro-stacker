@@ -3,6 +3,7 @@ package goals
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -44,7 +45,43 @@ type goalRow struct {
 	DepthGoal   *float64
 	PlateauStop *int
 	Region      *string
-	UpdatedAt   *time.Time
+	UpdatedAt   rowTime
+}
+
+type rowTime struct {
+	t *time.Time
+}
+
+func (s rowTime) Value() (driver.Value, error) {
+	if s.t == nil {
+		return "", nil
+	}
+	return *s.t, nil
+}
+
+func (s *rowTime) Scan(v any) error {
+	s.t = nil
+	var text string
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case time.Time:
+		s.t = &x
+		return nil
+	case string:
+		text = x
+	case []byte:
+		text = string(x)
+	default:
+		return nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05.999999999", "2006-01-02T15:04:05.999999999"} {
+		if t, err := time.Parse(layout, text); err == nil {
+			s.t = &t
+			return nil
+		}
+	}
+	return nil
 }
 
 type targetMap struct {
@@ -169,11 +206,11 @@ func LoadGoals(ctx context.Context, appDB, sched *gorm.DB) (map[Key]Goal, map[Ke
 	for _, r := range rows {
 		for _, obj := range tm.objects[r.TargetGUID] {
 			k := Key{Object: obj, Filter: frameheader.NormalizeFilter(r.Filter)}
-			if _, seen := goals[k]; seen && !newer(r.UpdatedAt, stamp[k]) {
+			if _, seen := goals[k]; seen && !newer(r.UpdatedAt.t, stamp[k]) {
 				continue
 			}
 			goals[k] = r.goal(k.Filter)
-			stamp[k] = r.UpdatedAt
+			stamp[k] = r.UpdatedAt.t
 			if _, ok := filters[k]; !ok {
 				filters[k] = r.Filter
 			}
@@ -363,7 +400,7 @@ func goalsByTarget(rows []goalRow, tm targetMap) map[string]map[string]goalRow {
 			out[r.TargetGUID] = map[string]goalRow{}
 		}
 		f := frameheader.NormalizeFilter(r.Filter)
-		if cur, seen := out[r.TargetGUID][f]; !seen || newer(r.UpdatedAt, cur.UpdatedAt) {
+		if cur, seen := out[r.TargetGUID][f]; !seen || newer(r.UpdatedAt.t, cur.UpdatedAt.t) {
 			out[r.TargetGUID][f] = r
 		}
 	}

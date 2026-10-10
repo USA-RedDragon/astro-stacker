@@ -15,8 +15,11 @@ import (
 	"gorm.io/gorm"
 )
 
-var Priorities = []string{"Low", "Normal", "High"}
-var States = []string{"Draft", "Active", "Inactive", "Closed"}
+const nighttime = "Nighttime"
+
+func Priorities() []string { return []string{"Low", "Normal", "High"} }
+
+func States() []string { return []string{"Draft", "Active", "Inactive", "Closed"} }
 
 type Rule struct {
 	Name          string  `json:"name"`
@@ -149,12 +152,32 @@ type Template struct {
 }
 
 type Inputs struct {
-	Goals       map[goals.Key]goals.Goal
-	GoalFilters map[goals.Key]string
-	Now         time.Time
+	Goals         map[goals.Key]goals.Goal
+	GoalFilters   map[goals.Key]string
+	ObjectsByGUID map[string][]string
+	Now           time.Time
+}
+
+func (in Inputs) objectsFor(t targetRow) []string {
+	if g := deref(t.GUID); g != "" {
+		if objs := in.ObjectsByGUID[g]; len(objs) > 0 {
+			if !slices.Contains(objs, t.Name) {
+				return append([]string{t.Name}, objs...)
+			}
+			return objs
+		}
+	}
+	return []string{t.Name}
+}
+
+type Frame struct {
+	WidthDeg  float64 `json:"widthDeg"`
+	HeightDeg float64 `json:"heightDeg"`
+	Scale     float64 `json:"scale"`
 }
 
 type Snapshot struct {
+	Frame     Frame         `json:"frame"`
 	Projects  []Project     `json:"projects"`
 	Templates []Template    `json:"templates"`
 	Sets      []ExposureSet `json:"sets"`
@@ -163,11 +186,11 @@ type Snapshot struct {
 
 func twilightName(v *int) string {
 	if v == nil {
-		return "Nighttime"
+		return nighttime
 	}
 	switch *v {
 	case 0:
-		return "Nighttime"
+		return nighttime
 	case 1:
 		return "Astronomical"
 	case 2:
@@ -175,7 +198,7 @@ func twilightName(v *int) string {
 	case 3:
 		return "Civil"
 	}
-	return "Nighttime"
+	return nighttime
 }
 
 func label(list []string, i int) string {
@@ -212,37 +235,33 @@ func tableExists(db *gorm.DB, name string) bool {
 	return db.Migrator().HasTable(name)
 }
 
-func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, error) {
-	if sched == nil {
-		return nil, errors.New("no scheduler database")
-	}
+type rows struct {
+	projects  []projectRow
+	targets   []targetRow
+	plans     []planRow
+	templates []templateRow
+	weights   []ruleWeightRow
+	seasons   map[string]Season
+	lastBy    map[int]time.Time
+	meas      map[goals.Key]app.GoalMeasurement
+}
+
+func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 	db := sched.WithContext(ctx)
-	var projects []projectRow
-	if err := db.Order(`"Id"`).Find(&projects).Error; err != nil {
+	r := &rows{seasons: map[string]Season{}, lastBy: map[int]time.Time{}, meas: map[goals.Key]app.GoalMeasurement{}}
+	for _, q := range []any{&r.projects, &r.targets, &r.plans, &r.templates} {
+		if err := db.Order(`"Id"`).Find(q).Error; err != nil {
+			return nil, err
+		}
+	}
+	if err := db.Find(&r.weights).Error; err != nil {
 		return nil, err
 	}
-	var targets []targetRow
-	if err := db.Order(`"Id"`).Find(&targets).Error; err != nil {
-		return nil, err
-	}
-	var plans []planRow
-	if err := db.Order(`"Id"`).Find(&plans).Error; err != nil {
-		return nil, err
-	}
-	var templates []templateRow
-	if err := db.Order(`"Id"`).Find(&templates).Error; err != nil {
-		return nil, err
-	}
-	var weights []ruleWeightRow
-	if err := db.Find(&weights).Error; err != nil {
-		return nil, err
-	}
-	seasons := map[string]Season{}
 	if tableExists(db, "ts_target_season") {
-		var rows []seasonRow
-		if err := db.Find(&rows).Error; err == nil {
-			for _, r := range rows {
-				seasons[r.TargetGUID] = Season{NightsLeft: r.NightsLeft, OutOfSeason: r.OutOfSeason != 0, SeasonEnd: deref(r.SeasonEnd), ComputedFor: deref(r.ComputedFor)}
+		var rs []seasonRow
+		if err := db.Find(&rs).Error; err == nil {
+			for _, x := range rs {
+				r.seasons[x.TargetGUID] = Season{NightsLeft: x.NightsLeft, OutOfSeason: x.OutOfSeason != 0, SeasonEnd: deref(x.SeasonEnd), ComputedFor: deref(x.ComputedFor)}
 			}
 		}
 	}
@@ -252,133 +271,151 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 	}
 	var lasts []lastRow
 	_ = db.Raw(`SELECT "targetId" AS target_id, max(acquireddate) AS last FROM acquiredimage GROUP BY "targetId"`).Scan(&lasts).Error
-	lastBy := map[int]time.Time{}
 	for _, l := range lasts {
 		if l.Last > 0 {
-			lastBy[l.TargetID] = fromTicks(l.Last)
+			r.lastBy[l.TargetID] = fromTicks(l.Last)
 		}
 	}
-	var measurements []app.GoalMeasurement
 	if appDB != nil {
-		if err := appDB.WithContext(ctx).Find(&measurements).Error; err != nil {
+		var ms []app.GoalMeasurement
+		if err := appDB.WithContext(ctx).Find(&ms).Error; err != nil {
 			return nil, err
 		}
+		for _, m := range ms {
+			r.meas[goals.Key{Object: m.Object, Filter: m.Filter}] = m
+		}
 	}
-	meas := map[goals.Key]app.GoalMeasurement{}
-	for _, m := range measurements {
-		meas[goals.Key{Object: m.Object, Filter: m.Filter}] = m
-	}
+	return r, nil
+}
 
-	tmplBy := map[int]templateRow{}
-	for _, t := range templates {
-		tmplBy[t.ID] = t
+type index struct {
+	tmplBy      map[int]templateRow
+	plansBy     map[int][]planRow
+	usedPlans   map[int]int
+	usedTargets map[int]map[int]bool
+	targetsBy   map[int][]targetRow
+	weightsBy   map[int]map[string]float64
+}
+
+func (r *rows) index() index {
+	x := index{tmplBy: map[int]templateRow{}, plansBy: map[int][]planRow{}, usedPlans: map[int]int{},
+		usedTargets: map[int]map[int]bool{}, targetsBy: map[int][]targetRow{}, weightsBy: map[int]map[string]float64{}}
+	for _, t := range r.templates {
+		x.tmplBy[t.ID] = t
 	}
-	plansBy := map[int][]planRow{}
-	usedPlans := map[int]int{}
-	usedTargets := map[int]map[int]bool{}
-	for _, p := range plans {
+	for _, p := range r.plans {
 		if p.TargetID == nil {
 			continue
 		}
-		plansBy[*p.TargetID] = append(plansBy[*p.TargetID], p)
+		x.plansBy[*p.TargetID] = append(x.plansBy[*p.TargetID], p)
 		if p.TemplateID != nil {
-			usedPlans[*p.TemplateID]++
-			if usedTargets[*p.TemplateID] == nil {
-				usedTargets[*p.TemplateID] = map[int]bool{}
+			x.usedPlans[*p.TemplateID]++
+			if x.usedTargets[*p.TemplateID] == nil {
+				x.usedTargets[*p.TemplateID] = map[int]bool{}
 			}
-			usedTargets[*p.TemplateID][*p.TargetID] = true
+			x.usedTargets[*p.TemplateID][*p.TargetID] = true
 		}
 	}
-	targetsBy := map[int][]targetRow{}
-	for _, t := range targets {
+	for _, t := range r.targets {
 		if t.ProjectID != nil {
-			targetsBy[*t.ProjectID] = append(targetsBy[*t.ProjectID], t)
+			x.targetsBy[*t.ProjectID] = append(x.targetsBy[*t.ProjectID], t)
 		}
 	}
-	weightsBy := map[int]map[string]float64{}
-	for _, w := range weights {
+	for _, w := range r.weights {
 		if w.ProjectID == nil {
 			continue
 		}
-		if weightsBy[*w.ProjectID] == nil {
-			weightsBy[*w.ProjectID] = map[string]float64{}
+		if x.weightsBy[*w.ProjectID] == nil {
+			x.weightsBy[*w.ProjectID] = map[string]float64{}
 		}
-		weightsBy[*w.ProjectID][w.Name] = w.Weight
+		x.weightsBy[*w.ProjectID][w.Name] = w.Weight
 	}
+	return x
+}
 
-	out := &Snapshot{Sets: ExposureSets(), Rules: Rules()}
-	for _, pr := range projects {
-		p := Project{
-			ID: pr.ID, GUID: deref(pr.GUID), Name: pr.Name, Description: deref(pr.Description),
-			State: label(States, pr.State), Priority: label(Priorities, pr.Priority),
-			MinimumTime: pr.MinimumTime, MinimumAltitude: pr.MinimumAltitude, IsMosaic: pr.IsMosaic != 0,
-			Progress: 1,
-		}
-		for _, r := range Rules() {
-			w, ok := weightsBy[pr.ID][r.Name]
-			p.RuleWeights = append(p.RuleWeights, RuleWeight{Name: r.Name, Weight: w, Missing: !ok})
-		}
-		var projSets []string
-		var bestSeason *Season
-		anySeason := false
-		for _, tr := range targetsBy[pr.ID] {
-			t := buildTarget(tr, plansBy[tr.ID], tmplBy, meas, in)
-			if s, ok := seasons[t.GUID]; ok && t.GUID != "" {
-				s := s
-				t.Season = &s
-				anySeason = true
-				if !s.OutOfSeason && (bestSeason == nil || s.NightsLeft < bestSeason.NightsLeft) {
-					bestSeason = &s
-				}
-			}
-			t.Rarity = Rarity(t.Season)
-			if l, ok := lastBy[tr.ID]; ok {
-				l := l
-				t.LastSub = &l
-				if p.LastSub == nil || l.After(*p.LastSub) {
-					p.LastSub = &l
-				}
-			}
-			if t.Active && t.Progress < p.Progress {
-				p.Progress = t.Progress
-				p.WeakestTarget = t.Name
-				p.Weakest = t.Weakest
-				p.Novelty = t.Novelty
-			}
-			for _, g := range t.Goals {
-				if g.GoalSet {
-					p.GoalDriven = true
-				}
-			}
-			projSets = append(projSets, t.SetName)
-			p.Targets = append(p.Targets, t)
-		}
-		if p.Progress == 1 && p.Weakest == nil && len(p.Targets) > 0 {
-			p.Novelty = p.Targets[0].Novelty
-		}
-		if len(p.Targets) == 0 {
-			p.Progress = 0
-			p.Novelty = 1
-		}
-		if bestSeason != nil {
-			p.Season = bestSeason
-		} else if anySeason {
-			p.Season = &Season{OutOfSeason: true}
-		}
-		p.Rarity = Rarity(p.Season)
-		p.SetName = commonSet(projSets)
-		out.Projects = append(out.Projects, p)
+func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, error) {
+	if sched == nil {
+		return nil, errors.New("no scheduler database")
 	}
-	for _, t := range templates {
+	r, err := loadRows(ctx, sched, appDB)
+	if err != nil {
+		return nil, err
+	}
+	x := r.index()
+	out := &Snapshot{Sets: ExposureSets(), Rules: Rules()}
+	for _, pr := range r.projects {
+		out.Projects = append(out.Projects, buildProject(pr, r, x, in))
+	}
+	for _, t := range r.templates {
 		out.Templates = append(out.Templates, Template{
 			ID: t.ID, GUID: deref(t.GUID), Name: t.Name, Filter: t.FilterName, DefaultExposure: t.DefaultExposure,
 			Gain: t.Gain, Offset: t.Offset, Bin: t.Bin, TwilightLevel: twilightName(t.TwilightLevel),
 			MoonEnabled: deref(t.MoonEnabled) != 0, MoonSeparation: t.MoonSeparation, MoonWidth: deref(t.MoonWidth),
 			MoonDown: deref(t.MoonDownEnabled) != 0, MaximumHumidity: t.MaximumHumidity,
-			UsedByPlans: usedPlans[t.ID], UsedByTargets: len(usedTargets[t.ID]),
+			UsedByPlans: x.usedPlans[t.ID], UsedByTargets: len(x.usedTargets[t.ID]),
 		})
 	}
 	return out, nil
+}
+
+func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
+	p := Project{
+		ID: pr.ID, GUID: deref(pr.GUID), Name: pr.Name, Description: deref(pr.Description),
+		State: label(States(), pr.State), Priority: label(Priorities(), pr.Priority),
+		MinimumTime: pr.MinimumTime, MinimumAltitude: pr.MinimumAltitude, IsMosaic: pr.IsMosaic != 0,
+		Progress: 1,
+	}
+	for _, rule := range Rules() {
+		w, ok := x.weightsBy[pr.ID][rule.Name]
+		p.RuleWeights = append(p.RuleWeights, RuleWeight{Name: rule.Name, Weight: w, Missing: !ok})
+	}
+	projSets := make([]string, 0, len(x.targetsBy[pr.ID]))
+	var bestSeason *Season
+	anySeason := false
+	for _, tr := range x.targetsBy[pr.ID] {
+		t := buildTarget(tr, x.plansBy[tr.ID], x.tmplBy, r.meas, in)
+		if s, ok := r.seasons[t.GUID]; ok && t.GUID != "" {
+			t.Season = &s
+			anySeason = true
+			if !s.OutOfSeason && (bestSeason == nil || s.NightsLeft < bestSeason.NightsLeft) {
+				bestSeason = &s
+			}
+		}
+		t.Rarity = Rarity(t.Season)
+		if l, ok := r.lastBy[tr.ID]; ok {
+			t.LastSub = &l
+			if p.LastSub == nil || l.After(*p.LastSub) {
+				p.LastSub = &l
+			}
+		}
+		if t.Active && t.Progress < p.Progress {
+			p.Progress, p.WeakestTarget, p.Weakest, p.Novelty = t.Progress, t.Name, t.Weakest, t.Novelty
+		}
+		for _, g := range t.Goals {
+			p.GoalDriven = p.GoalDriven || g.GoalSet
+		}
+		projSets = append(projSets, t.SetName)
+		p.Targets = append(p.Targets, t)
+	}
+	finishProject(&p, bestSeason, anySeason, projSets)
+	return p
+}
+
+func finishProject(p *Project, bestSeason *Season, anySeason bool, projSets []string) {
+	if p.Progress == 1 && p.Weakest == nil && len(p.Targets) > 0 {
+		p.Novelty = p.Targets[0].Novelty
+	}
+	if len(p.Targets) == 0 {
+		p.Progress = 0
+		p.Novelty = 1
+	}
+	if bestSeason != nil {
+		p.Season = bestSeason
+	} else if anySeason {
+		p.Season = &Season{OutOfSeason: true}
+	}
+	p.Rarity = Rarity(p.Season)
+	p.SetName = commonSet(projSets)
 }
 
 func commonSet(names []string) string {
@@ -447,7 +484,18 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, meas
 	for _, f := range order {
 		g := byFilter[f]
 		key := goals.Key{Object: tr.Name, Filter: g.StackKey}
+		var m app.GoalMeasurement
+		found := false
+		for _, obj := range in.objectsFor(tr) {
+			k := goals.Key{Object: obj, Filter: g.StackKey}
+			if cand, ok := meas[k]; ok && (!found || cand.EffectiveHours > m.EffectiveHours) {
+				m, found, key = cand, true, k
+			}
+		}
 		goal, set := in.Goals[key]
+		if !set {
+			goal, set = in.Goals[goals.Key{Object: tr.Name, Filter: g.StackKey}]
+		}
 		if !set {
 			goal = goals.DefaultGoal(g.StackKey)
 		}
@@ -460,7 +508,7 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, meas
 		}
 		prog := 0.0
 		eff := 0.0
-		if m, ok := meas[key]; ok {
+		if found {
 			if m.Error != nil {
 				g.Error = *m.Error
 			} else {

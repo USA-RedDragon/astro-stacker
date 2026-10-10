@@ -9,12 +9,17 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-var loadGoalSettings = func(context.Context, *gorm.DB) (map[goals.Key]goals.Goal, error) {
-	return map[goals.Key]goals.Goal{}, nil
+func loadGoalSettings(ctx context.Context, appDB, sched *gorm.DB) (map[goals.Key]goals.Goal, error) {
+	if appDB == nil {
+		return map[goals.Key]goals.Goal{}, nil
+	}
+	gs, _, err := goals.LoadGoals(ctx, appDB, sched)
+	return gs, err
 }
 
 func applyPlanningRoutes(g *gin.RouterGroup) {
@@ -98,11 +103,26 @@ func planningSnapshot(c *gin.Context) (*planning.Snapshot, bool) {
 	if di.AppStore != nil {
 		appDB = di.AppStore.DB()
 	}
-	gs, err := loadGoalSettings(ctx, sched)
+	gs, err := loadGoalSettings(ctx, appDB, sched)
 	if err != nil {
 		gs = map[goals.Key]goals.Goal{}
 	}
-	s, err := planning.Load(ctx, sched, appDB, planning.Inputs{Goals: gs})
+	in := planning.Inputs{Goals: gs, ObjectsByGUID: map[string][]string{}}
+	if appDB != nil {
+		if byObject, err := goals.ObjectGUIDs(ctx, appDB, sched); err == nil {
+			for obj, guid := range byObject {
+				in.ObjectsByGUID[guid] = append(in.ObjectsByGUID[guid], obj)
+			}
+		}
+	}
+	s, err := planning.Load(ctx, sched, appDB, in)
+	if err == nil {
+		f := sky.Frame{FocalLength: 405, PixelSize: 3.76, WidthPx: 6248, HeightPx: 4176}
+		if di.Config != nil && di.Config.Discover.FocalLength > 0 {
+			f = sky.Frame{FocalLength: di.Config.Discover.FocalLength, PixelSize: di.Config.Discover.PixelSize, WidthPx: di.Config.Discover.SensorWidth, HeightPx: di.Config.Discover.SensorHeight}
+		}
+		s.Frame = planning.Frame{WidthDeg: f.WidthDeg(), HeightDeg: f.HeightDeg(), Scale: f.Scale()}
+	}
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, context.Canceled) {
