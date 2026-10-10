@@ -23,10 +23,10 @@ func TestGrid(t *testing.T) {
 		tol        float64
 	}{
 		{"markarian", mosaics.Outline{Centre: mosaics.Point{RA: 187, Dec: 13}, MajorArcmin: 400, MinorArcmin: 250, PADeg: 90}, 3, 3, 0, "grid-3x3", "Grid 3 × 3", mosaics.KindGrid, 1, 0},
-		{"rho block", mosaics.Outline{Centre: mosaics.Point{RA: 246.4, Dec: -23.4}, MajorArcmin: 300, MinorArcmin: 240}, 3, 2, 0, "grid-3x2", "Grid 3 × 2", mosaics.KindGrid, 1, 0},
-		{"rotated block", mosaics.Outline{Centre: mosaics.Point{RA: 312, Dec: 44}, MajorArcmin: 200, MinorArcmin: 100, PADeg: 40}, 3, 2, 70, "grid-3x2", "Grid 3 × 2", mosaics.KindGrid, 1, 0},
+		{"rho block", mosaics.Outline{Centre: mosaics.Point{RA: 246.4, Dec: -23.4}, MajorArcmin: 300, MinorArcmin: 240}, 3, 2, 0, "grid-3x2", "Grid 2 × 3", mosaics.KindGrid, 1, 0},
+		{"rotated block", mosaics.Outline{Centre: mosaics.Point{RA: 312, Dec: 44}, MajorArcmin: 200, MinorArcmin: 100, PADeg: 40}, 3, 2, 70, "grid-3x2", "Grid 2 × 3", mosaics.KindGrid, 1, 0},
 		{"one frame", mosaics.Outline{Centre: mosaics.Point{RA: 83, Dec: -5}, MajorArcmin: 60}, 1, 1, 0, singleID, "One frame", mosaics.KindSingle, 1, 0},
-		{"too small to cover", mosaics.Outline{Centre: mosaics.Point{RA: 83, Dec: -5}, MajorArcmin: 600, MinorArcmin: 600}, 1, 2, 0, "grid-1x2", "Grid 1 × 2", mosaics.KindGrid, 0.2, 0.06},
+		{"too small to cover", mosaics.Outline{Centre: mosaics.Point{RA: 83, Dec: -5}, MajorArcmin: 600, MinorArcmin: 600}, 1, 2, 0, "grid-1x2", "Grid 2 × 1", mosaics.KindGrid, 0.2, 0.06},
 		{"clamped", mosaics.Outline{Centre: mosaics.Point{RA: 83, Dec: -5}, MajorArcmin: 60}, 0, -1, 0, singleID, "One frame", mosaics.KindSingle, 1, 0},
 	}
 	for _, tc := range cases {

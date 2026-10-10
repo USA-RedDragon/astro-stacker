@@ -220,7 +220,7 @@ func naming(kind string, rows, cols, n int) (id, name string) {
 	case KindStrip:
 		return fmt.Sprintf("strip-%dx%d", rows, cols), fmt.Sprintf("Strip, %d panels", n)
 	default:
-		return fmt.Sprintf("grid-%dx%d", rows, cols), fmt.Sprintf("Grid %d × %d", rows, cols)
+		return fmt.Sprintf("grid-%dx%d", rows, cols), fmt.Sprintf("Grid %d × %d", cols, rows)
 	}
 }
 

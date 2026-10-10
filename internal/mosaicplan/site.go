@@ -34,6 +34,12 @@ func SiteFromLights(client *minio.Client, bucket string, db *gorm.DB) SiteSource
 	})
 }
 
+func (s *Service) SiteFallback(src SiteSource) {
+	if s.Site == nil {
+		s.Site = src
+	}
+}
+
 func (s *Service) RunAdoptionEvery(ctx context.Context, interval time.Duration) {
 	for {
 		rep, err := s.RunAdoption(ctx, false)

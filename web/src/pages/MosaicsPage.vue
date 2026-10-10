@@ -274,7 +274,8 @@ const seamRows = computed<SeamRow[]>(() => {
         const b = pf(q, f)?.effectiveHours ?? 0
         const lo = Math.min(a, b)
         const hi = Math.max(a, b)
-        const ratio = lo > 0 ? Math.sqrt(hi / lo) : hi > 0 ? Infinity : 1
+        if (hi <= 0) continue
+        const ratio = lo > 0 ? Math.sqrt(hi / lo) : Infinity
         if (!best || ratio > best.ratio) best = { f, ratio, noisier: a < b ? p.number : q.number }
       }
       if (!best) continue
