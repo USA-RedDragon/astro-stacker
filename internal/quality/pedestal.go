@@ -66,8 +66,8 @@ func LoadPedestals(ctx context.Context, appDB *gorm.DB, configured float64) (Ped
 		Frames    int
 	}
 	if err := appDB.WithContext(ctx).Table("calibration_masters").
-		Select("gain, offset, median_adu, night, frames").
-		Where("type = ? AND median_adu IS NOT NULL AND gain IS NOT NULL AND offset IS NOT NULL", "BIAS").
+		Select(`gain, "offset", median_adu, night, frames`).
+		Where(`type = ? AND median_adu IS NOT NULL AND gain IS NOT NULL AND "offset" IS NOT NULL`, "BIAS").
 		Scan(&rows).Error; err != nil {
 		return out, fmt.Errorf("load bias levels: %w", err)
 	}
