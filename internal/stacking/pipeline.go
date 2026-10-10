@@ -405,6 +405,10 @@ func (p *Pipeline) triage(ctx context.Context, frames []app.Frame, scores map[st
 func (p *Pipeline) leftOut(c candidate, status string) app.StackFrame {
 	f := c.frame
 	sf := app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}
+	if status == app.StackStatusUnmeasured {
+		msg := "not measured: " + c.score.Missing
+		sf.Error = &msg
+	}
 	if status == app.StackStatusCalibration {
 		sf.Error = missingCalibration(c.cal)
 		if w := c.waiting; w != nil {
@@ -544,10 +548,9 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		// itself (its verdicts) is judged again like any other, so a sub
 		// that qualifies again comes back and its verdict is undone.
 		return c, app.StackStatusRejected
+	case !(s.Score > 0) && s.Missing != "":
+		return c, app.StackStatusUnmeasured
 	case !(s.Score > 0):
-		// Unmeasurable (no sky above the pedestal, no stars): a weight of 0
-		// would add nothing, and a master of nothing but such subs is
-		// black.
 		return c, app.StackStatusLowScore
 	case s.Score < p.opts.MinScore*s.TargetBest:
 		// Against the target's best rather than MinScore alone: a panel
@@ -781,7 +784,7 @@ func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 		return err
 	}
 	switch sf.Status {
-	case app.StackStatusCalibration, app.StackStatusLowScore, app.StackStatusNoMetadata, app.StackStatusMoon:
+	case app.StackStatusCalibration, app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusNoMetadata, app.StackStatusMoon:
 		// Unless the caller knows better, as for a set about to settle.
 		if sf.NextAttemptAt == nil {
 			next := sf.ProcessedAt.Add(p.opts.RetryAfter)

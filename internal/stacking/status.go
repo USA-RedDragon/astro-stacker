@@ -132,7 +132,7 @@ func lights(db *gorm.DB) *gorm.DB {
 // follows the exposure templates, which can change.
 func retried() []string {
 	return []string{app.StackStatusCalibration, app.StackStatusFailed, app.StackStatusRegistration,
-		app.StackStatusLowScore, app.StackStatusNoMetadata, app.StackStatusRecalibrate, app.StackStatusMoon}
+		app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusNoMetadata, app.StackStatusRecalibrate, app.StackStatusMoon}
 }
 
 // pendingLights are lights not yet decided, or due for a retry.

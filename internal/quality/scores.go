@@ -55,6 +55,7 @@ type SubScore struct {
 	HFR          float64
 	Stars        int
 	Eccentricity float64
+	Missing      string
 }
 
 type group struct {
@@ -270,7 +271,8 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 	for _, r := range rows {
 		m := r.meta
 		g := group{filter: m.FilterName, exposure: math.Round(float64(m.ExposureDuration))}
-		raw := RawWeight(Sky(float64(m.ADUMedian), PedestalAt(pedestal, float64(m.Offset))), float64(m.HFR))
+		ped := PedestalAt(pedestal, float64(m.Offset))
+		raw := RawWeight(Sky(float64(m.ADUMedian), ped), float64(m.HFR))
 		field := fieldGroup{target: r.Target, g: g, gain: float64(m.Gain), framing: Framing(float64(m.RotatorPosition))}
 		it := item{
 			s: SubScore{
@@ -282,6 +284,7 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 				HFR:             float64(m.HFR),
 				Stars:           int(m.DetectedStars),
 				Eccentricity:    float64(m.Eccentricity),
+				Missing:         Missing(float64(m.ADUMedian), ped, float64(m.HFR)),
 			},
 			raw:    raw,
 			g:      g,
@@ -313,7 +316,8 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 		}
 		raw := RawWeight(Sky(m.SkyADU, ped), m.HFR)
 		items = append(items, item{
-			s:      SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars},
+			s: SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars,
+				Missing: Missing(m.SkyADU, ped, m.HFR)},
 			raw:    raw,
 			g:      g,
 			target: m.Target,
@@ -358,6 +362,9 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 		// The stacker's own rejects count as they did before its verdict
 		// was applied: otherwise each verdict would move the references,
 		// and a rejected sub could never be judged again.
+		if it.s.Missing == "" && !(refs[it.g] > 0) {
+			it.s.Missing = fmt.Sprintf("no %s %gs sub with a measurable sky and HFR to score against", it.g.filter, it.g.exposure)
+		}
 		if it.s.GradingStatus != GradingRejected || it.s.StackerRejected {
 			t := it.s.Transparency
 			it.s.PlainScore = Score(it.raw, refs[it.g])

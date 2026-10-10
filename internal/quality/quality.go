@@ -14,9 +14,11 @@ package quality
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // DefaultPedestal is the ADU offset the ASI2600MM adds at offset 50,
@@ -104,6 +106,20 @@ func Sky(aduMedian, pedestal float64) float64 {
 		return math.NaN()
 	}
 	return s
+}
+
+func Missing(aduMedian, pedestal, hfr float64) string {
+	var out []string
+	switch {
+	case math.IsNaN(aduMedian) || !(aduMedian > 0):
+		out = append(out, "no ADU median")
+	case !(aduMedian > pedestal):
+		out = append(out, fmt.Sprintf("ADU median %.0f is not above the pedestal %.0f", aduMedian, pedestal))
+	}
+	if !(hfr > 0) {
+		out = append(out, "no HFR")
+	}
+	return strings.Join(out, "; ")
 }
 
 // RawWeight returns 1 / (sky * HFR^4), or NaN when either input is missing.

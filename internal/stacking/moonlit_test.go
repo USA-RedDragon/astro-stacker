@@ -145,3 +145,20 @@ func TestZeroScoreStaysOut(t *testing.T) {
 		t.Errorf("status %q, want low_score", status)
 	}
 }
+
+func TestUnmeasurableSubIsUnmeasured(t *testing.T) {
+	t.Parallel()
+	exp := 600.0
+	night := time.Date(2021, 5, 23, 0, 0, 0, 0, time.UTC)
+	key := "Crescent/LIGHT/x.xisf"
+	f := app.Frame{Key: key, Object: "Crescent Nebula", Filter: filterHa, Exposure: &exp, Night: &night}
+	p := &Pipeline{}
+	scores := map[string]quality.SubScore{"x.xisf": {Score: 0, TargetBest: 0.8, Missing: "no HFR"}}
+	c, status := p.classify(f, scores, nil, nil)
+	if status != app.StackStatusUnmeasured {
+		t.Fatalf("status %q, want unmeasured", status)
+	}
+	if sf := p.leftOut(c, status); sf.Error == nil || *sf.Error != "not measured: no HFR" {
+		t.Errorf("error %v, want the missing input named", sf.Error)
+	}
+}
