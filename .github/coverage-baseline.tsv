@@ -1,6 +1,9 @@
 cmd/root.go	94	0
 cmd/stack.go	57	0
 internal/calmatch/calmatch.go	81	75
+internal/catalog/designation.go	76	69
+internal/catalog/embedded.go	138	126
+internal/catalog/gen/main.go	581	0
 internal/config/config.go	23	16
 internal/coverage/coverage.go	148	132
 internal/events/events.go	104	79
@@ -17,6 +20,9 @@ internal/indexer/indexer.go	266	16
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	81
 internal/moon/moon.go	30	28
+internal/planning/rows.go	6	6
+internal/planning/service.go	229	203
+internal/planning/sets.go	29	25
 internal/preview/preview.go	69	59
 internal/previewer/previewer.go	80	0
 internal/publicframe/mask.go	74	43
@@ -27,9 +33,10 @@ internal/quality/quality.go	42	38
 internal/quality/scores.go	121	114
 internal/quality/transparency.go	71	70
 internal/schedcmd/command.go	5	4
-internal/schedcmd/edit.go	83	58
+internal/schedcmd/edit.go	83	59
 internal/schedcmd/kinds.go	93	60
 internal/schedcmd/log.go	47	38
+internal/schedcmd/planning.go	374	295
 internal/schedcmd/queue.go	2	0
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	24
