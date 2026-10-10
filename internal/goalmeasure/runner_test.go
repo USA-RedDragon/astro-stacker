@@ -755,3 +755,78 @@ func TestPassRefitsStoredMeasurementsWithoutANoiseFloor(t *testing.T) {
 		t.Fatalf("three-level row changed %+v", deep)
 	}
 }
+
+func (e *env) addGoalTables(t *testing.T) {
+	t.Helper()
+	for _, s := range []string{
+		`CREATE TABLE ts_goal (target_guid TEXT NOT NULL, filter TEXT NOT NULL, kind INTEGER NOT NULL DEFAULT 0, snr_goal REAL,
+			depth_goal REAL, plateau_stop INTEGER NOT NULL DEFAULT 1, region TEXT, updated_at TEXT, PRIMARY KEY (target_guid, filter))`,
+		`CREATE TABLE ts_goal_progress (target_guid TEXT NOT NULL, filter TEXT NOT NULL, kind INTEGER, goal_value REAL, achieved_value REAL,
+			progress REAL, snr REAL, depth REAL, effective_hours REAL, hours_needed REAL, gain_per_hour_pct REAL, plateau INTEGER,
+			low_confidence INTEGER, done INTEGER, measured_at TIMESTAMP, state TEXT, reason TEXT, stack_subs INTEGER, min_subs INTEGER,
+			sub_limit INTEGER, PRIMARY KEY (target_guid, filter))`,
+	} {
+		if err := e.sched.Exec(s).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+type readinessOut struct {
+	TargetGUID string
+	Filter     string
+	State      *string
+	StackSubs  *int
+	MinSubs    *int
+	Progress   *float64
+}
+
+func TestRunPublishesWhileMeasurementWaits(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.addGoalTables(t)
+	e.addStack(t, testObject, "O-III", 3)
+	if err := e.db.Create(&app.GoalMeasurement{Object: testObject, Filter: "Luminance", MethodRevision: goals.MethodRevision, Subs: 40,
+		SNR: 12, EffectiveHours: 3, GainPerHourPct: 9, MeasuredAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := New(e.db, e.sched, e.objects, nil, Options{Interval: time.Hour, Publish: goals.PublishOn, Busy: func() bool { return true }})
+	r.poll, r.pubPoll, r.pubEvery = time.Millisecond, 5*time.Millisecond, 5*time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go r.Run(ctx)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for r.Live().State != goals.BackfillPaused {
+		if time.Now().After(deadline) {
+			t.Fatalf("pass never paused: %+v", r.Live())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := e.sched.Exec(`INSERT INTO ts_goal VALUES ('g-synth', 'Luminance', 0, 30, NULL, 1, NULL, '2026-10-10T06:06:24Z'),
+		('g-synth', 'O-III', 0, 10, NULL, 1, NULL, '2026-10-10T06:06:24Z')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	var rows []readinessOut
+	for len(rows) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("no goal progress published while measurement waited: %+v", rows)
+		}
+		time.Sleep(5 * time.Millisecond)
+		rows = nil
+		if err := e.sched.Table(goals.ProgressTable).Order("filter").Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r.Live().State != goals.BackfillPaused || r.Live().DoneInPass != 0 {
+		t.Fatalf("measured while stacking: %+v", r.Live())
+	}
+	l, o3 := rows[0], rows[1]
+	if l.TargetGUID != "g-synth" || l.Filter != "Luminance" || l.State == nil || *l.State != goals.StateMeasured || l.Progress == nil || *l.Progress <= 0 {
+		t.Errorf("Luminance row %+v", l)
+	}
+	if o3.Filter != "O-III" || o3.State == nil || *o3.State != goals.StateCollecting || o3.StackSubs == nil || *o3.StackSubs != 3 ||
+		o3.MinSubs == nil || *o3.MinSubs != goals.MinSubs {
+		t.Errorf("O-III row %+v", o3)
+	}
+}

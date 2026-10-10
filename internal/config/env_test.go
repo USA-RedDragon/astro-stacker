@@ -49,6 +49,8 @@ func TestProductionEnv(t *testing.T) {
 		"STACKING_TS_VERDICTS_TARGETS": "M31,Cygnis Loop Panel 2",
 		"STACKING_TS_VERDICTS_SINCE":   verdictsSince,
 		"PUBLIC_FRAMES_ENABLED":        envTrue,
+		"GOALS_ENABLED":                envTrue,
+		"GOALS_PUBLISH":                "on",
 	}
 
 	cfg, err := configulator.New(config.ConfigSchema()).
@@ -90,6 +92,8 @@ func TestProductionEnv(t *testing.T) {
 		{"STACKING_TS_VERDICTS_TARGETS", cfg.Stacking.TSVerdictsTargets, []string{"M31", "Cygnis Loop Panel 2"}},
 		{"STACKING_TS_VERDICTS_SINCE", cfg.Stacking.TSVerdictsSince, verdictsSince},
 		{"PUBLIC_FRAMES_ENABLED", cfg.PublicFrames.Enabled, true},
+		{"GOALS_ENABLED", cfg.Goals.Enabled, true},
+		{"GOALS_PUBLISH", cfg.Goals.Publish, config.GoalsPublishOn},
 	}
 	if len(checks) != len(env) {
 		t.Fatalf("%d checks for %d variables", len(checks), len(env))
