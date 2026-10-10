@@ -98,6 +98,9 @@ func xisfProperties() map[string]string {
 		"Instrument:Camera:Name":         "INSTRUME",
 		"Observation:Object:Name":        "OBJECT",
 		"Observation:Location:Longitude": "SITELONG",
+		"Instrument:Sensor:XPixelSize":   "XPIXSZ",
+		"Instrument:Sensor:YPixelSize":   "YPIXSZ",
+		"Instrument:Telescope:Name":      "TELESCOP",
 	}
 }
 
@@ -136,6 +139,7 @@ func parseXISF(b []byte) ([]Card, Keywords, error) {
 				if t.Name.Local == "Image" && !seenImage {
 					seenImage = true
 					depth = 1
+					geometryProps(attr(t, "geometry"), props)
 				}
 				continue
 			}
@@ -171,6 +175,18 @@ func parseXISF(b []byte) ([]Card, Keywords, error) {
 		}
 	}
 	return cards, props, nil
+}
+
+func geometryProps(geometry string, props Keywords) {
+	parts := strings.Split(geometry, ":")
+	if len(parts) < 2 {
+		return
+	}
+	for i, k := range []string{"NAXIS1", "NAXIS2"} {
+		if n, err := strconv.Atoi(strings.TrimSpace(parts[i])); err == nil && n > 0 {
+			props[k] = strconv.Itoa(n)
+		}
+	}
 }
 
 func attr(t xml.StartElement, name string) string {

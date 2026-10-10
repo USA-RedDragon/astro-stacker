@@ -197,3 +197,25 @@ func TestParseCardsKeepsOrderAndComments(t *testing.T) {
 		t.Errorf("fits cards = %+v", cards)
 	}
 }
+
+func TestFrameGeometry(t *testing.T) {
+	t.Parallel()
+	kw, err := frameheader.Parse(xisf(strings.Replace(ninaXML, `<FITSKeyword name="FILTER"`,
+		`<FITSKeyword name="FOCALLEN" value="405." comment=""/><FITSKeyword name="XPIXSZ" value="3.76" comment=""/><FITSKeyword name="TELESCOP" value="'FRA400'" comment=""/><FITSKeyword name="FILTER"`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := frameheader.FromKeywords(kw)
+	if f.Width != 6248 || f.Height != 4176 || f.FocalLength != 405 || f.PixelSize != 3.76 || f.Telescope != "FRA400" || f.BayerPattern != "" {
+		t.Errorf("xisf geometry %+v", f)
+	}
+	b := fits("SIMPLE  =                    T", "NAXIS1  =                 3000", "NAXIS2  =                 2000", "BAYERPAT= 'RGGB'")
+	kw, err = frameheader.Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f = frameheader.FromKeywords(kw)
+	if f.Width != 3000 || f.Height != 2000 || f.BayerPattern != "RGGB" || !math.IsNaN(f.FocalLength) || !math.IsNaN(f.PixelSize) {
+		t.Errorf("fits geometry %+v", f)
+	}
+}

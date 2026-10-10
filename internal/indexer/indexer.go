@@ -105,6 +105,11 @@ func (ix *Indexer) scan(ctx context.Context) {
 	} else if n > 0 {
 		slog.Info("Read mount pointing", "lights", n)
 	}
+	if n, err := ix.BackfillGeometry(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("Reading frame geometry failed", "error", err)
+	} else if n > 0 {
+		slog.Info("Read frame geometry", "frames", n)
+	}
 	if n, err := ix.MeasureUnrecorded(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("Measuring lights failed", "error", err)
 	} else if n > 0 {
@@ -528,6 +533,73 @@ func ptr(v float64) *float64 {
 	return &v
 }
 
+func optInt(n int) *int {
+	if n <= 0 {
+		return nil
+	}
+	return &n
+}
+
+func geometryColumns(f frameheader.Frame) map[string]any {
+	return map[string]any{
+		"width": optInt(f.Width), "height": optInt(f.Height), "focal_length": ptr(f.FocalLength), "pixel_size": ptr(f.PixelSize),
+		"telescope": optString(f.Telescope), "bayer_pattern": optString(f.BayerPattern), "geometry_rev": GeometryRevision,
+	}
+}
+
+const (
+	GeometryRevision    = 1
+	geometryBackfillCap = 2000
+)
+
+func geometryUnread(db *gorm.DB) *gorm.DB {
+	return db.Model(&app.Frame{}).Where("index_error IS NULL").Where("geometry_rev IS NULL OR geometry_rev < ?", GeometryRevision)
+}
+
+func (ix *Indexer) BackfillGeometry(ctx context.Context) (int, error) {
+	var frames []app.Frame
+	if err := geometryUnread(ix.db.WithContext(ctx)).Select("id", "key", "size").Order("id DESC").Limit(geometryBackfillCap).Find(&frames).Error; err != nil {
+		return 0, err
+	}
+	work := make(chan app.Frame)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	done := 0
+	for range ix.concurrency {
+		wg.Go(func() {
+			for f := range work {
+				kw, err := ReadHeader(ctx, ix.client, ix.bucket, minio.ObjectInfo{Key: f.Key, Size: f.Size})
+				if err != nil {
+					if ctx.Err() == nil {
+						slog.Debug("Could not read header for geometry", "key", f.Key, "error", err)
+					}
+					continue
+				}
+				if err := ix.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).
+					Updates(geometryColumns(frameheader.FromKeywords(kw))).Error; err != nil {
+					slog.Debug("Could not save geometry", "key", f.Key, "error", err)
+					continue
+				}
+				mu.Lock()
+				done++
+				mu.Unlock()
+			}
+		})
+	}
+	for _, f := range frames {
+		select {
+		case work <- f:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	close(work)
+	wg.Wait()
+	return done, ctx.Err()
+}
+
 func optString(s string) *string {
 	if s == "" {
 		return nil
@@ -555,6 +627,11 @@ func fillFrame(dst *app.Frame, f frameheader.Frame) {
 	}
 	dst.MountRA, dst.MountDec = ptr(f.RA), ptr(f.Dec)
 	dst.PointingRead, dst.PointingWCS, dst.PointingRev = true, true, PointingRevision
+	dst.Width, dst.Height = optInt(f.Width), optInt(f.Height)
+	dst.FocalLength, dst.PixelSize = ptr(f.FocalLength), ptr(f.PixelSize)
+	dst.Telescope, dst.BayerPattern = optString(f.Telescope), optString(f.BayerPattern)
+	rev := GeometryRevision
+	dst.GeometryRev = &rev
 	if f.HasDate {
 		d := f.DateObs
 		dst.DateObs = &d
