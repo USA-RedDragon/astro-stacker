@@ -81,19 +81,21 @@ func TestPlanningDraftsRoute(t *testing.T) {
 	code, out := get(t, r, http.MethodGet, "/api/v1/planning", "")
 	projects, _ := out["projects"].([]any)
 	frame, _ := out["frame"].(map[string]any)
-	if code != http.StatusOK || len(projects) != 1 || frame["widthDeg"] == nil {
+	sets, _ := out["sets"].([]any)
+	if code != http.StatusOK || len(projects) != 1 || frame["widthDeg"] == nil || len(sets) != 1 {
 		t.Fatalf("%d %v", code, out)
 	}
-	code, out = get(t, r, http.MethodPost, "/api/v1/planning/applyset/draft", `{"setId":"hoo","mode":"add","targetIds":[20]}`)
-	if code != http.StatusOK || out["payload"] == nil {
+	setID, _ := sets[0].(map[string]any)["id"].(string)
+	code, out = get(t, r, http.MethodPost, "/api/v1/planning/applyset/draft", `{"setId":"`+setID+`","mode":"add","targetIds":[20]}`)
+	if code != http.StatusOK || out["payload"] != nil {
 		t.Fatalf("%d %v", code, out)
 	}
-	code, out = get(t, r, http.MethodPost, "/api/v1/planning/projects/draft", `{"name":"Gecko","setId":"hoo","priority":"Normal","goal":{"kind":"snr","snr":10},"panels":[{"raHours":22.5,"dec":40.8,"rotation":0}]}`)
+	code, out = get(t, r, http.MethodPost, "/api/v1/planning/projects/draft", `{"name":"Gecko","setId":"`+setID+`","priority":"Normal","minimumTime":60,"minimumAltitude":15,"goal":{"kind":"snr","snr":10},"panels":[{"raHours":22.5,"dec":40.8,"rotation":0}]}`)
 	if code != http.StatusOK || out["project"] == nil {
 		t.Fatalf("%d %v", code, out)
 	}
-	code, _ = get(t, r, http.MethodPost, "/api/v1/planning/projects/draft", `{"name":"Gecko","setId":"lrgb","panels":[{"raHours":22.5,"dec":40.8}]}`)
+	code, _ = get(t, r, http.MethodPost, "/api/v1/planning/projects/draft", `{"name":"Gecko","setId":"lrgb","minimumTime":60,"panels":[{"raHours":22.5,"dec":40.8}]}`)
 	if code != http.StatusUnprocessableEntity {
-		t.Fatalf("missing templates should be 422, got %d", code)
+		t.Fatalf("an unknown set should be 422, got %d", code)
 	}
 }
