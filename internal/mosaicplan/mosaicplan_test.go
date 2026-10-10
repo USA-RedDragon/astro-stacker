@@ -271,6 +271,12 @@ func checkPanels(t *testing.T, d mosaicplan.Detail) {
 	if p2ha.Desired != 40 || p2ha.Accepted != 20 || math.Abs(p2ha.PlannedHours-40*300.0/3600) > 1e-9 || math.Abs(p2ha.HoursNeeded-p2ha.PlannedHours/2) > 1e-9 {
 		t.Errorf("panel 2 H-a %+v", p2ha)
 	}
+	if h := d.HoursLeft; h.EffectiveFilters != 1 || math.Abs(h.Effective-12) > 1e-9 || h.RawFilters != 2 || math.Abs(h.Raw-(3+40*300.0/3600/2)) > 1e-9 || h.UnknownFilters != 0 {
+		t.Errorf("hours left %+v", h)
+	}
+	if red.HoursBasis != mosaicplan.HoursEffective || p2ha.HoursBasis != mosaicplan.HoursRaw {
+		t.Errorf("hours basis %q %q", red.HoursBasis, p2ha.HoursBasis)
+	}
 	if d.Complete != 0.1 || d.WeakestPanel != 2 || d.WeakestFilter != filterRed {
 		t.Errorf("complete %v panel %d filter %s", d.Complete, d.WeakestPanel, d.WeakestFilter)
 	}
@@ -327,6 +333,9 @@ func TestSeasonsPlanWithSite(t *testing.T) {
 	}
 	if plan.Months[3].Hours < 3 || plan.Months[8].Hours > 1 {
 		t.Errorf("Markarian's dark hours by month %+v", plan.Months)
+	}
+	if r := plan.EffectivePerRaw; r == nil || r.Value != 0.75 || r.Subs != 2 || r.Scope != mosaicplan.RatioProject {
+		t.Errorf("effective per raw %+v", plan.EffectivePerRaw)
 	}
 	if plan.Last == nil || plan.Last.Nights != 2 || math.Abs(plan.Last.Hours-3) > 1e-9 {
 		t.Errorf("last season %+v", plan.Last)
