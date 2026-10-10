@@ -3,6 +3,7 @@ package discover_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -20,6 +21,10 @@ const (
 	garlicKey  = "project:Garlic Nebula"
 	garlicID   = "G116.9+00.2"
 	cygnisKey  = "project:Cygnis Loop"
+	cometKey   = "project:C/2025 R2"
+	garlicName = "Garlic Nebula"
+	leoTriplet = "Leo Triplet"
+	m13Name    = "M 13"
 	hydrogen   = "H-a"
 	testSiteLa = 31.5
 )
@@ -39,9 +44,10 @@ func newService(t *testing.T) *discover.Service {
 	for _, q := range []string{
 		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, name TEXT, state INTEGER, "isMosaic" INTEGER)`,
 		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, ra REAL, dec REAL, projectid INTEGER)`,
-		`INSERT INTO project VALUES (1, 'Garlic Nebula', 1, 0), (2, 'Cygnis Loop', 1, 1), (3, 'M13', 1, 0)`,
+		`INSERT INTO project VALUES (1, 'Garlic Nebula', 1, 0), (2, 'Cygnis Loop', 1, 1), (3, 'M13', 1, 0), (4, 'C/2025 R2', 1, 0)`,
 		`INSERT INTO target VALUES (1, 'Garlic Nebula', 23.986944, 62.436667, 1), (2, 'Cygnis Loop Panel 1', 20.868, 31.537, 2),
-			(3, 'Cygnis Loop Panel 2', 20.868, 29.760, 2), (4, 'M 13', 16.6949, 36.4613, 3)`,
+			(3, 'Cygnis Loop Panel 2', 20.868, 29.760, 2), (4, 'M 13', 16.6949, 36.4613, 3),
+			(5, 'C/2025 R2', 13.4, 10.2, 4)`,
 	} {
 		if err := sched.Exec(q).Error; err != nil {
 			t.Fatal(err)
@@ -53,12 +59,12 @@ func newService(t *testing.T) *discover.Service {
 	}
 	ra, dec, night := 150.0, 20.0, time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC)
 	appDB.Create(&[]app.Stack{
-		{Object: "Garlic Nebula", Filter: hydrogen, EffectiveSeconds: 36000, Subs: 120},
-		{Object: "Garlic Nebula", Filter: "O-III", EffectiveSeconds: 18000, Subs: 60},
+		{Object: garlicName, Filter: hydrogen, EffectiveSeconds: 36000, Subs: 120},
+		{Object: garlicName, Filter: "O-III", EffectiveSeconds: 18000, Subs: 60},
 		{Object: "Cygnis Loop Panel 1", Filter: hydrogen, EffectiveSeconds: 7200, Subs: 24},
-		{Object: "Leo Triplet", Filter: "L", EffectiveSeconds: 3600, Subs: 12},
+		{Object: leoTriplet, Filter: "L", EffectiveSeconds: 3600, Subs: 12},
 	})
-	appDB.Create(&app.Frame{Key: "a.fits", ETag: "e", Size: 1, LastModified: night, Type: "LIGHT", Object: "Leo Triplet", MountRA: &ra, MountDec: &dec, DateObs: &night})
+	appDB.Create(&app.Frame{Key: "a.fits", ETag: "e", Size: 1, LastModified: night, Type: "LIGHT", Object: leoTriplet, MountRA: &ra, MountDec: &dec, DateObs: &night})
 	ix, err := catalog.LoadEmbedded()
 	if err != nil {
 		t.Fatal(err)
@@ -111,8 +117,14 @@ func TestSubjectsAndLinks(t *testing.T) {
 	if !found {
 		t.Errorf("Cygnis Loop should be a suggested fuzzy match to the Cygnus Loop: %+v", cyg)
 	}
+	if comet := byKey[cometKey]; comet.NotCatalogue != catalog.ReasonComet || byKey[garlicKey].NotCatalogue != "" {
+		t.Errorf("comet subject %+v", comet)
+	}
+	if cl, _ := s.Links(ctx, cometKey); slices.ContainsFunc(cl, func(l discover.Link) bool { return l.Status != discover.StatusInFrame }) {
+		t.Errorf("comet links %+v", cl)
+	}
 	m13, _ := s.Links(ctx, "project:M13")
-	if len(m13) == 0 || m13[0].Object.Designation != "M 13" || m13[0].Method != discover.MethodDesignation {
+	if len(m13) == 0 || m13[0].Object.Designation != m13Name || m13[0].Method != discover.MethodDesignation {
 		t.Errorf("M13 links %+v", m13)
 	}
 }
@@ -133,6 +145,9 @@ func TestReviewAndDecisions(t *testing.T) {
 	}
 	if cyg == nil {
 		t.Fatalf("no review item for the Cygnus Loop in %d items", len(review))
+	}
+	if slices.ContainsFunc(review, func(r discover.ReviewItem) bool { return r.Subject == cometKey }) {
+		t.Error("a comet is in the review queue")
 	}
 	s.AppDB.Create(&app.ObjectXref{Subject: cygnisKey, ObjectID: cyg.Object.ID, Decision: app.XrefConfirmed})
 	s.AppDB.Create(&app.ObjectXref{Subject: garlicKey, ObjectID: "M31", Decision: app.XrefConfirmed})
@@ -190,7 +205,7 @@ func TestCatalogues(t *testing.T) {
 		t.Fatal(err)
 	}
 	m13 := entries[12]
-	if m13.Label != "M 13" || m13.Index != 13 || m13.Status != discover.CompletionInProgress || len(m13.Subjects) == 0 {
+	if m13.Label != m13Name || m13.Index != 13 || m13.Status != discover.CompletionInProgress || len(m13.Subjects) == 0 {
 		t.Errorf("M 13 entry %+v", m13)
 	}
 	green, err := s.Catalogue(ctx, "green")
@@ -272,7 +287,7 @@ func TestResolve(t *testing.T) {
 	t.Parallel()
 	s := newService(t)
 	ctx := context.Background()
-	links, err := s.Resolve(ctx, "Garlic Nebula", &discover.Position{RA: 359.80, Dec: 62.44}, 0)
+	links, err := s.Resolve(ctx, garlicName, &discover.Position{RA: 359.80, Dec: 62.44}, 0)
 	if err != nil || len(links) == 0 || links[0].Object.Designation != garlicID {
 		t.Errorf("resolve %v %+v", err, links)
 	}
