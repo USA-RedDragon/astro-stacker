@@ -147,7 +147,7 @@ const waitingLabel = computed(() => {
     const end = exposureEnd()
     parts.push(`${pendingN.value} ${pendingN.value === 1 ? 'change waits' : 'changes wait'} for the end of this exposure${end ? ' (' + end + ')' : ''}`)
   }
-  if (queuedN.value) parts.push(`${queuedN.value} queued until the PC answers`)
+  if (queuedN.value) parts.push(shell.scheduler.reachable === 'offline' ? `${queuedN.value} queued until the PC answers` : `${queuedN.value} sent via the backup queue`)
   return parts.join(' · ')
 })
 </script>

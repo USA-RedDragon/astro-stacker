@@ -49,12 +49,29 @@ export function whenApplies(r: Pick<CommandRecord, 'applies_at'>): string {
   return exposureEnd() || 'the next plan'
 }
 
+export function queuedText(): string {
+  switch (shell.scheduler.reachable) {
+    case 'online':
+      return 'Sent via the backup queue because the scheduler API did not answer in time. It applies when the current exposure ends.'
+    case 'unconfigured':
+      return 'Sent via the database queue, since the scheduler API is not set up. It applies when the PC picks it up.'
+    case 'offline':
+      return "The PC is unreachable, so it's queued and goes out when the PC answers."
+    default:
+      return 'Sent via the backup queue. It applies when the PC picks it up.'
+  }
+}
+
+export function queuedShort(): string {
+  return shell.scheduler.reachable === 'offline' ? 'queued offline' : 'sent via the backup queue'
+}
+
 export function describeOutcome(r: CommandRecord): { sub: string; tone?: Toast['tone'] } {
   switch (r.status) {
     case 'saved':
       return { sub: 'Saved in the app. Nothing changes in the scheduler.' }
     case 'queued':
-      return { sub: "The PC is unreachable, so it's queued and goes out when the PC answers.", tone: 'warn' }
+      return { sub: queuedText(), tone: shell.scheduler.reachable === 'offline' ? 'warn' : undefined }
     case 'pending':
       return { sub: `Applies at ${whenApplies(r)}, when the current exposure ends.` }
     case 'applied':
