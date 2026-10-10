@@ -25,7 +25,7 @@ internal/frameheader/frame.go	35	34
 internal/frameheader/header.go	108	102
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	81	51
-internal/goalmeasure/runner.go	225	173
+internal/goalmeasure/runner.go	225	174
 internal/goals/fit.go	81	77
 internal/goals/image.go	124	120
 internal/goals/measure.go	253	236
@@ -54,7 +54,7 @@ internal/mosaics/seasons.go	67	66
 internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
 internal/observatory/client.go	83	68
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	137	122
 internal/observatory/transport.go	50	45
 internal/planning/drafts.go	153	137
@@ -80,7 +80,7 @@ internal/schedcmd/planning.go	398	323
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	177	155
+internal/schedcmd/service.go	177	153
 internal/server/conditions.go	22	16
 internal/server/discover.go	116	100
 internal/server/middleware/di.go	5	5
