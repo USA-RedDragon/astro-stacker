@@ -105,7 +105,7 @@ func CanonicalFilter(name string) string {
 		return "O"
 	case strings.HasPrefix(n, "SII") || n == "S2" || n == "S":
 		return "S"
-	case strings.HasPrefix(n, "L"):
+	case n == "L" || n == "LUM" || n == "LUMINANCE":
 		return "L"
 	case strings.HasPrefix(n, "R"):
 		return "R"

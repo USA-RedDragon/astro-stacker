@@ -157,3 +157,20 @@ func TestMeasureFallsBackToOlderLights(t *testing.T) {
 		t.Fatalf("%+v %v", r, err)
 	}
 }
+
+func TestCanonicalFilter(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"L": "L", "l": "L", "Lum": "L", "LUM": "L", "Luminance": "L", " luminance ": "L",
+		"L-eXtreme": "LEXTREME", "L-Pro": "LPRO", "L-Ultimate": "LULTIMATE", "L-Enhance": "LENHANCE", "L-Quad Enhance": "LQUADENHANCE",
+		"LRGB": "LRGB", "Clear": "CLEAR", "OSC": "OSC",
+		"R": "R", "Red": "R", "G": "G", "Green": "G", "B": "B", "Blue": "B",
+		"H": "H", "Ha": "H", "H-a": "H", "Halpha": "H", "H-alpha": "H",
+		"O": "O", "O3": "O", "OIII": "O", "O-III": "O", "Oiii": "O",
+		"S": "S", "S2": "S", "SII": "S", "S-II": "S",
+	} {
+		if got := rigsource.CanonicalFilter(in); got != want {
+			t.Errorf("CanonicalFilter(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
