@@ -213,9 +213,9 @@ function useSuggested() {
           <polygon :points="p.points" fill="#f4f4f8" fill-opacity="0.07" stroke="#f4f4f8" stroke-width="1.5" />
           <text v-if="panelCount > 1" :x="p.cx" :y="p.cy + 5" font-size="13" font-weight="600" fill="#f4f4f8" text-anchor="middle">{{ p.n }}</text>
         </g>
-        <g :transform="`translate(${W - 40} 40)`" stroke="#f4f4f8" stroke-width="1.5" fill="none"><path d="M0 0v30M0 0h-30" /></g>
-        <text :x="W - 36" y="76" font-size="11" fill="#f4f4f8">N</text>
-        <text :x="W - 80" y="36" font-size="11" fill="#f4f4f8">E</text>
+        <g :transform="`translate(${W - 30} 60)`" stroke="#f4f4f8" stroke-width="1.5" fill="none"><path d="M0 0v-30M0 0h-30" /></g>
+        <text :x="W - 34" y="24" font-size="11" fill="#f4f4f8">N</text>
+        <text :x="W - 72" y="64" font-size="11" fill="#f4f4f8">E</text>
         <text x="16" :y="H - 12" font-size="11" fill="#f4f4f8">{{ panelCount }} {{ panelCount === 1 ? 'frame' : 'panels' }}{{ coverText ? ' · covers ' + coverText : '' }}{{ rig ? ` · one frame is ${rig.widthDeg.toFixed(2)}° × ${rig.heightDeg.toFixed(2)}°` : '' }}</text>
       </svg>
       <div class="side">

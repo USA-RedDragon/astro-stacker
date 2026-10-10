@@ -89,7 +89,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	indexCtx, stopIndexer := context.WithCancel(context.Background())
 	defer stopIndexer()
 	var signer *previewer.Signer
-	mosaicPlans := mosaicplan.New(appStore.DB(), schedulerDBStore.DB())
+	mosaicPlans := newMosaicPlans(cfg, appStore, schedulerDBStore)
 	var restacker middleware.Restacker
 	drainStacker := func() {}
 	broker := events.NewBroker()
@@ -99,7 +99,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to create S3 client: %w", err)
 		}
-		mosaicPlans.Site = mosaicplan.SiteFromLights(s3, cfg.S3.Bucket, appStore.DB())
+		mosaicPlans.SiteFallback(mosaicplan.SiteFromLights(s3, cfg.S3.Bucket, appStore.DB()))
 		if cfg.Indexer.Enabled {
 			ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
 			ix.Events = broker
