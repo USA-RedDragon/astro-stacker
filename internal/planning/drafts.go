@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 )
@@ -14,9 +15,8 @@ var (
 	ErrUnknownSet      = errors.New("unknown exposure set")
 	ErrMissingTemplate = errors.New("the observatory has no template for this set")
 	ErrNoTargets       = errors.New("no targets chosen")
+	ErrNoDesired       = errors.New("no desired count")
 )
-
-const DefaultDesired = 300
 
 type TargetEffect struct {
 	TargetID int    `json:"targetId"`
@@ -62,7 +62,7 @@ func joinOr(list []string, none string) string {
 }
 
 func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired int, newID func() string) (ApplySetDraft, error) {
-	set, ok := SetByID(setID)
+	set, ok := s.SetByID(setID)
 	if !ok {
 		return ApplySetDraft{}, ErrUnknownSet
 	}
@@ -72,13 +72,11 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 	if len(targetIDs) == 0 {
 		return ApplySetDraft{}, ErrNoTargets
 	}
-	if desired <= 0 {
-		desired = DefaultDesired
-	}
 	out := ApplySetDraft{}
 	type want struct {
-		tmpl Template
-		exp  float64
+		tmpl    Template
+		exp     float64
+		desired int
 	}
 	var wants []want
 	for _, it := range set.Items {
@@ -87,7 +85,11 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 			out.Missing = append(out.Missing, it.Template)
 			continue
 		}
-		wants = append(wants, want{t, it.Exposure})
+		n, err := desiredFor(desired, it)
+		if err != nil {
+			return out, err
+		}
+		wants = append(wants, want{t, it.Exposure, n})
 	}
 	if len(out.Missing) > 0 {
 		return out, fmt.Errorf("%w: %s", ErrMissingTemplate, strings.Join(out.Missing, ", "))
@@ -122,7 +124,7 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 				at.Enable = append(at.Enable, schedcmd.PlanRef{ID: int64(disabled.ID), GUID: disabled.GUID, TemplateName: w.tmpl.Name})
 				ons = append(ons, w.tmpl.Name)
 			default:
-				at.Create = append(at.Create, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(w.tmpl.ID), TemplateName: w.tmpl.Name, Exposure: w.exp, Desired: desired})
+				at.Create = append(at.Create, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(w.tmpl.ID), TemplateName: w.tmpl.Name, Exposure: w.exp, Desired: w.desired})
 				adds = append(adds, w.tmpl.Name)
 			}
 		}
@@ -218,21 +220,17 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 	if len(d.Panels) == 0 {
 		return nil, errors.New("no panels")
 	}
-	set, ok := SetByID(d.SetID)
+	set, ok := s.SetByID(d.SetID)
 	if !ok {
 		return nil, ErrUnknownSet
 	}
-	desired := d.Desired
-	if desired <= 0 {
-		desired = DefaultDesired
-	}
 	minTime := d.MinimumTime
 	if minTime <= 0 {
-		minTime = 60
+		return nil, errors.New("the project needs a minimum time")
 	}
 	minAlt := d.MinimumAltitude
-	if minAlt <= 0 {
-		minAlt = 15
+	if minAlt < 0 || minAlt >= 90 {
+		return nil, errors.New("the minimum altitude must be from 0° to 90°")
 	}
 	mosaic := len(d.Panels) > 1
 	desc := ""
@@ -251,13 +249,14 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 	if mosaic {
 		out.RuleWeights["Panel Deficit"] = mosaics.PanelDeficitOnWeight
 	}
-	plateau := true
+	def := goals.DefaultGoal("")
+	plateau := def.PlateauStop
 	if d.Goal.PlateauStop != nil {
 		plateau = *d.Goal.PlateauStop
 	}
 	setting := schedcmd.GoalSetting{Kind: schedcmd.GoalKindSNR, SNRGoal: d.Goal.SNR, PlateauStop: plateau}
 	if setting.SNRGoal <= 0 {
-		setting.SNRGoal = 10
+		setting.SNRGoal = def.SNR
 	}
 	if d.Goal.Kind == "depth" {
 		depth := d.Goal.Depth
@@ -282,12 +281,16 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 			if !ok {
 				return nil, fmt.Errorf("%w: %s", ErrMissingTemplate, it.Template)
 			}
-			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Exposure: it.Exposure, Desired: desired})
+			n, err := desiredFor(d.Desired, it)
+			if err != nil {
+				return nil, err
+			}
+			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Exposure: it.Exposure, Desired: n})
 			if !containsFold(filters, t.Filter) {
 				filters = append(filters, t.Filter)
 				g := setting
 				if g.Kind == schedcmd.GoalKindDepth && d.Goal.Depth <= 0 {
-					dd := defaultDepth(t.Filter)
+					dd := goals.DefaultDepth(frameheader.NormalizeFilter(t.Filter))
 					g.DepthGoal = &dd
 				}
 				out.Goals = append(out.Goals, schedcmd.NewGoal{TargetGUID: nt.GUID, Filter: t.Filter, Setting: g})
@@ -298,12 +301,14 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 	return out, nil
 }
 
-func defaultDepth(filter string) float64 {
-	switch frameheader.NormalizeFilter(filter) {
-	case "H-a", "O-III", "S-II":
-		return 25.5
+func desiredFor(requested int, it SetItem) (int, error) {
+	if requested > 0 {
+		return requested, nil
 	}
-	return 25.8
+	if it.Desired > 0 {
+		return it.Desired, nil
+	}
+	return 0, fmt.Errorf("%w for %s", ErrNoDesired, it.Template)
 }
 
 func containsFold(list []string, s string) bool {

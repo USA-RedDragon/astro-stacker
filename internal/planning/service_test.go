@@ -17,8 +17,7 @@ const (
 	filterHa     = "H-a"
 	filterO3     = "O-III"
 	garlicNebula = "Garlic Nebula"
-	setHOO       = "HOO"
-	setIDHoo     = "hoo"
+	setHOO       = "H-a, O-III"
 )
 
 func testDBs(t *testing.T) (*gorm.DB, *gorm.DB) {
@@ -139,11 +138,46 @@ func TestLoadBuildsProjects(t *testing.T) {
 
 func TestSetName(t *testing.T) {
 	t.Parallel()
-	if SetName([]string{filterO3, "h-a"}) != setHOO || SetName([]string{"Luminance", "Red", "Green", "Blue"}) != "LRGB" {
-		t.Fatal("preset")
+	if SetName([]string{filterO3, "h-a", "H-a"}) != "O-III, h-a" || SetName(nil) != "No plans" {
+		t.Fatal(SetName([]string{filterO3, "h-a", "H-a"}))
 	}
-	if SetName([]string{filterHa}) != "Custom · H-a" || SetName(nil) != "No plans" {
-		t.Fatal("custom")
+}
+
+func setNamed(t *testing.T, s *Snapshot, name string) ExposureSet {
+	t.Helper()
+	for _, set := range s.Sets {
+		if set.Name == name {
+			return set
+		}
+	}
+	t.Fatalf("no set %q in %+v", name, s.Sets)
+	return ExposureSet{}
+}
+
+func TestDeriveSetsFromProjects(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	s, err := Load(context.Background(), sched, appDB, Inputs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Sets) != 1 {
+		t.Fatalf("%+v", s.Sets)
+	}
+	hoo := s.Sets[0]
+	if hoo.Name != setHOO || hoo.Projects != 2 || hoo.Hint != "Used on 2 projects, e.g. Cygnis Loop, Garlic Nebula" {
+		t.Fatalf("%+v", hoo)
+	}
+	if len(hoo.Items) != 2 || hoo.Items[0].Exposure != 600 || hoo.Items[0].Desired != 300 {
+		t.Fatalf("%+v", hoo.Items)
+	}
+	if s.Defaults.Goal.SNR != goals.DefaultSNRGoal || s.Defaults.PanelDeficitWeight != 75 || len(s.Defaults.Goal.Depths) != 3 {
+		t.Fatalf("%+v", s.Defaults)
+	}
+	for _, d := range s.Defaults.Goal.Depths {
+		if d.Depth != goals.DefaultDepth(d.Filter) {
+			t.Fatalf("%+v", d)
+		}
 	}
 }
 

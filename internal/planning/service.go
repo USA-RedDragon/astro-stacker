@@ -193,6 +193,7 @@ type Snapshot struct {
 	Templates []Template    `json:"templates"`
 	Sets      []ExposureSet `json:"sets"`
 	Rules     []Rule        `json:"rules"`
+	Defaults  Defaults      `json:"defaults"`
 }
 
 func twilightName(v *int) string {
@@ -353,7 +354,7 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 		return nil, err
 	}
 	x := r.index()
-	out := &Snapshot{Sets: ExposureSets(), Rules: Rules()}
+	out := &Snapshot{Rules: Rules()}
 	for _, pr := range r.projects {
 		out.Projects = append(out.Projects, buildProject(pr, r, x, in))
 	}
@@ -366,6 +367,7 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 			UsedByPlans: x.usedPlans[t.ID], UsedByTargets: len(x.usedTargets[t.ID]),
 		})
 	}
+	out.Sets, out.Defaults = DeriveSets(out.Projects), defaultsFor(out.Templates)
 	return out, nil
 }
 
