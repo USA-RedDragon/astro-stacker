@@ -66,7 +66,7 @@ func TestDraftProjectMosaic(t *testing.T) {
 	if !p.Project.IsMosaic || p.Project.Priority != 2 || p.Targets[1].Name != "Gecko Nebula Panel 2" || len(p.Targets[0].Plans) != 2 {
 		t.Fatalf("%+v", p)
 	}
-	if len(p.Goals) != 4 || p.Goals[0].Setting.SNRGoal != 12 || p.RuleWeights["Mosaic Completion"] != 75 || p.RuleWeights["Rarity"] != 20 {
+	if len(p.Goals) != 4 || p.Goals[0].Setting.SNRGoal != 12 || p.RuleWeights["Panel Deficit"] != 75 || p.RuleWeights["Mosaic Completion"] != 0 || p.RuleWeights["Rarity"] != 20 {
 		t.Fatalf("%+v", p.Goals)
 	}
 	if _, err := s.DraftProject(ProjectDraft{Name: "garlic nebula", SetID: "hoo", Panels: []PanelDraft{{}}}, seq()); err == nil {

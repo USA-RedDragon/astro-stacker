@@ -13,6 +13,8 @@ var planningSamples = map[schedcmd.Kind]string{
 	schedcmd.KindRuleWeightEdit:    `{"project_id":5,"project_name":"Cygnis Loop","changes":[{"rule":"Novelty","before":null,"after":10},{"rule":"Target Switch Penalty","before":67,"after":40}]}`,
 	"exposuretemplate.edit":        `{"id":3,"name":"H-a","changes":[{"field":"moonavoidanceseparation","before":45,"after":60}]}`,
 	schedcmd.KindTemplateBatchEdit: `{"items":[{"id":3,"name":"H-a","changes":[{"field":"moonavoidanceseparation","before":45,"after":60}]},{"id":4,"name":"O-III","changes":[{"field":"moonavoidanceseparation","before":45,"after":60}]}]}`,
+	schedcmd.KindProjectBatchEdit:  `{"items":[{"id":5,"name":"Cygnis Loop","changes":[{"field":"priority","before":0,"after":2}]},{"id":7,"name":"California","changes":[{"field":"priority","before":0,"after":2}]}]}`,
+	schedcmd.KindPlanBatchEdit:     `{"items":[{"id":40,"name":"H-a","parent":"Cygnis Loop Panel 2","changes":[{"field":"desired","before":300,"after":400}]},{"id":41,"name":"O-III","parent":"Cygnis Loop Panel 2","changes":[{"field":"enabled","before":true,"after":false}]}]}`,
 	schedcmd.KindTemplateClone:     `{"source_id":3,"source_name":"H-a","guid":"t-new","name":"H-a 300","defaultexposure":300,"gain":100}`,
 	schedcmd.KindTemplateDelete:    `{"guid":"t-new","name":"H-a 300"}`,
 	schedcmd.KindApplySet:          `{"set_id":"hoo","set_name":"HOO","mode":"replace","targets":[{"target_id":29,"target_guid":"g29","target_name":"Triangulum","project":"Triangulum","create":[{"guid":"p1","template_id":3,"template_name":"H-a","exposure":600,"desired":300}],"disable":[{"id":90,"guid":"p90","template_name":"Luminance"}]}]}`,
@@ -152,5 +154,18 @@ func TestProjectCreateValidation(t *testing.T) {
 		if err := s.Validate(json.RawMessage(b)); err == nil {
 			t.Fatalf("accepted %s", b)
 		}
+	}
+}
+
+func TestProjectBatchTitle(t *testing.T) {
+	t.Parallel()
+	d, err := spec(t, schedcmd.KindProjectBatchEdit).Describe(json.RawMessage(planningSamples[schedcmd.KindProjectBatchEdit]))
+	if err != nil || d.Title != "Priority · 2 projects" || len(d.Objects) != 2 {
+		t.Fatalf("%+v %v", d, err)
+	}
+	var after string
+	_ = json.Unmarshal(d.Diffs[0].After, &after)
+	if after != "High" {
+		t.Fatalf("%q", after)
 	}
 }
