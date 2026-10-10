@@ -96,3 +96,18 @@ func TestPointingFromObjectPosition(t *testing.T) {
 		t.Error("an RA past 24h was read")
 	}
 }
+
+func TestTargetSchedulerGuids(t *testing.T) {
+	t.Parallel()
+	f := frameheader.FromKeywords(frameheader.Keywords{
+		"TSPROJ": "6c1f", "TSTARGET": "9a2b", "TSEXPPLN": "77e0", "TSPANEL": "12",
+	})
+	if f.TSProject != "6c1f" || f.TSTarget != "9a2b" || f.TSExposurePlan != "77e0" || f.TSPanel != 12 {
+		t.Errorf("frame %+v", f)
+	}
+	for _, v := range []string{"0", "2.5", "x"} {
+		if f := frameheader.FromKeywords(frameheader.Keywords{"TSPANEL": v}); f.TSPanel != 0 {
+			t.Errorf("TSPANEL %q read as %d", v, f.TSPanel)
+		}
+	}
+}

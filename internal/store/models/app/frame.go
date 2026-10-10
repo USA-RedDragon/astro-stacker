@@ -11,19 +11,23 @@ type Frame struct {
 	Size         int64     `gorm:"not null"`
 	LastModified time.Time `gorm:"not null"`
 
-	Type     string `gorm:"not null;index:idx_frame_match,priority:1"`
-	Object   string `gorm:"index"`
-	Filter   string `gorm:"index:idx_frame_match,priority:2"`
-	Exposure *float64
-	Gain     *float64 `gorm:"index:idx_frame_match,priority:3"`
-	Offset   *float64 `gorm:"index:idx_frame_match,priority:4"`
-	SetTemp  *float64
-	CCDTemp  *float64
-	BinX     *float64
-	BinY     *float64
-	Rotator  *float64
-	Camera   string
-	DateObs  *time.Time `gorm:"index"`
+	Type           string `gorm:"not null;index:idx_frame_match,priority:1"`
+	Object         string `gorm:"index"`
+	Filter         string `gorm:"index:idx_frame_match,priority:2"`
+	Exposure       *float64
+	Gain           *float64 `gorm:"index:idx_frame_match,priority:3"`
+	Offset         *float64 `gorm:"index:idx_frame_match,priority:4"`
+	SetTemp        *float64
+	CCDTemp        *float64
+	BinX           *float64
+	BinY           *float64
+	Rotator        *float64
+	Camera         string
+	TSProject      *string    `gorm:"column:ts_project"`
+	TSTarget       *string    `gorm:"column:ts_target;index"`
+	TSExposurePlan *string    `gorm:"column:ts_exposure_plan"`
+	TSPanel        *int       `gorm:"column:ts_panel"`
+	DateObs        *time.Time `gorm:"index"`
 	// MountRA and MountDec are where the mount pointed, in degrees, from
 	// the header; PointingRead is set once the header has been checked for
 	// them, so frames indexed before these existed get them backfilled.

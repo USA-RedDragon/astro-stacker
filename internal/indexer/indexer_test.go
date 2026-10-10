@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
@@ -85,5 +86,19 @@ func TestPhotometryPending(t *testing.T) {
 	}
 	if want := []string{"low", "new", "old-rev"}; !slices.Equal(keys, want) {
 		t.Errorf("pending %v, want %v", keys, want)
+	}
+}
+
+func TestFillFrameKeepsTargetSchedulerGuids(t *testing.T) {
+	t.Parallel()
+	var f app.Frame
+	fillFrame(&f, frameheader.Frame{TSProject: "p", TSTarget: "t", TSPanel: 3})
+	if f.TSProject == nil || *f.TSProject != "p" || f.TSTarget == nil || *f.TSTarget != "t" || f.TSExposurePlan != nil || f.TSPanel == nil || *f.TSPanel != 3 {
+		t.Errorf("frame %+v", f)
+	}
+	var g app.Frame
+	fillFrame(&g, frameheader.Frame{})
+	if g.TSProject != nil || g.TSTarget != nil || g.TSPanel != nil {
+		t.Errorf("frame without guids %+v", g)
 	}
 }
