@@ -44,6 +44,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applyRoutes(r, signer, broker)
 	applySchedulerRoutes(r.Group("/api/v1"), extras)
 	applyPlanningRoutes(r.Group("/api/v1"))
+	applyPlanningCatalogRoutes(r.Group("/api/v1"))
 	applyWebUI(r)
 
 	var metricsServer *http.Server

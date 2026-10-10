@@ -45,11 +45,11 @@ type Candidate struct {
 }
 
 type Result struct {
-	Object     catalog.Object
-	Method     string
-	Confidence float64
-	Evidence   []string
-	Decision   string
+	Object     catalog.Object `json:"object"`
+	Method     string         `json:"method"`
+	Confidence float64        `json:"confidence"`
+	Evidence   []string       `json:"evidence"`
+	Decision   string         `json:"decision,omitempty"`
 }
 
 func objectRadius(o catalog.Object) float64 {
