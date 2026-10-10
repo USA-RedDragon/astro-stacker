@@ -319,7 +319,7 @@ func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.
 	if near, _ := s.Catalog.Cone(ctx, reg.RA, reg.Dec, math.Max(0.5, math.Min(reg.Width, reg.Height)/4)); len(near) > 0 {
 		best := near[0]
 		for _, o := range near {
-			if len(o.Lists) > len(best.Lists) || len(o.Lists) == len(best.Lists) && o.MajorArcmin > best.MajorArcmin {
+			if len(o.Lists) > 0 && (len(best.Lists) == 0 || o.MajorArcmin > best.MajorArcmin) {
 				best = o
 			}
 		}

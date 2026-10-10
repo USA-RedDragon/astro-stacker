@@ -54,6 +54,7 @@ type CatalogueEntry struct {
 	Hours    map[string]float64 `json:"hours"`
 	Subjects []SubjectRef       `json:"subjects"`
 	Tonight  *Tonight           `json:"tonight,omitempty"`
+	Fit      sky.Fit            `json:"fit"`
 }
 
 type CatalogueSummary struct {
@@ -134,6 +135,7 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 		e.Hours[f] = math.Round(h*100) / 100
 	}
 	e.Tonight = s.tonightFor(n, o)
+	e.Fit = s.Rig.Frame.Fit(o.MajorArcmin, o.MinorArcmin, sky.DefaultOverlap)
 	return e
 }
 
@@ -245,7 +247,6 @@ func (s *Service) Catalogue(ctx context.Context, key string) ([]CatalogueEntry, 
 type ObjectDetail struct {
 	CatalogueEntry
 	Links  []Link             `json:"links"`
-	Fit    sky.Fit            `json:"fit"`
 	Months [12]float64        `json:"months"`
 	Lists  []catalog.ListInfo `json:"lists"`
 }
@@ -264,7 +265,6 @@ func (s *Service) Object(ctx context.Context, id string) (ObjectDetail, error) {
 	if d.Links == nil {
 		d.Links = []Link{}
 	}
-	d.Fit = s.Rig.Frame.Fit(o.MajorArcmin, o.MinorArcmin, sky.DefaultOverlap)
 	if yr, err := s.year(ctx, s.now().Year()); err == nil {
 		d.Months = roundMonths(yr.Hours(o.RA, o.Dec, s.minAlt()))
 	}
