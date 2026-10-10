@@ -267,6 +267,8 @@ type TonightSub struct {
 	CCDTemp       *float64   `json:"ccd_temp,omitempty"`
 	ProcessedAt   *time.Time `json:"processed_at,omitempty"`
 	PreviewURL    string     `json:"preview_url,omitempty"`
+	Width         *int       `json:"width"`
+	Height        *int       `json:"height"`
 	previewKey    string
 }
 
@@ -486,6 +488,8 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 		Object      string
 		Gain        *float64
 		CCDTemp     *float64
+		Width       *int
+		Height      *int
 		PreviewKey  *string
 		Status      *string
 		Score       *float64
@@ -493,12 +497,12 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 		ProcessedAt *time.Time
 	}
 	q := db.WithContext(ctx).Table("frames f").
-		Select("f.key, f.object, f.gain, f.ccd_temp, f.preview_key, sf.status, sf.score, sf.weight, sf.processed_at").
+		Select("f.key, f.object, f.gain, f.ccd_temp, f.width, f.height, f.preview_key, sf.status, sf.score, sf.weight, sf.processed_at").
 		Where("f.type = ? AND f.object IN ? AND (f.date_obs IS NULL OR f.date_obs >= ?)", lightType, names, since.Add(-12*time.Hour))
 	if db.Migrator().HasTable(&app.StackFrame{}) {
 		q = q.Joins("LEFT JOIN stack_frames sf ON sf.frame_id = f.id")
 	} else {
-		q = q.Select("f.key, f.object, f.gain, f.ccd_temp, f.preview_key")
+		q = q.Select("f.key, f.object, f.gain, f.ccd_temp, f.width, f.height, f.preview_key")
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return err
@@ -515,6 +519,7 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 		r := rows[j]
 		subs[i].Gain = r.Gain
 		subs[i].CCDTemp = r.CCDTemp
+		subs[i].Width, subs[i].Height = r.Width, r.Height
 		subs[i].previewKey = deref(r.PreviewKey)
 		if r.Status != nil {
 			subs[i].Verdict = *r.Status

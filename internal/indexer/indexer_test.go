@@ -1,6 +1,8 @@
 package indexer
 
 import (
+	"fmt"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -11,6 +13,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
+
+const lightFrame = "LIGHT"
 
 // Lights without a pointing are read again when a new way of finding one
 // comes (PointingRevision), once; lights with one, or read at the current
@@ -32,7 +36,7 @@ func TestPointingUnread(t *testing.T) {
 		{Key: "telescope-live-current", PointingRead: true, PointingWCS: true, PointingRev: PointingRevision},
 		{Key: "never-read"},
 	} {
-		f.Type, f.LastModified = "LIGHT", time.Now()
+		f.Type, f.LastModified = lightFrame, time.Now()
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -100,5 +104,40 @@ func TestFillFrameKeepsTargetSchedulerGuids(t *testing.T) {
 	fillFrame(&g, frameheader.Frame{})
 	if g.TSProject != nil || g.TSTarget != nil || g.TSPanel != nil {
 		t.Errorf("frame without guids %+v", g)
+	}
+}
+
+func TestGeometryUnreadAndFill(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.Frame{}); err != nil {
+		t.Fatal(err)
+	}
+	var read app.Frame
+	fillFrame(&read, frameheader.Frame{Width: 6248, Height: 4176, FocalLength: 405, PixelSize: 3.76, Telescope: "FRA400"})
+	if read.Width == nil || *read.Width != 6248 || *read.Height != 4176 || *read.FocalLength != 405 || *read.PixelSize != 3.76 || *read.Telescope != "FRA400" ||
+		read.BayerPattern != nil || read.GeometryRev == nil || *read.GeometryRev != GeometryRevision {
+		t.Fatalf("filled %+v", read)
+	}
+	broken := "bad header"
+	for i, f := range []app.Frame{read, {}, {IndexError: &broken}} {
+		f.Key, f.Type, f.LastModified = fmt.Sprintf("k%d", i), lightFrame, time.Now()
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int64
+	if err := geometryUnread(db).Count(&n).Error; err != nil || n != 1 {
+		t.Errorf("unread %d, %v", n, err)
+	}
+	cols := geometryColumns(frameheader.Frame{Width: 10, FocalLength: math.NaN(), PixelSize: math.NaN()})
+	width, okW := cols["width"].(*int)
+	height, okH := cols["height"].(*int)
+	focal, okF := cols["focal_length"].(*float64)
+	if !okW || !okH || !okF || width == nil || height != nil || focal != nil || cols["geometry_rev"] != GeometryRevision {
+		t.Errorf("columns %+v", cols)
 	}
 }

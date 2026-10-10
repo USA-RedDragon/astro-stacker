@@ -29,24 +29,47 @@ type Frame struct {
 	RA, Dec                             float64
 	TSProject, TSTarget, TSExposurePlan string
 	TSPanel                             int
+	Width, Height                       int
+	FocalLength                         float64
+	PixelSize                           float64
+	Telescope                           string
+	BayerPattern                        string
 }
 
 // FromKeywords maps NINA's FITS keywords onto a Frame.
 func FromKeywords(k Keywords) Frame {
 	f := Frame{
-		Type:      normalizeType(k.String("IMAGETYP")),
-		Object:    k.String("OBJECT"),
-		Filter:    NormalizeFilter(k.String("FILTER")),
-		Exposure:  k.Float("EXPTIME"),
-		Gain:      k.Float("GAIN"),
-		Offset:    k.Float("OFFSET"),
-		SetTemp:   k.Float("SET-TEMP"),
-		CCDTemp:   k.Float("CCD-TEMP"),
-		BinX:      k.Float("XBINNING"),
-		BinY:      k.Float("YBINNING"),
-		Rotator:   k.Float("ROTATANG"),
-		Camera:    k.String("INSTRUME"),
-		Longitude: k.Float("SITELONG"),
+		Type:         normalizeType(k.String("IMAGETYP")),
+		Object:       k.String("OBJECT"),
+		Filter:       NormalizeFilter(k.String("FILTER")),
+		Exposure:     k.Float("EXPTIME"),
+		Gain:         k.Float("GAIN"),
+		Offset:       k.Float("OFFSET"),
+		SetTemp:      k.Float("SET-TEMP"),
+		CCDTemp:      k.Float("CCD-TEMP"),
+		BinX:         k.Float("XBINNING"),
+		BinY:         k.Float("YBINNING"),
+		Rotator:      k.Float("ROTATANG"),
+		Camera:       k.String("INSTRUME"),
+		Longitude:    k.Float("SITELONG"),
+		FocalLength:  k.Float("FOCALLEN"),
+		PixelSize:    k.Float("XPIXSZ"),
+		Telescope:    k.String("TELESCOP"),
+		BayerPattern: k.String("BAYERPAT"),
+	}
+	for _, d := range []struct {
+		key string
+		dst *int
+	}{{"NAXIS1", &f.Width}, {"NAXIS2", &f.Height}} {
+		if n := k.Float(d.key); n >= 1 && n == math.Trunc(n) {
+			*d.dst = int(n)
+		}
+	}
+	if !(f.FocalLength > 0) {
+		f.FocalLength = math.NaN()
+	}
+	if !(f.PixelSize > 0) {
+		f.PixelSize = math.NaN()
 	}
 	f.RA, f.Dec = pointing(k)
 	if math.IsNaN(f.Exposure) {

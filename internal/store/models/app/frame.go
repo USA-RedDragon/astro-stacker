@@ -42,6 +42,15 @@ type Frame struct {
 	PointingRev  int
 
 	Night *time.Time `gorm:"type:date;index"`
+
+	Width        *int
+	Height       *int
+	FocalLength  *float64
+	PixelSize    *float64
+	Telescope    *string
+	BayerPattern *string
+	GeometryRev  *int
+
 	// SkyADU, StarHFR and StarCount are measured from the pixels of lights
 	// Target Scheduler has no record of, so they can be scored like the
 	// rest; MeasuredAt is nil until then.

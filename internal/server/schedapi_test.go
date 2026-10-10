@@ -294,8 +294,10 @@ func tonightFixture(t *testing.T) (*gorm.DB, *gorm.DB, func(int) time.Time) {
 	gain := 100.0
 	dobs := at(5)
 	preview := "previews/a.jpg"
+	w, hgt := 6248, 4176
 	frames := []app.Frame{
-		{Key: "lights/IC 1318 Panel 15/a.fits", ETag: "1", Type: light, Object: targetP15, Filter: "Red", Exposure: &exp, Gain: &gain, DateObs: &dobs, PreviewKey: &preview},
+		{Key: "lights/IC 1318 Panel 15/a.fits", ETag: "1", Type: light, Object: targetP15, Filter: "Red", Exposure: &exp, Gain: &gain, DateObs: &dobs, PreviewKey: &preview,
+			Width: &w, Height: &hgt},
 		{Key: "lights/IC 1318 Panel 15/b.fits", ETag: "2", Type: light, Object: targetP15, Filter: "Red", Exposure: &exp, DateObs: &dobs},
 		{Key: "lights/Other/c.fits", ETag: "3", Type: light, Object: "Other", Filter: "Ha", DateObs: &dobs},
 	}
@@ -328,6 +330,12 @@ func TestTonightSubs(t *testing.T) {
 		t.Fatalf("got %d subs, want tonight's 3: %s", len(got.Subs), body)
 	}
 	checkTonight(t, got, at)
+	if a := got.Subs[0]; a.Width == nil || *a.Width != 6248 || a.Height == nil || *a.Height != 4176 || got.Subs[1].Width != nil {
+		t.Errorf("geometry %+v %+v", a, got.Subs[1])
+	}
+	if !strings.Contains(string(body), `"width":null`) {
+		t.Errorf("unknown width not null: %s", body)
+	}
 
 	code, body = do(t, h, http.MethodGet, pathSubs+"?since="+at(6).Format(time.RFC3339), "")
 	if err := json.Unmarshal(body, &got); code != http.StatusOK || err != nil || len(got.Subs) != 2 {
