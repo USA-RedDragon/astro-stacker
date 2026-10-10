@@ -252,6 +252,15 @@ func TestSchedulerProjects(t *testing.T) {
 	if g := got[1]; g.LastImage == nil || !g.LastImage.Equal(last.Add(-time.Hour)) {
 		t.Fatalf("ticks date: %+v", g.LastImage)
 	}
+	exec(t, sched, `insert into acquiredimage values (3,9,99,0,'R',0,'{}',null,'old',0,'a3')`, `update project set state = null where "Id" = 9`)
+	_, body = do(t, h, http.MethodGet, pathProjects, "")
+	got = nil
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "Other profile" || got[0].State != nil {
+		t.Fatalf("want the profile of the latest image: %s", body)
+	}
 }
 
 func checkTonight(t *testing.T, got server.TonightSubs, at func(int) time.Time) {

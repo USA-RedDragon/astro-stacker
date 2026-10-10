@@ -164,28 +164,50 @@ func activeProfile(rows []tsProjectRow) string {
 	return best
 }
 
-func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, error) {
+const (
+	ProfileFromLastImage    = "last-image"
+	ProfileFromMostProjects = "most-projects"
+)
+
+func schedProfile(db *gorm.DB, rows []tsProjectRow) (string, string, error) {
+	if db.Migrator().HasTable(tableAcquired) {
+		var ids []string
+		if err := db.Table(tableAcquired).Select(`"profileId"`).Where(`"profileId" IS NOT NULL AND "profileId" <> ''`).
+			Order(`"Id" DESC`).Limit(1).Scan(&ids).Error; err != nil {
+			return "", "", err
+		}
+		if len(ids) == 1 {
+			return ids[0], ProfileFromLastImage, nil
+		}
+	}
+	return activeProfile(rows), ProfileFromMostProjects, nil
+}
+
+func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, string, error) {
 	out := []SchedProject{}
 	if db == nil || !db.Migrator().HasTable(tableProject) {
-		return out, nil
+		return out, "", nil
 	}
 	db = db.WithContext(ctx)
 	var projects []tsProjectRow
 	if err := db.Order(`"Id"`).Find(&projects).Error; err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	profile := activeProfile(projects)
+	profile, basis, err := schedProfile(db, projects)
+	if err != nil {
+		return nil, "", err
+	}
 	var targets []tsTargetRow
 	if err := db.Order(`"Id"`).Find(&targets).Error; err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var plans []tsPlanRow
 	if err := db.Order(`"Id"`).Find(&plans).Error; err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var templates []tsTemplateRow
 	if err := db.Find(&templates).Error; err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	tmpl := make(map[int]tsTemplateRow, len(templates))
 	for _, t := range templates {
@@ -229,7 +251,7 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, error)
 			Last      int64 `gorm:"column:last"`
 		}
 		if err := db.Raw(`SELECT "projectId" AS project_id, max(acquireddate) AS last FROM acquiredimage GROUP BY "projectId"`).Scan(&lasts).Error; err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		for _, l := range lasts {
 			if l.Last > 0 {
@@ -254,7 +276,7 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, error)
 		}
 		out = append(out, sp)
 	}
-	return out, nil
+	return out, basis, nil
 }
 
 type tonightMeta struct {
@@ -576,10 +598,13 @@ func applySchedDataRoutes(g *gin.RouterGroup, signer *previewer.Signer, now func
 		if di.SchedulerDBStore != nil {
 			db = di.SchedulerDBStore.DB()
 		}
-		out, err := LoadSchedProjects(c.Request.Context(), db)
+		out, basis, err := LoadSchedProjects(c.Request.Context(), db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
+		}
+		if basis != "" {
+			c.Header("X-Profile-Basis", basis)
 		}
 		c.JSON(http.StatusOK, out)
 	})
