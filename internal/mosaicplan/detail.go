@@ -21,6 +21,9 @@ const (
 	SourceGoal           = "goal"
 	SourceTS             = "ts"
 	SourceNone           = "none"
+	DoneGoal             = "goal"
+	DonePlateau          = "plateau"
+	DonePlan             = "plan"
 	noiseWarn            = 1.5
 	gapWarn              = 0.02
 )
@@ -41,6 +44,7 @@ type PanelFilter struct {
 	Accepted       int     `json:"accepted,omitempty"`
 	Plateau        bool    `json:"plateau,omitempty"`
 	Done           bool    `json:"done,omitempty"`
+	DoneReason     string  `json:"doneReason,omitempty"`
 	LowConfidence  bool    `json:"lowConfidence,omitempty"`
 }
 
@@ -388,6 +392,12 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 	case hasGoal:
 		pf.Source, pf.Kind, pf.Goal, pf.Achieved, pf.SNR = SourceGoal, string(gp.Kind), gp.Goal, gp.Achieved, gp.SNR
 		pf.Progress, pf.Plateau, pf.Done, pf.LowConfidence = gp.Progress, gp.Plateau, gp.Done, gp.LowConfidence
+		switch {
+		case gp.Progress >= 1:
+			pf.DoneReason = DoneGoal
+		case gp.Done:
+			pf.DoneReason = DonePlateau
+		}
 		if !math.IsInf(gp.HoursNeeded, 0) && !math.IsNaN(gp.HoursNeeded) {
 			pf.HoursNeeded = gp.HoursNeeded
 		}
@@ -398,12 +408,12 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 		pf.Source = SourceTS
 		pf.Progress = float64(pf.Accepted) / float64(pf.Desired)
 		pf.Done = pf.Accepted >= pf.Desired
+		if pf.Done {
+			pf.DoneReason = DonePlan
+		}
 		pf.HoursNeeded = math.Max(0, pf.PlannedHours*(1-math.Min(1, pf.Progress)))
 	case !have:
 		return pf, false
-	}
-	if pf.Done {
-		pf.Progress = math.Max(pf.Progress, 1)
 	}
 	return pf, true
 }

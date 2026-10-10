@@ -400,7 +400,7 @@ func (s *Service) panelPriorities(ctx context.Context, d Detail, now time.Time) 
 		}
 		pp.ThisSeason = pp.HoursLeft > 0 && pp.MonthsLeft > 0
 		if pp.ThisSeason {
-			pp.Priority = (1 - p.Progress) / float64(pp.MonthsLeft)
+			pp.Priority = (1 - schedulingProgress(p)) / float64(pp.MonthsLeft)
 		}
 		out = append(out, pp)
 	}
@@ -413,6 +413,19 @@ func (s *Service) panelPriorities(ctx context.Context, d Detail, now time.Time) 
 		}
 		return a.Panel - b.Panel
 	})
+	return out
+}
+
+func schedulingProgress(p Panel) float64 {
+	if len(p.Filters) == 0 {
+		return 0
+	}
+	out := 1.0
+	for _, f := range p.Filters {
+		if !f.Done {
+			out = math.Min(out, f.Progress)
+		}
+	}
 	return out
 }
 
