@@ -33,6 +33,7 @@ type Config struct {
 	PublicFrames PublicFrames `name:"public-frames" description:"Small watermarked frames of each target's newest accepted light, for the public site"`
 	Discover     Discover     `name:"discover" description:"Catalogue completion, the target finder and Starfront collaborations"`
 	Scheduler    Scheduler    `name:"scheduler" description:"The observatory-scheduler plugin's API and the durable command queue"`
+	Goals        Goals        `name:"goals" description:"Faint-signal SNR and depth of every master, measured from random half stacks of its registered subs, and progress toward Target Scheduler goals"`
 }
 
 type Scheduler struct {
@@ -59,6 +60,13 @@ type Discover struct {
 	Starfront        bool     `name:"starfront" description:"Read Starfront's public collaboration list for the Collabs page; read-only, no account" default:"true"`
 	StarfrontURL     string   `name:"starfront-url" description:"Starfront collaboration server" default:"https://collab.starfront.space"`
 	StarfrontMinutes int      `name:"starfront-minutes" description:"Minutes between fetches of the collaboration list" default:"30"`
+}
+
+type Goals struct {
+	Enabled         bool   `name:"enabled" description:"Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours"`
+	IntervalMinutes int    `name:"interval-minutes" description:"Minutes between checks for masters to measure" default:"30"`
+	MaxSubs         int    `name:"max-subs" description:"Most registered subs read per measurement; a master with more uses a fixed random subset of this many" default:"200"`
+	Publish         string `name:"publish" description:"Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on" default:"off"`
 }
 
 type PublicFrames struct {
@@ -101,6 +109,12 @@ const (
 	TSVerdictsOff    = "off"
 	TSVerdictsDryRun = "dry-run"
 	TSVerdictsOn     = "on"
+)
+
+const (
+	GoalsPublishOff    = "off"
+	GoalsPublishDryRun = "dry-run"
+	GoalsPublishOn     = "on"
 )
 
 type Previews struct {
@@ -175,6 +189,8 @@ var (
 	ErrInvalidStorageDSNSchedulerDB = errors.New("invalid scheduler database DSN provided")
 	ErrInvalidTSVerdicts            = errors.New("stacking.ts-verdicts must be off, dry-run or on")
 	ErrInvalidTSVerdictsSince       = errors.New("stacking.ts-verdicts-since must be a date, YYYY-MM-DD")
+	ErrInvalidGoalsPublish          = errors.New("goals.publish must be off, dry-run or on")
+	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
 )
 
 func (c Config) Validate() error {
@@ -206,7 +222,16 @@ func (c Config) Validate() error {
 		}
 	}
 
-	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled || c.PublicFrames.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {
+	switch c.Goals.Publish {
+	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
+	default:
+		return ErrInvalidGoalsPublish
+	}
+	if c.Goals.Enabled && c.Goals.IntervalMinutes <= 0 {
+		return ErrInvalidGoalsInterval
+	}
+
+	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled || c.PublicFrames.Enabled || c.Goals.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {
 		return ErrMissingS3Credentials
 	}
 

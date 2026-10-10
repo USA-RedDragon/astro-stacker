@@ -27,4 +27,21 @@ type GoalMeasurement struct {
 	Points         string  `gorm:"type:text"`
 	Error          *string `gorm:"type:text"`
 	MeasuredAt     time.Time
+	SubsTotal      int
+	NebFraction    float64
+	NoiseMask      string
+	LowReason      string
+	PixelScale     float64
+	ZeroPointStars int
+	Seconds        float64
+}
+
+type GaiaField struct {
+	ID        int    `gorm:"primaryKey;autoIncrement"`
+	Object    string `gorm:"not null;uniqueIndex"`
+	RA        float64
+	Dec       float64
+	Radius    float64
+	Stars     string `gorm:"type:text"`
+	FetchedAt time.Time
 }
