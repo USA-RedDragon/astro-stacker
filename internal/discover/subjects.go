@@ -3,12 +3,14 @@ package discover
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"slices"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
 
@@ -49,10 +51,10 @@ type Subject struct {
 	Hours       map[string]float64 `json:"hours"`
 	Subs        int                `json:"subs"`
 	Done        bool               `json:"done"`
-	DoneBy      string             `json:"doneBy,omitempty"`
+	Completion  string             `json:"completion"`
+	Basis       string             `json:"completionBasis"`
 	Measured    bool               `json:"measured"`
 	Tally       Tally              `json:"tally"`
-	TSDone      bool               `json:"tsComplete"`
 	MinAltitude *float64           `json:"minAltitude,omitempty"`
 	LastNight   *time.Time         `json:"lastNight,omitempty"`
 	Footprint   string             `json:"footprint"`
@@ -61,6 +63,7 @@ type Subject struct {
 
 	imaged  []field
 	planned []field
+	judged  map[string]planning.Judgement
 }
 
 func (s Subject) TotalHours() float64 {
@@ -152,7 +155,7 @@ func centre(points []point) (float64, float64) {
 
 func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject, map[string]*objectData, error) {
 	var ts []tsRow
-	tsDone := map[int]bool{}
+	judged := map[int]map[string]planning.Judgement{}
 	if s.SchedDB != nil {
 		rotation, minAlt := "NULL", "NULL"
 		if s.SchedDB.Migrator().HasColumn("target", "rotation") {
@@ -168,8 +171,9 @@ func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject,
 			return nil, nil, fmt.Errorf("load scheduler projects: %w", err)
 		}
 		var err error
-		if tsDone, err = s.tsComplete(ctx); err != nil {
-			return nil, nil, err
+		if judged, err = planning.Judge(ctx, s.SchedDB, s.AppDB); err != nil {
+			slog.Warn("Could not judge catalogue completion the way Target Scheduler does", "error", err)
+			judged = map[int]map[string]planning.Judgement{}
 		}
 	}
 	var stacks []stackRow
@@ -192,119 +196,39 @@ func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject,
 			return nil, nil, fmt.Errorf("load plate solutions: %w", err)
 		}
 	}
-	progress, short, err := s.goalProgress(ctx, stacks)
+	measured, short, err := s.measuredKeys(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	objects := indexObjects(stacks, frames, refs, progress, short)
-	return buildSubjects(ts, objects, tsDone, frame), objects, nil
+	objects := indexObjects(stacks, frames, refs, measured, short)
+	return buildSubjects(ts, objects, judged, frame), objects, nil
 }
 
-func (s *Service) goalProgress(ctx context.Context, stacks []stackRow) (map[goals.Key]goals.Progress, map[goals.Key]bool, error) {
-	keys := make([]goals.Key, 0, len(stacks))
-	for _, st := range stacks {
-		keys = append(keys, goals.Key{Object: st.Object, Filter: st.Filter})
-	}
-	short := map[goals.Key]bool{}
+func (s *Service) measuredKeys(ctx context.Context) (map[goals.Key]bool, map[goals.Key]bool, error) {
+	measured, short := map[goals.Key]bool{}, map[goals.Key]bool{}
 	if !s.AppDB.Migrator().HasTable("goal_measurements") {
-		return map[goals.Key]goals.Progress{}, short, nil
+		return measured, short, nil
 	}
-	var gs map[goals.Key]goals.Goal
-	if s.SchedDB != nil {
-		if loaded, _, err := goals.LoadGoals(ctx, s.AppDB, s.SchedDB); err == nil {
-			gs = loaded
-		}
+	var rows []struct {
+		Object string
+		Filter string
+		Failed bool
 	}
-	progress, err := goals.Lookup(ctx, s.AppDB, gs, keys)
-	if err != nil {
-		return nil, nil, err
+	if err := s.AppDB.WithContext(ctx).Table("goal_measurements").Select("object, filter, error IS NOT NULL AS failed").Scan(&rows).Error; err != nil {
+		return nil, nil, fmt.Errorf("load goal measurements: %w", err)
 	}
-	var failed []goals.Key
-	if err := s.AppDB.WithContext(ctx).Table("goal_measurements").Select("object, filter").Where("error IS NOT NULL").Scan(&failed).Error; err != nil {
-		return nil, nil, err
-	}
-	for _, k := range failed {
-		short[k] = true
-	}
-	return progress, short, nil
-}
-
-type planRow struct {
-	Project  int
-	Desired  *int
-	Accepted *int
-	Acquired *int
-	Enabled  *int
-	Grader   *int
-	Throttle *float64
-}
-
-func (s *Service) tsComplete(ctx context.Context) (map[int]bool, error) {
-	out := map[int]bool{}
-	m := s.SchedDB.Migrator()
-	if !m.HasTable("exposureplan") || !m.HasColumn("project", "enablegrader") {
-		return out, nil
-	}
-	q := s.SchedDB.WithContext(ctx).Table("exposureplan e").
-		Joins(`JOIN target t ON t."Id" = e.targetid`).
-		Joins(`JOIN project p ON p."Id" = t.projectid`)
-	sel := `p."Id" AS project, e.desired AS desired, e.accepted AS accepted, e.acquired AS acquired, e.enabled AS enabled, p.enablegrader AS grader`
-	if m.HasTable("profilepreference") {
-		q = q.Joins(`LEFT JOIN profilepreference pp ON pp."profileId" = p."profileId"`)
-		sel += ", pp.exposurethrottle AS throttle"
-	}
-	var rows []planRow
-	if err := q.Select(sel).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("load exposure plans: %w", err)
-	}
-	enabled := map[int]int{}
 	for _, r := range rows {
-		if r.Enabled != nil && *r.Enabled == 0 {
-			continue
-		}
-		if _, seen := out[r.Project]; !seen {
-			out[r.Project] = true
-		}
-		enabled[r.Project]++
-		out[r.Project] = out[r.Project] && planComplete(r)
+		k := goals.Key{Object: r.Object, Filter: r.Filter}
+		measured[k] = true
+		short[k] = r.Failed
 	}
-	for p := range out {
-		if enabled[p] == 0 {
-			out[p] = false
-		}
-	}
-	return out, nil
-}
-
-func planComplete(r planRow) bool {
-	desired := 0
-	if r.Desired != nil {
-		desired = *r.Desired
-	}
-	if desired <= 0 {
-		return true
-	}
-	val := func(p *int) float64 {
-		if p == nil {
-			return 0
-		}
-		return float64(*p)
-	}
-	if r.Grader == nil || *r.Grader != 0 {
-		return val(r.Accepted) >= float64(desired)
-	}
-	throttle := 1.0
-	if r.Throttle != nil && *r.Throttle > 0 {
-		throttle = *r.Throttle / 100
-	}
-	return val(r.Acquired) >= throttle*float64(desired)
+	return measured, short, nil
 }
 
 type objectData struct {
 	hours    map[string]float64
 	subs     int
 	measured int
-	done     int
 	short    int
 	filters  int
 	pos      *point
@@ -331,7 +255,7 @@ func unionCrop(a, b *[4]int) *[4]int {
 	return &[4]int{x0, y0, x1 - x0, y1 - y0}
 }
 
-func indexObjects(stacks []stackRow, frames []frameRow, refs []refRow, progress map[goals.Key]goals.Progress, short map[goals.Key]bool) map[string]*objectData {
+func indexObjects(stacks []stackRow, frames []frameRow, refs []refRow, measured, short map[goals.Key]bool) map[string]*objectData {
 	out := map[string]*objectData{}
 	get := func(name string) *objectData {
 		d, ok := out[name]
@@ -363,15 +287,11 @@ func indexObjects(stacks []stackRow, frames []frameRow, refs []refRow, progress 
 		}
 		d.filters++
 		k := goals.Key{Object: st.Object, Filter: st.Filter}
-		switch p, ok := progress[k]; {
-		case ok:
+		if measured[k] {
 			d.measured++
-			if p.Done {
-				d.done++
+			if short[k] {
+				d.short++
 			}
-		case short[k]:
-			d.measured++
-			d.short++
 		}
 	}
 	for _, f := range frames {
@@ -419,7 +339,7 @@ func footprintKind(subj *Subject) {
 	}
 }
 
-func buildSubjects(ts []tsRow, objects map[string]*objectData, tsDone map[int]bool, frame sky.Frame) []Subject {
+func buildSubjects(ts []tsRow, objects map[string]*objectData, judged map[int]map[string]planning.Judgement, frame sky.Frame) []Subject {
 	byProject := map[int]*Subject{}
 	points := map[int][]point{}
 	plans := map[int][]field{}
@@ -439,7 +359,7 @@ func buildSubjects(ts []tsRow, objects map[string]*objectData, tsDone map[int]bo
 				state = *r.State
 			}
 			subj = &Subject{Key: key, Name: r.Name, Kind: SubjectProject, ProjectID: r.ID, State: state, StateName: StateName(state),
-				Mosaic: r.Mosaic != nil && *r.Mosaic != 0, Hours: map[string]float64{}, TSDone: tsDone[r.ID], MinAltitude: r.MinAlt}
+				Mosaic: r.Mosaic != nil && *r.Mosaic != 0, Hours: map[string]float64{}, MinAltitude: r.MinAlt, judged: judged[r.ID]}
 			byProject[r.ID] = subj
 			order = append(order, r.ID)
 		}
@@ -498,8 +418,8 @@ func buildSubjects(ts []tsRow, objects map[string]*objectData, tsDone map[int]bo
 
 func finish(subj *Subject) {
 	subj.Measured = subj.Tally.Measured > 0
-	subj.DoneBy = subj.Tally.doneBy(subj.TSDone)
-	subj.Done = subj.DoneBy != ""
+	subj.Completion, subj.Basis, _ = judge(subj.Tally, subj.judged, subj.Targets)
+	subj.Done = subj.Completion == CompletionDone
 	footprintKind(subj)
 }
 
