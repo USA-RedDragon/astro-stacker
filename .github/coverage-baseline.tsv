@@ -77,7 +77,7 @@ internal/publicframe/watermark.go	61	61
 internal/quality/quality.go	42	38
 internal/quality/scores.go	121	114
 internal/quality/transparency.go	71	70
-internal/rigsource/rigsource.go	159	146
+internal/rigsource/rigsource.go	204	187
 internal/schedcmd/command.go	5	4
 internal/schedcmd/edit.go	83	59
 internal/schedcmd/kinds.go	93	61
@@ -104,7 +104,7 @@ internal/server/skycutout.go	24	20
 internal/server/subs.go	32	19
 internal/server/webui.go	25	25
 internal/siril/siril.go	52	5
-internal/sky/frame.go	32	31
+internal/sky/frame.go	40	39
 internal/sky/sky.go	84	81
 internal/skybright/skybright.go	90	70
 internal/skycutout/skycutout.go	152	131
