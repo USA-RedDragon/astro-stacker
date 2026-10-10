@@ -45,7 +45,6 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applySchedulerRoutes(r.Group("/api/v1"), extras, signer)
 	applyDiscoverRoutes(r.Group("/api/v1"), extras)
 	applyPlanningRoutes(r.Group("/api/v1"))
-	applyPlanningCatalogRoutes(r.Group("/api/v1"))
 	applyMosaicPlanRoutes(r.Group("/api/v1"), extras.Mosaics)
 	applyWebUI(r)
 

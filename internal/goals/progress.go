@@ -39,7 +39,7 @@ func HoursForSNR(hours, snr, target float64) float64 {
 	if snr <= 0 || hours <= 0 {
 		return math.Inf(1)
 	}
-	return math.Max(0, hours*(math.Pow(target/snr, 2)-1))
+	return math.Max(0, hours*((target/snr)*(target/snr)-1))
 }
 
 func HoursForDepth(hours, depth, target float64) float64 {
@@ -72,7 +72,7 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 		p.Achieved = m.SNR
 		p.HoursNeeded = HoursForSNR(m.EffectiveHours, m.SNR, p.Goal)
 		if p.Goal > 0 {
-			p.Progress = math.Pow(m.SNR/p.Goal, 2)
+			p.Progress = (m.SNR / p.Goal) * (m.SNR / p.Goal)
 		}
 	}
 	if math.IsInf(p.HoursNeeded, 0) || math.IsNaN(p.HoursNeeded) {

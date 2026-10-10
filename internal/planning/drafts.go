@@ -187,7 +187,7 @@ type ProjectDraft struct {
 }
 
 func priorityIndex(s string) int {
-	for i, p := range Priorities {
+	for i, p := range Priorities() {
 		if strings.EqualFold(p, s) {
 			return i
 		}

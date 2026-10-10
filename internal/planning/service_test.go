@@ -12,6 +12,14 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	filterHa     = "H-a"
+	filterO3     = "O-III"
+	garlicNebula = "Garlic Nebula"
+	setHOO       = "HOO"
+	setIDHoo     = "hoo"
+)
+
 func testDBs(t *testing.T) (*gorm.DB, *gorm.DB) {
 	t.Helper()
 	sched, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -48,10 +56,10 @@ func testDBs(t *testing.T) (*gorm.DB, *gorm.DB) {
 	}
 	now := time.Now()
 	ms := []app.GoalMeasurement{
-		{Object: "Cygnis Loop Panel 1", Filter: "H-a", Subs: 200, SNR: 8.4, EffectiveHours: 33.7, GainPerHourPct: 1.4, MeasuredAt: now},
-		{Object: "Cygnis Loop Panel 1", Filter: "O-III", Subs: 200, SNR: 5.3, EffectiveHours: 35.2, GainPerHourPct: 1.3, MeasuredAt: now},
-		{Object: "Garlic Nebula", Filter: "H-a", Subs: 64, SNR: 11, EffectiveHours: 10.7, GainPerHourPct: 4, MeasuredAt: now},
-		{Object: "Garlic Nebula", Filter: "O-III", Subs: 47, SNR: 4.4, EffectiveHours: 7.8, GainPerHourPct: 5.8, MeasuredAt: now},
+		{Object: "Cygnis Loop Panel 1", Filter: filterHa, Subs: 200, SNR: 8.4, EffectiveHours: 33.7, GainPerHourPct: 1.4, MeasuredAt: now},
+		{Object: "Cygnis Loop Panel 1", Filter: filterO3, Subs: 200, SNR: 5.3, EffectiveHours: 35.2, GainPerHourPct: 1.3, MeasuredAt: now},
+		{Object: garlicNebula, Filter: filterHa, Subs: 64, SNR: 11, EffectiveHours: 10.7, GainPerHourPct: 4, MeasuredAt: now},
+		{Object: garlicNebula, Filter: filterO3, Subs: 47, SNR: 4.4, EffectiveHours: 7.8, GainPerHourPct: 5.8, MeasuredAt: now},
 	}
 	if err := appDB.Create(&ms).Error; err != nil {
 		t.Fatal(err)
@@ -62,7 +70,7 @@ func testDBs(t *testing.T) (*gorm.DB, *gorm.DB) {
 func TestLoadBuildsProjects(t *testing.T) {
 	t.Parallel()
 	sched, appDB := testDBs(t)
-	g := map[goals.Key]goals.Goal{{Object: "Garlic Nebula", Filter: "O-III"}: {Kind: goals.KindSNR, SNR: 5, PlateauStop: false}}
+	g := map[goals.Key]goals.Goal{{Object: garlicNebula, Filter: filterO3}: {Kind: goals.KindSNR, SNR: 5, PlateauStop: false}}
 	s, err := Load(context.Background(), sched, appDB, Inputs{Goals: g})
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +88,7 @@ func TestLoadBuildsProjects(t *testing.T) {
 	if cyg.Season == nil || cyg.Season.NightsLeft != 35 || math.Abs(cyg.Rarity-85.0/110) > 1e-9 {
 		t.Fatalf("season %+v rarity %v", cyg.Season, cyg.Rarity)
 	}
-	if cyg.SetName != "HOO" || cyg.LastSub == nil {
+	if cyg.SetName != setHOO || cyg.LastSub == nil {
 		t.Fatalf("set %q last %v", cyg.SetName, cyg.LastSub)
 	}
 	if cyg.RuleWeights[0].Weight != 100 || !cyg.RuleWeights[len(cyg.RuleWeights)-1].Missing {
@@ -91,14 +99,14 @@ func TestLoadBuildsProjects(t *testing.T) {
 		t.Fatalf("%+v", garlic.Season)
 	}
 	tg := garlic.Targets[0]
-	if len(tg.Goals) != 2 || tg.SetName != "HOO" || len(tg.Plans) != 3 {
+	if len(tg.Goals) != 2 || tg.SetName != setHOO || len(tg.Plans) != 3 {
 		t.Fatalf("%+v", tg)
 	}
 	o3 := tg.Goals[1]
 	if !o3.GoalSet || o3.Progress == nil || math.Abs(o3.Progress.Progress-(4.4/5)*(4.4/5)) > 1e-9 {
 		t.Fatalf("%+v", o3)
 	}
-	if tg.Weakest.Filter != "O-III" || math.Abs(tg.Novelty-(1-0.7744)*0.8) > 1e-9 || !garlic.GoalDriven {
+	if tg.Weakest.Filter != filterO3 || math.Abs(tg.Novelty-(1-0.7744)*0.8) > 1e-9 || !garlic.GoalDriven {
 		t.Fatalf("novelty %v weakest %+v", tg.Novelty, tg.Weakest)
 	}
 	if tg.Plans[2].Exposure != 300 || tg.Plans[0].Exposure != 600 {
@@ -108,10 +116,10 @@ func TestLoadBuildsProjects(t *testing.T) {
 
 func TestSetName(t *testing.T) {
 	t.Parallel()
-	if SetName([]string{"O-III", "h-a"}) != "HOO" || SetName([]string{"Luminance", "Red", "Green", "Blue"}) != "LRGB" {
+	if SetName([]string{filterO3, "h-a"}) != setHOO || SetName([]string{"Luminance", "Red", "Green", "Blue"}) != "LRGB" {
 		t.Fatal("preset")
 	}
-	if SetName([]string{"H-a"}) != "Custom · H-a" || SetName(nil) != "No plans" {
+	if SetName([]string{filterHa}) != "Custom · H-a" || SetName(nil) != "No plans" {
 		t.Fatal("custom")
 	}
 }

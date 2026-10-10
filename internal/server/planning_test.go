@@ -39,7 +39,7 @@ func planningEngine(t *testing.T) *gin.Engine {
 	t.Helper()
 	sched := memStore(t)
 	appStore := memStore(t)
-	if err := appStore.DB().AutoMigrate(&app.Stack{}, &app.GoalMeasurement{}, &app.ObjectXref{}); err != nil {
+	if err := appStore.DB().AutoMigrate(&app.Stack{}, &app.GoalMeasurement{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []string{
@@ -61,13 +61,12 @@ func planningEngine(t *testing.T) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{}, AppStore: appStore, SchedulerDBStore: sched}))
 	applyPlanningRoutes(r.Group("/api/v1"))
-	applyPlanningCatalogRoutes(r.Group("/api/v1"))
 	return r
 }
 
 func get(t *testing.T, r *gin.Engine, method, path, body string) (int, map[string]any) {
 	t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -76,35 +75,13 @@ func get(t *testing.T, r *gin.Engine, method, path, body string) (int, map[strin
 	return w.Code, out
 }
 
-func TestPlanningCatalogSearchFindsYourData(t *testing.T) {
-	r := planningEngine(t)
-	code, out := get(t, r, http.MethodGet, "/api/v1/planning/catalog/search?q=garlic", "")
-	if code != http.StatusOK {
-		t.Fatalf("%d %v", code, out)
-	}
-	res := out["results"].([]any)
-	if len(res) == 0 {
-		t.Fatal("no results")
-	}
-	first := res[0].(map[string]any)
-	obj := first["object"].(map[string]any)
-	if !strings.Contains(obj["designation"].(string)+obj["id"].(string), "116.9") {
-		t.Fatalf("%v", obj)
-	}
-	in, ok := first["inData"].(map[string]any)
-	if !ok || !strings.Contains(in["subject"].(string), "Garlic Nebula") {
-		t.Fatalf("in data %v", first["inData"])
-	}
-	code, out = get(t, r, http.MethodGet, "/api/v1/planning/catalog/objects/"+obj["id"].(string), "")
-	if code != http.StatusOK || len(out["existing"].([]any)) == 0 {
-		t.Fatalf("%d %v", code, out)
-	}
-}
-
 func TestPlanningDraftsRoute(t *testing.T) {
+	t.Parallel()
 	r := planningEngine(t)
 	code, out := get(t, r, http.MethodGet, "/api/v1/planning", "")
-	if code != http.StatusOK || len(out["projects"].([]any)) != 1 {
+	projects, _ := out["projects"].([]any)
+	frame, _ := out["frame"].(map[string]any)
+	if code != http.StatusOK || len(projects) != 1 || frame["widthDeg"] == nil {
 		t.Fatalf("%d %v", code, out)
 	}
 	code, out = get(t, r, http.MethodPost, "/api/v1/planning/applyset/draft", `{"setId":"hoo","mode":"add","targetIds":[20]}`)

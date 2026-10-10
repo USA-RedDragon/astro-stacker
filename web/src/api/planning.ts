@@ -164,6 +164,7 @@ export interface Rule {
 }
 
 export interface Snapshot {
+  frame: { widthDeg: number; heightDeg: number; scale: number }
   projects: Project[]
   templates: Template[]
   sets: ExposureSet[]
