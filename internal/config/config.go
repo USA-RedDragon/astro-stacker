@@ -34,6 +34,11 @@ type Config struct {
 	Discover     Discover     `name:"discover" description:"Catalogue completion, the target finder and Starfront collaborations"`
 	Scheduler    Scheduler    `name:"scheduler" description:"The observatory-scheduler plugin's API and the durable command queue"`
 	Goals        Goals        `name:"goals" description:"Faint-signal SNR and depth of every master, measured from random half stacks of its registered subs, and progress toward Target Scheduler goals"`
+	Darks        Darks        `name:"darks" description:"The dark backlog the observatory's Target Scheduler Darks instruction works through"`
+}
+
+type Darks struct {
+	Publish string `name:"publish" description:"Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on" default:"off"`
 }
 
 type Scheduler struct {
@@ -199,6 +204,7 @@ var (
 	ErrInvalidTSVerdictsSince       = errors.New("stacking.ts-verdicts-since must be a date, YYYY-MM-DD")
 	ErrInvalidGoalsPublish          = errors.New("goals.publish must be off, dry-run or on")
 	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
+	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
 )
 
 func (c Config) Validate() error {
@@ -237,6 +243,12 @@ func (c Config) Validate() error {
 	}
 	if c.Goals.Enabled && c.Goals.IntervalMinutes <= 0 {
 		return ErrInvalidGoalsInterval
+	}
+
+	switch c.Darks.Publish {
+	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
+	default:
+		return ErrInvalidDarksPublish
 	}
 
 	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled || c.PublicFrames.Enabled || c.Goals.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {

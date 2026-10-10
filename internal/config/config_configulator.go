@@ -149,6 +149,10 @@ type goalsShadow struct {
 	Publish         *string `json:"publish"          toml:"publish"          yaml:"publish"`
 }
 
+type darksShadow struct {
+	Publish *string `json:"publish" toml:"publish" yaml:"publish"`
+}
+
 type configShadow struct {
 	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
 	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
@@ -163,6 +167,7 @@ type configShadow struct {
 	Discover     *discoverShadow     `json:"discover"      toml:"discover"      yaml:"discover"`
 	Scheduler    *schedulerShadow    `json:"scheduler"     toml:"scheduler"     yaml:"scheduler"`
 	Goals        *goalsShadow        `json:"goals"         toml:"goals"         yaml:"goals"`
+	Darks        *darksShadow        `json:"darks"         toml:"darks"         yaml:"darks"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -297,6 +302,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("goals.workers", configulator.LayerDefault, "default tag")
 	cfg.Goals.Publish = "off"
 	set("goals.publish", configulator.LayerDefault, "default tag")
+	cfg.Darks.Publish = "off"
+	set("darks.publish", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -697,6 +704,12 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Goals.Publish != nil {
 			cfg.Goals.Publish = *s.Goals.Publish
 			set("goals.publish", configulator.LayerFile, file)
+		}
+	}
+	if s.Darks != nil {
+		if s.Darks.Publish != nil {
+			cfg.Darks.Publish = *s.Darks.Publish
+			set("darks.publish", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -1599,6 +1612,10 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Goals.Publish = v
 		set("goals.publish", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "darks", "publish"); ok {
+		cfg.Darks.Publish = v
+		set("darks.publish", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -1702,6 +1719,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"goals" + o.Separator + "max-subs",
 		"goals" + o.Separator + "workers",
 		"goals" + o.Separator + "publish",
+		"darks" + o.Separator + "publish",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -1807,6 +1825,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(200), names[87], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
 	fs.Var(impl.NewInt(3), names[88], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
 	fs.String(names[89], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.String(names[90], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -2892,6 +2911,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Goals.Publish = v
 		set("goals.publish", configulator.LayerCLI, "--"+n)
 	}
+	if n := "darks" + o.Separator + "publish"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "darks.publish",
+				Source: "--" + n,
+			}
+		}
+		cfg.Darks.Publish = v
+		set("darks.publish", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -3152,6 +3183,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Goals = &sub
+			}
+		case "darks":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("darks", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub darksShadow
+				if err := sub.decodeJSON(dec, "darks"); err != nil {
+					return err
+				}
+				s.Darks = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -4965,6 +5015,42 @@ func (s *goalsShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *darksShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "publish":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Publish = &str
+			default:
+				return configJSONError(path+".publish", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -5073,6 +5159,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "goals.max-subs = %v\n", c.Goals.MaxSubs)
 	fmt.Fprintf(&b, "goals.workers = %v\n", c.Goals.Workers)
 	fmt.Fprintf(&b, "goals.publish = %v\n", c.Goals.Publish)
+	fmt.Fprintf(&b, "darks.publish = %v\n", c.Darks.Publish)
 	return b.String()
 }
 

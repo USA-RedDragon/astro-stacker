@@ -11,6 +11,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/goalmeasure"
@@ -103,6 +104,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	var stackBusy func() bool
 	var backfill func() goals.BackfillLive
 	broker := events.NewBroker()
+	darkNeed := &darkneed.Publisher{App: appStore.DB(), Sched: schedulerDBStore.DB(), Mode: cfg.Darks.Publish}
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)
@@ -113,6 +115,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if cfg.Indexer.Enabled {
 			ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
 			ix.Events = broker
+			ix.AfterScan = darkNeed.Run
 			go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second)
 			slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds)
 		}
@@ -180,7 +183,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			disc.Invalidate()
 		}
 	})
-	extras := server.Extras{Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	extras := server.Extras{DarkNeed: darkNeed, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {

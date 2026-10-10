@@ -79,6 +79,7 @@ type Frame struct {
 	CalMeasuredAt  *time.Time
 	CalCheck       *string `gorm:"index"`
 	CalCheckReason *string `gorm:"type:text"`
+	ReadoutMode    *string
 
 	// IndexError is set when the header could not be read; the frame is
 	// retried when its ETag changes.
