@@ -57,7 +57,9 @@ func TestMeasureReadsTheRigFromRecentLights(t *testing.T) {
 	}
 	add(i, "ASI2600MM", "Red", 300, 6248, 4176, 405, 3.76, "", time.Hour)
 	add(i+1, "ASI2600MC", "", 60, 3000, 2000, 250, 3.76, "RGGB", time.Hour)
-	add(i+2, "ASI2600MM", "O-III", 600, 6248, 4176, 405, 3.76, "", 90*24*time.Hour)
+	for k := range 3 {
+		add(i+2+k, "ASI2600MM", "O-III", 600, 6248, 4176, 405, 3.76, "", 90*24*time.Hour)
+	}
 	if err := sched.Exec(`CREATE TABLE acquiredimage (Id INTEGER PRIMARY KEY, acquireddate INTEGER, metadata TEXT)`).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +80,13 @@ func TestMeasureReadsTheRigFromRecentLights(t *testing.T) {
 	checkMeasured(t, r)
 }
 
+func checkFilterBasis(t *testing.T, r rigsource.Rig) {
+	t.Helper()
+	if len(r.Basis.Filters) != 3 || r.Basis.Filters[2].Filter != "O" || r.Basis.Filters[2].Frames != 3 || r.Basis.Filters[2].Last == nil {
+		t.Errorf("filter basis %+v", r.Basis.Filters)
+	}
+}
+
 func checkMeasured(t *testing.T, r rigsource.Rig) {
 	t.Helper()
 	if !r.Known() || *r.FocalLength != 405 || *r.PixelSize != 3.76 || *r.WidthPx != 6248 || *r.HeightPx != 4176 {
@@ -89,9 +98,10 @@ func checkMeasured(t *testing.T, r rigsource.Rig) {
 	if r.Colour == nil || *r.Colour {
 		t.Errorf("colour %v", r.Colour)
 	}
-	if fmt.Sprint(r.Filters) != "[L H]" || r.Exposures["H"] != 600 || r.Exposures["L"] != 120 || r.Exposures["R"] != 0 {
+	if fmt.Sprint(r.Filters) != "[L H O]" || r.Exposures["H"] != 600 || r.Exposures["L"] != 120 || r.Exposures["R"] != 0 || r.Exposures["O"] != 600 {
 		t.Errorf("filters %v exposures %v", r.Filters, r.Exposures)
 	}
+	checkFilterBasis(t, r)
 	scale := 206.264806 * 3.76 / 405
 	if math.Abs(*r.Scale-scale) > 1e-9 || math.Abs(*r.WidthDeg-scale*6248/3600) > 1e-9 {
 		t.Errorf("scale %v width %v", *r.Scale, *r.WidthDeg)
