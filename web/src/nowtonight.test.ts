@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Conditions, MoonNight, Preview, SchedProject, TonightSub } from './api/scheduler'
-import { conditionPills, hfrLimitFor, moonLine, moonPhaseText, mosaicBalance, nightSpan, noSourceText, phaseName, powerView, weatherRows } from './nowtonight'
+import { conditionPills, hfrLimitFor, moonLine, moonPhaseText, mosaicBalance, nightSpan, noMoonAvoidance, noSourceText, phaseName, powerView, weatherRows } from './nowtonight'
 
 const t = (h: number, m = 0) => new Date(Date.UTC(2026, 9, 10, h, m)).toISOString()
 
@@ -62,8 +62,17 @@ describe('moon', () => {
     next_full: '2026-10-25T00:00:00Z',
   }
   it('describes rise and set inside the night', () => {
-    expect(moonLine(m, Date.parse(t(1)), Date.parse(t(11)))).toBe('Moon 1%, rises 04:00.')
-    expect(moonLine(m, Date.parse(t(1)), Date.parse(t(7)))).toBe('Moon 1%, below the horizon all night.')
+    expect(moonLine(m, Date.parse(t(1)), Date.parse(t(11)))).toBe('Moon 1%, rises 04:00. No moon avoidance tonight.')
+    expect(moonLine(m, Date.parse(t(1)), Date.parse(t(7)))).toBe('Moon 1%, below the horizon all night. No moon avoidance tonight.')
+  })
+  it('says when moon avoidance is off', () => {
+    const bright = { ...m, illumination: 0.4 }
+    expect(noMoonAvoidance(bright, Date.parse(t(1)), Date.parse(t(11)))).toBe(false)
+    expect(noMoonAvoidance(bright, Date.parse(t(1)), Date.parse(t(7)))).toBe(true)
+    expect(noMoonAvoidance(m, Date.parse(t(1)), Date.parse(t(11)))).toBe(true)
+    expect(noMoonAvoidance(null, 0, 1)).toBe(false)
+    expect(moonLine(bright, Date.parse(t(1)), Date.parse(t(11)))).toBe('Moon 40%, rises 04:00.')
+    expect(moonPhaseText(m, true)).toBe('1% lit · new moon Sat 10 Oct · no moon avoidance tonight')
   })
   it('names the phase', () => {
     expect(phaseName(7.4)).toBe('first quarter')
