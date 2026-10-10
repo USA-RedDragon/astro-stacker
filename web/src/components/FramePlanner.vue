@@ -97,7 +97,7 @@ function schedule() {
   timer = setTimeout(load, 150)
 }
 
-watch(() => [props.object.id, props.object.ra, props.object.dec], () => {
+watch(() => `${props.object.id}|${props.object.ra}|${props.object.dec}`, () => {
   rotation.value = props.rotation ?? null
   wantGrid.value = initialGrid()
   layoutId.value = ''
