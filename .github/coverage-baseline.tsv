@@ -4,8 +4,9 @@ cmd/root.go	136	0
 cmd/stack.go	58	0
 internal/calmatch/calmatch.go	81	75
 internal/catalog/coords.go	32	30
+internal/catalog/curated.go	2	2
 internal/catalog/designation.go	80	74
-internal/catalog/embedded.go	188	173
+internal/catalog/embedded.go	189	174
 internal/catalog/gen/finalize.go	72	0
 internal/catalog/gen/main.go	609	0
 internal/catalog/gen/nina.go	183	0
@@ -25,7 +26,7 @@ internal/frameheader/frame.go	42	41
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	250	196
+internal/goalmeasure/runner.go	252	197
 internal/goalmeasure/xp.go	95	61
 internal/goals/fit.go	81	77
 internal/goals/image.go	124	120
@@ -58,7 +59,7 @@ internal/mosaics/seasons.go	67	66
 internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
 internal/observatory/client.go	91	75
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	137	122
 internal/observatory/transport.go	50	45
 internal/planning/drafts.go	153	137
@@ -74,7 +75,7 @@ internal/publicframe/watermark.go	61	61
 internal/quality/quality.go	42	38
 internal/quality/scores.go	121	114
 internal/quality/transparency.go	71	70
-internal/rigsource/rigsource.go	159	144
+internal/rigsource/rigsource.go	159	146
 internal/schedcmd/command.go	5	4
 internal/schedcmd/edit.go	83	59
 internal/schedcmd/kinds.go	93	61
@@ -103,7 +104,7 @@ internal/server/webui.go	25	25
 internal/siril/siril.go	52	5
 internal/sky/frame.go	32	31
 internal/sky/sky.go	84	81
-internal/skybright/skybright.go	74	54
+internal/skybright/skybright.go	90	70
 internal/skycutout/skycutout.go	152	131
 internal/stacking/accumulator.go	155	151
 internal/stacking/comet.go	518	252
