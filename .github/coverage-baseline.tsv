@@ -25,7 +25,7 @@ internal/frameheader/frame.go	42	41
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	250	195
+internal/goalmeasure/runner.go	250	196
 internal/goalmeasure/xp.go	95	61
 internal/goals/fit.go	81	77
 internal/goals/image.go	124	120
@@ -95,13 +95,15 @@ internal/server/routes.go	321	43
 internal/server/scheddata.go	254	216
 internal/server/schedpreview.go	68	65
 internal/server/scheduler.go	77	18
-internal/server/server.go	87	26
+internal/server/server.go	88	27
+internal/server/skycutout.go	24	20
 internal/server/subs.go	32	19
 internal/server/webui.go	8	8
 internal/siril/siril.go	52	5
 internal/sky/frame.go	32	31
 internal/sky/sky.go	84	81
 internal/skybright/skybright.go	74	54
+internal/skycutout/skycutout.go	152	131
 internal/stacking/accumulator.go	155	151
 internal/stacking/comet.go	518	252
 internal/stacking/cosmetic.go	61	50
