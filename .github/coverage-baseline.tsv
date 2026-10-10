@@ -43,10 +43,11 @@ internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	81
 internal/moon/moon.go	30	28
 internal/mosaicplan/adoption.go	177	136
+internal/mosaicplan/clearnights.go	70	65
 internal/mosaicplan/detail.go	289	248
-internal/mosaicplan/framing.go	66	43
+internal/mosaicplan/framing.go	102	67
 internal/mosaicplan/history.go	32	29
-internal/mosaicplan/seasons.go	147	115
+internal/mosaicplan/seasons.go	208	160
 internal/mosaicplan/site.go	21	0
 internal/mosaics/adoption.go	180	163
 internal/mosaics/framing.go	202	196
@@ -55,7 +56,7 @@ internal/mosaics/seasons.go	67	66
 internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
 internal/observatory/client.go	91	75
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	137	122
 internal/observatory/transport.go	50	45
 internal/planning/drafts.go	153	137
@@ -82,7 +83,7 @@ internal/schedcmd/planning.go	400	324
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	184	161
+internal/schedcmd/service.go	184	159
 internal/server/conditions.go	22	16
 internal/server/discover.go	116	100
 internal/server/middleware/di.go	5	5
