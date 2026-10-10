@@ -212,3 +212,31 @@ func TestSourceMarksAStaleValue(t *testing.T) {
 		t.Fatalf("stale %+v", stale.Basis)
 	}
 }
+
+func TestMeasureInOneFilter(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	night := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 6 {
+		at := night.Add(time.Duration(i) * time.Minute)
+		add(t, db, i+1, "Luminance", night, at, 20.5)
+		add(t, db, i+101, "Red", night, at, 20.1)
+	}
+	now := night.Add(24 * time.Hour)
+	ctx := context.Background()
+	r, err := skybright.MeasureIn(ctx, db, nil, now, "R")
+	if err != nil || r.Mag == nil || *r.Mag != 20.1 || r.Basis.Filter != "R" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	l, err := skybright.Measure(ctx, db, nil, now)
+	if err != nil || l.Mag == nil || *l.Mag != 20.5 {
+		t.Fatalf("%+v %v", l, err)
+	}
+	b, err := skybright.MeasureIn(ctx, db, nil, now, "B")
+	if err != nil || b.Mag != nil || b.Basis.Reason == nil || *b.Basis.Reason != "no B master with a Gaia zero point has been measured yet" {
+		t.Fatalf("%+v %v", b, err)
+	}
+	if h, _ := skybright.MeasureIn(ctx, db, nil, now, "Ha"); h.Mag != nil {
+		t.Fatalf("narrowband sky %+v", h)
+	}
+}

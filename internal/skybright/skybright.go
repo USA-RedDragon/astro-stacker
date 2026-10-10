@@ -93,6 +93,23 @@ func median(v []float64) float64 {
 }
 
 func Measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time) (Value, error) {
+	return measure(ctx, db, site, now, filterPreference())
+}
+
+func MeasureIn(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time, filter string) (Value, error) {
+	f := rigsource.CanonicalFilter(filter)
+	if !Broadband(f) {
+		return None(f + " is not a broadband filter"), nil
+	}
+	v, err := measure(ctx, db, site, now, []string{f})
+	if err == nil && v.Mag == nil && v.Basis.Reason != nil {
+		r := strings.NewReplacer("L, R, G or B", f, "broadband", f).Replace(*v.Basis.Reason)
+		v.Basis.Reason = &r
+	}
+	return v, err
+}
+
+func measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time, prefs []string) (Value, error) {
 	if db == nil || !db.Migrator().HasTable(&app.SkySample{}) {
 		return None(reasonNoSamples), nil
 	}
@@ -109,7 +126,7 @@ func Measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time) (Va
 	seen, dark := false, false
 	for _, r := range rows {
 		f := rigsource.CanonicalFilter(r.Filter)
-		if !Broadband(f) || math.IsNaN(r.SkyMag) || math.IsInf(r.SkyMag, 0) {
+		if !slices.Contains(prefs, f) || math.IsNaN(r.SkyMag) || math.IsInf(r.SkyMag, 0) {
 			continue
 		}
 		seen = true
@@ -132,7 +149,7 @@ func Measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time) (Va
 	picked := map[string]string{}
 	keys := make([]string, 0, len(byNight))
 	for k, fs := range byNight {
-		for _, f := range filterPreference() {
+		for _, f := range prefs {
 			if len(fs[f]) >= MinNightFrames {
 				picked[k] = f
 				keys = append(keys, k)
@@ -162,7 +179,7 @@ func Measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time) (Va
 		v.Basis.Frames += len(subs)
 	}
 	var filters []string
-	for _, f := range filterPreference() {
+	for _, f := range prefs {
 		if used[f] {
 			filters = append(filters, f)
 		}
