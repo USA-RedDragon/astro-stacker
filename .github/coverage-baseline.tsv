@@ -22,8 +22,8 @@ internal/config/config.go	36	24
 internal/coverage/coverage.go	179	158
 internal/coverage/darkbacklog.go	182	157
 internal/coverage/imported.go	56	54
-internal/darkcheck/darkcheck.go	97	91
-internal/darkcheck/pass.go	107	81
+internal/darkcheck/darkcheck.go	121	115
+internal/darkcheck/pass.go	112	85
 internal/darkneed/darkneed.go	83	71
 internal/discover/adding.go	45	38
 internal/discover/collabs.go	312	238
@@ -40,7 +40,7 @@ internal/frameheader/frame.go	42	41
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	397	334
+internal/goalmeasure/runner.go	397	333
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -77,7 +77,7 @@ internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	108	94
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	189	161
 internal/observatory/transport.go	50	45
 internal/planning/completion.go	56	31
@@ -143,7 +143,7 @@ internal/stacking/distortion.go	87	35
 internal/stacking/duplicate.go	34	29
 internal/stacking/gain.go	122	80
 internal/stacking/header.go	188	54
-internal/stacking/lightleak.go	34	26
+internal/stacking/lightleak.go	33	25
 internal/stacking/linearfit.go	198	86
 internal/stacking/localnorm.go	203	194
 internal/stacking/masters.go	186	48
