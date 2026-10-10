@@ -23,6 +23,7 @@ type Object struct {
 	SurfaceBrightness       *float64 `json:"surfaceBrightness,omitempty"`
 	SurfaceBrightnessSource string   `json:"surfaceBrightnessSource,omitempty"`
 	MagnitudeBand           string   `json:"magnitudeBand,omitempty"`
+	BMinusV                 *float64 `json:"bMinusV,omitempty"`
 	Brightness              string   `json:"brightness,omitempty"`
 	BrightScore             *float64 `json:"brightScore,omitempty"`
 	Lists                   []string `json:"lists,omitempty"`
