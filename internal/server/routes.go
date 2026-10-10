@@ -141,6 +141,8 @@ type Cover struct {
 	PreviewURL       string    `json:"preview_url"`
 	EffectiveSeconds float64   `json:"effective_seconds,omitempty"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	Panels           *int      `json:"panels,omitempty"`
+	PanelsTotal      *int      `json:"panels_total,omitempty"`
 }
 
 // Covers maps targets and mosaic projects to their cover previews.
@@ -377,6 +379,16 @@ func publicLightRoute(signer *previewer.Signer) gin.HandlerFunc {
 	}
 }
 
+func fewestPanels(mosaics []app.Mosaic) map[string]app.Mosaic {
+	out := map[string]app.Mosaic{}
+	for _, m := range mosaics {
+		if f, ok := out[m.Project]; !ok || m.Panels < f.Panels {
+			out[m.Project] = m
+		}
+	}
+	return out
+}
+
 func coversRoute(signer *previewer.Signer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		out := Covers{Objects: map[string]Cover{}, Mosaics: map[string]Cover{}}
@@ -430,6 +442,13 @@ func coversRoute(signer *previewer.Signer) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
+		fewest := fewestPanels(mosaics)
+		for project, cv := range out.Mosaics {
+			if f, ok := fewest[project]; ok {
+				cv.Panels, cv.PanelsTotal = &f.Panels, &f.PanelsTotal
+				out.Mosaics[project] = cv
+			}
+		}
 		for _, m := range mosaics {
 			if _, ok := out.Mosaics[m.Project]; ok {
 				continue
@@ -439,7 +458,7 @@ func coversRoute(signer *previewer.Signer) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 				return
 			}
-			out.Mosaics[m.Project] = Cover{Filter: m.Filter, PreviewURL: u, UpdatedAt: m.UpdatedAt}
+			out.Mosaics[m.Project] = Cover{Filter: m.Filter, PreviewURL: u, UpdatedAt: m.UpdatedAt, Panels: &m.Panels, PanelsTotal: &m.PanelsTotal}
 		}
 		c.JSON(http.StatusOK, out)
 	}

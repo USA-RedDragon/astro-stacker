@@ -35,3 +35,18 @@ func TestMonoCoversPreferNebulaFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestFewestPanelsPerProject(t *testing.T) {
+	t.Parallel()
+	got := fewestPanels([]app.Mosaic{
+		{Project: "Veil", Filter: filterHa, Panels: 4, PanelsTotal: 4},
+		{Project: "Veil", Filter: filterBlue, Panels: 3, PanelsTotal: 4},
+		{Project: objectOrion, Filter: filterHa, Panels: 2, PanelsTotal: 2},
+	})
+	if v := got["Veil"]; v.Filter != filterBlue || v.Panels != 3 || v.PanelsTotal != 4 {
+		t.Fatalf("veil %+v", v)
+	}
+	if o := got[objectOrion]; o.Panels != 2 {
+		t.Fatalf("orion %+v", o)
+	}
+}
