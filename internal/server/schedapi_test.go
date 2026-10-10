@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -350,5 +351,48 @@ func TestSchedulerStatusFromMonitor(t *testing.T) {
 	code, body := do(t, h, http.MethodGet, "/api/v1/scheduler/status", "")
 	if code != http.StatusOK || !strings.Contains(string(body), `"reachable":"online"`) || !strings.Contains(string(body), `"state":"paused"`) {
 		t.Fatalf("%d %s", code, body)
+	}
+}
+
+func TestTonightHFRLimits(t *testing.T) {
+	t.Parallel()
+	sched, appDB, at := tonightFixture(t)
+	exec(t, sched, `create table profilepreference ("profileId" text, "enableGradeHFR" integer, "hfrSigmaFactor" real)`,
+		`insert into profilepreference values ('p', 1, 2.0)`)
+	for i, hfr := range []float64{2.0, 2.2, 2.4} {
+		exec(t, sched, fmt.Sprintf(`insert into acquiredimage values (%d,5,13,%d,'R',1,'{"HFR":%v}',null,'p',40,'x%d')`, 10+i, at(-48).Unix(), hfr, i))
+	}
+	h := newHandler(t, sched, appDB, server.Extras{Now: func() time.Time { return at(9) }})
+	code, body := do(t, h, http.MethodGet, pathSubs, "")
+	var got server.TonightSubs
+	if err := json.Unmarshal(body, &got); code != http.StatusOK || err != nil {
+		t.Fatalf("%d %s", code, body)
+	}
+	if got.HFRSigma == nil || *got.HFRSigma != 2 || len(got.HFRLimits) != 1 {
+		t.Fatalf("limits %s", body)
+	}
+	l := got.HFRLimits[0]
+	if l.TargetID != 13 || l.Filter != "R" || l.Samples != 4 || math.Abs(l.Mean-2.225) > 1e-9 || math.Abs(l.Limit-(l.Mean+2*l.SD)) > 1e-9 {
+		t.Fatalf("limit %+v", l)
+	}
+	exec(t, sched, `update profilepreference set "enableGradeHFR" = 0`)
+	_, body = do(t, h, http.MethodGet, pathSubs, "")
+	if strings.Contains(string(body), "hfr_sigma") || !strings.Contains(string(body), `"hfr_limits":[]`) {
+		t.Fatalf("grader off: %s", body)
+	}
+}
+
+func TestConditionsAndMoon(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, memDB(t, "s"), memDB(t, "a"), server.Extras{})
+	code, body := do(t, h, http.MethodGet, "/api/v1/scheduler/conditions", "")
+	if code != http.StatusOK || !strings.Contains(string(body), `"weather":{"source":"none"}`) {
+		t.Fatalf("conditions %d %s", code, body)
+	}
+	if code, _ = do(t, h, http.MethodGet, "/api/v1/scheduler/moon?start=x&end=y", ""); code != http.StatusBadRequest {
+		t.Fatalf("bad times %d", code)
+	}
+	if code, _ = do(t, h, http.MethodGet, "/api/v1/scheduler/moon?start=2026-10-09T22:00:00Z&end=2026-10-10T12:00:00Z", ""); code != http.StatusServiceUnavailable {
+		t.Fatalf("no site %d", code)
 	}
 }
