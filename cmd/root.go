@@ -11,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/publicframe"
@@ -87,6 +88,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	indexCtx, stopIndexer := context.WithCancel(context.Background())
 	defer stopIndexer()
 	var signer *previewer.Signer
+	mosaicPlans := mosaicplan.New(appStore.DB(), schedulerDBStore.DB())
 	var restacker middleware.Restacker
 	drainStacker := func() {}
 	broker := events.NewBroker()
@@ -96,6 +98,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to create S3 client: %w", err)
 		}
+		mosaicPlans.Site = mosaicplan.SiteFromLights(s3, cfg.S3.Bucket, appStore.DB())
 		if cfg.Indexer.Enabled {
 			ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
 			ix.Events = broker
@@ -151,6 +154,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 				}
 				cancelStack()
 			}
+			go mosaicPlans.RunAdoptionEvery(indexCtx, time.Hour)
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir, "ts_verdicts", cfg.Stacking.TSVerdicts)
 		}
 	}
@@ -161,7 +165,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		Notify: func(r schedcmd.Record) { broker.Broadcast("command", r, false) },
 	}
 
-	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], server.Extras{Commands: commands})
+	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], server.Extras{Commands: commands, Mosaics: mosaicPlans})
 	if err := server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}
