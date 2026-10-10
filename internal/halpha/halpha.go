@@ -120,20 +120,6 @@ func (m *Map) Sample(ra, dec, radiusDeg float64) (Sample, bool) {
 	return Sample{Rayleigh: round(sum / float64(n)), Peak: round(peak), RadiusDeg: math.Round(radiusDeg*1000) / 1000}, true
 }
 
-func Label(s *Sample) string {
-	switch {
-	case s == nil:
-		return "Unknown"
-	case s.Rayleigh >= 30:
-		return fmt.Sprintf("Strong H-α (%.0f R)", s.Rayleigh)
-	case s.Rayleigh >= 8:
-		return fmt.Sprintf("H-α (%.0f R)", s.Rayleigh)
-	case s.Rayleigh >= 2:
-		return fmt.Sprintf("Faint H-α (%.0f R)", s.Rayleigh)
-	}
-	return "Little H-α (<2 R)"
-}
-
 func Score(s *Sample) float64 {
 	if s == nil || s.Rayleigh <= 2 {
 		return 0

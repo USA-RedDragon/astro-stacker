@@ -57,7 +57,41 @@ func halphaWeighted(group string) bool {
 	return false
 }
 
-const halphaWeight = 0.15
+const (
+	weightFill   = 0.35
+	weightHours  = 0.25
+	weightHAlpha = 0.15
+	weightGap    = 0.15
+	fullHours    = 8.0
+
+	TermFill   = "fill"
+	TermHours  = "hours"
+	TermHAlpha = "halpha"
+	TermGap    = "gap"
+)
+
+type ScoreWeight struct {
+	Key    string  `json:"key"`
+	Label  string  `json:"label"`
+	Weight float64 `json:"weight"`
+	Rule   string  `json:"rule"`
+}
+
+func ScoreWeights() []ScoreWeight {
+	return []ScoreWeight{
+		{TermFill, "Frame fill", weightFill, "1 when the long side fills 30–90% of the frame's long side, 0.9 above 90%, fill ÷ 30% below; a mosaic of N panels gets 0.8 ÷ N^0.35"},
+		{TermHours, "Dark hours", weightHours, fmt.Sprintf("hours above the minimum altitude in astronomical darkness in the best month ÷ %g h, at most 1", fullHours)},
+		{TermHAlpha, "H-α", weightHAlpha, "emission nebulae, remnants and planetaries only: log10(R ÷ 2) ÷ log10(250) from the H-α map, 0 at 2 R or less, 1 at 500 R or more"},
+		{TermGap, "Catalogue gap", weightGap, "on a tracked catalogue list and not imaged yet"},
+	}
+}
+
+type ScoreTerm struct {
+	Key    string   `json:"key"`
+	Value  *float64 `json:"value"`
+	Points float64  `json:"points"`
+	Detail string   `json:"detail"`
+}
 
 type FinderQuery struct {
 	Fits    []string
@@ -69,32 +103,60 @@ type FinderQuery struct {
 	Limit   int
 }
 
+type Brightness struct {
+	Text   string   `json:"text"`
+	Kind   string   `json:"kind"`
+	Value  *float64 `json:"value"`
+	Band   string   `json:"band,omitempty"`
+	Source string   `json:"source,omitempty"`
+}
+
+const (
+	BrightClass      = "class"
+	BrightCatalogued = "catalogued"
+	BrightComputed   = "computed"
+	BrightNone       = "none"
+)
+
 type FinderRow struct {
-	Object      catalog.Object `json:"object"`
-	Group       string         `json:"group"`
-	Fit         sky.Fit        `json:"fit"`
-	Brightness  string         `json:"brightness"`
-	BrightScore *float64       `json:"brightScore"`
-	Narrowband  string         `json:"narrowband"`
-	HAlpha      *halpha.Sample `json:"halpha"`
-	Months      [12]float64    `json:"months"`
-	BestMonths  []int          `json:"bestMonths"`
-	Tonight     float64        `json:"tonightHours"`
-	Score       float64        `json:"score"`
-	Imaged      bool           `json:"imaged"`
-	Subjects    []SubjectRef   `json:"subjects"`
-	Rotation    *float64       `json:"rotation"`
-	CatalogGap  bool           `json:"catalogueGap"`
+	Object     catalog.Object `json:"object"`
+	Group      string         `json:"group"`
+	Fit        sky.Fit        `json:"fit"`
+	Brightness Brightness     `json:"brightness"`
+	HAlpha     *halpha.Sample `json:"halpha"`
+	Months     [12]float64    `json:"months"`
+	BestMonths []int          `json:"bestMonths"`
+	Tonight    float64        `json:"tonightHours"`
+	Score      float64        `json:"score"`
+	Terms      []ScoreTerm    `json:"terms"`
+	Imaged     bool           `json:"imaged"`
+	Subjects   []SubjectRef   `json:"subjects"`
+	Rotation   *float64       `json:"rotation"`
+	CatalogGap bool           `json:"catalogueGap"`
+}
+
+type Exclusion struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
 }
 
 type FinderResult struct {
-	Total     int           `json:"total"`
-	Rows      []FinderRow   `json:"rows"`
-	SiteError string        `json:"siteError,omitempty"`
-	RigError  *string       `json:"rigError"`
-	Frame     FrameInfo     `json:"frame"`
-	Rig       rigsource.Rig `json:"rig"`
-	HAlphaMap halpha.Status `json:"halphaMap"`
+	Total           int           `json:"total"`
+	Rows            []FinderRow   `json:"rows"`
+	SiteError       string        `json:"siteError,omitempty"`
+	RigError        *string       `json:"rigError"`
+	Frame           FrameInfo     `json:"frame"`
+	Rig             rigsource.Rig `json:"rig"`
+	HAlphaMap       halpha.Status `json:"halphaMap"`
+	Weights         []ScoreWeight `json:"weights"`
+	ScoreMax        float64       `json:"scoreMax"`
+	MinAltitude     float64       `json:"minAltitude"`
+	MinAltitudeFrom string        `json:"minAltitudeSource"`
+	BestMonthHours  float64       `json:"bestMonthHours"`
+	MonthSample     string        `json:"monthSample"`
+	Overlap         float64       `json:"overlap"`
+	MinFill         float64       `json:"minFill"`
+	Excluded        []Exclusion   `json:"excluded"`
 	skybright.Value
 }
 
@@ -105,9 +167,10 @@ type FrameInfo struct {
 }
 
 type finderCache struct {
-	day  time.Time
-	key  string
-	rows []FinderRow
+	day      time.Time
+	key      string
+	rows     []FinderRow
+	excluded []Exclusion
 }
 
 const errRigUnknown = "the rig is not known yet: no lights with FOCALLEN, XPIXSZ and image size have been indexed"
@@ -124,33 +187,30 @@ func fillScore(f sky.Fit) float64 {
 	return math.Max(0, f.Fill/0.3)
 }
 
-func brightness(o catalog.Object, skyMag float64) (string, *float64) {
-	if o.BrightScore != nil {
-		v := *o.BrightScore
-		return o.Brightness, &v
+func sbBand(o catalog.Object) (band, source string) {
+	return "", o.Source
+}
+
+func brightness(o catalog.Object) Brightness {
+	if o.Brightness != "" {
+		return Brightness{Text: o.Brightness, Kind: BrightClass, Source: o.Source}
 	}
-	sb := o.SurfaceBrightness
-	if sb == nil && o.Magnitude != nil && o.MajorArcmin > 0 {
+	if o.SurfaceBrightness != nil {
+		v := *o.SurfaceBrightness
+		band, src := sbBand(o)
+		return Brightness{Text: fmt.Sprintf("%.1f mag/arcsec² catalogued", v), Kind: BrightCatalogued, Value: &v, Band: band, Source: src}
+	}
+	if o.Magnitude != nil && o.MajorArcmin > 0 {
 		minor := o.Minor()
-		if minor == 0 {
+		if minor <= 0 {
 			minor = o.MajorArcmin
 		}
 		area := math.Pi / 4 * o.MajorArcmin * minor * 3600
-		v := *o.Magnitude + 2.5*math.Log10(area)
-		sb = &v
+		v := math.Round((*o.Magnitude+2.5*math.Log10(area))*10) / 10
+		return Brightness{Text: fmt.Sprintf("≈ %.1f mag/arcsec² computed from magnitude %.1f spread over the catalogued size", v, *o.Magnitude), Kind: BrightComputed, Value: &v}
 	}
-	switch {
-	case sb != nil && skyMag > 0:
-		margin := skyMag - *sb
-		v := math.Round(math.Max(0, math.Min(1, (margin+3.5)/4))*100) / 100
-		return fmt.Sprintf("%.1f mag/arcsec², %+.1f against your sky", *sb, margin), &v
-	case sb != nil:
-		return fmt.Sprintf("%.1f mag/arcsec²; your sky is not measured yet", *sb), nil
-	}
-	return "Brightness not catalogued", nil
+	return Brightness{Text: "Brightness not catalogued", Kind: BrightNone}
 }
-
-const unknownBrightWeight = 0.5
 
 func bestMonths(m [12]float64) []int {
 	var out []int
@@ -162,93 +222,146 @@ func bestMonths(m [12]float64) []int {
 	return out
 }
 
-func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) {
+func ptrf(v float64) *float64 { return &v }
+
+func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
+
+func scoreTerms(o catalog.Object, g string, fit sky.Fit, maxH float64, ha *halpha.Sample, gap bool) []ScoreTerm {
+	fs := fillScore(fit)
+	fillDetail := fmt.Sprintf("fills %.0f%% of the frame's long side", fit.Fill*100)
+	if fit.Panels > 1 {
+		fillDetail = fmt.Sprintf("%d panels", fit.Panels)
+	}
+	hs := math.Min(1, maxH/fullHours)
+	terms := []ScoreTerm{
+		{Key: TermFill, Value: ptrf(round3(fs)), Points: round3(weightFill * fs), Detail: fillDetail},
+		{Key: TermHours, Value: ptrf(round3(hs)), Points: round3(weightHours * hs), Detail: fmt.Sprintf("%.1f h in the best month", maxH)},
+	}
+	if halphaWeighted(g) {
+		t := ScoreTerm{Key: TermHAlpha, Detail: "not on the H-α map"}
+		if ha != nil {
+			v := halpha.Score(ha)
+			t.Value, t.Points, t.Detail = ptrf(round3(v)), round3(weightHAlpha*v), fmt.Sprintf("%.0f R mean within %.2f°", ha.Rayleigh, ha.RadiusDeg)
+		}
+		terms = append(terms, t)
+	}
+	if gap {
+		terms = append(terms, ScoreTerm{Key: TermGap, Value: ptrf(1), Points: weightGap, Detail: "on " + strings.Join(o.Lists, ", ")})
+	}
+	return terms
+}
+
+func sumTerms(ts []ScoreTerm) float64 {
+	var s float64
+	for _, t := range ts {
+		s += t.Points
+	}
+	return round3(s)
+}
+
+const (
+	excludeType   = "not an emission, remnant, dark, reflection, planetary or galaxy type"
+	excludeSize   = "size not catalogued"
+	excludeLow    = "never clears the minimum altitude from your latitude"
+	excludeSmall  = "fills less than 2% of the frame's long side"
+	excludeMonths = "no month with enough dark hours above the minimum altitude"
+)
+
+func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, []Exclusion, error) {
 	site, err := s.site(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !rig.known() {
-		return nil, nil
+		return nil, nil, nil
 	}
 	now := s.now()
 	day := site.LocalNoon(now)
 	hmap, hst := s.halphaMap()
-	key := fmt.Sprintf("%+v|%v|%s|%v", rig.Frame, rig.SkyBright, hst.State, hst.FetchedAt)
+	key := fmt.Sprintf("%+v|%s|%v", rig.Frame, hst.State, hst.FetchedAt)
 	s.mu.Lock()
 	cached := s.finder
 	s.mu.Unlock()
 	if cached != nil && cached.day.Equal(day) && cached.key == key {
-		return cached.rows, nil
+		return cached.rows, cached.excluded, nil
 	}
 	yr, err := s.year(ctx, now.Year())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	n, err := s.night(ctx, now)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	minAlt := s.minAlt()
 	maxDec := site.Latitude - 90 + minAlt
+	counts := map[string]int{}
 	var rows []FinderRow
 	for _, o := range s.Catalog.All() {
 		g := TypeGroup(o.Type)
-		if g == "" || o.MajorArcmin <= 0 || o.Dec < maxDec {
+		switch {
+		case g == "":
+			counts[excludeType]++
+			continue
+		case o.MajorArcmin <= 0:
+			counts[excludeSize]++
+			continue
+		case o.Dec < maxDec:
+			counts[excludeLow]++
 			continue
 		}
 		fit := rig.Frame.Fit(o.MajorArcmin, o.Minor(), sky.DefaultOverlap)
 		if fit.Fill < minFinderFill {
+			counts[excludeSmall]++
 			continue
 		}
 		months := roundMonths(yr.Hours(o.RA, o.Dec, minAlt))
 		best := bestMonths(months)
 		if len(best) == 0 {
+			counts[excludeMonths]++
 			continue
-		}
-		label, bright := brightness(o, rig.SkyBright)
-		maxH := slices.Max(months[:])
-		bw := unknownBrightWeight
-		if bright != nil {
-			bw = *bright
 		}
 		var ha *halpha.Sample
 		if smp, ok := hmap.Sample(o.RA, o.Dec, o.MajorArcmin/120); ok {
 			ha = &smp
 		}
-		score := 0.35*fillScore(fit) + 0.25*bw + 0.25*math.Min(1, maxH/8)
-		if halphaWeighted(g) {
-			score += halphaWeight * halpha.Score(ha)
-		}
 		gap := len(o.Lists) > 0
-		if gap {
-			score += 0.15
-		}
+		terms := scoreTerms(o, g, fit, slices.Max(months[:]), ha, gap)
 		rows = append(rows, FinderRow{
-			Object: o, Group: g, Fit: fit, Brightness: label, BrightScore: bright, Narrowband: halpha.Label(ha), HAlpha: ha,
-			Months: months, BestMonths: best, Tonight: n.HoursAbove(o.RA, o.Dec, minAlt), Score: math.Round(score*1000) / 1000,
+			Object: o, Group: g, Fit: fit, Brightness: brightness(o), HAlpha: ha,
+			Months: months, BestMonths: best, Tonight: n.HoursAbove(o.RA, o.Dec, minAlt), Score: sumTerms(terms), Terms: terms,
 			Rotation: rotationFor(fit, o.PA), CatalogGap: gap,
 		})
 	}
+	var excluded []Exclusion
+	for _, r := range []string{excludeType, excludeSize, excludeLow, excludeSmall, excludeMonths} {
+		if counts[r] > 0 {
+			excluded = append(excluded, Exclusion{Reason: r, Count: counts[r]})
+		}
+	}
 	s.mu.Lock()
-	s.finder = &finderCache{day: day, key: key, rows: rows}
+	s.finder = &finderCache{day: day, key: key, rows: rows, excluded: excluded}
 	s.mu.Unlock()
-	return rows, nil
+	return rows, excluded, nil
 }
 
 func (s *Service) Finder(ctx context.Context, q FinderQuery) (FinderResult, error) {
 	rig, info := s.rig(ctx)
 	_, hst := s.halphaMap()
-	out := FinderResult{Value: s.skyValue(ctx), Rows: []FinderRow{}, Rig: info, HAlphaMap: hst}
+	out := FinderResult{Value: s.skyValue(ctx), Rows: []FinderRow{}, Rig: info, HAlphaMap: hst, Weights: ScoreWeights(),
+		ScoreMax: weightFill + weightHours + weightHAlpha + weightGap, MinAltitude: s.minAlt(), MinAltitudeFrom: MinAltitudeSetting,
+		BestMonthHours: goodMonthHours, MonthSample: monthSampleText, Overlap: sky.DefaultOverlap, MinFill: minFinderFill, Excluded: []Exclusion{}}
 	if rig.known() {
 		out.Frame = FrameInfo{WidthDeg: rig.Frame.WidthDeg(), HeightDeg: rig.Frame.HeightDeg(), Scale: rig.Frame.Scale()}
 	} else {
 		msg := errRigUnknown
 		out.RigError = &msg
 	}
-	rows, siteErr := s.finderRows(ctx, rig)
+	rows, excluded, siteErr := s.finderRows(ctx, rig)
 	if siteErr != nil {
 		out.SiteError = siteErr.Error()
 	}
+	out.Excluded = append(out.Excluded, excluded...)
 	snap, err := s.snapshot(ctx)
 	if err != nil {
 		return out, err
@@ -280,8 +393,9 @@ func (s *Service) Finder(ctx context.Context, q FinderQuery) (FinderResult, erro
 		if r.Imaged && !q.Imaged {
 			continue
 		}
-		if r.Imaged {
-			r.Score = math.Round((r.Score-0.15*boolf(r.CatalogGap))*1000) / 1000
+		if r.Imaged && r.CatalogGap {
+			r.Terms = slices.DeleteFunc(slices.Clone(r.Terms), func(t ScoreTerm) bool { return t.Key == TermGap })
+			r.Score = sumTerms(r.Terms)
 		}
 		hits = append(hits, r)
 	}
@@ -296,13 +410,6 @@ func (s *Service) Finder(ctx context.Context, q FinderQuery) (FinderResult, erro
 	}
 	out.Rows = append(out.Rows, hits...)
 	return out, nil
-}
-
-func boolf(b bool) float64 {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 func sortRows(rows []FinderRow, by string) {
