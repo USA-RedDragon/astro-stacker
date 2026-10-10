@@ -42,6 +42,7 @@ type MosaicAdoption struct {
 	Project     string     `json:"project"`
 	Kind        string     `json:"kind"`
 	Confidence  string     `json:"confidence"`
+	Rule        string     `gorm:"type:text;not null;default:''" json:"rule"`
 	Issue       string     `gorm:"type:text" json:"issue"`
 	Suggestion  string     `gorm:"type:text" json:"suggestion"`
 	Proposal    string     `gorm:"type:text" json:"proposal"`

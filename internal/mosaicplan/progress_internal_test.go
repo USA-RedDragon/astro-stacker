@@ -1,6 +1,7 @@
 package mosaicplan
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -57,5 +58,27 @@ func TestImagingNightsCountOnlyYearsWithData(t *testing.T) {
 	}
 	if m[5].SpanYears != 3 || m[5].Years != 1 || m[5].Nights == nil || *m[5].Nights != 0 {
 		t.Errorf("june %+v", m[5])
+	}
+}
+
+func TestFramesVerdict(t *testing.T) {
+	t.Parallel()
+	conf, rule, sug := framesVerdict(&FramesProposal{Object: "M 101"})
+	if conf != mosaics.ConfidenceLow || !strings.Contains(rule, "no mount coordinates") || strings.Contains(sug, "0.5") {
+		t.Errorf("no coords: %s %q %q", conf, rule, sug)
+	}
+	sep := 0.27
+	squid := &FramesProposal{Object: "SH2-129", Coords: true, Separation: &sep, Target: "Squid Nebula", Nearest: "Squid Nebula"}
+	conf, rule, sug = framesVerdict(squid)
+	if conf != mosaics.ConfidenceMedium || !strings.Contains(rule, "names don't match") || strings.Contains(sug, "object name") || !strings.Contains(sug, "don't match") {
+		t.Errorf("coordinates only: %s %q %q", conf, rule, sug)
+	}
+	near := 0.1
+	conf, _, sug = framesVerdict(&FramesProposal{Object: "Eagle Nebula", Coords: true, Separation: &near, Target: "Eagle Nebula Panel 1", NameMatch: true})
+	if conf != mosaics.ConfidenceHigh || !strings.Contains(sug, "the names match") {
+		t.Errorf("name and position: %s %q", conf, sug)
+	}
+	if framesIssue("Sadr Region", 6, true) == framesIssue("Sadr Region", 6, false) {
+		t.Error("a project-named object reads like any other")
 	}
 }
