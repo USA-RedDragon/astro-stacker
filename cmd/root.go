@@ -218,14 +218,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 
 func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool) (func(), func() goals.BackfillLive) {
 	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
-		goalmeasure.VizierFetcher(nil, ""), goalmeasure.Options{
-			Interval:     time.Duration(cfg.Goals.IntervalMinutes) * time.Minute,
-			MaxSubs:      cfg.Goals.MaxSubs,
-			Publish:      cfg.Goals.Publish,
-			SeasonBoosts: boosts,
-			Workers:      cfg.Goals.Workers,
-			Busy:         busy,
-		})
+		goalmeasure.VizierFetcher(nil, ""), goalOptions(cfg, boosts, busy))
 	r.XP = goalmeasure.VizierXPFetcher(nil, "")
 	done := make(chan struct{})
 	go func() {
@@ -242,6 +235,17 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 			slog.Warn("Goal measurement still busy at shutdown")
 		}
 	}, r.Live
+}
+
+func goalOptions(cfg *config.Config, boosts goals.SeasonBoostSource, busy func() bool) goalmeasure.Options {
+	return goalmeasure.Options{
+		Interval:     time.Duration(cfg.Goals.IntervalMinutes) * time.Minute,
+		MaxSubs:      cfg.Goals.MaxSubs,
+		Publish:      cfg.Goals.Publish,
+		SeasonBoosts: boosts,
+		Workers:      cfg.Goals.Workers,
+		Busy:         busy,
+	}
 }
 
 func credentials(cfg *config.Config) *miniocreds.Credentials {

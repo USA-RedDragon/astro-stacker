@@ -30,6 +30,7 @@ const (
 	failureBackoff  = 6 * time.Hour
 	idlePoll        = 15 * time.Second
 	publishEvery    = 10 * time.Minute
+	publishPoll     = time.Minute
 	DefaultWorkers  = 3
 	columnObject    = "object"
 	columnFilter    = "filter"
@@ -64,15 +65,17 @@ type Options struct {
 }
 
 type Runner struct {
-	db      *gorm.DB
-	sched   *gorm.DB
-	objects ObjectGetter
-	stars   StarFetcher
-	XP      XPFetcher
-	opts    Options
-	pub     *goals.Publisher
-	now     func() time.Time
-	poll    time.Duration
+	db       *gorm.DB
+	sched    *gorm.DB
+	objects  ObjectGetter
+	stars    StarFetcher
+	XP       XPFetcher
+	opts     Options
+	pub      *goals.Publisher
+	now      func() time.Time
+	poll     time.Duration
+	pubPoll  time.Duration
+	pubEvery time.Duration
 
 	drain     chan struct{}
 	drainOnce sync.Once
@@ -97,7 +100,7 @@ func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Optio
 	}
 	return &Runner{db: db, sched: sched, objects: objects, stars: stars, opts: opts,
 		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts},
-		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll,
+		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll, pubPoll: publishPoll, pubEvery: publishEvery,
 		drain: make(chan struct{}), failed: map[int]time.Time{},
 		live: goals.BackfillLive{State: goals.BackfillIdle, Workers: opts.Workers}}
 }
@@ -178,6 +181,7 @@ func (r *Runner) Run(ctx context.Context) {
 		case <-ctx.Done():
 		}
 	}()
+	go r.publishLoop(ctx)
 	for !r.stopping(ctx) {
 		if err := r.Pass(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Goal measurement pass failed", "error", err)
@@ -272,18 +276,38 @@ func (r *Runner) measureOne(ctx context.Context, s app.Stack, goalsByKey map[goa
 	r.publish(ctx, false)
 }
 
+func (r *Runner) publishLoop(ctx context.Context) {
+	t := time.NewTicker(r.pubPoll)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			r.publish(ctx, false)
+		}
+	}
+}
+
 func (r *Runner) publish(ctx context.Context, force bool) {
 	if !r.publishMu.TryLock() {
 		return
 	}
 	defer r.publishMu.Unlock()
-	if !force && r.now().Sub(r.lastPublish) < publishEvery {
+	if !force && r.now().Sub(r.lastPublish) < r.pubEvery {
 		return
 	}
 	r.lastPublish = r.now()
 	if _, err := r.pub.Publish(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("Publishing goal progress failed", "error", err)
 	}
+}
+
+func (r *Runner) Publish(ctx context.Context) (goals.PublishSummary, error) {
+	r.publishMu.Lock()
+	defer r.publishMu.Unlock()
+	r.lastPublish = r.now()
+	return r.pub.Publish(ctx)
 }
 
 func (r *Runner) loadGoals(ctx context.Context) (map[goals.Key]goals.Goal, map[string]string) {
