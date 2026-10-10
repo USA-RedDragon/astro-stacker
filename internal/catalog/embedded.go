@@ -15,6 +15,71 @@ import (
 //go:embed data/catalog.json.zst
 var embeddedData []byte
 
+//go:embed data/nina.json.zst
+var embeddedNINA []byte
+
+type Patch struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name,omitempty"`
+	Aliases           []string `json:"aliases,omitempty"`
+	SurfaceBrightness *float64 `json:"surfaceBrightness,omitempty"`
+	MajorArcmin       float64  `json:"majorArcmin,omitempty"`
+	MinorArcmin       float64  `json:"minorArcmin,omitempty"`
+}
+
+type Overlay struct {
+	Source  Source   `json:"source"`
+	Objects []Object `json:"objects"`
+	Patches []Patch  `json:"patches"`
+}
+
+func (ds *Dataset) Apply(ov Overlay) {
+	pos := make(map[string]int, len(ds.Objects))
+	for i, o := range ds.Objects {
+		pos[o.ID] = i
+	}
+	for _, p := range ov.Patches {
+		i, ok := pos[p.ID]
+		if !ok {
+			continue
+		}
+		o := &ds.Objects[i]
+		if o.Name == "" {
+			o.Name = p.Name
+		} else if p.Name != "" && !slices.Contains(o.Aliases, p.Name) {
+			o.Aliases = append(o.Aliases, p.Name)
+		}
+		for _, a := range p.Aliases {
+			if !slices.Contains(o.Aliases, a) && a != o.Designation && a != o.Name {
+				o.Aliases = append(o.Aliases, a)
+			}
+		}
+		if o.SurfaceBrightness == nil {
+			o.SurfaceBrightness = p.SurfaceBrightness
+		}
+		if o.MajorArcmin == 0 && p.MajorArcmin > 0 {
+			o.MajorArcmin, o.MinorArcmin = p.MajorArcmin, p.MinorArcmin
+		}
+	}
+	for _, o := range ov.Objects {
+		if _, dup := pos[o.ID]; dup {
+			continue
+		}
+		pos[o.ID] = len(ds.Objects)
+		ds.Objects = append(ds.Objects, o)
+	}
+	ds.Sources = append(ds.Sources, ov.Source)
+}
+
+func decompress(compressed []byte) ([]byte, error) {
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		return nil, err
+	}
+	defer dec.Close()
+	return dec.DecodeAll(compressed, nil)
+}
+
 type Source struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -63,22 +128,38 @@ type Index struct {
 }
 
 func LoadEmbedded() (*Index, error) {
-	return Load(embeddedData)
-}
-
-func Load(compressed []byte) (*Index, error) {
-	dec, err := zstd.NewReader(nil)
+	ds, err := readDataset(embeddedData)
 	if err != nil {
 		return nil, err
 	}
-	defer dec.Close()
-	raw, err := dec.DecodeAll(compressed, nil)
+	raw, err := decompress(embeddedNINA)
 	if err != nil {
-		return nil, fmt.Errorf("decompress catalogue: %w", err)
+		return nil, fmt.Errorf("decompress atlas overlay: %w", err)
+	}
+	var ov Overlay
+	if err := json.Unmarshal(raw, &ov); err != nil {
+		return nil, fmt.Errorf("parse atlas overlay: %w", err)
+	}
+	ds.Apply(ov)
+	return NewIndex(ds), nil
+}
+
+func readDataset(compressed []byte) (Dataset, error) {
+	raw, err := decompress(compressed)
+	if err != nil {
+		return Dataset{}, fmt.Errorf("decompress catalogue: %w", err)
 	}
 	var ds Dataset
 	if err := json.Unmarshal(raw, &ds); err != nil {
-		return nil, fmt.Errorf("parse catalogue: %w", err)
+		return Dataset{}, fmt.Errorf("parse catalogue: %w", err)
+	}
+	return ds, nil
+}
+
+func Load(compressed []byte) (*Index, error) {
+	ds, err := readDataset(compressed)
+	if err != nil {
+		return nil, err
 	}
 	return NewIndex(ds), nil
 }
@@ -93,7 +174,7 @@ func NewIndex(ds Dataset) *Index {
 		ix.byID[o.ID] = i
 		e := &ix.entries[i]
 		for _, d := range append([]string{o.Designation}, o.Aliases...) {
-			if _, ok := Canonical(d); ok {
+			if LooksLikeDesignation(d) {
 				k := Key(d)
 				e.keys = append(e.keys, k)
 				if _, taken := ix.byKey[k]; !taken {
@@ -138,7 +219,7 @@ func (ix *Index) Get(id string) (Object, bool) {
 }
 
 func (ix *Index) Lookup(designation string) (Object, bool) {
-	if _, ok := Canonical(designation); !ok {
+	if !LooksLikeDesignation(designation) {
 		return Object{}, false
 	}
 	i, ok := ix.byKey[Key(designation)]
@@ -242,7 +323,7 @@ func (ix *Index) Find(_ context.Context, query string, limit int) []Match {
 			best[i] = Match{Score: score, How: how}
 		}
 	}
-	if _, ok := Canonical(query); ok {
+	if LooksLikeDesignation(query) {
 		if i, ok := ix.byKey[Key(query)]; ok {
 			consider(i, scoreDesignation, "designation")
 		}

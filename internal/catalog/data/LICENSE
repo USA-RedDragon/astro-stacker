@@ -18,3 +18,5 @@ VizieR catalogues, CDS, Strasbourg (DOI 10.26093/cds/vizier). Their use follows 
   VII/231  Cederblad S. 1946, Lund Medd. Ser. II 119
 
 Herschel 400 membership: the Astronomical League's Herschel 400 Observing Program list, as tabulated by Wikipedia's "Herschel 400 Catalogue" article (CC BY-SA 4.0).
+
+nina.json.zst is a separate overlay: object names, designations and new objects extracted from the N.I.N.A. sky atlas (NINA.sqlite in N.I.N.A. 3.1, https://github.com/isbeorn/nina), which is distributed under the Mozilla Public License 2.0, https://mozilla.org/MPL/2.0/. The overlay is covered by MPL-2.0; it is kept as its own file and combined with catalog.json.zst only in memory. It is built by internal/catalog/gen with -nina pointing at a NINA.sqlite. The atlas itself is compiled from SIMBAD, NED, VizieR and the HASH PN database.

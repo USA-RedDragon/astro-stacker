@@ -3,6 +3,8 @@ package catalog_test
 import (
 	"context"
 	"math"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
@@ -52,7 +54,7 @@ func TestEmbeddedSearch(t *testing.T) {
 	ix := defaultIndex(t)
 	ctx := context.Background()
 	cases := map[string]string{
-		"Garlic Nebula": garlic, abell85: garlic, m31: "NGC 224", "M102": "NGC 5866",
+		"Garlic Nebula": garlic, abell85: garlic, m31: m31, "M102": "M 102",
 		"SH2-129": "Sh2-129", "Centarus A": "NGC 5128", "Cygnis Loop": "G074.0-08.5", c14: c14,
 		"Horsehead": "B 33", "Pacman": "NGC 281", "NGC1313": "NGC 1313",
 	}
@@ -105,14 +107,17 @@ func TestSeparation(t *testing.T) {
 	}
 }
 
-const ngc1 = "NGC1"
+const (
+	ngc1     = "NGC1"
+	ngc1Name = "NGC 1"
+)
 
 func TestNewIndexSynthetic(t *testing.T) {
 	t.Parallel()
 	ix := catalog.NewIndex(catalog.Dataset{
 		Lists: map[string][]string{messier: {ngc1}},
 		Objects: []catalog.Object{
-			{ID: ngc1, Designation: "NGC 1", Name: "Test Nebula", Aliases: []string{"M 1"}, Type: "emission", RA: 10, Dec: 10, Lists: []string{messier}},
+			{ID: ngc1, Designation: ngc1Name, Name: "Test Nebula", Aliases: []string{"M 1"}, Type: "emission", RA: 10, Dec: 10, Lists: []string{messier}},
 			{ID: "NGC2", Designation: "NGC 2", Type: "galaxy", RA: 11, Dec: 10},
 		},
 	})
@@ -131,5 +136,52 @@ func TestNewIndexSynthetic(t *testing.T) {
 	m := ix.Find(context.Background(), "test", 5)
 	if len(m) != 1 || m[0].How != "name" && m[0].How != "prefix" {
 		t.Errorf("Find = %+v", m)
+	}
+}
+
+func TestApplyOverlay(t *testing.T) {
+	t.Parallel()
+	sb := 22.5
+	ds := catalog.Dataset{Objects: []catalog.Object{{ID: ngc1, Designation: ngc1Name, Type: catalog.TypeGalaxy}}}
+	ds.Apply(catalog.Overlay{
+		Source:  catalog.Source{ID: "nina-atlas", Licence: "MPL-2.0"},
+		Patches: []catalog.Patch{{ID: ngc1, Name: "Test Galaxy", Aliases: []string{"UGC 57", ngc1Name}, SurfaceBrightness: &sb, MajorArcmin: 2}, {ID: "missing"}},
+		Objects: []catalog.Object{{ID: "PK106-17.1", Designation: "PK 106-17.1"}, {ID: ngc1, Designation: ngc1Name}},
+	})
+	if len(ds.Objects) != 2 || len(ds.Sources) != 1 {
+		t.Fatalf("objects %d sources %d", len(ds.Objects), len(ds.Sources))
+	}
+	o := ds.Objects[0]
+	if o.Name != "Test Galaxy" || len(o.Aliases) != 1 || o.SurfaceBrightness == nil || o.MajorArcmin != 2 {
+		t.Errorf("patched object %+v", o)
+	}
+	ix := catalog.NewIndex(ds)
+	if got, ok := ix.Lookup("PK 106-17.1"); !ok || got.ID != "PK106-17.1" {
+		t.Errorf("lookup of a non-canonical designation: %v %v", got, ok)
+	}
+}
+
+func TestEmbeddedAtlasOverlay(t *testing.T) {
+	t.Parallel()
+	ix := defaultIndex(t)
+	for q, want := range map[string]string{"Zwicky's Triplet": "Arp 103", "Coma Cluster": "ACO 1656", "Eagle Nebula": "M 16"} {
+		res := ix.Find(context.Background(), q, 1)
+		if len(res) == 0 || res[0].Object.Designation != want {
+			t.Errorf("Find(%q) = %+v, want %s", q, res, want)
+		}
+	}
+	for _, d := range []string{"ESO 434-6", "PK 106-17.1", "Ruprecht 44", "Mrk 348"} {
+		if _, ok := ix.Lookup(d); !ok {
+			t.Errorf("Lookup(%q) failed", d)
+		}
+	}
+	if res := ix.Find(context.Background(), "Eagle Nebula", 5); len(res) > 1 && res[1].How == "name" {
+		t.Errorf("Eagle Nebula names two objects: %s and %s", res[0].Object.Designation, res[1].Object.Designation)
+	}
+	if o, _ := ix.Lookup("M 17"); slices.ContainsFunc(append(o.Aliases, o.Name), func(a string) bool { return a != "" && a[0] >= 'a' && a[0] <= 'z' && strings.HasSuffix(a, "Nebula") }) {
+		t.Errorf("M 17 has a lowercase name: %v", o.Aliases)
+	}
+	if o, _ := ix.Lookup("NGC 224"); o.Designation != m31 || o.ID != "M31" {
+		t.Errorf("NGC 224 is %s (%s), want the Messier designation", o.Designation, o.ID)
 	}
 }

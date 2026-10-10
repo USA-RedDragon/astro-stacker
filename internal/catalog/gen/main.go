@@ -34,10 +34,29 @@ const openNGCRef = "v20260501"
 
 const listGreen = "green"
 
+const (
+	pArp   = "Arp "
+	pLBN   = "LBN "
+	pMel   = "Mel "
+	pSh2   = "Sh2-"
+	pCr    = "Cr "
+	pLDN   = "LDN "
+	pPK    = "PK "
+	pHCG   = "HCG "
+	pUGC   = "UGC "
+	pRCW   = "RCW "
+	pCed   = "Ced "
+	pGum   = "Gum "
+	pVdB   = "vdB "
+	catNGC = "NGC"
+)
+
 const vizierURL = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=%s&-out.max=unlimited&-out.all&-out.add=_RAJ2000,_DEJ2000&-oc.form=d"
 
 func main() {
 	out := flag.String("out", "internal/catalog/data/catalog.json.zst", "output file")
+	nina := flag.String("nina", "", "NINA.sqlite from a N.I.N.A. install, for the atlas overlay")
+	ninaOut := flag.String("nina-out", "internal/catalog/data/nina.json.zst", "atlas overlay output file")
 	cache := flag.String("cache", "", "directory to cache downloads in")
 	flag.Parse()
 	b := newBuilder(*cache)
@@ -47,6 +66,11 @@ func main() {
 	if err := b.write(*out); err != nil {
 		log.Fatal(err)
 	}
+	if *nina != "" {
+		if err := b.ninaOverlay(*nina, *ninaOut); err != nil {
+			log.Fatal(err)
+		}
+	}
 }
 
 type builder struct {
@@ -54,12 +78,14 @@ type builder struct {
 	client  *http.Client
 	objects []*catalog.Object
 	byKey   map[string]*catalog.Object
+	byName  map[string]*catalog.Object
+	cells   map[int][]*catalog.Object
 	lists   map[string][]string
 	sources []catalog.Source
 }
 
 func newBuilder(cache string) *builder {
-	return &builder{cache: cache, client: &http.Client{Timeout: 5 * time.Minute}, byKey: map[string]*catalog.Object{}, lists: map[string][]string{}}
+	return &builder{cache: cache, client: &http.Client{Timeout: 5 * time.Minute}, byKey: map[string]*catalog.Object{}, byName: map[string]*catalog.Object{}, lists: map[string][]string{}}
 }
 
 func (b *builder) fetch(ctx context.Context, url, name string) ([]byte, error) {
@@ -97,13 +123,43 @@ func (b *builder) add(o *catalog.Object) {
 	o.ID = catalog.Key(o.Designation)
 	b.objects = append(b.objects, o)
 	b.index(o, o.Designation)
+	b.indexName(o, o.Name)
 	for _, a := range o.Aliases {
 		b.index(o, a)
+		b.indexName(o, a)
 	}
 }
 
+func (b *builder) indexName(o *catalog.Object, name string) {
+	if name == "" {
+		return
+	}
+	if _, ok := catalog.Canonical(name); ok {
+		return
+	}
+	n := catalog.NormalizeName(name)
+	if _, taken := b.byName[n]; !taken {
+		b.byName[n] = o
+	}
+}
+
+func (b *builder) byCommonName(o *catalog.Object) *catalog.Object {
+	for _, n := range append([]string{o.Name}, o.Aliases...) {
+		if n == "" {
+			continue
+		}
+		if _, ok := catalog.Canonical(n); ok {
+			continue
+		}
+		if existing := b.byName[catalog.NormalizeName(n)]; existing != nil && compatible(existing, o) {
+			return existing
+		}
+	}
+	return nil
+}
+
 func (b *builder) index(o *catalog.Object, name string) {
-	if _, ok := catalog.Canonical(name); !ok {
+	if !catalog.LooksLikeDesignation(name) {
 		return
 	}
 	k := catalog.Key(name)
@@ -113,7 +169,7 @@ func (b *builder) index(o *catalog.Object, name string) {
 }
 
 func (b *builder) lookup(name string) *catalog.Object {
-	if _, ok := catalog.Canonical(name); !ok {
+	if !catalog.LooksLikeDesignation(name) {
 		return nil
 	}
 	return b.byKey[catalog.Key(name)]
@@ -136,6 +192,7 @@ func (b *builder) alias(o *catalog.Object, a string) {
 	}
 	addAlias(o, a)
 	b.index(o, a)
+	b.indexName(o, a)
 }
 
 func (b *builder) merge(into, from *catalog.Object) {
@@ -148,6 +205,7 @@ func (b *builder) merge(into, from *catalog.Object) {
 	} else if from.Name != "" {
 		addAlias(into, from.Name)
 	}
+	b.indexName(into, from.Name)
 	if into.MajorArcmin == 0 && from.MajorArcmin > 0 {
 		into.MajorArcmin, into.MinorArcmin = from.MajorArcmin, from.MinorArcmin
 	}
@@ -197,6 +255,10 @@ func (b *builder) addOrMerge(o *catalog.Object, crossIDs []string) {
 			return
 		}
 	}
+	if existing := b.byCommonName(o); existing != nil {
+		b.merge(existing, o)
+		return
+	}
 	for _, c := range crossIDs {
 		if cc, ok := catalog.Canonical(c); ok && b.lookup(cc) == nil {
 			addAlias(o, cc)
@@ -217,6 +279,7 @@ func (b *builder) build(ctx context.Context) error {
 	if err := b.curated(); err != nil {
 		return err
 	}
+	b.finalize()
 	return b.buildLists()
 }
 
@@ -298,7 +361,7 @@ func openNGCType(t string) string {
 }
 
 func keptIdentifier(id string) bool {
-	for _, p := range []string{"C ", "LBN ", "LDN ", "SH 2-", "B ", "vdB ", "VdB ", "Arp ", "HCG ", "Cl ", "Mel ", "Ced ", "RCW ", "Gum ", "PGC ", "UGC ", "PK ", "Abell ", "Cr "} {
+	for _, p := range []string{"C ", pLBN, pLDN, "SH 2-", "B ", pVdB, "VdB ", pArp, pHCG, "Cl ", pMel, pCed, pRCW, pGum, "PGC ", pUGC, pPK, "Abell ", pCr} {
 		if strings.HasPrefix(id, p) {
 			return true
 		}
@@ -353,7 +416,7 @@ func openNGCRow(t table, row []string) (*catalog.Object, []ngcDup) {
 		return nil, nil
 	case "Dup":
 		var dups []ngcDup
-		for _, c := range []string{"NGC", "IC"} {
+		for _, c := range []string{catNGC, "IC"} {
 			if v := t.get(row, c); v != "" {
 				dups = append(dups, ngcDup{name, c + " " + v})
 			}
@@ -388,7 +451,7 @@ func openNGCRow(t table, row []string) (*catalog.Object, []ngcDup) {
 	if m := t.get(row, "M"); m != "" {
 		addAlias(o, "M "+strings.TrimLeft(m, "0"))
 	}
-	for _, c := range []string{"NGC", "IC"} {
+	for _, c := range []string{catNGC, "IC"} {
 		for v := range strings.SplitSeq(t.get(row, c), ",") {
 			if cc, ok := catalog.Canonical(c + " " + strings.TrimSpace(v)); ok {
 				addAlias(o, cc)
@@ -409,7 +472,7 @@ func openNGCRow(t table, row []string) (*catalog.Object, []ngcDup) {
 		switch {
 		case n == "":
 		case i == 0:
-			o.Name = n
+			o.Name = strings.TrimPrefix(n, "the ")
 		default:
 			addAlias(o, n)
 		}
@@ -491,7 +554,7 @@ func (b *builder) sharpless(ctx context.Context) error {
 		if !ok || n == "" {
 			continue
 		}
-		o := &catalog.Object{Designation: "Sh2-" + n, Type: catalog.TypeEmission, RA: ra, Dec: dec, Source: "vii-20-catalog"}
+		o := &catalog.Object{Designation: pSh2 + n, Type: catalog.TypeEmission, RA: ra, Dec: dec, Source: "vii-20-catalog"}
 		o.MajorArcmin, _ = num(t.get(r, "Diam"))
 		o.MinorArcmin = o.MajorArcmin
 		if br, ok := num(t.get(r, "Bright")); ok {
@@ -514,7 +577,7 @@ func (b *builder) lbn(ctx context.Context) error {
 		if !ok || n == "" {
 			continue
 		}
-		o := &catalog.Object{Designation: "LBN " + n, Type: catalog.TypeNebula, RA: ra, Dec: dec, Source: "vii-9-catalog"}
+		o := &catalog.Object{Designation: pLBN + n, Type: catalog.TypeNebula, RA: ra, Dec: dec, Source: "vii-9-catalog"}
 		o.MajorArcmin, _ = num(t.get(r, "Diam1"))
 		o.MinorArcmin, _ = num(t.get(r, "Diam2"))
 		if br, ok := num(t.get(r, "Bright")); ok {
@@ -524,7 +587,7 @@ func (b *builder) lbn(ctx context.Context) error {
 		var cross []string
 		if nm := t.get(r, "Name"); nm != "" {
 			if strings.HasPrefix(nm, "S ") {
-				nm = "Sh2-" + strings.TrimSpace(nm[2:])
+				nm = pSh2 + strings.TrimSpace(nm[2:])
 			}
 			cross = append(cross, nm)
 		}
@@ -544,7 +607,7 @@ func (b *builder) ldn(ctx context.Context) error {
 		if !ok || n == "" {
 			continue
 		}
-		o := &catalog.Object{Designation: "LDN " + n, Type: catalog.TypeDark, RA: ra, Dec: dec, Source: "vii-7a-ldn"}
+		o := &catalog.Object{Designation: pLDN + n, Type: catalog.TypeDark, RA: ra, Dec: dec, Source: "vii-7a-ldn"}
 		if area, ok := num(t.get(r, "Area")); ok && area > 0 {
 			o.MajorArcmin = 2 * math.Sqrt(area/math.Pi) * 60
 			o.MinorArcmin = o.MajorArcmin
@@ -595,7 +658,7 @@ func (b *builder) vdb(ctx context.Context) error {
 		if !ok || n == "" {
 			continue
 		}
-		o := &catalog.Object{Designation: "vdB " + n, Type: catalog.TypeReflection, RA: ra, Dec: dec, Source: "vii-21-catalog"}
+		o := &catalog.Object{Designation: pVdB + n, Type: catalog.TypeReflection, RA: ra, Dec: dec, Source: "vii-21-catalog"}
 		rad, ok := num(t.get(r, "BRadMax"))
 		if rr, ok2 := num(t.get(r, "RRadMax")); ok2 && (!ok || rr > rad) {
 			rad, ok = rr, true
@@ -655,7 +718,7 @@ func (b *builder) arp(ctx context.Context) error {
 			size = math.Max(size, 2*sep(ra, dec, m.ra, m.dec)*60+m.dim)
 			names = append(names, m.name)
 		}
-		o := &catalog.Object{Designation: "Arp " + n, Type: catalog.TypeGalaxy, RA: ra, Dec: dec, MajorArcmin: size, MinorArcmin: size, Source: "vii-192-arplist"}
+		o := &catalog.Object{Designation: pArp + n, Type: catalog.TypeGalaxy, RA: ra, Dec: dec, MajorArcmin: size, MinorArcmin: size, Source: "vii-192-arplist"}
 		if len(ms) > 1 {
 			o.Type = catalog.TypeGalaxyGroup
 		}
@@ -685,7 +748,7 @@ func (b *builder) hickson(ctx context.Context) error {
 		if !ok || n == "" {
 			continue
 		}
-		o := &catalog.Object{Designation: "HCG " + n, Type: catalog.TypeGalaxyGroup, RA: ra, Dec: dec, Source: "vii-213-groups"}
+		o := &catalog.Object{Designation: pHCG + n, Type: catalog.TypeGalaxyGroup, RA: ra, Dec: dec, Source: "vii-213-groups"}
 		o.MajorArcmin, _ = num(t.get(r, "AngSize"))
 		o.MinorArcmin = o.MajorArcmin
 		o.Magnitude = ptr(num(t.get(r, "Totmag")))
@@ -769,7 +832,7 @@ func (b *builder) planetaries(ctx context.Context) error {
 		for id := range strings.SplitSeq(t.get(r, "Idents"), ",") {
 			id = strings.TrimSpace(id)
 			if strings.HasPrefix(id, "Sh 2-") {
-				cross = append(cross, "Sh2-"+strings.TrimSpace(id[5:]))
+				cross = append(cross, pSh2+strings.TrimSpace(id[5:]))
 			}
 		}
 		o := &catalog.Object{Designation: desig, Type: catalog.TypePN, RA: ra, Dec: dec, Source: "v-84-main", MajorArcmin: diam[png]}
@@ -793,7 +856,7 @@ func (b *builder) rcw(ctx context.Context) error {
 		if !ok || n == "" {
 			continue
 		}
-		o := &catalog.Object{Designation: "RCW " + n, Type: catalog.TypeEmission, RA: ra, Dec: dec, Source: "vii-216-rcw"}
+		o := &catalog.Object{Designation: pRCW + n, Type: catalog.TypeEmission, RA: ra, Dec: dec, Source: "vii-216-rcw"}
 		o.MajorArcmin, _ = num(t.get(r, "MajAxis"))
 		o.MinorArcmin, _ = num(t.get(r, "MinAxis"))
 		switch t.get(r, "Br") {
@@ -815,7 +878,7 @@ func (b *builder) rcw(ctx context.Context) error {
 			case strings.HasPrefix(part, "G") && len(part) > 1 && part[1] >= '0' && part[1] <= '9':
 				for g := range strings.SplitSeq(part[1:], ",") {
 					if g = strings.TrimSpace(g); g != "" {
-						addAlias(o, "Gum "+strings.TrimLeft(g, "0"))
+						addAlias(o, pGum+strings.TrimLeft(g, "0"))
 					}
 				}
 			}
@@ -836,7 +899,7 @@ func (b *builder) cederblad(ctx context.Context) error {
 		if !ok || n == "" {
 			continue
 		}
-		o := &catalog.Object{Designation: "Ced " + n + t.get(r, "m_Ced"), Type: catalog.TypeNebula, RA: ra, Dec: dec, Source: "vii-231-catalog"}
+		o := &catalog.Object{Designation: pCed + n + t.get(r, "m_Ced"), Type: catalog.TypeNebula, RA: ra, Dec: dec, Source: "vii-231-catalog"}
 		o.MajorArcmin, _ = num(t.get(r, "Dim1"))
 		o.MinorArcmin, _ = num(t.get(r, "Dim2"))
 		if o.MinorArcmin == 0 {
@@ -895,8 +958,8 @@ func (b *builder) buildLists() error {
 		from, to    int
 	}
 	for _, s := range []spec{
-		{"messier", "M ", 1, 110}, {"caldwell", "C ", 1, 109}, {"sharpless", "Sh2-", 1, 313}, {"vdb", "vdB ", 1, 158},
-		{"arp", "Arp ", 1, 338}, {"hickson", "HCG ", 1, 100}, {"rcw", "RCW ", 1, 182},
+		{"messier", "M ", 1, 110}, {"caldwell", "C ", 1, 109}, {"sharpless", pSh2, 1, 313}, {"vdb", pVdB, 1, 158},
+		{"arp", pArp, 1, 338}, {"hickson", pHCG, 1, 100}, {"rcw", pRCW, 1, 182},
 	} {
 		var ids []string
 		for i := s.from; i <= s.to; i++ {
@@ -936,7 +999,7 @@ func (b *builder) buildLists() error {
 }
 
 func hasAliasFrom(o *catalog.Object, list string) bool {
-	prefix := map[string]string{"barnard": "B ", "lbn": "LBN ", listGreen: "G"}[list]
+	prefix := map[string]string{"barnard": "B ", "lbn": pLBN, listGreen: "G"}[list]
 	for _, a := range append([]string{o.Designation}, o.Aliases...) {
 		if strings.HasPrefix(a, prefix) && (list != listGreen || len(a) > 1 && a[1] >= '0' && a[1] <= '9') {
 			if _, ok := catalog.Canonical(a); ok {

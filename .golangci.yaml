@@ -56,7 +56,7 @@ linters:
         linters:
           - gosec
         text: G404|G703
-      - path: internal/(stacking/.*|server/(covers|public|subs|webui)|publicframe/render(er)?|events/events|indexer/(indexer|runloop)|siril/maincommand)_test\.go$
+      - path: internal/(stacking/.*|server/(covers|public|subs|webui|discover)|publicframe/render(er)?|events/events|indexer/(indexer|runloop)|siril/maincommand)_test\.go$
         linters:
           - testpackage
       - path: internal/imagedata/fits\.go$

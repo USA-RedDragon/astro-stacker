@@ -159,13 +159,19 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore)
 	commands := &schedcmd.Service{
-		Log:    schedcmd.NewGormLog(appStore.DB()),
-		AppDB:  appStore.DB(),
-		Notify: func(r schedcmd.Record) { broker.Broadcast("command", r, false) },
+		Log:   schedcmd.NewGormLog(appStore.DB()),
+		AppDB: appStore.DB(),
+		Notify: func(r schedcmd.Record) {
+			if disc != nil && r.Category == schedcmd.CategoryMatching {
+				disc.Invalidate()
+			}
+			broker.Broadcast("command", r, false)
+		},
 	}
 
-	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], server.Extras{Commands: commands, Mosaics: mosaicPlans})
+	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], server.Extras{Commands: commands, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs})
 	if err := server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}

@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,6 +27,8 @@ type Extras struct {
 	Commands  *schedcmd.Service
 	Scheduler SchedulerStatusSource
 	Mosaics   *mosaicplan.Service
+	Discover  *discover.Service
+	Collabs   *starfront.Poller
 }
 
 func applySchedulerRoutes(g *gin.RouterGroup, x Extras) {
