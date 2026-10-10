@@ -48,7 +48,7 @@ func applyPlanningRoutes(g *gin.RouterGroup) {
 			c.JSON(http.StatusNotFound, gin.H{errorKey: "no such project"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"project": p, "rules": s.Rules, "sets": s.Sets, "templates": s.Templates})
+		c.JSON(http.StatusOK, gin.H{"project": p, "rules": s.Rules, "sets": s.Sets, "templates": s.Templates, "defaults": s.Defaults})
 	})
 	g.POST("/planning/applyset/draft", func(c *gin.Context) {
 		var body struct {
