@@ -1759,7 +1759,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Float64(names[60], 0.0, "Observatory east longitude in degrees")
 	fs.Float64(names[61], 0.0, "Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise")
 	fs.Float64(names[62], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
-	fs.Float64(names[63], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky")
+	fs.Float64(names[63], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from broadband (L, G, R, B) masters' zero points and their subs' sky")
 	fs.Float64(names[64], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
 	fs.Float64(names[65], 0.0, "Ignored: the pixel size is read from lights' XPIXSZ")
 	fs.Var(impl.NewInt(0), names[66], "Ignored: the image width is read from lights' headers")
