@@ -201,6 +201,7 @@ export interface PanelDraft {
 }
 
 export interface ProjectDraft {
+  mosaic?: { layout: string; rotation: number; overlap: number; cols: number; rows: number }
   name: string
   catalog?: string
   match?: string

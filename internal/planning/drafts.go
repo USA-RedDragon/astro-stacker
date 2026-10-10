@@ -172,7 +172,16 @@ type GoalDraft struct {
 	PlateauStop *bool   `json:"plateauStop"`
 }
 
+type MosaicDraft struct {
+	Layout   string  `json:"layout"`
+	Rotation float64 `json:"rotation"`
+	Overlap  float64 `json:"overlap"`
+	Cols     int     `json:"cols"`
+	Rows     int     `json:"rows"`
+}
+
 type ProjectDraft struct {
+	Mosaic          *MosaicDraft `json:"mosaic"`
 	Name            string       `json:"name"`
 	Catalog         string       `json:"catalog"`
 	Match           string       `json:"match"`
@@ -253,6 +262,9 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 		depth := d.Goal.Depth
 		setting.Kind = schedcmd.GoalKindDepth
 		setting.DepthGoal = &depth
+	}
+	if mosaic && d.Mosaic != nil {
+		out.Mosaic = &schedcmd.MosaicPlan{Layout: d.Mosaic.Layout, Rotation: d.Mosaic.Rotation, Overlap: d.Mosaic.Overlap, Cols: d.Mosaic.Cols, Rows: d.Mosaic.Rows}
 	}
 	for i, pd := range d.Panels {
 		tname := strings.TrimSpace(pd.Name)

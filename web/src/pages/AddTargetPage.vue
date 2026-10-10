@@ -5,6 +5,7 @@ import { api, query } from '../api/client'
 import { submitCommand, type CommandRecord } from '../api/commands'
 import { draftProject, getPlanning, type GoalKind, type PanelDraft, type Snapshot } from '../api/planning'
 import { errorToast, notifyCommand, undo, whenApplies } from '../shell'
+import FramePlanner, { type FramePlan } from '../components/FramePlanner.vue'
 
 interface CatalogObject {
   id: string
@@ -78,7 +79,18 @@ const pick = ref<ObjectDetail | null>(null)
 const matchChoice = ref('')
 const snap = ref<Snapshot | null>(null)
 
-const plan = reactive({ rotation: 0, overlap: 15, cols: 1, rows: 1 })
+const plan = reactive({ rotation: 0, overlap: 15, cols: 1, rows: 1, layoutName: 'One frame', layoutId: 'single' })
+const planned = ref<FramePlan | null>(null)
+
+function onPlan(p: FramePlan) {
+  planned.value = p
+  plan.rotation = p.rotation
+  plan.overlap = p.overlap
+  plan.cols = p.cols
+  plan.rows = p.rows
+  plan.layoutName = p.layoutName
+  plan.layoutId = p.layoutId
+}
 const form = reactive({
   setId: 'hoo',
   goalKind: 'snr' as GoalKind,
@@ -328,52 +340,11 @@ const frameH = computed(() => snap.value?.frame?.heightDeg || 2.22)
 const panels = computed<PanelDraft[]>(() => {
   const o = pick.value?.object
   if (!o) return []
-  const out: PanelDraft[] = []
-  const ov = Math.min(0.4, Math.max(0, plan.overlap / 100))
-  const sx = frameW.value * (1 - ov)
-  const sy = frameH.value * (1 - ov)
-  const rot = (plan.rotation * Math.PI) / 180
-  const cosd = Math.max(0.05, Math.cos((o.dec * Math.PI) / 180))
-  let n = 0
-  for (let r = 0; r < plan.rows; r++) {
-    for (let c = 0; c < plan.cols; c++) {
-      n++
-      const x = (c - (plan.cols - 1) / 2) * sx
-      const y = ((plan.rows - 1) / 2 - r) * sy
-      const east = x * Math.cos(rot) - y * Math.sin(rot)
-      const north = x * Math.sin(rot) + y * Math.cos(rot)
-      let ra = o.ra + east / cosd
-      ra = ((ra % 360) + 360) % 360
-      out.push({ raHours: ra / 15, dec: Math.max(-90, Math.min(90, o.dec + north)), rotation: plan.rotation, name: plan.cols * plan.rows > 1 ? undefined : undefined })
-      void n
-    }
-  }
-  return out
+  if (planned.value?.panels.length) return planned.value.panels.map((p) => ({ raHours: p.raHours, dec: p.dec, rotation: p.rotation, name: p.name }))
+  return [{ raHours: (((o.ra % 360) + 360) % 360) / 15, dec: o.dec, rotation: plan.rotation }]
 })
 
-const preview = computed(() => {
-  const o = pick.value?.object
-  const extentDeg = Math.max(frameW.value * plan.cols, frameH.value * plan.rows, (o?.majorArcmin ?? 0) / 60, frameW.value) * 1.25
-  const scale = 600 / extentDeg
-  const fw = frameW.value * scale
-  const fh = frameH.value * scale
-  const ov = Math.min(0.4, Math.max(0, plan.overlap / 100))
-  const rects = []
-  let n = 0
-  for (let r = 0; r < plan.rows; r++) {
-    for (let c = 0; c < plan.cols; c++) {
-      n++
-      const cx = 320 + (c - (plan.cols - 1) / 2) * fw * (1 - ov)
-      const cy = 200 + (r - (plan.rows - 1) / 2) * fh * (1 - ov)
-      rects.push({ x: cx - fw / 2, y: cy - fh / 2, w: fw, h: fh, lx: cx, ly: cy + 5, label: String(n) })
-    }
-  }
-  const rx = Math.max(4, ((o?.majorArcmin ?? 10) / 60 / 2) * scale)
-  const ry = Math.max(3, ((o?.minorArcmin || o?.majorArcmin || 10) / 60 / 2) * scale)
-  return { rects, rx, ry, pa: o?.pa ?? 0 }
-})
-
-const panelCount = computed(() => plan.cols * plan.rows)
+const panelCount = computed(() => panels.value.length)
 
 const sets = computed(() => snap.value?.sets ?? [])
 const missingTemplates = computed(() => {
@@ -400,6 +371,7 @@ async function makeDraft() {
       desired: form.desired,
       goal: { kind: form.goalKind, snr: form.snr, depth: form.depth, plateauStop: form.plateauStop },
       panels: panels.value,
+      mosaic: panels.value.length > 1 ? { layout: plan.layoutId, rotation: plan.rotation, overlap: plan.overlap, cols: plan.cols, rows: plan.rows } : undefined,
     })) as typeof draft.value
   } catch (e) {
     draftError.value = e instanceof Error ? e.message : String(e)
@@ -413,7 +385,7 @@ const review = computed(() => {
   return [
     { k: 'Object', v: label(o) + ' · ' + o.type },
     { k: 'Project', v: `${form.name} · ${form.priority} priority · minimum altitude ${form.minAlt}° · minimum time ${form.minTime} min` },
-    { k: 'Framing', v: panelCount.value > 1 ? `${plan.cols} × ${plan.rows} mosaic, ${panelCount.value} panels at ${plan.rotation}°, ${plan.overlap}% overlap` : `One frame at ${plan.rotation}°` },
+    { k: 'Framing', v: panelCount.value > 1 ? `${plan.layoutName}, ${panelCount.value} panels at ${plan.rotation}°, ${plan.overlap}% overlap` : `One frame at ${plan.rotation}°` },
     { k: 'Exposures', v: set ? set.name + ' · ' + set.items.map((i) => i.template + ' ' + i.exposure + ' s').join(', ') : '—' },
     { k: 'Goal', v: form.goalKind === 'snr' ? `Faint-signal SNR ${form.snr} per filter${form.plateauStop ? ', or the plateau' : ''}` : `${form.depth} mag/arcsec² at SNR 3 per filter` },
     { k: 'Name match', v: !topMatch.value ? 'No project, target or stacker object of yours matches.' : matchChoice.value === 'different' ? `Not the same as ${topMatch.value.subjectName}` : `Same object as ${topMatch.value.subjectName}, kept separate` },
@@ -551,41 +523,18 @@ function goStep(i: number) {
     <section v-if="step === 2 || step === 3" class="card" aria-labelledby="frame-h">
       <div class="spread">
         <h2 id="frame-h">{{ step === 2 ? 'Frame ' + (pick ? label(pick.object) : '') : 'Mosaic plan' }}</h2>
-        <span class="xsmall muted" v-if="pick">RA {{ (pick.object.ra / 15).toFixed(3) }} h · Dec {{ pick.object.dec.toFixed(2) }}° · one frame is {{ frameW.toFixed(2) }}° × {{ frameH.toFixed(2) }}°</span>
+        <span v-if="pick" class="xsmall muted">RA {{ (pick.object.ra / 15).toFixed(3) }} h · Dec {{ pick.object.dec.toFixed(2) }}° · one frame is {{ frameW.toFixed(2) }}° × {{ frameH.toFixed(2) }}°</span>
       </div>
-      <div class="row" style="gap: 1.5rem; align-items: flex-start">
-        <svg viewBox="0 0 640 400" role="img" aria-label="Frame or panels at the chosen rotation over the object outline" class="sky">
-          <rect x="0" y="0" width="640" height="400" fill="var(--sky)" />
-          <ellipse cx="320" cy="200" :rx="preview.rx" :ry="preview.ry" :transform="`rotate(${-preview.pa} 320 200)`" fill="var(--neb)" opacity="0.5" />
-          <g :transform="`rotate(${-plan.rotation} 320 200)`" fill="none" stroke="#f4f4f8" stroke-width="1.5">
-            <template v-for="rc in preview.rects" :key="rc.label">
-              <rect :x="rc.x" :y="rc.y" :width="rc.w" :height="rc.h" fill="#f4f4f8" fill-opacity="0.06" />
-              <text v-if="panelCount > 1" :x="rc.lx" :y="rc.ly" font-size="13" font-weight="600" fill="#f4f4f8" stroke="none" text-anchor="middle">{{ rc.label }}</text>
-            </template>
-          </g>
-          <text x="16" y="388" font-size="11" fill="#f4f4f8">{{ panelCount }} {{ panelCount === 1 ? 'frame' : 'panels' }} · outline from the catalogue size and position angle</text>
-        </svg>
-        <div style="flex: 1 1 16rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0">
-          <label class="field small">
-            <span class="spread"><span>Rotation</span><span class="num">{{ plan.rotation }}°</span></span>
-            <input v-model.number="plan.rotation" type="range" min="0" max="179" />
-          </label>
-          <template v-if="step === 3">
-            <div class="row" style="gap: 0.75rem">
-              <label class="field"><span>Columns</span><input v-model.number="plan.cols" class="input num" type="number" min="1" max="8" style="width: 5rem" /></label>
-              <label class="field"><span>Rows</span><input v-model.number="plan.rows" class="input num" type="number" min="1" max="8" style="width: 5rem" /></label>
-            </div>
-            <label class="field small">
-              <span class="spread"><span>Panel overlap</span><span class="num">{{ plan.overlap }}%</span></span>
-              <input v-model.number="plan.overlap" type="range" min="5" max="30" />
-            </label>
-            <p class="xsmall muted" style="margin: 0">Every panel gets the same goal, measured per panel, and the weakest one sets completion. New mosaics get the Panel Deficit rule at 75.</p>
-          </template>
-          <div v-else class="small muted">
-            {{ pick && pick.fit.panels > 1 ? `It needs about ${pick.fit.columns} × ${pick.fit.rows} panels; set them on the next step.` : pick && pick.fit.fill < 0.15 ? 'It is small in this frame.' : 'It fits one frame.' }}
-          </div>
-        </div>
-      </div>
+      <FramePlanner
+        v-if="pick"
+        :object="{ id: pick.object.id, name: pick.object.name, ra: pick.object.ra, dec: pick.object.dec, majorArcmin: pick.object.majorArcmin, minorArcmin: pick.object.minorArcmin, pa: pick.object.pa }"
+        :step="step === 2 ? 'frame' : 'mosaic'"
+        :rotation="plan.rotation"
+        :cols="plan.cols"
+        :rows="plan.rows"
+        @update:plan="onPlan"
+      />
+      <p v-if="step === 3" class="xsmall muted" style="margin: 0">Every panel gets the same goal, measured per panel, and the weakest one sets completion. New mosaics get the Panel Deficit rule at 75 and are adopted as planned mosaics straight away.</p>
     </section>
 
     <section v-if="step === 4" class="card" aria-labelledby="exp-h">
@@ -714,13 +663,6 @@ function goStep(i: number) {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-.sky {
-  flex: 3 1 30rem;
-  width: 100%;
-  aspect-ratio: 8 / 5;
-  border-radius: 0.5rem;
-  display: block;
 }
 .sets {
   display: grid;

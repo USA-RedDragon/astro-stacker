@@ -376,6 +376,17 @@ async function saveOpts() {
   }
 }
 
+async function setActive(t: Target, active: boolean) {
+  if (t.active === active) return
+  try {
+    const r = await submitCommand('target.edit', { id: t.id, guid: t.guid, name: t.name, parent: p.value?.name, changes: [{ field: 'active', before: t.active, after: active }] })
+    t.active = active
+    notifyCommand(r)
+  } catch (e) {
+    errorToast(e)
+  }
+}
+
 const tabs = [
   ['goal', 'Goal'],
   ['plans', 'Exposure plans'],
@@ -402,6 +413,10 @@ function numInput(e: Event): number {
           </p>
         </div>
         <div class="row">
+          <label v-if="target" class="row small" style="gap: 0.375rem">
+            <input type="checkbox" :checked="target.active" @change="setActive(target, ($event.target as HTMLInputElement).checked)" />
+            {{ isMosaic ? 'Panel active' : 'Target active' }}
+          </label>
           <span class="badge" :class="{ violet: season.cls === 'violet' }">{{ season.label }}</span>
           <span class="badge">{{ p.priority }} priority</span>
           <span class="badge">{{ p.state }}</span>

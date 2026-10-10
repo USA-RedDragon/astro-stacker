@@ -367,3 +367,14 @@ func round4(v float64) string {
 	}
 	return strconv.FormatFloat(r, 'f', 4, 64)
 }
+
+func PlannedPanels(targets []TSTarget, rig Rig) []AdoptedPanel {
+	if len(targets) == 0 {
+		return nil
+	}
+	numbers := make([]int, len(targets))
+	for i := range targets {
+		numbers[i] = i + 1
+	}
+	return adopt(targets, numbers, rig)
+}
