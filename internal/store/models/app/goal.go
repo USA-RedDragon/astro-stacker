@@ -40,6 +40,29 @@ type GoalMeasurement struct {
 	SkyRev         int  `gorm:"default:0"`
 }
 
+type GoalMask struct {
+	ID          int    `gorm:"primaryKey;autoIncrement"`
+	Object      string `gorm:"not null;uniqueIndex:idx_goal_mask_object_filter"`
+	Filter      string `gorm:"not null;uniqueIndex:idx_goal_mask_object_filter"`
+	Width       int
+	Height      int
+	Bin         int
+	FrameWidth  int
+	FrameHeight int
+	Source      string
+	NoiseMask   string
+	Sky         float64
+	BandLo      *float64
+	BandHi      *float64
+	Covered     int
+	Band        int
+	Stars       int
+	SkyPixels   int
+	Subs        int
+	Data        []byte
+	MeasuredAt  time.Time
+}
+
 type XPField struct {
 	ID        int    `gorm:"primaryKey;autoIncrement"`
 	Object    string `gorm:"not null;uniqueIndex"`
