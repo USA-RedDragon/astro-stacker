@@ -68,7 +68,7 @@ func Targets(ctx context.Context, sched *gorm.DB) ([]Target, error) {
 		t := Target{ID: r.ID, Name: r.Name, ProjectID: r.ProjectID, Project: r.Project}
 		t.GUID, t.ProjectGUID = deref(r.GUID), deref(r.ProjectGUID)
 		t.IsMosaic = r.IsMosaic != nil && *r.IsMosaic == 1
-		t.Active = r.Active == nil || *r.Active == 1
+		t.Active = r.Active != nil && *r.Active == 1
 		if r.MinAltitude != nil {
 			t.MinAltitude = *r.MinAltitude
 		}
