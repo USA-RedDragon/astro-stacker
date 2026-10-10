@@ -24,24 +24,46 @@ const (
 	seamSamplesWarn = 2 * minOverlap
 	seamStrips      = 8
 	gapWarn         = 0.02
+	regWarn         = 1.5
+	colourWarn      = 0.1
+	seamMethod      = 2
+	colourProblem   = "star colour differs by "
 )
 
 type seamMeasure struct {
-	I, J    int
-	Fit     overlapFit
-	NoiseA  float64
-	NoiseB  float64
-	Profile []float64
+	I, J        int
+	Fit         overlapFit
+	NoiseA      float64
+	NoiseB      float64
+	Profile     []float64
+	StarMatches int
+	RegMedian   float64
+	RegP90      float64
+	FluxRatio   float64
 }
 
-func measureSeams(binned []binnedPanel, pairs []panelPair) []seamMeasure {
+func measureSeams(binned []binnedPanel, stars [][]seamStar, pairs []panelPair) []seamMeasure {
 	out := make([]seamMeasure, 0, len(pairs))
 	for _, p := range pairs {
-		m := seamMeasure{I: p.I, J: p.J, Fit: p.Fit}
+		m := seamMeasure{I: p.I, J: p.J, Fit: p.Fit, RegMedian: math.NaN(), RegP90: math.NaN(), FluxRatio: math.NaN()}
 		m.NoiseA, m.NoiseB, m.Profile = seamProfile(binned[p.I], binned[p.J])
+		if p.I < len(stars) && p.J < len(stars) {
+			m.StarMatches, m.RegMedian, m.RegP90, m.FluxRatio = starStats(matchSeamStars(binned[p.I], binned[p.J], stars[p.I], stars[p.J]))
+		}
 		out = append(out, m)
 	}
 	return out
+}
+
+func seamSignature(sig string) string {
+	return fmt.Sprintf("%s/%d", sig, seamMethod)
+}
+
+func finite(v float64) *float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return nil
+	}
+	return &v
 }
 
 func seamProfile(a, b binnedPanel) (noiseA, noiseB float64, profile []float64) {
@@ -156,6 +178,13 @@ func seamRecord(project, guid, filter string, a, b seamPanel, m seamMeasure) app
 	if r.Samples < seamSamplesWarn {
 		problems = append(problems, fmt.Sprintf("overlap too small: %d blocks", r.Samples))
 	}
+	r.StarMatches = m.StarMatches
+	if m.StarMatches >= minSeamStars {
+		r.RegMedian, r.RegP90, r.FluxRatio = finite(m.RegMedian), finite(m.RegP90), finite(m.FluxRatio)
+		if m.RegP90 > regWarn {
+			problems = append(problems, fmt.Sprintf("stars misregistered by %.1f px (p90) across the seam", m.RegP90))
+		}
+	}
 	r.OK = len(problems) == 0
 	r.Problems = strings.Join(problems, "; ")
 	return r
@@ -196,6 +225,12 @@ func (p *Pipeline) solvedFootprints(dir string, n int) []*mosaics.Footprint {
 type seamResult struct {
 	seams  []seamMeasure
 	actual []*mosaics.Footprint
+	noise  mosaicNoise
+}
+
+type seamNoise struct {
+	Median, P90, Max float64
+	MaxPanel, Tiles  int
 }
 
 func seamPanels(g mosaicGroup, masters []app.Stack) []seamPanel {
@@ -211,7 +246,7 @@ func seamPanels(g mosaicGroup, masters []app.Stack) []seamPanel {
 	return out
 }
 
-func seamRecords(g mosaicGroup, filter string, masters []app.Stack, res seamResult, sig string, now time.Time) ([]app.MosaicSeam, []app.MosaicPanelHealth) {
+func seamRecords(g mosaicGroup, filter string, masters []app.Stack, res seamResult, sig string, now time.Time) ([]app.MosaicSeam, []app.MosaicPanelHealth, seamNoise) {
 	sp := seamPanels(g, masters)
 	seams := make([]app.MosaicSeam, 0, len(res.seams))
 	for _, m := range res.seams {
@@ -220,6 +255,7 @@ func seamRecords(g mosaicGroup, filter string, masters []app.Stack, res seamResu
 			a, b = b, a
 			m.NoiseA, m.NoiseB, m.Fit.Mean = m.NoiseB, m.NoiseA, -m.Fit.Mean
 			m.Fit.Plane = plane{A: -m.Fit.Plane.A, Bx: -m.Fit.Plane.Bx, By: -m.Fit.Plane.By}
+			m.FluxRatio = 1 / m.FluxRatio
 			m.Profile = slices.Clone(m.Profile)
 			for k := range m.Profile {
 				m.Profile[k] = -m.Profile[k]
@@ -258,13 +294,37 @@ func seamRecords(g mosaicGroup, filter string, masters []app.Stack, res seamResu
 		if len(noise[i]) > 0 {
 			h.Noise = median(slices.Clone(noise[i]))
 		}
+		if i < len(res.noise.Scales) {
+			h.FluxScale = finite(res.noise.Scales[i])
+		}
 		if i < len(res.actual) && res.actual[i] != nil && len(actual) > 0 {
 			gap := mosaics.CoverageGap(plannedFootprint(pn), actual)
 			h.GapFraction, h.GapDeg2, h.GapWhere = gap.Fraction, gap.AreaDeg2, gap.Where
 		}
 		health = append(health, h)
 	}
-	return seams, health
+	n := seamNoise{Median: res.noise.Median, P90: res.noise.P90, Max: res.noise.Max, Tiles: res.noise.Tiles}
+	if k := res.noise.MaxPanel; k >= 0 && k < len(sp) {
+		n.MaxPanel = sp[k].Number
+	}
+	return seams, health, n
+}
+
+func (n seamNoise) apply(m *app.Mosaic, now time.Time) {
+	m.NoiseMedian, m.NoiseP90, m.NoiseMax = finite(n.Median), finite(n.P90), finite(n.Max)
+	m.NoiseMaxPanel, m.NoiseTiles = n.MaxPanel, n.Tiles
+	if n.Tiles > 0 {
+		m.NoiseAt = &now
+	} else {
+		m.NoiseAt = nil
+	}
+}
+
+func (n seamNoise) columns(now time.Time) map[string]any {
+	var m app.Mosaic
+	n.apply(&m, now)
+	return map[string]any{"noise_median": m.NoiseMedian, "noise_p90": m.NoiseP90, "noise_max": m.NoiseMax,
+		"noise_max_panel": m.NoiseMaxPanel, "noise_tiles": m.NoiseTiles, "noise_at": m.NoiseAt}
 }
 
 func (p *Pipeline) saveSeams(ctx context.Context, g mosaicGroup, filter string, seams []app.MosaicSeam, health []app.MosaicPanelHealth) error {
@@ -285,8 +345,98 @@ func (p *Pipeline) saveSeams(ctx context.Context, g mosaicGroup, filter string, 
 				return err
 			}
 		}
-		return nil
+		return updateSeamColours(tx, g.Project)
 	})
+}
+
+func updateSeamColours(tx *gorm.DB, project string) error {
+	var rows []app.MosaicSeam
+	if err := tx.Where("project = ?", project).Find(&rows).Error; err != nil {
+		return err
+	}
+	byPair := map[[2]int][]int{}
+	for i, r := range rows {
+		k := [2]int{r.PanelA, r.PanelB}
+		byPair[k] = append(byPair[k], i)
+	}
+	for _, idx := range byPair {
+		colours := seamColours(rows, idx)
+		for _, i := range idx {
+			r := rows[i]
+			c := colours[i]
+			var ref string
+			if c != nil {
+				ref = colourReference(rows, idx)
+			}
+			problems := withColourProblem(r.Problems, c)
+			if equalPtr(r.Colour, c) && r.ColourRef == ref && r.Problems == problems {
+				continue
+			}
+			if err := tx.Model(&app.MosaicSeam{}).Where("id = ?", r.ID).Updates(map[string]any{
+				"colour": c, "colour_ref": ref, "problems": problems, "ok": problems == "",
+			}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func seamColours(rows []app.MosaicSeam, idx []int) map[int]*float64 {
+	out := map[int]*float64{}
+	var logs []float64
+	var with []int
+	for _, i := range idx {
+		r := rows[i]
+		if r.StarMatches >= minSeamStars && r.FluxRatio != nil && *r.FluxRatio > 0 {
+			logs = append(logs, math.Log(*r.FluxRatio))
+			with = append(with, i)
+		}
+	}
+	if len(with) < 2 {
+		return out
+	}
+	var mean float64
+	for _, l := range logs {
+		mean += l
+	}
+	mean /= float64(len(logs))
+	for k, i := range with {
+		v := math.Exp(logs[k]-mean) - 1
+		out[i] = &v
+	}
+	return out
+}
+
+func colourReference(rows []app.MosaicSeam, idx []int) string {
+	var fs []string
+	for _, i := range idx {
+		if rows[i].StarMatches >= minSeamStars && rows[i].FluxRatio != nil {
+			fs = append(fs, rows[i].Filter)
+		}
+	}
+	slices.Sort(fs)
+	return strings.Join(fs, ",")
+}
+
+func withColourProblem(problems string, c *float64) string {
+	var keep []string
+	for p := range strings.SplitSeq(problems, "; ") {
+		if p != "" && !strings.HasPrefix(p, colourProblem) {
+			keep = append(keep, p)
+		}
+	}
+	if c != nil && math.Abs(*c) > colourWarn {
+		keep = append(keep, fmt.Sprintf("%s%+.0f%% from the other filters", colourProblem, *c*100))
+	}
+	return strings.Join(keep, "; ")
+}
+
+func equalPtr(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return math.Abs(*a-*b) < 1e-12
 }
 
 func (p *Pipeline) seamsDue() bool {
@@ -308,7 +458,7 @@ func (p *Pipeline) stacking() bool {
 
 func (p *Pipeline) measureSeamsOnly(ctx context.Context, g mosaicGroup, filter string, masters []app.Stack, mosaic *app.Mosaic, sig string) error {
 	if len(masters) < 2 {
-		return p.db.WithContext(ctx).Model(mosaic).Update("seam_signature", sig).Error
+		return p.db.WithContext(ctx).Model(mosaic).Update("seam_signature", seamSignature(sig)).Error
 	}
 	name := "Mosaic seams: " + g.Project
 	p.progress(name, filter, StageAssembling, 0, len(masters)+1)
@@ -319,17 +469,20 @@ func (p *Pipeline) measureSeamsOnly(ctx context.Context, g mosaicGroup, filter s
 	}
 	defer os.RemoveAll(dir)
 	if err := p.preparePanels(ctx, dir, g, filter, masters); err != nil {
-		return p.db.WithContext(ctx).Model(mosaic).Update("seam_signature", sig).Error
+		return p.db.WithContext(ctx).Model(mosaic).Update("seam_signature", seamSignature(sig)).Error
 	}
 	res, err := p.registerAndMeasure(ctx, dir, len(masters), false)
 	if err != nil {
 		return err
 	}
-	seams, health := seamRecords(g, filter, masters, res, sig, time.Now())
+	now := time.Now()
+	seams, health, noise := seamRecords(g, filter, masters, res, sig, now)
 	if err := p.saveSeams(ctx, g, filter, seams, health); err != nil {
 		return err
 	}
-	if err := p.db.WithContext(ctx).Model(mosaic).Update("seam_signature", sig).Error; err != nil {
+	cols := noise.columns(now)
+	cols["seam_signature"] = seamSignature(sig)
+	if err := p.db.WithContext(ctx).Model(mosaic).Updates(cols).Error; err != nil {
 		return err
 	}
 	if p.Events != nil {
@@ -359,10 +512,10 @@ func (p *Pipeline) registerAndMeasure(ctx context.Context, dir string, n int, re
 		return res, err
 	}
 	slices.Sort(registered)
-	_, _, seams, err := matchRegisteredSeams(registered, sat, rewrite)
+	_, _, rep, err := matchRegisteredSeams(registered, sat, rewrite)
 	if err != nil {
 		return res, fmt.Errorf("match panels: %w", err)
 	}
-	res.seams = seams
+	res.seams, res.noise = rep.seams, rep.noise
 	return res, nil
 }

@@ -84,6 +84,12 @@ type Mosaic struct {
 	PanelsTotal int
 	// EffectiveSeconds sums the panel masters' score-weighted exposure.
 	EffectiveSeconds float64
+	NoiseMedian      *float64
+	NoiseP90         *float64
+	NoiseMax         *float64
+	NoiseMaxPanel    int `gorm:"default:0"`
+	NoiseTiles       int `gorm:"default:0"`
+	NoiseAt          *time.Time
 	// Crop is the part of the canvas every panel's data fills, in pixels.
 	CropX, CropY, CropW, CropH int
 	Width                      int

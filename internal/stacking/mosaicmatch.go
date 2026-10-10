@@ -356,33 +356,40 @@ func matchRegistered(files []string, sat float32) (before, after []panelPair, er
 	return before, after, err
 }
 
-func matchRegisteredSeams(files []string, sat float32, rewrite bool) (before, after []panelPair, seams []seamMeasure, err error) {
+type seamReport struct {
+	seams []seamMeasure
+	noise mosaicNoise
+}
+
+func matchRegisteredSeams(files []string, sat float32, rewrite bool) (before, after []panelPair, rep seamReport, err error) {
 	headers := make([]frameheader.Keywords, len(files))
 	sizes := make([][2]int, len(files))
 	for i, f := range files {
 		if headers[i], err = readKeywords(f); err != nil {
-			return nil, nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
+			return nil, nil, rep, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
 		sizes[i] = [2]int{int(headers[i].Float("NAXIS1")), int(headers[i].Float("NAXIS2"))}
 	}
 	at, err := placements(headers, sizes)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, rep, err
 	}
 	binned := make([]binnedPanel, len(files))
+	stars := make([][]seamStar, len(files))
 	for i, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, rep, err
 		}
 		im, err := imagedata.Decode(b)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
+			return nil, nil, rep, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
 		if im.C != 1 || im.W != sizes[i][0] || im.H != sizes[i][1] {
-			return nil, nil, nil, fmt.Errorf("%s: %dx%dx%d, header says %dx%d", filepath.Base(f), im.W, im.H, im.C, sizes[i][0], sizes[i][1])
+			return nil, nil, rep, fmt.Errorf("%s: %dx%dx%d, header says %dx%d", filepath.Base(f), im.W, im.H, im.C, sizes[i][0], sizes[i][1])
 		}
 		binned[i] = binRegistered(im.Plane(0), im.W, im.H, at[i], sat)
+		stars[i] = detectStars(im.Plane(0), im.W, im.H, at[i], sat)
 	}
 	measure := func() []panelPair {
 		var pairs []panelPair
@@ -397,7 +404,8 @@ func matchRegisteredSeams(files []string, sat float32, rewrite bool) (before, af
 	}
 	before = measure()
 	if len(before) == 0 {
-		return before, nil, nil, nil
+		rep.noise = measureMosaicNoise(binned, panelScales(len(files), nil))
+		return before, nil, rep, nil
 	}
 	corr := panelCorrections(len(files), before)
 	for k, b := range binned {
@@ -409,16 +417,17 @@ func matchRegisteredSeams(files []string, sat float32, rewrite bool) (before, af
 		}
 	}
 	after = measure()
-	seams = measureSeams(binned, after)
+	rep.seams = measureSeams(binned, stars, after)
+	rep.noise = measureMosaicNoise(binned, panelScales(len(files), rep.seams))
 	if !rewrite {
-		return before, after, seams, nil
+		return before, after, rep, nil
 	}
 	for k, f := range files {
 		if err := addPlane(f, corr[k], at[k], sat); err != nil {
-			return nil, nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
+			return nil, nil, rep, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
 	}
-	return before, after, seams, nil
+	return before, after, rep, nil
 }
 
 // readKeywords reads a FITS file's header.

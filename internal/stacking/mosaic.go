@@ -320,7 +320,7 @@ func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string
 	if err != nil {
 		return err
 	}
-	if mosaic.Signature == sig && mosaic.SeamSignature != sig && mosaic.Error == nil && p.seamsDue() {
+	if mosaic.Signature == sig && mosaic.SeamSignature != seamSignature(sig) && mosaic.Error == nil && p.seamsDue() {
 		return p.measureSeamsOnly(ctx, g, filter, masters, &mosaic, sig)
 	}
 	if mosaic.Signature == sig || time.Since(newest) < p.opts.MosaicQuiet {
@@ -349,11 +349,13 @@ func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string
 		mosaic.UpdatedAt = time.Now()
 	}
 	if buildErr == nil {
-		rows, health := seamRecords(g, filter, masters, seams, sig, time.Now())
+		now := time.Now()
+		rows, health, noise := seamRecords(g, filter, masters, seams, sig, now)
+		noise.apply(&mosaic, now)
 		if err := p.saveSeams(ctx, g, filter, rows, health); err != nil {
 			slog.Warn("Saving mosaic seams failed", "project", g.Project, "filter", filter, "error", err)
 		} else {
-			mosaic.SeamSignature = sig
+			mosaic.SeamSignature = seamSignature(sig)
 		}
 	}
 	if err := p.db.WithContext(ctx).Save(&mosaic).Error; err != nil {

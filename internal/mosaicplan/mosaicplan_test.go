@@ -366,3 +366,17 @@ func TestHistoryIsCumulativePerPanel(t *testing.T) {
 		t.Errorf("target ids %d %d", d.Panels[0].TargetID, d.Panels[1].TargetID)
 	}
 }
+
+func TestNoiseAndSeamStatus(t *testing.T) {
+	t.Parallel()
+	p90, at := 2e-4, time.Unix(100, 0)
+	ms := []app.Mosaic{{Filter: filterHa, NoiseP90: &p90, NoiseMaxPanel: 3, NoiseTiles: 40, NoiseAt: &at, SeamSignature: "x/2"}, {Filter: "O-III"}}
+	seams := []app.MosaicSeam{{Filter: filterHa, PanelA: 1, PanelB: 2, MeasuredAt: at}, {Filter: filterHa, PanelA: 2, PanelB: 3, MeasuredAt: at.Add(time.Hour)}}
+	noise, status := mosaicplan.NoiseAndStatus(ms, seams)
+	if len(noise) != 2 || noise[0].P90 == nil || *noise[0].P90 != p90 || noise[0].MaxPanel == nil || *noise[0].MaxPanel != 3 || noise[1].MaxPanel != nil || noise[1].P90 != nil {
+		t.Errorf("noise %+v", noise)
+	}
+	if !status[0].Measured || status[0].Pairs != 2 || !status[0].MeasuredAt.Equal(at.Add(time.Hour)) || status[1].Measured || status[1].MeasuredAt != nil {
+		t.Errorf("status %+v", status)
+	}
+}

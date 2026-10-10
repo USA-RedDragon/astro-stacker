@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
@@ -99,6 +100,52 @@ type Detail struct {
 	Health         []app.MosaicPanelHealth `json:"health"`
 	Needs          []string                `json:"needs"`
 	Mosaics        []app.Mosaic            `json:"mosaics"`
+	Noise          []MosaicNoise           `json:"noise"`
+	SeamStatus     []SeamStatus            `json:"seamStatus"`
+}
+
+type MosaicNoise struct {
+	Filter     string     `json:"filter"`
+	Median     *float64   `json:"median"`
+	P90        *float64   `json:"p90"`
+	Max        *float64   `json:"max"`
+	MaxPanel   *int       `json:"maxPanel"`
+	Tiles      int        `json:"tiles"`
+	MeasuredAt *time.Time `json:"measuredAt"`
+}
+
+type SeamStatus struct {
+	Filter     string     `json:"filter"`
+	Measured   bool       `json:"measured"`
+	MeasuredAt *time.Time `json:"measuredAt"`
+	Pairs      int        `json:"pairs"`
+}
+
+func NoiseAndStatus(ms []app.Mosaic, seams []app.MosaicSeam) ([]MosaicNoise, []SeamStatus) {
+	noise := make([]MosaicNoise, 0, len(ms))
+	status := make([]SeamStatus, 0, len(ms))
+	for _, m := range ms {
+		n := MosaicNoise{Filter: m.Filter, Median: m.NoiseMedian, P90: m.NoiseP90, Max: m.NoiseMax, Tiles: m.NoiseTiles, MeasuredAt: m.NoiseAt}
+		if m.NoiseMaxPanel > 0 {
+			p := m.NoiseMaxPanel
+			n.MaxPanel = &p
+		}
+		noise = append(noise, n)
+		st := SeamStatus{Filter: m.Filter}
+		for _, sm := range seams {
+			if sm.Filter != m.Filter {
+				continue
+			}
+			st.Pairs++
+			at := sm.MeasuredAt
+			if st.MeasuredAt == nil || at.After(*st.MeasuredAt) {
+				st.MeasuredAt = &at
+			}
+		}
+		st.Measured = st.Pairs > 0 || m.SeamSignature != ""
+		status = append(status, st)
+	}
+	return noise, status
 }
 
 type Summary struct {
@@ -165,7 +212,8 @@ func (s *Service) Detail(ctx context.Context, key string) (Detail, error) {
 }
 
 func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, error) {
-	d := Detail{Project: g.Project, ProjectGUID: g.ProjectGUID, Seams: []app.MosaicSeam{}, Health: []app.MosaicPanelHealth{}, Needs: []string{}}
+	d := Detail{Project: g.Project, ProjectGUID: g.ProjectGUID, Seams: []app.MosaicSeam{}, Health: []app.MosaicPanelHealth{}, Needs: []string{},
+		Noise: []MosaicNoise{}, SeamStatus: []SeamStatus{}}
 	var adopted int64
 	if err := s.App.WithContext(ctx).Model(&app.MosaicPanel{}).Where("project_guid = ?", g.ProjectGUID).Count(&adopted).Error; err != nil {
 		return d, err
@@ -271,6 +319,7 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	if err := db.Where("project = ?", g.Project).Order("filter").Find(&d.Mosaics).Error; err != nil {
 		return d, err
 	}
+	d.Noise, d.SeamStatus = NoiseAndStatus(d.Mosaics, d.Seams)
 	d.Needs = Needs(d)
 	return d, nil
 }

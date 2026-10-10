@@ -52,10 +52,11 @@ func TestSeamsMeasureNoiseMismatchWithoutRewriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, after, seams, err := matchRegisteredSeams(files, 0.9, false)
+	_, after, rep, err := matchRegisteredSeams(files, 0.9, false)
 	if err != nil {
 		t.Fatal(err)
 	}
+	seams := rep.seams
 	if len(after) != 1 || len(seams) != 1 {
 		t.Fatalf("pairs %+v seams %+v", after, seams)
 	}
@@ -127,7 +128,7 @@ func TestSeamRecordsOrderPanelsAndFindGaps(t *testing.T) {
 		seams:  []seamMeasure{{I: 0, J: 1, Fit: overlapFit{Mean: 0.2, Samples: 900}, NoiseA: 2, NoiseB: 1, Profile: []float64{0.1, -0.1}}},
 		actual: []*mosaics.Footprint{&shifted, &full},
 	}
-	seams, health := seamRecords(g, "H-a", masters, res, "sig", time.Unix(0, 0))
+	seams, health, _ := seamRecords(g, "H-a", masters, res, "sig", time.Unix(0, 0))
 	if len(seams) != 1 || seams[0].PanelA != 1 || seams[0].PanelB != 2 || seams[0].TargetA != "t1" {
 		t.Fatalf("seams %+v", seams)
 	}
