@@ -322,6 +322,7 @@ type TonightSub struct {
 
 type TonightSubs struct {
 	Since         time.Time                 `json:"since"`
+	SinceBasis    string                    `json:"since_basis"`
 	Subs          []TonightSub              `json:"subs"`
 	Latest        *TonightSub               `json:"latest,omitempty"`
 	LatestPreview *TonightSub               `json:"latest_preview,omitempty"`
@@ -513,7 +514,7 @@ func graderFor(ctx context.Context, src GraderSource, subs []TonightSub) observa
 	return src.Limits(ctx, ids)
 }
 
-func applySchedDataRoutes(g *gin.RouterGroup, signer *previewer.Signer, grader GraderSource, now func() time.Time) {
+func applySchedDataRoutes(g *gin.RouterGroup, signer *previewer.Signer, grader GraderSource, site *siteMemo, now func() time.Time) {
 	g.GET("/scheduler/projects", func(c *gin.Context) {
 		di, ok := depInjection(c)
 		if !ok {
@@ -538,14 +539,16 @@ func applySchedDataRoutes(g *gin.RouterGroup, signer *previewer.Signer, grader G
 		if !ok {
 			return
 		}
-		since := nightStart(now())
+		var since nightSince
 		if s := c.Query("since"); s != "" {
 			t, err := time.Parse(time.RFC3339, s)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{errorKey: "since must be RFC3339"})
 				return
 			}
-			since = t
+			since = nightSince{At: t, Basis: "the requested time"}
+		} else {
+			since = tonightSince(c.Request.Context(), site, now())
 		}
 		var sched, appDB *gorm.DB
 		if di.SchedulerDBStore != nil {
@@ -554,11 +557,12 @@ func applySchedDataRoutes(g *gin.RouterGroup, signer *previewer.Signer, grader G
 		if di.AppStore != nil {
 			appDB = di.AppStore.DB()
 		}
-		out, err := LoadTonightSubs(c.Request.Context(), sched, appDB, signer, since.UTC())
+		out, err := LoadTonightSubs(c.Request.Context(), sched, appDB, signer, since.At.UTC())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
+		out.SinceBasis = since.Basis
 		out.Grader = graderFor(c.Request.Context(), grader, out.Subs)
 		c.JSON(http.StatusOK, out)
 	})

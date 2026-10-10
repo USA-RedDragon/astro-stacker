@@ -163,3 +163,37 @@ func TestNightWithoutDarknessHasNoPeakOrMoonSeparation(t *testing.T) {
 		t.Errorf("moon illumination %v", f)
 	}
 }
+
+func TestSunsets(t *testing.T) {
+	t.Parallel()
+	s := testSite()
+	want := time.Date(2026, 10, 11, 0, 12, 0, 0, time.UTC)
+	near := func(name string, got time.Time, ok bool, want time.Time) {
+		t.Helper()
+		if d := got.Sub(want); !ok || d < -4*time.Minute || d > 4*time.Minute {
+			t.Errorf("%s: %v %v, want about %v", name, got, ok, want)
+		}
+	}
+	night := time.Date(2026, 10, 11, 7, 0, 0, 0, time.UTC)
+	day := time.Date(2026, 10, 10, 17, 0, 0, 0, time.UTC)
+	got, ok := s.PreviousSunset(night)
+	near("previous at night", got, ok, want)
+	got, ok = s.NextSunset(day)
+	near("next by day", got, ok, want)
+	got, ok = s.TonightSunset(day)
+	near("tonight by day", got, ok, want)
+	got, ok = s.TonightSunset(night)
+	near("tonight at night", got, ok, want)
+	got, ok = s.PreviousSunset(day)
+	near("previous by day", got, ok, want.Add(-24*time.Hour-time.Minute))
+	if a := s.SunAltitude(got.Add(-2 * time.Minute)); a <= sky.SunsetAltitude {
+		t.Errorf("sun already down before sunset: %.2f", a)
+	}
+	polar := sky.Site{Latitude: 80, Longitude: 0}
+	if _, ok := polar.PreviousSunset(time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC)); ok {
+		t.Error("midnight sun has a sunset")
+	}
+	if _, ok := polar.NextSunset(time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC)); ok {
+		t.Error("midnight sun has a next sunset")
+	}
+}

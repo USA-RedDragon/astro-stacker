@@ -41,6 +41,7 @@ type Extras struct {
 	Backfill   func() goals.BackfillLive
 	Grader     GraderSource
 	DarkNeed   *darkneed.Publisher
+	Site       SiteSource
 }
 
 const schedulerWriteTimeout = 45 * time.Second
@@ -58,8 +59,9 @@ func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer
 	if now == nil {
 		now = time.Now
 	}
-	applyPreviewRoutes(g, x.Previews, now)
-	applySchedDataRoutes(g, signer, x.Grader, now)
+	site := &siteMemo{src: x.Site}
+	applyPreviewRoutes(g, x.Previews, site, now)
+	applySchedDataRoutes(g, signer, x.Grader, site, now)
 	applyConditionsRoutes(g, x, now)
 	status := x.Scheduler
 	if status == nil {
