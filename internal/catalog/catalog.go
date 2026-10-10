@@ -14,9 +14,31 @@ type Object struct {
 	MinorArcmin float64  `json:"minorArcmin"`
 	PA          float64  `json:"pa"`
 	Source      string   `json:"source"`
+
+	Magnitude         *float64 `json:"magnitude,omitempty"`
+	SurfaceBrightness *float64 `json:"surfaceBrightness,omitempty"`
+	Brightness        string   `json:"brightness,omitempty"`
+	BrightScore       *float64 `json:"brightScore,omitempty"`
+	Lists             []string `json:"lists,omitempty"`
 }
 
 type Store interface {
 	Cone(ctx context.Context, raDeg, decDeg, radiusDeg float64) ([]Object, error)
 	Search(ctx context.Context, query string, limit int) ([]Object, error)
 }
+
+const (
+	TypeGalaxy        = "galaxy"
+	TypeGalaxyGroup   = "galaxy-group"
+	TypeEmission      = "emission"
+	TypeReflection    = "reflection"
+	TypeNebula        = "nebula"
+	TypeDark          = "dark"
+	TypePN            = "pn"
+	TypeSNR           = "snr"
+	TypeOpenCluster   = "open-cluster"
+	TypeGlobular      = "globular"
+	TypeClusterNebula = "cluster-nebula"
+	TypeStar          = "star"
+	TypeOther         = "other"
+)
