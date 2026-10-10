@@ -7,6 +7,7 @@ internal/events/events.go	89	78
 internal/frameheader/frame.go	32	30
 internal/frameheader/header.go	108	101
 internal/frameheader/wcs.go	67	58
+internal/goals/progress.go	67	30
 internal/imagedata/fits.go	62	51
 internal/imagedata/fitswrite.go	49	41
 internal/imagedata/pedestal16.go	9	9
