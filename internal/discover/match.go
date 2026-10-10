@@ -276,23 +276,19 @@ func score(subj Subject, c *candidate, footprint float64) Link {
 		where = fmt.Sprintf("Centres %s apart.", angle(c.sep))
 	}
 	switch {
-	case c.nameMethod == MethodDesignation && agrees && subj.HasPos:
-		l.Method, l.Confidence, l.Why = MethodDesignation, 0.99, "Your name is its catalogue designation. "+where
-	case c.nameMethod == MethodName && agrees && subj.HasPos:
-		l.Method, l.Confidence, l.Why = MethodName, 0.96, "Your name is its common name. "+where
-	case c.nameMethod == MethodDesignation && !subj.HasPos:
+	case c.nameMethod == MethodDesignation && subj.HasPos:
+		l.Method, l.Confidence, l.Why = MethodDesignation, 0.99, "Your name is its catalogue designation"
+	case c.nameMethod == MethodName && subj.HasPos:
+		l.Method, l.Confidence, l.Why = MethodName, 0.96, "Your name is its common name"
+	case c.nameMethod == MethodDesignation:
 		l.Method, l.Confidence, l.Why = MethodDesignation, 0.9, "Your name is its catalogue designation; no coordinates to check."
-	case c.nameMethod == MethodName && !subj.HasPos:
+	case c.nameMethod == MethodName:
 		l.Method, l.Confidence, l.Why = MethodName, 0.85, "Your name is its common name; no coordinates to check."
-	case c.nameMethod == MethodSimilar && agrees:
-		l.Method, l.Confidence = MethodSimilar, math.Min(0.92, 0.55+0.4*c.nameSim)
-		l.Why = "Name is spelled differently. " + where
+	case c.nameMethod == MethodSimilar:
+		l.Method, l.Confidence, l.Why = MethodSimilar, math.Min(0.92, 0.55+0.4*c.nameSim), "Name is spelled differently"
 		if !subj.HasPos {
-			l.Confidence = math.Min(l.Confidence, 0.6)
+			l.Confidence, l.Why = math.Min(l.Confidence, 0.6), l.Why+"; no coordinates to check."
 		}
-	case c.nameMethod != "" && !agrees:
-		l.Method, l.Confidence = c.nameMethod, 0.4
-		l.Why = "Names match, but " + strings.ToLower(where[:1]) + where[1:]
 	case c.coord:
 		near := 1 - c.sep/math.Max(r, nearRadius)
 		l.Method, l.Confidence = MethodCoordinates, 0.5+0.3*near
@@ -303,7 +299,15 @@ func score(subj Subject, c *candidate, footprint float64) Link {
 	case c.footprint:
 		l.Method, l.Confidence, l.Why = MethodFootprint, 0.5, "Inside your frame. "+where
 	}
-	if c.whole != "" && c.nameMethod != "" && l.Method == c.nameMethod {
+	if c.nameMethod != "" && subj.HasPos {
+		if agrees {
+			l.Why += ". " + where
+		} else {
+			l.Confidence /= 2
+			l.Why += fmt.Sprintf(", but it is %s from your coordinates.", angle(c.sep))
+		}
+	}
+	if c.whole != "" && c.nameMethod != "" {
 		l.Why += fmt.Sprintf(" “%s” names more than one object; this is “%s”.", c.whole, c.part)
 	}
 	l.Confidence = math.Round(l.Confidence*100) / 100

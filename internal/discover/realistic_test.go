@@ -3,6 +3,7 @@ package discover_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +14,10 @@ import (
 const (
 	heartAndSoul = "Heart and Soul"
 	markarian    = "Markarian Chain"
+	heartID      = "IC 1805"
+	soulID       = "IC 1848"
+	eagleID      = "M 16"
+	m31ID        = "M 31"
 )
 
 func catalogService(t *testing.T) *discover.Service {
@@ -41,6 +46,10 @@ func panels(name string, n int) []string {
 	return out
 }
 
+func own(name string, n int, radius float64) realSubject {
+	return realSubject{name: name, targets: panels(name, n), at: name, radius: radius}
+}
+
 func realisticSubjects() []realSubject {
 	return []realSubject{
 		{name: garlicName, ra: 359.804, dec: 62.437},
@@ -50,8 +59,8 @@ func realisticSubjects() []realSubject {
 		{name: "Sadr Region", targets: panels("IC 1318", 15), at: "IC 1318", radius: 2},
 		{name: markarian, targets: panels(markarian, 9), ra: 186.75, dec: 13.1, radius: 1},
 		{name: "Taurus Dark Cloud and co", targets: panels("Taurus Dark Cloud and co", 6), ra: 68, dec: 25.5, radius: 1.5},
-		{name: "IC 405", targets: panels("IC 405", 4), at: "IC 405", radius: 0.8},
-		{name: "NGC 2264", targets: panels("NGC 2264", 4), at: "NGC 2264", radius: 0.8},
+		own("IC 405", 4, 0.8),
+		own("NGC 2264", 4, 0.8),
 		{name: "Pelican", targets: panels("Pelican", 4), at: "IC 5070", radius: 0.8},
 		{name: "Tadpole", targets: panels("IC 410", 4), at: "IC 410", radius: 0.8},
 		{name: "Galaxy Cluster", targets: panels("IC 3393", 4), at: "IC 3393", radius: 0.8},
@@ -60,9 +69,9 @@ func realisticSubjects() []realSubject {
 		{name: "Witch Head", targets: panels("NGC 1909", 3), at: "NGC 1909", radius: 0.8},
 		{name: "Blue Horsehead", targets: panels("Blue Horsehead", 2), at: "IC 4592", radius: 0.6},
 		{name: "California", targets: panels("California", 2), at: "NGC 1499", radius: 0.6},
-		{name: "Eagle", targets: panels("Eagle", 2), at: "M 16", radius: 0.6},
+		{name: "Eagle", targets: panels("Eagle", 2), at: eagleID, radius: 0.6},
 		{name: "Elephant Trunk", targets: panels("IC 1396", 2), at: "IC 1396", radius: 0.6},
-		{name: "NGC 7822", targets: panels("NGC 7822", 2), at: "NGC 7822", radius: 0.6},
+		own("NGC 7822", 2, 0.6),
 		{name: "North America", targets: panels("North America", 2), at: "NGC 7000", radius: 0.6},
 		{name: "Sagittarius Star Cloud", targets: panels("Sagittarius Star Cloud", 2), at: "M 24", radius: 0.6},
 		{name: "Spaghetti", targets: panels("Spaghetti", 2), at: "Sh2-240", radius: 0.6},
@@ -192,9 +201,9 @@ func TestCombinedNames(t *testing.T) {
 	t.Parallel()
 	res := matchRealistic(t)
 	for key, want := range map[string][]string{
-		"project:" + heartAndSoul:      {"IC 1805", "IC 1848"},
-		"project:Heart and Soul SHO":   {"IC 1805", "IC 1848"},
-		"object:Omega & Eagle Nebulae": {"M 16", "M 17"},
+		"project:" + heartAndSoul:      {heartID, soulID},
+		"project:Heart and Soul SHO":   {heartID, soulID},
+		"object:Omega & Eagle Nebulae": {eagleID, "M 17"},
 		"object:M 8 and M 20":          {"M 8", "M 20"},
 	} {
 		got := linkedIDs(res[key].links)
@@ -213,6 +222,74 @@ func TestCombinedNames(t *testing.T) {
 			Targets: []string{name}, Hours: map[string]float64{}})
 		if len(links) == 0 || links[0].Object.Designation != "NGC 6357" || strings.Contains(links[0].Why, "more than one") {
 			t.Errorf("%q was split: %+v", name, links)
+		}
+	}
+}
+
+func TestRealisticAutoLinks(t *testing.T) {
+	t.Parallel()
+	want := map[string][]string{
+		"project:" + garlicName: {garlicID}, "project:M13": {m13Name}, "project:Rho": {"IC 4604"},
+		"project:Sadr Region": {"IC 1318"}, "project:IC 405": {"IC 405"}, "project:NGC 2264": {"NGC 2264"},
+		"project:Pelican": {"IC 5070"}, "project:Tadpole": {"IC 410"}, "project:Galaxy Cluster": {"IC 3393"},
+		"project:" + heartAndSoul: {heartID, soulID}, "project:Heart and Soul SHO": {heartID, soulID},
+		"project:Witch Head": {"NGC 1909"}, "project:Blue Horsehead": {"IC 4592"}, "project:California": {"NGC 1499"},
+		"project:Eagle": {eagleID}, "project:Elephant Trunk": {"IC 1396"}, "project:NGC 7822": {"NGC 7822"},
+		"project:North America": {"NGC 7000"}, "project:Sagittarius Star Cloud": {"M 24"}, "project:Spaghetti": {"Sh2-240"},
+		"project:Rosette": {"NGC 2238"}, "object:Omega & Eagle Nebulae": {eagleID, "M 17"}, "object:M 8 and M 20": {"M 8", "M 20"},
+		"object:Statue of Liberty Nebula": {"NGC 3576"}, "object:NGC1313": {"NGC 1313"}, "object:SH2-129": {"Sh2-129"},
+		"object:gum 3": {"RCW 1"}, "object:" + leoTriplet: {"M 65"}, "project:Veil": {"NGC 6960"},
+	}
+	for key, r := range matchRealistic(t) {
+		var got []string
+		for _, l := range r.links {
+			if l.Status == discover.StatusAuto {
+				got = append(got, l.Object.Designation)
+			}
+			if strings.Contains(l.Why, "from your coordinates") && (l.Confidence > 0.5 || l.Status == discover.StatusAuto) {
+				t.Errorf("%s: a far name match kept %.2f (%s)", key, l.Confidence, l.Status)
+			}
+		}
+		slices.Sort(got)
+		w := slices.Clone(want[key])
+		slices.Sort(w)
+		if !slices.Equal(got, w) {
+			t.Errorf("%s auto-links %v, want %v", key, got, w)
+		}
+	}
+}
+
+func TestNameFarFromCoordinates(t *testing.T) {
+	t.Parallel()
+	s := catalogService(t)
+	garlic, _ := s.Catalog.Lookup(garlicID)
+	for _, tc := range []struct {
+		name, want string
+		conf, full float64
+	}{
+		{"Abell 85", garlicID, 0.5, 0.99},
+		{m31ID, m31ID, 0.5, 0.99},
+		{"Andromeda Galaxy", m31ID, 0.48, 0.96},
+	} {
+		ra, dec := 10.46, -9.3
+		if tc.want == m31ID {
+			ra, dec = garlic.RA, garlic.Dec
+		}
+		links, _ := s.MatchSubject(context.Background(), discover.Subject{Key: "project:" + tc.name, Name: tc.name, Kind: discover.SubjectProject,
+			Targets: []string{tc.name}, RA: ra, Dec: dec, HasPos: true, Hours: map[string]float64{}})
+		i := slices.IndexFunc(links, func(l discover.Link) bool { return l.Object.Designation == tc.want })
+		if i < 0 {
+			t.Errorf("%s: no link to %s in %+v", tc.name, tc.want, links)
+			continue
+		}
+		l := links[i]
+		if l.Confidence != tc.conf || l.Status != discover.StatusSuggested || !strings.Contains(l.Why, "° from your coordinates") {
+			t.Errorf("%s: far name match %+v", tc.name, l)
+		}
+		near, _ := s.MatchSubject(context.Background(), discover.Subject{Key: "project:" + tc.name, Name: tc.name, Kind: discover.SubjectProject,
+			Targets: []string{tc.name}, RA: l.Object.RA, Dec: l.Object.Dec, HasPos: true, Hours: map[string]float64{}})
+		if len(near) == 0 || near[0].Object.Designation != tc.want || near[0].Status != discover.StatusAuto || near[0].Confidence != tc.full {
+			t.Errorf("%s: agreeing name match %+v", tc.name, near)
 		}
 	}
 }
