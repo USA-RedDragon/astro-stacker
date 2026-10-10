@@ -143,7 +143,7 @@ discover:
   # site-latitude: 0.0
   # Observatory east longitude in degrees
   # site-longitude: 0.0
-  # Observatory elevation in metres
+  # Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise
   # site-elevation: 0.0
   # Altitude in degrees an object must clear in astronomical darkness to count as up
   min-altitude: 30

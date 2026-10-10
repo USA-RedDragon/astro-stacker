@@ -575,7 +575,8 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 			set("discover.site-longitude", configulator.LayerFile, file)
 		}
 		if s.Discover.SiteElevation != nil {
-			cfg.Discover.SiteElevation = *s.Discover.SiteElevation
+			v := *s.Discover.SiteElevation
+			cfg.Discover.SiteElevation = &v
 			set("discover.site-elevation", configulator.LayerFile, file)
 		}
 		if s.Discover.MinAltitude != nil {
@@ -1302,7 +1303,8 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 				Value:  v,
 			}
 		}
-		cfg.Discover.SiteElevation = p
+		pv := p
+		cfg.Discover.SiteElevation = &pv
 		set("discover.site-elevation", configulator.LayerEnv, n)
 	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "min-altitude"); ok {
@@ -1755,7 +1757,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(14), names[58], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
 	fs.Float64(names[59], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
 	fs.Float64(names[60], 0.0, "Observatory east longitude in degrees")
-	fs.Float64(names[61], 0.0, "Observatory elevation in metres")
+	fs.Float64(names[61], 0.0, "Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise")
 	fs.Float64(names[62], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
 	fs.Float64(names[63], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky")
 	fs.Float64(names[64], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
@@ -2528,7 +2530,8 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 				Source: "--" + n,
 			}
 		}
-		cfg.Discover.SiteElevation = v
+		pv := v
+		cfg.Discover.SiteElevation = &pv
 		set("discover.site-elevation", configulator.LayerCLI, "--"+n)
 	}
 	if n := "discover" + o.Separator + "min-altitude"; fs.Changed(n) {
@@ -4983,7 +4986,11 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "public-frames.max-age-days = %v\n", c.PublicFrames.MaxAgeDays)
 	fmt.Fprintf(&b, "discover.site-latitude = %v\n", c.Discover.SiteLatitude)
 	fmt.Fprintf(&b, "discover.site-longitude = %v\n", c.Discover.SiteLongitude)
-	fmt.Fprintf(&b, "discover.site-elevation = %v\n", c.Discover.SiteElevation)
+	if c.Discover.SiteElevation == nil {
+		b.WriteString("discover.site-elevation = <unset>\n")
+	} else {
+		fmt.Fprintf(&b, "discover.site-elevation = %v\n", *c.Discover.SiteElevation)
+	}
 	fmt.Fprintf(&b, "discover.min-altitude = %v\n", c.Discover.MinAltitude)
 	fmt.Fprintf(&b, "discover.sky-brightness = %v\n", c.Discover.SkyBrightness)
 	fmt.Fprintf(&b, "discover.focal-length = %v\n", c.Discover.FocalLength)
