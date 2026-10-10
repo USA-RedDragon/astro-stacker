@@ -7,6 +7,7 @@ import {
   editsFor,
   filterColor,
   filterName,
+  filterShort,
   historyBadge,
   median,
   nightRange,
@@ -57,6 +58,7 @@ describe('filters', () => {
     expect(filterName('O-III')).toBe('O-III')
     expect(filterName('L')).toBe('Luminance')
     expect(filterName('Weird')).toBe('Weird')
+    expect(['Luminance', 'Red', 'Green', 'Blue', 'H-a', 'O-III', 'S-II', 'Weird'].map(filterShort)).toEqual(['L', 'R', 'G', 'B', 'Ha', 'OIII', 'SII', 'Weird'])
     expect(filterColor('SII')).toBe('var(--sii)')
     expect(filterColor('R')).toBe('var(--red)')
     expect(filterColor('Weird')).toBe('var(--muted-foreground)')

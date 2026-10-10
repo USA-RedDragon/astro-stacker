@@ -23,6 +23,7 @@ import {
 import { onEvent } from '../api/events'
 import { errorToast, notifyCommand } from '../shell'
 import { filterColor, pct, r1 } from '../api/planning'
+import { filterShort } from '../plan'
 
 const props = defineProps<{ projectId?: string }>()
 const route = useRoute()
@@ -496,7 +497,7 @@ const tabs = computed<[Tab, string][]>(() => [
               <span style="font-size: 0.6875rem; opacity: 0.9">{{ t.label }}</span>
               <span class="bars">
                 <template v-for="b in t.bars" :key="b.f">
-                  <span>{{ b.f.slice(0, 3) }}</span>
+                  <span :title="b.f">{{ filterShort(b.f) }}</span>
                   <span class="track"><span :style="{ width: b.w }" /></span>
                   <span style="text-align: right">{{ b.v }}</span>
                 </template>

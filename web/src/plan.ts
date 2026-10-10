@@ -49,6 +49,22 @@ const FILTER_NAMES: Record<FilterKey, string> = {
   other: '',
 }
 
+const FILTER_SHORT: Record<FilterKey, string> = {
+  lum: 'L',
+  red: 'R',
+  green: 'G',
+  blue: 'B',
+  ha: 'Ha',
+  oiii: 'OIII',
+  sii: 'SII',
+  other: '',
+}
+
+export function filterShort(f?: string | null): string {
+  const k = filterKey(f)
+  return k === 'other' ? f || '?' : FILTER_SHORT[k]
+}
+
 export function filterName(f?: string | null): string {
   const k = filterKey(f)
   return k === 'other' ? f || 'Unknown' : FILTER_NAMES[k]
