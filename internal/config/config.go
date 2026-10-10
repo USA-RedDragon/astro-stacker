@@ -32,6 +32,13 @@ type Config struct {
 	// PublicFrames are the watermarked frames the public site shows.
 	PublicFrames PublicFrames `name:"public-frames" description:"Small watermarked frames of each target's newest accepted light, for the public site"`
 	Discover     Discover     `name:"discover" description:"Catalogue completion, the target finder and Starfront collaborations"`
+	Scheduler    Scheduler    `name:"scheduler" description:"The observatory-scheduler plugin's API and the durable command queue"`
+}
+
+type Scheduler struct {
+	URL   string `name:"url" description:"Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued"`
+	Token string `name:"token" description:"Bearer token for the plugin's API"`
+	Queue bool   `name:"queue" description:"Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory" default:"true"`
 }
 
 type Discover struct {

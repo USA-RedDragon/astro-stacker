@@ -42,7 +42,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 
 	applyMiddleware(r, config, appStore, schedulerDBStore, version, restacker)
 	applyRoutes(r, signer, broker)
-	applySchedulerRoutes(r.Group("/api/v1"), extras)
+	applySchedulerRoutes(r.Group("/api/v1"), extras, signer)
 	applyDiscoverRoutes(r.Group("/api/v1"), extras)
 	applyPlanningRoutes(r.Group("/api/v1"))
 	applyPlanningCatalogRoutes(r.Group("/api/v1"))
@@ -93,6 +93,10 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 		pprofServer:   pprofServer,
 		config:        config,
 	}
+}
+
+func (s *Server) Handler() http.Handler {
+	return s.server.Handler
 }
 
 func applyMiddleware(r *gin.Engine, config *config.Config, appStore store.Store, schedulerDBStore store.Store, version string, restacker middleware.Restacker) {
