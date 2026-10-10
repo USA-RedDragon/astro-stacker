@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -377,31 +376,37 @@ func TestSchedulerStatusFromMonitor(t *testing.T) {
 	}
 }
 
-func TestTonightHFRLimits(t *testing.T) {
+type fakeGrader struct{ ids []int }
+
+func (f *fakeGrader) Limits(_ context.Context, ids []int) observatory.GraderSummary {
+	f.ids = ids
+	mean := 2.0
+	return observatory.GraderSummary{State: observatory.GraderOK, Targets: []observatory.GraderTarget{{
+		TargetID: 13, Source: observatory.GraderFromPlugin,
+		Report: &observatory.GraderReport{TargetID: 13, Plans: []observatory.GraderPlanLimit{{PlanID: 1, Filter: "R", State: "limit", Samples: 9, Mean: &mean}}},
+	}}}
+}
+
+func TestTonightGraderComesFromThePlugin(t *testing.T) {
 	t.Parallel()
 	sched, appDB, at := tonightFixture(t)
-	exec(t, sched, `create table profilepreference ("profileId" text, "enableGradeHFR" integer, "hfrSigmaFactor" real)`,
-		`insert into profilepreference values ('p', 1, 2.0)`)
-	for i, hfr := range []float64{2.0, 2.2, 2.4} {
-		exec(t, sched, fmt.Sprintf(`insert into acquiredimage values (%d,5,13,%d,'R',1,'{"HFR":%v}',null,'p',40,'x%d')`, 10+i, at(-48).Unix(), hfr, i))
-	}
-	h := newHandler(t, sched, appDB, server.Extras{Now: func() time.Time { return at(9) }})
+	g := &fakeGrader{}
+	h := newHandler(t, sched, appDB, server.Extras{Now: func() time.Time { return at(9) }, Grader: g})
 	code, body := do(t, h, http.MethodGet, pathSubs, "")
 	var got server.TonightSubs
 	if err := json.Unmarshal(body, &got); code != http.StatusOK || err != nil {
 		t.Fatalf("%d %s", code, body)
 	}
-	if got.HFRSigma == nil || *got.HFRSigma != 2 || len(got.HFRLimits) != 1 {
-		t.Fatalf("limits %s", body)
+	if got.Grader.State != observatory.GraderOK || len(got.Grader.Targets) != 1 || got.Grader.Targets[0].Report.Plans[0].Samples != 9 {
+		t.Fatalf("grader %s", body)
 	}
-	l := got.HFRLimits[0]
-	if l.TargetID != 13 || l.Filter != "R" || l.Samples != 4 || math.Abs(l.Mean-2.225) > 1e-9 || math.Abs(l.Limit-(l.Mean+2*l.SD)) > 1e-9 {
-		t.Fatalf("limit %+v", l)
+	if len(g.ids) != len(got.Subs) || strings.Contains(string(body), "hfr_limits") || strings.Contains(string(body), "hfr_sigma") {
+		t.Fatalf("ids %v body %s", g.ids, body)
 	}
-	exec(t, sched, `update profilepreference set "enableGradeHFR" = 0`)
-	_, body = do(t, h, http.MethodGet, pathSubs, "")
-	if strings.Contains(string(body), "hfr_sigma") || !strings.Contains(string(body), `"hfr_limits":[]`) {
-		t.Fatalf("grader off: %s", body)
+	plain := newHandler(t, sched, appDB, server.Extras{Now: func() time.Time { return at(9) }})
+	_, body = do(t, plain, http.MethodGet, pathSubs, "")
+	if !strings.Contains(string(body), `"grader":{"state":"unconfigured"`) {
+		t.Fatalf("unconfigured %s", body)
 	}
 }
 

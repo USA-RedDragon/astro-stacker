@@ -38,6 +38,7 @@ type Extras struct {
 	Conditions *conditions.Service
 	Cutouts    *skycutout.Service
 	Backfill   func() goals.BackfillLive
+	Grader     GraderSource
 }
 
 const schedulerWriteTimeout = 45 * time.Second
@@ -56,7 +57,7 @@ func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer
 		now = time.Now
 	}
 	applyPreviewRoutes(g, x.Previews, now)
-	applySchedDataRoutes(g, signer, now)
+	applySchedDataRoutes(g, signer, x.Grader, now)
 	applyConditionsRoutes(g, x, now)
 	status := x.Scheduler
 	if status == nil {

@@ -109,7 +109,7 @@ func (c *Client) doWithin(ctx context.Context, timeout time.Duration, method, pa
 	case res.StatusCode == http.StatusServiceUnavailable:
 		return unreachable(ErrDisabled)
 	case res.StatusCode == http.StatusNotFound:
-		return ErrNotFound
+		return notFound(data)
 	case res.StatusCode >= http.StatusBadGateway:
 		return unreachable(fmt.Errorf("%s %s: %s", method, path, res.Status))
 	case res.StatusCode >= http.StatusBadRequest:

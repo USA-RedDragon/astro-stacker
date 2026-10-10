@@ -184,6 +184,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {
 		extras.Previews = obs
+		extras.Grader = &observatory.GraderCache{Client: obs, Monitor: monitor}
 	}
 
 	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], extras)
