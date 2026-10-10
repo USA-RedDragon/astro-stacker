@@ -122,8 +122,8 @@ func TestSeamRecordsOrderPanelsAndFindGaps(t *testing.T) {
 		{Object: "P2", TargetGUID: "t2", Number: 2, RA: east.RA, Dec: east.Dec},
 	}}
 	masters := []app.Stack{{Object: "P2"}, {Object: "P1"}}
-	shifted := mosaics.PanelFootprint(mosaics.Offset(east, 0, 0, -0.5), 0, mosaics.DefaultRig())
-	full := mosaics.PanelFootprint(centre, 0, mosaics.DefaultRig())
+	shifted := mosaics.PanelFootprint(mosaics.Offset(east, 0, 0, -0.5), 0, mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915})
+	full := mosaics.PanelFootprint(centre, 0, mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915})
 	res := seamResult{
 		seams:  []seamMeasure{{I: 0, J: 1, Fit: overlapFit{Mean: 0.2, Samples: 900}, NoiseA: 2, NoiseB: 1, Profile: []float64{0.1, -0.1}}},
 		actual: []*mosaics.Footprint{&shifted, &full},

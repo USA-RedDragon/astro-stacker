@@ -12,6 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
@@ -24,12 +25,7 @@ var errNoSiteHeader = errors.New("the newest light has no SITELAT and SITELONG")
 func discoverRig(cfg *config.Config) discover.Rig {
 	d := cfg.Discover
 	return discover.Rig{
-		Frame:       sky.Frame{FocalLength: d.FocalLength, PixelSize: d.PixelSize, WidthPx: d.SensorWidth, HeightPx: d.SensorHeight},
-		Colour:      d.Colour,
 		Filters:     discover.ParseFilterValues(d.Filters),
-		Exposures:   discover.ParseFilterValues(d.Exposures),
-		TypicalHFR:  d.TypicalHFR,
-		TypicalRMS:  d.TypicalGuideRMS,
 		MinAltitude: d.MinAltitude,
 		SkyBright:   d.SkyBrightness,
 	}
@@ -86,6 +82,7 @@ func newDiscover(ctx context.Context, cfg *config.Config, appStore, schedStore s
 		SchedDB: schedStore.DB(),
 		Site:    siteFunc(cfg, appStore),
 		Rig:     discoverRig(cfg),
+		Measure: (&rigsource.Source{App: appStore.DB(), Sched: schedStore.DB()}).Get,
 	}
 	slog.Info("Catalogue store loaded", "objects", ix.Len())
 	if !cfg.Discover.Starfront {

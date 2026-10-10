@@ -13,6 +13,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicstore"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
@@ -828,7 +829,10 @@ func writeWizardPanels(ctx context.Context, db *gorm.DB, p json.RawMessage) erro
 	for i, t := range v.Targets {
 		targets[i] = mosaics.TSTarget{GUID: t.GUID, Name: t.Name, RA: t.RAHours * 15, Dec: t.Dec, Rotation: t.Rotation, Active: true}
 	}
-	rig := mosaics.DefaultRig()
+	rig, err := rigsource.MosaicRig(ctx, db)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("project_guid = ? AND source = ?", v.Project.GUID, app.MosaicSourceWizard).Delete(&app.MosaicPanel{}).Error; err != nil {

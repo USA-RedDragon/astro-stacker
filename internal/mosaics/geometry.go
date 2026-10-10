@@ -11,10 +11,6 @@ type Rig struct {
 	ScaleArcsec float64 `json:"scaleArcsec"`
 }
 
-func DefaultRig() Rig {
-	return Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
-}
-
 type Point struct {
 	RA  float64 `json:"ra"`
 	Dec float64 `json:"dec"`
@@ -108,6 +104,10 @@ func meanPoint(ps []Point) Point {
 }
 
 func centreOf(f Footprint) Point { return meanPoint(f[:]) }
+
+func FootprintRig(f Footprint) Rig {
+	return Rig{WidthDeg: separation(f[0], f[1]), HeightDeg: separation(f[1], f[2])}
+}
 
 func separation(a, b Point) float64 {
 	c := sinD(a.Dec)*sinD(b.Dec) + cosD(a.Dec)*cosD(b.Dec)*cosD(a.RA-b.RA)

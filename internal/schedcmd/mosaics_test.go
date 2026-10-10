@@ -22,6 +22,7 @@ func TestMosaicAdoptAppliesAndUndoes(t *testing.T) {
 	if err := db.AutoMigrate(&app.MosaicAdoption{}, &app.MosaicPanel{}, &app.FrameTarget{}, &app.Frame{}); err != nil {
 		t.Fatal(err)
 	}
+	seedRig(t, db)
 	panels, err := json.Marshal([]mosaics.AdoptedPanel{
 		{TargetGUID: "t1", Target: "IC 4604 Panel 1", Panel: 1},
 		{TargetGUID: "t2", Target: "IC 4604 Panel 2", Panel: 2, Neighbours: []string{"t1"}},
@@ -41,8 +42,8 @@ func TestMosaicAdoptAppliesAndUndoes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Create(&[]app.Frame{
-		{ID: 7, Key: "d1", ETag: "e", Type: "LIGHT", Object: dolphin},
-		{ID: 8, Key: "d2", ETag: "e", Type: "LIGHT", Object: dolphin},
+		{ID: 7, Key: "d1", ETag: "e", Type: lightFrame, Object: dolphin},
+		{ID: 8, Key: "d2", ETag: "e", Type: lightFrame, Object: dolphin},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

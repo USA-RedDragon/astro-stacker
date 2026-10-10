@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
@@ -31,6 +32,7 @@ type Rig struct {
 type SiteFunc func(ctx context.Context) (sky.Site, error)
 
 type Service struct {
+	Measure func(ctx context.Context) rigsource.Rig
 	Catalog *catalog.Index
 	AppDB   *gorm.DB
 	SchedDB *gorm.DB
@@ -73,6 +75,72 @@ func ParseFilterValues(entries []string) map[string]float64 {
 		}
 	}
 	return out
+}
+
+func staticInfo(r Rig) rigsource.Rig {
+	out := rigsource.Empty()
+	out.Basis.Source = "static"
+	if r.Frame.FocalLength > 0 && r.Frame.PixelSize > 0 && r.Frame.WidthPx > 0 && r.Frame.HeightPx > 0 {
+		fl, px, w, h := r.Frame.FocalLength, r.Frame.PixelSize, r.Frame.WidthPx, r.Frame.HeightPx
+		sc, wd, hd := r.Frame.Scale(), r.Frame.WidthDeg(), r.Frame.HeightDeg()
+		out.FocalLength, out.PixelSize, out.WidthPx, out.HeightPx, out.Scale, out.WidthDeg, out.HeightDeg = &fl, &px, &w, &h, &sc, &wd, &hd
+	}
+	c := r.Colour
+	out.Colour = &c
+	for _, f := range rigsource.FilterOrder() {
+		if _, ok := r.Filters[f]; ok {
+			out.Filters = append(out.Filters, f)
+		}
+	}
+	for f, e := range r.Exposures {
+		out.Exposures[f] = e
+	}
+	if r.TypicalHFR > 0 {
+		v := r.TypicalHFR
+		out.TypicalHFR = &v
+	}
+	if r.TypicalRMS > 0 {
+		v := r.TypicalRMS
+		out.TypicalGuideRMS = &v
+	}
+	return out
+}
+
+func (s *Service) rig(ctx context.Context) (Rig, rigsource.Rig) {
+	if s.Measure == nil {
+		return s.Rig, staticInfo(s.Rig)
+	}
+	m := s.Measure(ctx)
+	r := Rig{MinAltitude: s.Rig.MinAltitude, SkyBright: s.Rig.SkyBright, Filters: map[string]float64{}, Exposures: map[string]float64{}}
+	if m.Known() {
+		r.Frame = sky.Frame{FocalLength: *m.FocalLength, PixelSize: *m.PixelSize, WidthPx: *m.WidthPx, HeightPx: *m.HeightPx}
+	}
+	r.Colour = m.Colour != nil && *m.Colour
+	for _, f := range m.Filters {
+		r.Filters[f] = s.Rig.Filters[f]
+	}
+	for f, e := range m.Exposures {
+		r.Exposures[f] = e
+	}
+	if m.TypicalHFR != nil {
+		r.TypicalHFR = *m.TypicalHFR
+	}
+	if m.TypicalGuideRMS != nil {
+		r.TypicalRMS = *m.TypicalGuideRMS
+	}
+	return r, m
+}
+
+func (r Rig) known() bool {
+	return r.Frame.FocalLength > 0 && r.Frame.PixelSize > 0 && r.Frame.WidthPx > 0 && r.Frame.HeightPx > 0
+}
+
+func (r Rig) fit(major, minor float64) *sky.Fit {
+	if !r.known() {
+		return nil
+	}
+	f := r.Frame.Fit(major, minor, sky.DefaultOverlap)
+	return &f
 }
 
 func (s *Service) now() time.Time {

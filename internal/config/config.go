@@ -50,16 +50,16 @@ type Discover struct {
 	SiteLongitude    float64  `name:"site-longitude" description:"Observatory east longitude in degrees"`
 	SiteElevation    float64  `name:"site-elevation" description:"Observatory elevation in metres"`
 	MinAltitude      float64  `name:"min-altitude" description:"Altitude in degrees an object must clear in astronomical darkness to count as up" default:"30"`
-	SkyBrightness    float64  `name:"sky-brightness" description:"Dark-sky brightness at the site in mag/arcsec², for brightness scores" default:"21.4"`
-	FocalLength      float64  `name:"focal-length" description:"Telescope focal length in mm" default:"405"`
-	PixelSize        float64  `name:"pixel-size" description:"Camera pixel size in µm" default:"3.76"`
-	SensorWidth      int      `name:"sensor-width" description:"Camera width in pixels" default:"6248"`
-	SensorHeight     int      `name:"sensor-height" description:"Camera height in pixels" default:"4176"`
-	Colour           bool     `name:"colour" description:"The camera is one-shot colour"`
-	Filters          []string `name:"filters" description:"Filters on the wheel as L, R, G, B, H, O or S, each optionally =bandpass in nm (H=3)" default:"L,R,G,B,H,O,S"`
-	TypicalHFR       float64  `name:"typical-hfr" description:"Typical star HFR in arcseconds, for collaboration limits; 0 if unknown"`
-	TypicalGuideRMS  float64  `name:"typical-guide-rms" description:"Typical guiding RMS in arcseconds, for collaboration limits; 0 if unknown"`
-	Exposures        []string `name:"exposures" description:"Sub lengths in seconds per filter (H=600), for collaboration limits"`
+	SkyBrightness    float64  `name:"sky-brightness" description:"Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky"`
+	FocalLength      float64  `name:"focal-length" description:"Ignored: the focal length is read from lights' FOCALLEN"`
+	PixelSize        float64  `name:"pixel-size" description:"Ignored: the pixel size is read from lights' XPIXSZ"`
+	SensorWidth      int      `name:"sensor-width" description:"Ignored: the image width is read from lights' headers"`
+	SensorHeight     int      `name:"sensor-height" description:"Ignored: the image height is read from lights' headers"`
+	Colour           bool     `name:"colour" description:"Ignored: a colour camera is recognised by BAYERPAT in lights' headers"`
+	Filters          []string `name:"filters" description:"Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights"`
+	TypicalHFR       float64  `name:"typical-hfr" description:"Ignored: the typical HFR is measured from recent lights"`
+	TypicalGuideRMS  float64  `name:"typical-guide-rms" description:"Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights"`
+	Exposures        []string `name:"exposures" description:"Ignored: sub lengths per filter are read from recent lights"`
 	Starfront        bool     `name:"starfront" description:"Read Starfront's public collaboration list for the Collabs page; read-only, no account" default:"true"`
 	StarfrontURL     string   `name:"starfront-url" description:"Starfront collaboration server" default:"https://collab.starfront.space"`
 	StarfrontMinutes int      `name:"starfront-minutes" description:"Minutes between fetches of the collaboration list" default:"30"`

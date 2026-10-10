@@ -190,11 +190,11 @@ func seamRecord(project, guid, filter string, a, b seamPanel, m seamMeasure) app
 	return r
 }
 
-func plannedFootprint(pn panel) mosaics.Footprint {
+func plannedFootprint(pn panel, solved mosaics.Footprint) mosaics.Footprint {
 	if pn.Planned != nil {
 		return *pn.Planned
 	}
-	return mosaics.PanelFootprint(mosaics.Point{RA: pn.RA, Dec: pn.Dec}, pn.Rotation, mosaics.DefaultRig())
+	return mosaics.PanelFootprint(mosaics.Point{RA: pn.RA, Dec: pn.Dec}, pn.Rotation, mosaics.FootprintRig(solved))
 }
 
 func actualFootprint(g wcs) mosaics.Footprint {
@@ -298,7 +298,7 @@ func seamRecords(g mosaicGroup, filter string, masters []app.Stack, res seamResu
 			h.FluxScale = finite(res.noise.Scales[i])
 		}
 		if i < len(res.actual) && res.actual[i] != nil && len(actual) > 0 {
-			gap := mosaics.CoverageGap(plannedFootprint(pn), actual)
+			gap := mosaics.CoverageGap(plannedFootprint(pn, *res.actual[i]), actual)
 			h.GapFraction, h.GapDeg2, h.GapWhere = gap.Fraction, gap.AreaDeg2, gap.Where
 		}
 		health = append(health, h)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
 
@@ -54,7 +55,7 @@ type CatalogueEntry struct {
 	Hours    map[string]float64 `json:"hours"`
 	Subjects []SubjectRef       `json:"subjects"`
 	Tonight  *Tonight           `json:"tonight,omitempty"`
-	Fit      sky.Fit            `json:"fit"`
+	Fit      *sky.Fit           `json:"fit"`
 }
 
 type CatalogueSummary struct {
@@ -106,7 +107,7 @@ func (s *Service) tonightFor(n *sky.Night, o catalog.Object) *Tonight {
 	}
 }
 
-func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Night, o catalog.Object) CatalogueEntry {
+func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Night, o catalog.Object, rig Rig) CatalogueEntry {
 	e := CatalogueEntry{Object: o, Hours: map[string]float64{}, Subjects: []SubjectRef{}, Status: CompletionNotStarted}
 	seen := map[string]bool{}
 	for _, l := range snap.byObject[o.ID] {
@@ -135,7 +136,7 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 		e.Hours[f] = math.Round(h*100) / 100
 	}
 	e.Tonight = s.tonightFor(n, o)
-	e.Fit = s.Rig.Frame.Fit(o.MajorArcmin, o.MinorArcmin, sky.DefaultOverlap)
+	e.Fit = rig.fit(o.MajorArcmin, o.MinorArcmin)
 	return e
 }
 
@@ -194,10 +195,11 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if n != nil {
 		out.Night = nightInfo(*n, s.minAlt())
 	}
+	rig, _ := s.rig(ctx)
 	for _, l := range s.Catalog.Lists() {
 		sum := CatalogueSummary{Key: l.Key, Name: l.Name, Total: l.Total}
 		for _, o := range s.Catalog.List(l.Key) {
-			e := s.entry(snap, subjects, n, o)
+			e := s.entry(snap, subjects, n, o, rig)
 			switch e.Status {
 			case CompletionDone:
 				sum.Done++
@@ -231,9 +233,10 @@ func (s *Service) Catalogue(ctx context.Context, key string) ([]CatalogueEntry, 
 	}
 	n, _ := s.tonightNight(ctx)
 	subjects := subjectMap(snap)
+	rig, _ := s.rig(ctx)
 	out := make([]CatalogueEntry, 0, len(objs))
 	for i, o := range objs {
-		e := s.entry(snap, subjects, n, o)
+		e := s.entry(snap, subjects, n, o, rig)
 		e.Label = listLabel(key, o)
 		e.Index = labelNumber(e.Label)
 		if key == "herschel400" || e.Index == 0 {
@@ -249,6 +252,7 @@ type ObjectDetail struct {
 	Links  []Link             `json:"links"`
 	Months [12]float64        `json:"months"`
 	Lists  []catalog.ListInfo `json:"lists"`
+	Rig    rigsource.Rig      `json:"rig"`
 }
 
 func (s *Service) Object(ctx context.Context, id string) (ObjectDetail, error) {
@@ -261,7 +265,8 @@ func (s *Service) Object(ctx context.Context, id string) (ObjectDetail, error) {
 		return ObjectDetail{}, err
 	}
 	n, _ := s.tonightNight(ctx)
-	d := ObjectDetail{CatalogueEntry: s.entry(snap, subjectMap(snap), n, o), Links: snap.byObject[o.ID]}
+	rig, info := s.rig(ctx)
+	d := ObjectDetail{CatalogueEntry: s.entry(snap, subjectMap(snap), n, o, rig), Links: snap.byObject[o.ID], Rig: info}
 	if d.Links == nil {
 		d.Links = []Link{}
 	}

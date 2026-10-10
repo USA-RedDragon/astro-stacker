@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/gin-gonic/gin"
 )
 
@@ -91,6 +92,8 @@ func mosaicError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{errorKey: err.Error()})
 	case errors.Is(err, mosaicplan.ErrBadRequest), errors.Is(err, mosaicplan.ErrBadDecision):
 		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+	case errors.Is(err, rigsource.ErrUnknown):
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 	}

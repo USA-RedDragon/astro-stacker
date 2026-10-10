@@ -28,13 +28,13 @@ func TestDiscoverDefaultsWithoutConfig(t *testing.T) {
 	if d.SiteLatitude != 0 || d.SiteLongitude != 0 {
 		t.Errorf("the site has a default: %v %v", d.SiteLatitude, d.SiteLongitude)
 	}
-	if d.MinAltitude != 30 || d.FocalLength != 405 || d.PixelSize != 3.76 || d.SensorWidth != 6248 || d.SensorHeight != 4176 {
-		t.Errorf("rig defaults %+v", d)
+	if d.MinAltitude != 30 || d.FocalLength != 0 || d.PixelSize != 0 || d.SensorWidth != 0 || d.SensorHeight != 0 || d.TypicalHFR != 0 {
+		t.Errorf("rig has config defaults %+v", d)
 	}
-	if !d.Starfront || d.StarfrontURL != "https://collab.starfront.space" || d.StarfrontMinutes != 30 || d.SkyBrightness != 21.4 {
-		t.Errorf("starfront defaults %+v", d)
+	if !d.Starfront || d.StarfrontURL != "https://collab.starfront.space" || d.StarfrontMinutes != 30 || d.SkyBrightness != 0 {
+		t.Errorf("starfront or sky defaults %+v", d)
 	}
-	if !reflect.DeepEqual(d.Filters, []string{"L", "R", "G", "B", "H", "O", "S"}) {
+	if len(d.Filters) != 0 {
 		t.Errorf("filters default %#v", d.Filters)
 	}
 }

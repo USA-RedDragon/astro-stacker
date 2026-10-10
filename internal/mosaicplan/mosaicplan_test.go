@@ -113,6 +113,7 @@ func TestRunAdoptionDryRunWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	appDB := appFixture(t)
 	svc := mosaicplan.New(appDB, schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	rep, err := svc.RunAdoption(ctx, true)
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +137,7 @@ func TestRunAdoptionThenDecide(t *testing.T) {
 	ctx := context.Background()
 	appDB := appFixture(t)
 	svc := mosaicplan.New(appDB, schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	rep, err := svc.RunAdoption(ctx, false)
 	if err != nil {
 		t.Fatal(err)
@@ -225,6 +227,7 @@ func TestDetailUsesWeakestPanelAndFallsBackToScheduler(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc := mosaicplan.New(appFixture(t), schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	rep, err := svc.RunAdoption(ctx, false)
 	if err != nil {
 		t.Fatal(err)
@@ -294,6 +297,7 @@ func TestSeasonsPlanWithSite(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc := mosaicplan.New(appFixture(t), schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	svc.Site = func(context.Context) (mosaics.Site, bool) { return mosaics.Site{Lat: 32, Lon: -97}, true }
 	now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
 	plan, err := svc.Seasons(ctx, markarian, "weakest", "good", now)
@@ -328,6 +332,7 @@ func TestFrameOffersLayoutsAndAChosenGrid(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc := mosaicplan.New(appFixture(t), schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	rot := 0.0
 	f, err := svc.Frame(ctx, mosaicplan.FramingRequest{RA: 313, Dec: 44, MajorArcmin: 240, MinorArcmin: 120, PA: 90, Rotation: &rot, Rows: 2, Cols: 3, HoursPerPanel: 10}, time.Now())
 	if err != nil {
@@ -348,6 +353,7 @@ func TestHistoryIsCumulativePerPanel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc := mosaicplan.New(appFixture(t), schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	h, err := svc.History(ctx, markarian)
 	if err != nil {
 		t.Fatal(err)

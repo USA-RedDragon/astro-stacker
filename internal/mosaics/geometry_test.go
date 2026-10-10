@@ -97,7 +97,7 @@ func TestPanelFootprint(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			f := mosaics.PanelFootprint(tc.centre, tc.rot, mosaics.DefaultRig())
+			f := mosaics.PanelFootprint(tc.centre, tc.rot, testRig())
 			if a := mosaics.Area(f); !near(a, 3.32*2.22, 0.01) {
 				t.Fatalf("area %v, want about %v", a, 3.32*2.22)
 			}
@@ -109,12 +109,12 @@ func TestPanelFootprint(t *testing.T) {
 			}
 		})
 	}
-	f := mosaics.PanelFootprint(mosaics.Point{RA: 50, Dec: 0}, 0, mosaics.DefaultRig())
+	f := mosaics.PanelFootprint(mosaics.Point{RA: 50, Dec: 0}, 0, testRig())
 	xi, eta := mosaics.Project(mosaics.Point{RA: 50, Dec: 0}, f[0])
 	if !near(xi, 1.66, 1e-9) || !near(eta, 1.11, 1e-9) {
 		t.Fatalf("first corner at rotation 0 is %v,%v, want north-east 1.66,1.11", xi, eta)
 	}
-	f = mosaics.PanelFootprint(mosaics.Point{RA: 50, Dec: 0}, 90, mosaics.DefaultRig())
+	f = mosaics.PanelFootprint(mosaics.Point{RA: 50, Dec: 0}, 90, testRig())
 	xi, eta = mosaics.Project(mosaics.Point{RA: 50, Dec: 0}, f[0])
 	if !near(xi, 1.11, 1e-9) || !near(eta, -1.66, 1e-9) {
 		t.Fatalf("first corner at rotation 90 is %v,%v, want 1.11,-1.66", xi, eta)
@@ -123,7 +123,7 @@ func TestPanelFootprint(t *testing.T) {
 
 func TestOffsetMatchesFootprints(t *testing.T) {
 	t.Parallel()
-	rig := mosaics.DefaultRig()
+	rig := testRig()
 	cases := []struct {
 		name     string
 		centre   mosaics.Point
@@ -187,7 +187,7 @@ func TestOffsetAxes(t *testing.T) {
 func TestOverlapFraction(t *testing.T) {
 	t.Parallel()
 	c := mosaics.Point{RA: 83, Dec: -5}
-	big := mosaics.PanelFootprint(c, 0, mosaics.DefaultRig())
+	big := mosaics.PanelFootprint(c, 0, testRig())
 	small := mosaics.PanelFootprint(c, 25, mosaics.Rig{WidthDeg: 1, HeightDeg: 0.5})
 	cases := []struct {
 		name string
@@ -198,10 +198,10 @@ func TestOverlapFraction(t *testing.T) {
 		{"identical", big, big, 1, 1e-9},
 		{"contained", big, small, 1, 1e-6},
 		{"contains", small, big, 1, 1e-6},
-		{"far", big, mosaics.PanelFootprint(mosaics.Point{RA: 263, Dec: 5}, 0, mosaics.DefaultRig()), 0, 0},
-		{"apart", big, mosaics.PanelFootprint(mosaics.Offset(c, 0, 4, 0), 0, mosaics.DefaultRig()), 0, 0},
-		{"half", big, mosaics.PanelFootprint(mosaics.Offset(c, 0, 1.66, 0), 0, mosaics.DefaultRig()), 0.5, 0.005},
-		{"crossed", big, mosaics.PanelFootprint(c, 90, mosaics.DefaultRig()), 2.22 * 2.22 / (3.32 * 2.22), 0.005},
+		{"far", big, mosaics.PanelFootprint(mosaics.Point{RA: 263, Dec: 5}, 0, testRig()), 0, 0},
+		{"apart", big, mosaics.PanelFootprint(mosaics.Offset(c, 0, 4, 0), 0, testRig()), 0, 0},
+		{"half", big, mosaics.PanelFootprint(mosaics.Offset(c, 0, 1.66, 0), 0, testRig()), 0.5, 0.005},
+		{"crossed", big, mosaics.PanelFootprint(c, 90, testRig()), 2.22 * 2.22 / (3.32 * 2.22), 0.005},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,7 +220,7 @@ func TestArea(t *testing.T) {
 		rig  mosaics.Rig
 		dec  float64
 	}{
-		{"default", mosaics.DefaultRig(), 10},
+		{"default", testRig(), 10},
 		{"square", mosaics.Rig{WidthDeg: 1, HeightDeg: 1}, -50},
 		{"tiny", mosaics.Rig{WidthDeg: 0.1, HeightDeg: 0.05}, 80},
 	}
@@ -251,7 +251,7 @@ func gridCentres(c mosaics.Point, rows, cols int, rot, overlap float64, rig mosa
 
 func TestNeighbours(t *testing.T) {
 	t.Parallel()
-	rig := mosaics.DefaultRig()
+	rig := testRig()
 	c := mosaics.Point{RA: 187, Dec: 13}
 	fps := func(ps []mosaics.Point) []mosaics.Footprint {
 		out := make([]mosaics.Footprint, len(ps))
@@ -303,7 +303,7 @@ func equalInts(a, b []int) bool {
 
 func TestGridCells(t *testing.T) {
 	t.Parallel()
-	rig := mosaics.DefaultRig()
+	rig := testRig()
 	cases := []struct {
 		name       string
 		centre     mosaics.Point
@@ -345,12 +345,12 @@ func TestGridCellsEastIsColumnZero(t *testing.T) {
 	t.Parallel()
 	c := mosaics.Point{RA: 100, Dec: 20}
 	east := mosaics.Point{RA: 102, Dec: 20}
-	_, cols := mosaics.GridCells([]mosaics.Point{c, east}, 0, mosaics.DefaultRig())
+	_, cols := mosaics.GridCells([]mosaics.Point{c, east}, 0, testRig())
 	if cols[1] != 0 || cols[0] != 1 {
 		t.Fatalf("cols %v, want the east panel first", cols)
 	}
 	north := mosaics.Point{RA: 100, Dec: 22}
-	rows, _ := mosaics.GridCells([]mosaics.Point{c, north}, 0, mosaics.DefaultRig())
+	rows, _ := mosaics.GridCells([]mosaics.Point{c, north}, 0, testRig())
 	if rows[1] != 0 || rows[0] != 1 {
 		t.Fatalf("rows %v, want the north panel first", rows)
 	}
@@ -358,7 +358,7 @@ func TestGridCellsEastIsColumnZero(t *testing.T) {
 
 func TestCoverageGap(t *testing.T) {
 	t.Parallel()
-	rig := mosaics.DefaultRig()
+	rig := testRig()
 	c := mosaics.Point{RA: 187, Dec: 13}
 	planned := mosaics.PanelFootprint(c, 0, rig)
 	shifted := func(rot, dx, dy float64) []mosaics.Footprint {

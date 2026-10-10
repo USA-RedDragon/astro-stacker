@@ -14,6 +14,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicstore"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"gorm.io/gorm"
@@ -32,14 +33,33 @@ var (
 )
 
 type Service struct {
-	App   *gorm.DB
-	Sched *gorm.DB
-	Rig   mosaics.Rig
-	Site  SiteSource
+	App     *gorm.DB
+	Sched   *gorm.DB
+	Rig     mosaics.Rig
+	Measure func(ctx context.Context) rigsource.Rig
+	Site    SiteSource
 }
 
 func New(appDB, sched *gorm.DB) *Service {
-	return &Service{App: appDB, Sched: sched, Rig: mosaics.DefaultRig()}
+	return &Service{App: appDB, Sched: sched}
+}
+
+func (s *Service) rig(ctx context.Context) (mosaics.Rig, rigsource.Rig, error) {
+	if s.Measure != nil {
+		info := s.Measure(ctx)
+		if r, ok := info.Mosaic(); ok {
+			return r, info, nil
+		}
+		return mosaics.Rig{}, info, rigsource.ErrUnknown
+	}
+	if s.Rig.WidthDeg > 0 && s.Rig.HeightDeg > 0 {
+		info := rigsource.Empty()
+		info.Basis.Source = "static"
+		w, h, sc := s.Rig.WidthDeg, s.Rig.HeightDeg, s.Rig.ScaleArcsec
+		info.WidthDeg, info.HeightDeg, info.Scale = &w, &h, &sc
+		return s.Rig, info, nil
+	}
+	return mosaics.Rig{}, rigsource.Empty(), rigsource.ErrUnknown
 }
 
 type Adoption struct {
@@ -104,8 +124,12 @@ func (s *Service) candidates(ctx context.Context) ([]candidate, error) {
 		}
 		projects = append(projects, tp)
 	}
+	rig, _, err := s.rig(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var out []candidate
-	for _, p := range mosaics.Propose(projects, s.Rig) {
+	for _, p := range mosaics.Propose(projects, rig) {
 		body, err := json.Marshal(p.Panels)
 		if err != nil {
 			return nil, err
@@ -330,7 +354,11 @@ func (s *Service) Decide(ctx context.Context, id int, decision, who string) (Ado
 	default:
 		return Adoption{}, ErrBadDecision
 	}
-	row, err := mosaicstore.SetStatus(ctx, s.App, id, "", status, who, s.Rig)
+	rig, _, err := s.rig(ctx)
+	if err != nil {
+		return Adoption{}, err
+	}
+	row, err := mosaicstore.SetStatus(ctx, s.App, id, "", status, who, rig)
 	if errors.Is(err, mosaicstore.ErrNotFound) {
 		return Adoption{}, ErrNotFound
 	}
