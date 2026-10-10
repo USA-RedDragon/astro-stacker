@@ -4,10 +4,11 @@ cmd/root.go	147	1
 cmd/stack.go	58	0
 internal/calmatch/calmatch.go	81	75
 internal/catalog/catalog.go	6	6
+internal/catalog/classify.go	71	66
 internal/catalog/coords.go	32	30
 internal/catalog/curated.go	1	1
 internal/catalog/designation.go	80	75
-internal/catalog/embedded.go	189	173
+internal/catalog/embedded.go	190	174
 internal/catalog/gen/audit.go	145	0
 internal/catalog/gen/finalize.go	73	0
 internal/catalog/gen/groups.go	60	0
@@ -27,7 +28,7 @@ internal/discover/evidence.go	114	109
 internal/discover/finder.go	179	176
 internal/discover/footprint.go	114	109
 internal/discover/match.go	175	162
-internal/discover/pick.go	399	354
+internal/discover/pick.go	405	362
 internal/discover/service.go	208	192
 internal/discover/subjects.go	246	213
 internal/events/events.go	104	79
@@ -45,7 +46,7 @@ internal/goals/measure.go	257	240
 internal/goals/progress.go	103	90
 internal/goals/readiness.go	29	28
 internal/goals/signals.go	51	46
-internal/goals/tsgoals.go	312	277
+internal/goals/tsgoals.go	312	279
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
