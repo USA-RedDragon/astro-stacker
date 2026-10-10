@@ -46,9 +46,10 @@ type Sub struct {
 }
 
 type Binned struct {
-	W, H  int
-	Val   []float32
-	Count []uint8
+	W, H    int
+	Val     []float32
+	Count   []uint8
+	SkyRate float64
 }
 
 func Bin(plane []float32, w, h int, exposure float64, saturation float32) (Binned, error) {
@@ -60,7 +61,7 @@ func Bin(plane []float32, w, h int, exposure float64, saturation float32) (Binne
 	}
 	sky := validMedian(plane, w, h, saturation)
 	bw, bh := w/NoiseBin, h/NoiseBin
-	b := Binned{W: bw, H: bh, Val: make([]float32, bw*bh), Count: make([]uint8, bw*bh)}
+	b := Binned{W: bw, H: bh, Val: make([]float32, bw*bh), Count: make([]uint8, bw*bh), SkyRate: sky / exposure}
 	sums := make([]float64, bw)
 	for by := range bh {
 		clear(sums)

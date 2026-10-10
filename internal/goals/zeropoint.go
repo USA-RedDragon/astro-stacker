@@ -208,3 +208,88 @@ func Depth(zeroPoint, noiseNow, pixelScale float64) (float64, bool) {
 	f := DepthSNR * noiseNow / (pixelScale * pixelScale)
 	return zeroPoint - 2.5*math.Log10(f), true
 }
+
+const (
+	SystemGaiaG  = "gaia-g"
+	SystemXPAB   = "xp-ab"
+	BandGaiaG    = "Gaia G"
+	speedOfLight = 299792458.0
+	abOffset     = 56.10
+)
+
+type LineBand struct {
+	Filter string
+	Lambda float64
+	Label  string
+}
+
+func lineBands() []LineBand {
+	return []LineBand{
+		{Filter: "H-a", Lambda: 656.28, Label: "H-α 656.3 nm AB (Gaia XP)"},
+		{Filter: "O-III", Lambda: 500.69, Label: "O-III 500.7 nm AB (Gaia XP)"},
+		{Filter: "S-II", Lambda: 671.65, Label: "S-II 671.6 nm AB (Gaia XP)"},
+	}
+}
+
+func NarrowbandLine(filter string) (LineBand, bool) {
+	for _, b := range lineBands() {
+		if b.Filter == filter {
+			return b, true
+		}
+	}
+	return LineBand{}, false
+}
+
+func IsNarrowband(filter string) bool {
+	_, ok := NarrowbandLine(filter)
+	return ok
+}
+
+type XPStar struct {
+	RA  float64 `json:"ra"`
+	Dec float64 `json:"dec"`
+	FB  float64 `json:"b"`
+	FV  float64 `json:"v"`
+	FR  float64 `json:"r"`
+	FI  float64 `json:"i"`
+}
+
+func xpPivots() [4]float64 { return [4]float64{438, 545, 641, 798} }
+
+func (s XPStar) ABAt(lambda float64) (float64, bool) {
+	pivots := xpPivots()
+	flux := [4]float64{s.FB, s.FV, s.FR, s.FI}
+	for k := range 3 {
+		lo, hi := pivots[k], pivots[k+1]
+		if lambda < lo || lambda > hi {
+			continue
+		}
+		a, b := flux[k], flux[k+1]
+		if !(a > 0) || !(b > 0) {
+			return 0, false
+		}
+		t := (lambda - lo) / (hi - lo)
+		fl := math.Exp(math.Log(a) + t*(math.Log(b)-math.Log(a)))
+		lm := lambda * 1e-9
+		fnu := fl * 1e9 * lm * lm / speedOfLight
+		return -2.5*math.Log10(fnu) - abOffset, true
+	}
+	return 0, false
+}
+
+func LineStars(stars []XPStar, lambda float64) []CatalogStar {
+	out := make([]CatalogStar, 0, len(stars))
+	for _, s := range stars {
+		if m, ok := s.ABAt(lambda); ok {
+			out = append(out, CatalogStar{RA: s.RA, Dec: s.Dec, G: m})
+		}
+	}
+	return out
+}
+
+func SkyBrightness(zeroPoint, skyRate, pixelScale float64) (float64, bool) {
+	if !(skyRate > 0) || !(pixelScale > 0) {
+		return 0, false
+	}
+	return zeroPoint - 2.5*math.Log10(skyRate/(pixelScale*pixelScale)), true
+}

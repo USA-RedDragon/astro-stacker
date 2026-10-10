@@ -11,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
+	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 )
 
@@ -74,8 +75,9 @@ type CollabsView struct {
 	Closed    []Collab              `json:"closed"`
 	ClosedAll int                   `json:"closedTotal"`
 	Rig       rigsource.Rig         `json:"rig"`
-	Night     *NightInfo            `json:"night,omitempty"`
-	SiteError string                `json:"siteError,omitempty"`
+	skybright.Value
+	Night     *NightInfo `json:"night,omitempty"`
+	SiteError string     `json:"siteError,omitempty"`
 }
 
 const (
@@ -343,7 +345,7 @@ func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.
 
 func (s *Service) Collabs(ctx context.Context, src CollabSource) (CollabsView, error) {
 	rig, info := s.rig(ctx)
-	v := CollabsView{Open: []Collab{}, Closed: []Collab{}, Rig: info}
+	v := CollabsView{Open: []Collab{}, Closed: []Collab{}, Rig: info, Value: s.skyValue(ctx)}
 	if src == nil {
 		return v, nil
 	}

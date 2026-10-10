@@ -26,6 +26,7 @@ const (
 	gaiaMaxRows    = 20000
 	gaiaTimeout    = 90 * time.Second
 	gaiaFieldSlack = 1.05
+	UserAgent      = "astro-stacker/1 (+https://github.com/USA-RedDragon/astro-stacker)"
 )
 
 type StarFetcher func(ctx context.Context, ra, dec, radius float64) ([]goals.CatalogStar, error)
@@ -50,6 +51,7 @@ func VizierFetcher(client *http.Client, endpoint string) StarFetcher {
 		if err != nil {
 			return nil, err
 		}
+		req.Header.Set("User-Agent", UserAgent)
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, err

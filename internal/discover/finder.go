@@ -11,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
+	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 )
 
 const (
@@ -95,7 +96,7 @@ type FinderResult struct {
 	RigError  *string       `json:"rigError"`
 	Frame     FrameInfo     `json:"frame"`
 	Rig       rigsource.Rig `json:"rig"`
-	Sky       float64       `json:"skyBrightness"`
+	skybright.Value
 }
 
 type FrameInfo struct {
@@ -229,7 +230,7 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) 
 
 func (s *Service) Finder(ctx context.Context, q FinderQuery) (FinderResult, error) {
 	rig, info := s.rig(ctx)
-	out := FinderResult{Sky: rig.SkyBright, Rows: []FinderRow{}, Rig: info}
+	out := FinderResult{Value: s.skyValue(ctx), Rows: []FinderRow{}, Rig: info}
 	if rig.known() {
 		out.Frame = FrameInfo{WidthDeg: rig.Frame.WidthDeg(), HeightDeg: rig.Frame.HeightDeg(), Scale: rig.Frame.Scale()}
 	} else {

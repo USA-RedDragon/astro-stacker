@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
+	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -84,6 +85,11 @@ func newDiscover(ctx context.Context, cfg *config.Config, appStore, schedStore s
 		Rig:     discoverRig(cfg),
 		Measure: (&rigsource.Source{App: appStore.DB(), Sched: schedStore.DB()}).Get,
 	}
+	sky := &skybright.Source{DB: appStore.DB(), Override: cfg.Discover.SkyBrightness, Site: func(ctx context.Context) (float64, float64, bool) {
+		site, err := svc.Site(ctx)
+		return site.Latitude, site.Longitude, err == nil
+	}}
+	svc.Sky = sky.Get
 	slog.Info("Catalogue store loaded", "objects", ix.Len())
 	if !cfg.Discover.Starfront {
 		return svc, nil

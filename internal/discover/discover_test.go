@@ -11,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
+	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
@@ -403,5 +404,35 @@ func TestUnknownRigIsNotInvented(t *testing.T) {
 	res, err = s.Finder(ctx, discover.FinderQuery{Limit: 5})
 	if err != nil || res.RigError != nil || len(res.Rows) == 0 || res.Frame.Scale == 0 {
 		t.Fatalf("finder with a measured rig %+v %v", res.RigError, err)
+	}
+}
+
+func TestUnmeasuredSkyLeavesBrightnessUnscored(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	s.Sky = func(context.Context) skybright.Value {
+		r := "no L master with a Gaia zero point has been measured yet"
+		return skybright.Value{Basis: skybright.Basis{Source: skybright.SourceNone, PerNight: []skybright.Night{}, Reason: &r}}
+	}
+	res, err := s.Finder(context.Background(), discover.FinderQuery{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Mag != nil || res.Basis.Reason == nil {
+		t.Fatalf("sky %+v", res.Value)
+	}
+	unscored := 0
+	for _, r := range res.Rows {
+		if r.BrightScore == nil {
+			unscored++
+		}
+	}
+	if unscored == 0 {
+		t.Error("every row has a brightness score against an unmeasured sky")
+	}
+	s.Sky = func(context.Context) skybright.Value { return skybright.Configured(21.2) }
+	v, err := s.Collabs(context.Background(), nil)
+	if err != nil || v.Mag == nil || *v.Mag != 21.2 || v.Basis.Source != skybright.SourceConfig {
+		t.Fatalf("collabs sky %+v %v", v.Value, err)
 	}
 }

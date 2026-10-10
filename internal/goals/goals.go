@@ -44,6 +44,9 @@ type Progress struct {
 	Progress       float64   `json:"progress"`
 	SNR            float64   `json:"snr"`
 	Depth          float64   `json:"depth"`
+	DepthSystem    string    `json:"depthSystem"`
+	DepthBand      string    `json:"depthBand"`
+	DepthApprox    bool      `json:"depthApprox"`
 	EffectiveHours float64   `json:"effectiveHours"`
 	HoursNeeded    float64   `json:"hoursNeeded"`
 	GainPerHourPct float64   `json:"gainPerHourPct"`
@@ -59,4 +62,4 @@ type Key struct {
 	Filter string
 }
 
-const MethodRevision = 1
+const MethodRevision = 2

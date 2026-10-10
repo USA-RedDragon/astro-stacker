@@ -57,6 +57,10 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 	}
 	if m.Depth != nil {
 		p.Depth = *m.Depth
+		p.DepthSystem, p.DepthBand, p.DepthApprox = m.DepthSystem, m.DepthBand, m.DepthApprox
+		if p.DepthSystem == "" {
+			p.DepthSystem, p.DepthBand, p.DepthApprox = SystemGaiaG, BandGaiaG, IsNarrowband(m.Filter)
+		}
 	}
 	if g.Kind == KindDepth && m.Depth != nil {
 		p.Goal = g.Depth

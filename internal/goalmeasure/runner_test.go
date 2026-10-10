@@ -146,7 +146,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	db := openDB(t)
-	if err := db.AutoMigrate(&app.Frame{}, &app.Stack{}, &app.StackFrame{}, &app.TargetReference{}, &app.GoalMeasurement{}, &app.GaiaField{}, &app.FrameTarget{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.Stack{}, &app.StackFrame{}, &app.TargetReference{}, &app.GoalMeasurement{}, &app.GaiaField{}, &app.FrameTarget{}, &app.XPField{}, &app.SkySample{}); err != nil {
 		t.Fatal(err)
 	}
 	sched := openDB(t)
@@ -377,5 +377,134 @@ func TestCatalogCache(t *testing.T) {
 	}
 	if _, err := catalogStars(ctx, e.db, failing, "M1", 83, 22, 1); err == nil {
 		t.Fatal("no error from a failing fetch")
+	}
+}
+
+func flatXP(s goals.CatalogStar) goals.XPStar {
+	fnu := math.Pow(10, -(s.G+56.10)/2.5)
+	at := func(nm float64) float64 {
+		l := nm * 1e-9
+		return fnu * 299792458.0 / (l * l) / 1e9
+	}
+	return goals.XPStar{RA: s.RA, Dec: s.Dec, FB: at(438), FV: at(545), FR: at(641), FI: at(798)}
+}
+
+func (e *env) xpFetcher(context.Context, float64, float64, float64) ([]goals.XPStar, error) {
+	out := make([]goals.XPStar, 0, len(e.field.stars))
+	for _, s := range e.field.stars {
+		out = append(out, flatXP(s))
+	}
+	return out, nil
+}
+
+func addReference(t *testing.T, e *env) {
+	t.Helper()
+	tr := app.TargetReference{Object: testObject, FrameID: 1, ObjectKey: "ref"}
+	w := wcsJSON(t, testWCS())
+	tr.WCS = &w
+	if err := e.db.Create(&tr).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNarrowbandDepthFallsBackToGaiaG(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	st := e.addStack(t, testObject, testFilter, 8)
+	addReference(t, e)
+	r := New(e.db, e.sched, e.objects, e.fetcher, Options{MaxSubs: 200, Publish: goals.PublishOff})
+	if err := r.MeasureStack(context.Background(), st, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	m := e.measurement(t, testObject, testFilter)
+	if m.DepthSystem != goals.SystemGaiaG || !m.DepthApprox || m.DepthBand != goals.BandGaiaG {
+		t.Errorf("narrowband on Gaia G without XP: %q approx %v", m.DepthSystem, m.DepthApprox)
+	}
+}
+
+func TestNarrowbandDepthUsesGaiaXP(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	st := e.addStack(t, testObject, testFilter, 8)
+	addReference(t, e)
+	r := New(e.db, e.sched, e.objects, e.fetcher, Options{MaxSubs: 200, Publish: goals.PublishOff})
+	r.XP = e.xpFetcher
+	if err := r.MeasureStack(context.Background(), st, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	m := e.measurement(t, testObject, testFilter)
+	if m.ZeroPoint == nil || math.Abs(*m.ZeroPoint-testZP) > 0.05 || m.DepthSystem != goals.SystemXPAB || m.DepthApprox || !strings.Contains(m.DepthBand, "656") {
+		t.Fatalf("zero point %v system %q band %q approx %v", m.ZeroPoint, m.DepthSystem, m.DepthBand, m.DepthApprox)
+	}
+	var cached app.XPField
+	if err := e.db.Where(columnObject+" = ?", testObject).First(&cached).Error; err != nil || cached.Stars == "" {
+		t.Fatalf("xp cache %v", err)
+	}
+	if e.fetches != 0 {
+		t.Errorf("fetched Gaia G for a narrowband zero point")
+	}
+	p := goals.Evaluate(m, goals.Goal{Kind: goals.KindDepth, Depth: 20})
+	if p.DepthSystem != goals.SystemXPAB || p.DepthApprox || p.DepthBand != m.DepthBand {
+		t.Errorf("progress %+v", p)
+	}
+}
+
+func TestLuminanceSubsGiveSkyBrightness(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	st := e.addStack(t, testObject, "L", 8)
+	addReference(t, e)
+	night := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	if err := e.db.Model(&app.Frame{}).Where("filter = ?", "L").Updates(map[string]any{"night": night, "date_obs": night.Add(30 * time.Hour)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := New(e.db, e.sched, e.objects, e.fetcher, Options{MaxSubs: 200, Publish: goals.PublishOff})
+	if err := r.MeasureStack(context.Background(), st, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	m := e.measurement(t, testObject, "L")
+	if m.ZeroPoint == nil || m.DepthSystem != goals.SystemGaiaG || m.DepthApprox {
+		t.Fatalf("luminance zero point %+v", m)
+	}
+	var samples []app.SkySample
+	if err := e.db.Find(&samples).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 8 {
+		t.Fatalf("%d sky samples", len(samples))
+	}
+	for _, s := range samples {
+		want := *m.ZeroPoint - 2.5*math.Log10(s.SkyRate/(m.PixelScale*m.PixelScale))
+		if s.Night == nil || !s.Night.Equal(night) || math.Abs(s.SkyMag-want) > 1e-9 || !(s.SkyRate > 0) {
+			t.Errorf("sample %+v", s)
+		}
+	}
+	if err := r.MeasureStack(context.Background(), st, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	if err := e.db.Model(&app.SkySample{}).Count(&n).Error; err != nil || n != 8 {
+		t.Errorf("remeasuring duplicated samples: %d %v", n, err)
+	}
+}
+
+func TestParseXPTSV(t *testing.T) {
+	t.Parallel()
+	body := "#comment\nRA_ICRS\tDE_ICRS\tFB\tFV\tFR\tFI\ndeg\t\t\t\t\t\n--------\t--\t--\t--\t--\t--\n" +
+		" 83.81683953130\t -5.43085496771\t \t \t 2.32219e-17\t 2.66724e-17\n"
+	stars, err := ParseXPTSV(strings.NewReader(body))
+	if err != nil || len(stars) != 1 || stars[0].FR != 2.32219e-17 || !math.IsNaN(stars[0].FB) {
+		t.Fatalf("%+v %v", stars, err)
+	}
+	enc, err := encodeXP(stars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := decodeXP(enc)
+	if err != nil || len(back) != 1 || back[0].FI != stars[0].FI || !math.IsNaN(back[0].FV) {
+		t.Fatalf("round trip %+v %v", back, err)
+	}
+	if _, err := ParseXPTSV(strings.NewReader("RA_ICRS\tDE_ICRS\n")); err == nil {
+		t.Error("missing flux columns accepted")
 	}
 }

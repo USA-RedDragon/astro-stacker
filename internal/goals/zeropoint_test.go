@@ -87,3 +87,39 @@ func TestDepth(t *testing.T) {
 		t.Fatal("depth with no noise")
 	}
 }
+
+func TestXPLineMagnitudes(t *testing.T) {
+	t.Parallel()
+	vega10 := XPStar{FB: 6.32e-15, FV: 3.63e-15, FR: 2.18e-15, FI: 1.13e-15}
+	if m, ok := vega10.ABAt(545); !ok || math.Abs(m-10) > 0.05 {
+		t.Errorf("V=10 star at 545 nm: %v %v", m, ok)
+	}
+	for _, f := range []string{"H-a", "O-III", "S-II"} {
+		line, ok := NarrowbandLine(f)
+		if !ok || !IsNarrowband(f) {
+			t.Fatalf("%s is not narrowband", f)
+		}
+		if _, ok := vega10.ABAt(line.Lambda); !ok {
+			t.Errorf("%s: no magnitude", f)
+		}
+	}
+	if IsNarrowband("L") {
+		t.Error("L is narrowband")
+	}
+	if _, ok := (XPStar{FB: 1e-15, FV: math.NaN(), FR: 1e-15, FI: 1e-15}).ABAt(500.7); ok {
+		t.Error("magnitude from a missing band")
+	}
+	if _, ok := vega10.ABAt(900); ok {
+		t.Error("magnitude outside the bands")
+	}
+	stars := LineStars([]XPStar{vega10, {FR: -1, FI: 1}}, 656.28)
+	if len(stars) != 1 {
+		t.Errorf("line stars %+v", stars)
+	}
+	if m, ok := SkyBrightness(25, 1, 2); !ok || math.Abs(m-(25+2.5*math.Log10(4))) > 1e-12 {
+		t.Errorf("sky brightness %v", m)
+	}
+	if _, ok := SkyBrightness(25, 0, 2); ok {
+		t.Error("sky brightness from no sky")
+	}
+}
