@@ -142,7 +142,7 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 		n := int(math.Ceil(h / *b.HoursPerClearNight))
 		opt.Nights = &n
 		if b.ClearNightsPerSeason == nil || *b.ClearNightsPerSeason <= 0 {
-			opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d clear nights at your %.1f h per clear night", h, n, *b.HoursPerClearNight)
+			opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d imaging nights at your %.1f h per imaging night", h, n, *b.HoursPerClearNight)
 			return opt
 		}
 		se := max(1, int(math.Ceil(float64(n) / *b.ClearNightsPerSeason)))
@@ -151,7 +151,7 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 		if se > 1 {
 			season = fmt.Sprintf("%d seasons", se)
 		}
-		opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d clear nights at your %.1f h per clear night · %s", h, n, *b.HoursPerClearNight, season)
+		opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d imaging nights at your %.1f h per imaging night · %s", h, n, *b.HoursPerClearNight, season)
 		return opt
 	}
 	for i, l := range mosaics.Alternatives(o, out.Rotation, out.Overlap, rig) {
@@ -201,7 +201,7 @@ func (s *Service) framingBasis(ctx context.Context, req FramingRequest, months [
 		r := math.Round(*v*100) / 100
 		b.HoursPerClearNight = &r
 	} else {
-		b.Reason = reason(fmt.Sprintf("only %d clear nights of history; at least %d are needed", len(hist.hours), minHistoryNights))
+		b.Reason = reason(fmt.Sprintf("only %d imaging nights (nights with accepted subs) of history; at least %d are needed", len(hist.hours), minHistoryNights))
 	}
 	if siteKnown {
 		b.ClearNightsPerSeason = clearNightsIn(hist.perMonth(), usableMonths(months))
