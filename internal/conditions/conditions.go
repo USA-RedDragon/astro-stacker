@@ -65,6 +65,28 @@ type Mount struct {
 	FlipHours *float64 `json:"flip_hours,omitempty"`
 }
 
+type Camera struct {
+	Source
+	Connected         *bool    `json:"connected,omitempty"`
+	Temperature       *float64 `json:"temperature,omitempty"`
+	TargetTemperature *float64 `json:"target_temperature,omitempty"`
+	CoolerOn          *bool    `json:"cooler_on,omitempty"`
+	CoolerPower       *float64 `json:"cooler_power,omitempty"`
+	SensorWidth       *float64 `json:"sensor_width,omitempty"`
+	SensorHeight      *float64 `json:"sensor_height,omitempty"`
+	BinX              *float64 `json:"bin_x,omitempty"`
+	BinY              *float64 `json:"bin_y,omitempty"`
+	Gain              *float64 `json:"gain,omitempty"`
+	PixelSize         *float64 `json:"pixel_size,omitempty"`
+}
+
+type Rotator struct {
+	Source
+	Connected  *bool    `json:"connected,omitempty"`
+	Position   *float64 `json:"position,omitempty"`
+	Mechanical *float64 `json:"mechanical_position,omitempty"`
+}
+
 type Power struct {
 	Source
 	Model            string   `json:"model,omitempty"`
@@ -91,6 +113,8 @@ type Report struct {
 	Weather Weather   `json:"weather"`
 	Safety  Safety    `json:"safety"`
 	Mount   Mount     `json:"mount"`
+	Camera  Camera    `json:"camera"`
+	Rotator Rotator   `json:"rotator"`
 	Power   Power     `json:"power"`
 	Sync    Sync      `json:"sync"`
 }
@@ -215,12 +239,14 @@ func (s *Service) fillMetrics(ctx context.Context, r *Report) {
 	if s.opts.MetricsURL == "" {
 		none := Source{Source: SourceNone}
 		r.Weather.Source, r.Safety.Source, r.Mount.Source, r.Power.Source = none, none, none, none
+		r.Camera.Source, r.Rotator.Source = none, none
 		return
 	}
-	obs, err := s.query(ctx, `{__name__=~"observatory_(weather|safetymonitor|mount)_.+"}`)
+	obs, err := s.query(ctx, `{__name__=~"observatory_(weather|safetymonitor|mount|camera|rotator)_.+"}`)
 	if err != nil {
 		e := Source{Source: SourceError, Error: err.Error()}
 		r.Weather.Source, r.Safety.Source, r.Mount.Source = e, e, e
+		r.Camera.Source, r.Rotator.Source = e, e
 	} else {
 		fillObservatory(r, obs)
 	}
@@ -301,6 +327,12 @@ func fillObservatory(r *Report, samples []sample) {
 			case "time_to_meridian_flip_hours":
 				m.FlipHours = finite(v)
 			}
+		case strings.HasPrefix(name, "observatory_camera_"):
+			found["camera"] = true
+			fillCamera(&r.Camera, strings.TrimPrefix(name, "observatory_camera_"), v)
+		case strings.HasPrefix(name, "observatory_rotator_"):
+			found["rotator"] = true
+			fillRotator(&r.Rotator, strings.TrimPrefix(name, "observatory_rotator_"), v)
 		}
 	}
 	state := func(k, what string) Source {
@@ -310,6 +342,45 @@ func fillObservatory(r *Report, samples []sample) {
 		return Source{Source: SourceNone, Error: "no " + what + " metrics in the metrics store"}
 	}
 	r.Weather.Source, r.Safety.Source, r.Mount.Source = state("weather", "weather"), state("safety", "safety monitor"), state("mount", "mount")
+	r.Camera.Source, r.Rotator.Source = state("camera", "camera"), state("rotator", "rotator")
+}
+
+func fillRotator(rt *Rotator, metric string, v float64) {
+	switch metric {
+	case mConnected:
+		rt.Connected = flag(v)
+	case "position_degrees":
+		rt.Position = finite(v)
+	case "mechanical_position_degrees":
+		rt.Mechanical = finite(v)
+	}
+}
+
+func fillCamera(c *Camera, metric string, v float64) {
+	switch metric {
+	case mConnected:
+		c.Connected = flag(v)
+	case "temperature_celsius":
+		c.Temperature = finite(v)
+	case "target_temperature_celsius":
+		c.TargetTemperature = finite(v)
+	case "cooler_on":
+		c.CoolerOn = flag(v)
+	case "cooler_power_percent":
+		c.CoolerPower = finite(v)
+	case "sensor_width_pixels":
+		c.SensorWidth = finite(v)
+	case "sensor_height_pixels":
+		c.SensorHeight = finite(v)
+	case "binning_x":
+		c.BinX = finite(v)
+	case "binning_y":
+		c.BinY = finite(v)
+	case "gain":
+		c.Gain = finite(v)
+	case "pixel_size_microns":
+		c.PixelSize = finite(v)
+	}
 }
 
 func fillPower(p *Power, samples []sample) {

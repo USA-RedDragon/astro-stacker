@@ -19,7 +19,11 @@ const promBody = `{"status":"success","data":{"resultType":"vector","result":[
 {"metric":{"__name__":"observatory_weather_humidity_percent"},"value":[1,"51"]},
 {"metric":{"__name__":"observatory_weather_pressure_mbar"},"value":[1,"NaN"]},
 {"metric":{"__name__":"observatory_safetymonitor_is_safe"},"value":[1,"1"]},
-{"metric":{"__name__":"observatory_mount_tracking_enabled"},"value":[1,"1"]}
+{"metric":{"__name__":"observatory_mount_tracking_enabled"},"value":[1,"1"]},
+{"metric":{"__name__":"observatory_camera_temperature_celsius"},"value":[1,"-3"]},
+{"metric":{"__name__":"observatory_camera_sensor_width_pixels"},"value":[1,"6248"]},
+{"metric":{"__name__":"observatory_camera_cooler_power_percent"},"value":[1,"NaN"]},
+{"metric":{"__name__":"observatory_rotator_position_degrees"},"value":[1,"359.5"]}
 ]}}`
 
 const upsBody = `{"status":"success","data":{"resultType":"vector","result":[
@@ -51,6 +55,12 @@ func TestReportFromPrometheus(t *testing.T) {
 	if r.Safety.Safe == nil || !*r.Safety.Safe || r.Mount.Tracking == nil || !*r.Mount.Tracking {
 		t.Fatalf("safety %+v mount %+v", r.Safety, r.Mount)
 	}
+	if r.Camera.Source.Source != SourcePrometheus || r.Camera.Temperature == nil || *r.Camera.Temperature != -3 || r.Camera.SensorWidth == nil || *r.Camera.SensorWidth != 6248 || r.Camera.CoolerPower != nil {
+		t.Fatalf("camera %+v", r.Camera)
+	}
+	if r.Rotator.Source.Source != SourcePrometheus || r.Rotator.Position == nil || *r.Rotator.Position != 359.5 {
+		t.Fatalf("rotator %+v", r.Rotator)
+	}
 	p := r.Power
 	if p.Model != "CyberPower EC450G" || !p.OnBattery || p.Charge == nil || *p.Charge != 97 || p.OnBatterySeconds == nil || *p.OnBatterySeconds != 95 || p.ShutdownSeconds != 60 {
 		t.Fatalf("power %+v", p)
@@ -63,7 +73,7 @@ func TestReportFromPrometheus(t *testing.T) {
 func TestNoMetricsURL(t *testing.T) {
 	t.Parallel()
 	r := New(Options{}, nil).Report(context.Background())
-	for _, s := range []Source{r.Weather.Source, r.Safety.Source, r.Mount.Source, r.Power.Source} {
+	for _, s := range []Source{r.Weather.Source, r.Safety.Source, r.Mount.Source, r.Power.Source, r.Camera.Source, r.Rotator.Source} {
 		if s.Source != SourceNone {
 			t.Fatalf("want none, got %+v", s)
 		}
