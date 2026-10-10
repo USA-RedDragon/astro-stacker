@@ -1,6 +1,6 @@
 cmd/discover.go	50	0
 cmd/mosaics.go	8	0
-cmd/root.go	147	1
+cmd/root.go	149	1
 cmd/stack.go	58	0
 internal/calmatch/calmatch.go	81	75
 internal/catalog/catalog.go	6	6
@@ -18,9 +18,13 @@ internal/catalog/gen/nina.go	193	0
 internal/catalog/notcatalogue.go	29	28
 internal/conditions/conditions.go	204	151
 internal/conditions/moon.go	45	45
-internal/config/config.go	27	21
+internal/config/config.go	29	22
 internal/coverage/coverage.go	179	158
+internal/coverage/darkbacklog.go	182	157
 internal/coverage/imported.go	56	54
+internal/darkcheck/darkcheck.go	97	91
+internal/darkcheck/pass.go	103	77
+internal/darkneed/darkneed.go	83	71
 internal/discover/adding.go	45	38
 internal/discover/collabs.go	312	238
 internal/discover/completion.go	239	227
@@ -28,7 +32,7 @@ internal/discover/evidence.go	114	109
 internal/discover/finder.go	179	176
 internal/discover/footprint.go	114	109
 internal/discover/match.go	175	162
-internal/discover/pick.go	405	362
+internal/discover/pick.go	436	396
 internal/discover/service.go	208	192
 internal/discover/subjects.go	246	213
 internal/events/events.go	104	79
@@ -46,7 +50,7 @@ internal/goals/measure.go	257	240
 internal/goals/progress.go	103	90
 internal/goals/readiness.go	29	28
 internal/goals/signals.go	51	46
-internal/goals/tsgoals.go	312	279
+internal/goals/tsgoals.go	312	277
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
@@ -54,7 +58,7 @@ internal/imagedata/fitswrite.go	49	41
 internal/imagedata/pedestal16.go	9	9
 internal/imagedata/xisf.go	177	138
 internal/imagedata/xisfwrite.go	79	66
-internal/indexer/indexer.go	315	52
+internal/indexer/indexer.go	319	53
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	81
 internal/moon/moon.go	33	31
@@ -73,7 +77,7 @@ internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	108	94
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	189	161
 internal/observatory/transport.go	50	45
 internal/planning/completion.go	56	31
@@ -108,6 +112,7 @@ internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/service.go	195	169
 internal/server/conditions.go	23	17
+internal/server/darkbacklog.go	11	8
 internal/server/discover.go	142	109
 internal/server/goalmask.go	84	73
 internal/server/middleware/di.go	5	5
@@ -118,7 +123,7 @@ internal/server/routes.go	359	86
 internal/server/scheddata.go	235	197
 internal/server/schedpreview.go	68	65
 internal/server/scheduler.go	77	18
-internal/server/server.go	88	27
+internal/server/server.go	89	28
 internal/server/skycutout.go	24	20
 internal/server/subs.go	55	39
 internal/server/webui.go	25	25
@@ -138,7 +143,7 @@ internal/stacking/distortion.go	87	35
 internal/stacking/duplicate.go	34	29
 internal/stacking/gain.go	122	80
 internal/stacking/header.go	188	54
-internal/stacking/lightleak.go	44	40
+internal/stacking/lightleak.go	34	25
 internal/stacking/linearfit.go	198	86
 internal/stacking/localnorm.go	203	194
 internal/stacking/masters.go	186	48
