@@ -37,8 +37,17 @@ type Config struct {
 	Darks        Darks        `name:"darks" description:"The dark backlog the observatory's Target Scheduler Darks instruction works through"`
 }
 
+func (d Darks) RejectSinceTime() time.Time {
+	t, err := time.Parse(time.DateOnly, d.RejectSince)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
 type Darks struct {
-	Publish string `name:"publish" description:"Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on" default:"off"`
+	RejectSince string `name:"reject-since" description:"Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only" default:"2026-10-10"`
+	Publish     string `name:"publish" description:"Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on" default:"off"`
 }
 
 type Scheduler struct {
@@ -205,6 +214,7 @@ var (
 	ErrInvalidGoalsPublish          = errors.New("goals.publish must be off, dry-run or on")
 	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
+	ErrInvalidDarksRejectSince      = errors.New("darks.reject-since must be a date, YYYY-MM-DD")
 )
 
 func (c Config) Validate() error {
@@ -249,6 +259,11 @@ func (c Config) Validate() error {
 	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
 	default:
 		return ErrInvalidDarksPublish
+	}
+	if c.Darks.RejectSince != "" {
+		if _, err := time.Parse(time.DateOnly, c.Darks.RejectSince); err != nil {
+			return ErrInvalidDarksRejectSince
+		}
 	}
 
 	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled || c.PublicFrames.Enabled || c.Goals.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {

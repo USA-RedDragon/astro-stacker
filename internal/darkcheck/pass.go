@@ -80,6 +80,7 @@ func MeasurePending(ctx context.Context, db *gorm.DB, download Download, workers
 }
 
 type measured struct {
+	LightLeak    *float64
 	ID           int
 	Key          string
 	Type         string
@@ -159,7 +160,7 @@ func LoadReferences(ctx context.Context, db *gorm.DB, gap time.Duration) (*Refer
 func loadReferences(ctx context.Context, db *gorm.DB, gap time.Duration) (*References, []measured, error) {
 	var rows []measured
 	if err := db.WithContext(ctx).Model(&app.Frame{}).
-		Select(`id, key, type, exposure, gain, "offset", bin_x, set_temp, ccd_temp, date_obs, night, cal_median_adu, cal_spread_adu, cal_noise_adu, cal_check`).
+		Select(`id, key, type, exposure, gain, "offset", bin_x, set_temp, ccd_temp, date_obs, night, cal_median_adu, cal_spread_adu, cal_noise_adu, cal_check, light_leak`).
 		Where("type IN ? AND index_error IS NULL AND cal_measured_at IS NOT NULL", []string{TypeDark, TypeBias}).
 		Scan(&rows).Error; err != nil {
 		return nil, nil, fmt.Errorf("load measured calibration frames: %w", err)
@@ -176,14 +177,14 @@ func loadReferences(ctx context.Context, db *gorm.DB, gap time.Duration) (*Refer
 		switch {
 		case r.Type == TypeBias:
 			refs.AddBias(r.setup(), r.measures())
-		case r.CalCheck != nil && *r.CalCheck == StateClean:
+		case r.CalCheck != nil && *r.CalCheck == StateClean && r.LightLeak == nil:
 			refs.AddClean(r.setup(), r.measures())
 		}
 	}
 	return refs, rows, nil
 }
 
-func JudgePending(ctx context.Context, db *gorm.DB, gap time.Duration) (clean, leak int, err error) {
+func JudgePending(ctx context.Context, db *gorm.DB, gap time.Duration, rejectSince time.Time) (clean, leak int, err error) {
 	refs, rows, err := loadReferences(ctx, db, gap)
 	if err != nil {
 		return 0, 0, err
@@ -197,12 +198,17 @@ func JudgePending(ctx context.Context, db *gorm.DB, gap time.Duration) (clean, l
 		cols := map[string]any{"cal_check": v.State, "cal_check_reason": v.Reason}
 		switch v.State {
 		case StateLeak, StateOffTemp:
-			cols["light_leak"] = m.Spread
 			leak++
-			slog.Warn("Dark rejected", "key", r.Key, "reason", v.Reason)
+			if !rejectSince.IsZero() && !s.TakenAt.Before(rejectSince) {
+				cols["light_leak"] = m.Spread
+				slog.Warn("Dark rejected", "key", r.Key, "reason", v.Reason)
+			} else {
+				slog.Warn("Dark taken before darks.reject-since would be rejected; recorded only", "key", r.Key, "reason", v.Reason)
+			}
 		case StateClean:
-			cols["light_leak"] = nil
-			refs.AddClean(s, m)
+			if r.LightLeak == nil {
+				refs.AddClean(s, m)
+			}
 			clean++
 		}
 		if err := db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", r.ID).UpdateColumns(cols).Error; err != nil {
@@ -212,7 +218,7 @@ func JudgePending(ctx context.Context, db *gorm.DB, gap time.Duration) (clean, l
 	return clean, leak, nil
 }
 
-func Run(ctx context.Context, db *gorm.DB, download Download, workers int, gap time.Duration) {
+func Run(ctx context.Context, db *gorm.DB, download Download, workers int, gap time.Duration, rejectSince time.Time) {
 	if n, err := MeasurePending(ctx, db, download, workers); err != nil && ctx.Err() == nil {
 		slog.Error("Measuring darks and bias frames failed", "error", err)
 	} else if n > 0 {
@@ -221,7 +227,7 @@ func Run(ctx context.Context, db *gorm.DB, download Download, workers int, gap t
 	if ctx.Err() != nil {
 		return
 	}
-	clean, leak, err := JudgePending(ctx, db, gap)
+	clean, leak, err := JudgePending(ctx, db, gap, rejectSince)
 	if err != nil {
 		slog.Error("Checking darks for light failed", "error", err)
 		return

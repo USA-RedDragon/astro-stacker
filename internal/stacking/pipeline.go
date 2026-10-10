@@ -30,6 +30,7 @@ import (
 
 // PipelineOptions configure the stacker.
 type PipelineOptions struct {
+	RejectDarksSince time.Time
 	// MinScore is the lowest sub score that goes into a master.
 	MinScore float64
 	// Pedestal is the camera's ADU offset, for scoring.

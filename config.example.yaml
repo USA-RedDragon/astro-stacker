@@ -207,5 +207,7 @@ goals:
   publish: "off"
 # The dark backlog the observatory's Target Scheduler Darks instruction works through
 darks:
+  # Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only
+  reject-since: "2026-10-10"
   # Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on
   publish: "off"

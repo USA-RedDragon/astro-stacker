@@ -86,6 +86,7 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	opts.SirilThreads = cfg.Stacking.SirilThreads
 	opts.SirilMemoryRatio = cfg.Stacking.SirilMemory
 	opts.Workers = cfg.Stacking.Workers
+	opts.RejectDarksSince = cfg.Darks.RejectSinceTime()
 	opts.MosaicInterval = time.Duration(cfg.Stacking.MosaicMinutes) * time.Minute
 	opts.MosaicQuiet = time.Duration(cfg.Stacking.MosaicQuiet) * time.Minute
 	opts.MosaicSeams = cfg.Stacking.MosaicSeams

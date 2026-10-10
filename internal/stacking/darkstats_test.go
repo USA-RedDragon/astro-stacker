@@ -78,12 +78,13 @@ func TestDropLeakyDarksRecordsClean(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	taken := time.Now()
 	dir := t.TempDir()
 	darks := [][]float32{clean, leak}
 	frames := make([]app.Frame, 0, len(darks))
 	files := make([]string, 0, len(darks))
 	for i, data := range darks {
-		f := app.Frame{Key: []string{"clean.fit", "leak.fit"}[i], Type: frameTypeDark, Gain: &gain, Offset: &offset, BinX: &bin, Exposure: &exp, SetTemp: &temp}
+		f := app.Frame{Key: []string{"clean.fit", "leak.fit"}[i], Type: frameTypeDark, Gain: &gain, Offset: &offset, BinX: &bin, Exposure: &exp, SetTemp: &temp, DateObs: &taken}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +94,9 @@ func TestDropLeakyDarksRecordsClean(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, dir, DefaultPipelineOptions())
+	opts := DefaultPipelineOptions()
+	opts.RejectDarksSince = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, dir, opts)
 	left, err := p.dropLeakyDarks(context.Background(), frames, files)
 	if err != nil || left != 1 {
 		t.Fatalf("%d left, %v", left, err)

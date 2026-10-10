@@ -116,6 +116,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
 			ix.Events = broker
 			ix.AfterScan = darkNeed.Run
+			ix.RejectDarksSince = cfg.Darks.RejectSinceTime()
 			go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second)
 			slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds)
 		}
