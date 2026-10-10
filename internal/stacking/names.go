@@ -16,6 +16,7 @@ const (
 
 const (
 	columnStatus         = "status"
+	columnError          = "error"
 	columnNextAttemptAt  = "next_attempt_at"
 	columnAttempt        = "attempt"
 	columnUpdatedAt      = "updated_at"

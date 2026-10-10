@@ -63,24 +63,26 @@ func moonRules(ctx context.Context, sched *gorm.DB) (map[string]moonRule, error)
 	return out, nil
 }
 
-// broken reports whether an exposure from start for seconds, pointed at ra,
-// dec from lat, lon, breaks the rule.
-func (r moonRule) broken(start time.Time, seconds, ra, dec, lat, lon float64) bool {
+func (r moonRule) why(start time.Time, seconds, ra, dec, lat, lon float64) string {
 	end := start.Add(time.Duration(seconds * float64(time.Second)))
 	if r.down {
 		for _, t := range []time.Time{start, end} {
-			if moon.At(t).Altitude(t, lat, lon) > r.minAlt {
-				return true
+			if alt := moon.At(t).Altitude(t, lat, lon); alt > r.minAlt {
+				return fmt.Sprintf("the Moon was at %.0f° altitude; the filter's exposure template needs it below %.0f°", alt, r.minAlt)
 			}
 		}
-		return false
+		return ""
 	}
 	mid := start.Add(end.Sub(start) / 2)
 	m := moon.At(mid)
 	if r.relax > 0 && m.Altitude(mid, lat, lon) <= r.minAlt {
-		return false
+		return ""
 	}
-	return m.Separation(ra, dec) < m.Avoidance(r.distance, r.width)
+	if sep, need := m.Separation(ra, dec), m.Avoidance(r.distance, r.width); sep < need {
+		return fmt.Sprintf("the Moon was %.0f° from the target at mid-exposure; the filter's moon avoidance needed %.0f° (%.0f° at full moon, width %g days)",
+			sep, need, r.distance, r.width)
+	}
+	return ""
 }
 
 // moonChecker decides whether lights break their filter's moon avoidance.
@@ -101,22 +103,26 @@ func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]floa
 // moonlit reports whether f breaks its filter's rule. A light it can't place
 // (no time, pointing or site) is let through.
 func (c *moonChecker) moonlit(ctx context.Context, f app.Frame) bool {
+	return c.why(ctx, f) != ""
+}
+
+func (c *moonChecker) why(ctx context.Context, f app.Frame) string {
 	r, ok := c.rules[f.Filter]
 	if !ok || f.DateObs == nil || f.Exposure == nil {
-		return false
+		return ""
 	}
 	pos, ok := c.positions[f.Object]
 	if !ok {
 		if f.MountRA == nil || f.MountDec == nil {
-			return false
+			return ""
 		}
 		pos = [2]float64{*f.MountRA, *f.MountDec}
 	}
 	site, ok := c.p.site(ctx, f)
 	if !ok {
-		return false
+		return ""
 	}
-	return r.broken(*f.DateObs, *f.Exposure, pos[0], pos[1], site[0], site[1])
+	return r.why(*f.DateObs, *f.Exposure, pos[0], pos[1], site[0], site[1])
 }
 
 func (p *Pipeline) site(ctx context.Context, f app.Frame) ([2]float64, bool) {
@@ -163,9 +169,11 @@ func (p *Pipeline) moonSweep(ctx context.Context) error {
 		// and stacking their masters again still stacks them.
 		next := time.Now().Add(p.opts.RetryAfter)
 		if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&app.StackFrame{}).Where("id IN ?", ids).
-				UpdateColumns(map[string]any{columnStatus: app.StackStatusMoon, columnNextAttemptAt: next}).Error; err != nil {
-				return err
+			for id, why := range ids {
+				if err := tx.Model(&app.StackFrame{}).Where("id = ?", id).
+					UpdateColumns(map[string]any{columnStatus: app.StackStatusMoon, columnNextAttemptAt: next, columnError: why}).Error; err != nil {
+					return err
+				}
 			}
 			return tx.Model(&app.Stack{}).Where("id IN ?", ids2).UpdateColumn("needs_rebuild", true).Error
 		}); err != nil {
@@ -204,7 +212,7 @@ func (p *Pipeline) moonSweep(ctx context.Context) error {
 
 // moonlitAdded finds the lights in masters that break moon avoidance: their
 // stack_frames rows and masters.
-func (p *Pipeline) moonlitAdded(ctx context.Context, check *moonChecker) ([]int, map[int]bool, error) {
+func (p *Pipeline) moonlitAdded(ctx context.Context, check *moonChecker) (map[int]string, map[int]bool, error) {
 	var rows []struct {
 		SfID    int `gorm:"column:sf_id"`
 		SfStack int `gorm:"column:sf_stack"`
@@ -217,20 +225,24 @@ func (p *Pipeline) moonlitAdded(ctx context.Context, check *moonChecker) ([]int,
 		return nil, nil, err
 	}
 	byStack := map[int][]int{}
+	reasons := map[int]string{}
 	added := map[int]int{}
 	for _, r := range rows {
 		added[r.SfStack]++
-		if check.moonlit(ctx, r.Frame) {
+		if why := check.why(ctx, r.Frame); why != "" {
 			byStack[r.SfStack] = append(byStack[r.SfStack], r.SfID)
+			reasons[r.SfID] = why
 		}
 	}
-	var ids []int
+	ids := map[int]string{}
 	stacks := map[int]bool{}
 	for stack, moonlit := range byStack {
 		if len(moonlit) == added[stack] {
 			continue // moon-only: kept
 		}
-		ids = append(ids, moonlit...)
+		for _, id := range moonlit {
+			ids[id] = reasons[id]
+		}
 		stacks[stack] = true
 	}
 	return ids, stacks, nil

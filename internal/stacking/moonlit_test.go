@@ -3,6 +3,7 @@ package stacking
 import (
 	"context"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,18 +25,18 @@ func newMoon() time.Time { return time.Date(2025, 10, 21, 4, 0, 0, 0, time.UTC) 
 func TestMoonRuleBroken(t *testing.T) {
 	t.Parallel()
 	down := moonRule{down: true}
-	if !down.broken(fullMoonUp(), 300, 0, 0, siteLat, siteLon) {
+	if down.why(fullMoonUp(), 300, 0, 0, siteLat, siteLon) == "" {
 		t.Error("moon up passed a moon-must-be-down rule")
 	}
-	if down.broken(newMoon(), 300, 0, 0, siteLat, siteLon) {
+	if down.why(newMoon(), 300, 0, 0, siteLat, siteLon) != "" {
 		t.Error("moon down broke a moon-must-be-down rule")
 	}
 	ha := moonRule{distance: 30, width: 7}
 	// The full moon that night is near RA 2h40m, Dec +16.
-	if !ha.broken(fullMoonUp(), 600, 40, 16, siteLat, siteLon) {
+	if ha.why(fullMoonUp(), 600, 40, 16, siteLat, siteLon) == "" {
 		t.Error("a target beside the full moon passed 30° avoidance")
 	}
-	if ha.broken(fullMoonUp(), 600, 220, -16, siteLat, siteLon) {
+	if ha.why(fullMoonUp(), 600, 220, -16, siteLat, siteLon) != "" {
 		t.Error("a target opposite the moon broke 30° avoidance")
 	}
 }
@@ -110,7 +111,7 @@ func TestMoonlitAdded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ids) != 1 || ids[0] != 101 || !stacks[7] || len(stacks) != 1 {
+	if len(ids) != 1 || !strings.HasPrefix(ids[101], "the Moon was at ") || !stacks[7] || len(stacks) != 1 {
 		t.Errorf("moonlit %v in %v, want stack_frames 101 in master 7", ids, stacks)
 	}
 }
@@ -160,5 +161,32 @@ func TestUnmeasurableSubIsUnmeasured(t *testing.T) {
 	}
 	if sf := p.leftOut(c, status); sf.Error == nil || *sf.Error != "not measured: no HFR" {
 		t.Errorf("error %v, want the missing input named", sf.Error)
+	}
+}
+
+func TestLowScoreReasonNamesTheCut(t *testing.T) {
+	t.Parallel()
+	exp := 600.0
+	night := time.Date(2021, 5, 23, 0, 0, 0, 0, time.UTC)
+	key := "Heart/LIGHT/y_cal.fits"
+	f := app.Frame{Key: key, Object: "Heart", Filter: "O-III", Exposure: &exp, Night: &night}
+	p := &Pipeline{opts: PipelineOptions{MinScore: 0.3}}
+	scores := map[string]quality.SubScore{"y_cal.fits": {Score: 0.19, TargetBest: 0.79}}
+	c, status := p.classify(f, scores, nil, nil)
+	if status != app.StackStatusLowScore {
+		t.Fatalf("status %q, want low_score", status)
+	}
+	want := "score 0.19 is under the cut 0.24: 0.3 × the target's best O-III score, 0.79"
+	if sf := p.leftOut(c, status); sf.Error == nil || *sf.Error != want {
+		t.Errorf("error %v, want %q", sf.Error, want)
+	}
+}
+
+func TestMoonReasonNamesTheSeparation(t *testing.T) {
+	t.Parallel()
+	ha := moonRule{distance: 120, width: 14}
+	why := ha.why(fullMoonUp(), 600, 40, 16, siteLat, siteLon)
+	if !strings.HasPrefix(why, "the Moon was ") || !strings.Contains(why, "120° at full moon, width 14 days") {
+		t.Errorf("why %q", why)
 	}
 }

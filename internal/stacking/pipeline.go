@@ -342,25 +342,25 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	return len(frames), nil
 }
 
-func (p *Pipeline) moonlitFrames(ctx context.Context, positions map[string][2]float64, first *app.Frame, frames []app.Frame) (map[int]bool, bool, error) {
+func (p *Pipeline) moonlitFrames(ctx context.Context, positions map[string][2]float64, first *app.Frame, frames []app.Frame) (map[int]string, bool, error) {
 	moonCheck, err := p.moonChecker(ctx, positions)
 	if err != nil {
 		return nil, false, err
 	}
-	moonlit := make(map[int]bool, len(frames))
+	moonlit := make(map[int]string, len(frames))
 	moonFree, err := p.hasMoonFree(ctx, moonCheck, first.Object, first.Filter)
 	if err != nil {
 		return nil, false, err
 	}
 	for _, f := range frames {
-		moonlit[f.ID] = moonCheck.moonlit(ctx, f)
-		moonFree = moonFree || !moonlit[f.ID]
+		moonlit[f.ID] = moonCheck.why(ctx, f)
+		moonFree = moonFree || moonlit[f.ID] == ""
 	}
 	return moonlit, moonFree, nil
 }
 
 func (p *Pipeline) triage(ctx context.Context, frames []app.Frame, scores map[string]quality.SubScore, sets []calmatch.Set,
-	positions map[string][2]float64, moonlit map[int]bool, moonFree bool,
+	positions map[string][2]float64, moonlit map[int]string, moonFree bool,
 ) ([]candidate, error) {
 	retrying, err := p.failedBefore(ctx, frames)
 	if err != nil {
@@ -379,9 +379,13 @@ func (p *Pipeline) triage(ctx context.Context, frames []app.Frame, scores map[st
 			continue
 		}
 		c, status := p.classify(f, scores, sets, positions)
-		status = withMoon(status, moonlit[f.ID], moonFree)
+		status = withMoon(status, moonlit[f.ID] != "", moonFree)
 		if status != "" {
-			if err := p.record(ctx, p.leftOut(c, status)); err != nil {
+			sf := p.leftOut(c, status)
+			if why := moonlit[f.ID]; status == app.StackStatusMoon {
+				sf.Error = &why
+			}
+			if err := p.record(ctx, sf); err != nil {
 				return nil, err
 			}
 			continue
@@ -405,6 +409,10 @@ func (p *Pipeline) triage(ctx context.Context, frames []app.Frame, scores map[st
 func (p *Pipeline) leftOut(c candidate, status string) app.StackFrame {
 	f := c.frame
 	sf := app.StackFrame{FrameID: f.ID, Status: status, Score: c.score.Score, Exposure: val(f.Exposure)}
+	if status == app.StackStatusLowScore {
+		msg := p.lowScoreReason(c.score, f.Filter)
+		sf.Error = &msg
+	}
 	if status == app.StackStatusUnmeasured {
 		msg := "not measured: " + c.score.Missing
 		sf.Error = &msg
@@ -660,7 +668,7 @@ func (p *Pipeline) requeueOffTarget(ctx context.Context) {
 	msg := "the mount pointed off target; trying whether the sub registers to the target reference"
 	res := p.db.WithContext(ctx).Model(&app.StackFrame{}).
 		Where("status = ? AND error IS NULL", app.StackStatusOffTarget).
-		UpdateColumns(map[string]any{columnStatus: app.StackStatusFailed, "attempts": 0, columnNextAttemptAt: time.Now(), "error": msg})
+		UpdateColumns(map[string]any{columnStatus: app.StackStatusFailed, "attempts": 0, columnNextAttemptAt: time.Now(), columnError: msg})
 	if res.Error != nil {
 		if ctx.Err() == nil {
 			slog.Error("Requeueing off-target subs failed", "error", res.Error)
