@@ -2,6 +2,7 @@ package discover_test
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -28,6 +29,7 @@ const (
 	ngc7000   = "NGC 7000"
 	m8        = "M 8"
 	m42       = "M 42"
+	m27       = "M 27"
 	sulphur   = "S-II"
 	pickScale = 206.264806 * 3.76 / 405
 	skyNow    = 20.69
@@ -73,7 +75,7 @@ func pickFixtureOn(t *testing.T, db *gorm.DB) *discover.Service {
 		t.Fatal(err)
 	}
 	stacks := map[string][]string{
-		m42: {hydrogen, sulphur, oxygen}, ngc7000: {hydrogen, sulphur}, m8: {hydrogen, oxygen}, "M 27": {hydrogen, oxygen},
+		m42: {hydrogen, sulphur, oxygen}, ngc7000: {hydrogen, sulphur}, m8: {hydrogen, oxygen}, m27: {hydrogen, oxygen},
 		m51: {"L", "R", "G", "B"}, "M 81": {"L", "R", "G", "B"}, "M 101": {"L", hydrogen}, "NGC 891": {"L", hydrogen}, "M 78": {"L"},
 	}
 	for obj, fs := range stacks {
@@ -109,7 +111,7 @@ func pickFixtureOn(t *testing.T, db *gorm.DB) *discover.Service {
 	depth := 25.0
 	ms := make([]app.GoalMeasurement, 0, 8)
 	ms = append(ms,
-		h(m42, 5, 2), h(ngc7000, 10, 3), h(m8, 4, 1), h("M 27", 2, 1),
+		h(m42, 5, 2), h(ngc7000, 10, 3), h(m8, 4, 1), h(m27, 2, 1),
 		app.GoalMeasurement{Object: m51, Filter: "L", SNR: 8, EffectiveHours: 4, PixelScale: pickScale, Depth: &depth, DepthSystem: goals.SystemGaiaG, MeasuredAt: at},
 		app.GoalMeasurement{Object: "M 81", Filter: "L", SNR: 8, EffectiveHours: 4, PixelScale: pickScale * 1.5, Depth: &depth, DepthSystem: goals.SystemGaiaG, MeasuredAt: at},
 	)
@@ -237,7 +239,7 @@ func checkHAlphaHours(t *testing.T, ha *discover.PickFilter, r discover.PickRule
 	t.Helper()
 	rs := ruleRs(r)
 	logs := make([]float64, 0, 4)
-	for name, m := range map[string][2]float64{m42: {5, 2}, ngc7000: {10, 3}, m8: {4, 1}, "M 27": {2, 1}} {
+	for name, m := range map[string][2]float64{m42: {5, 2}, ngc7000: {10, 3}, m8: {4, 1}, m27: {2, 1}} {
 		logs = append(logs, math.Log10(m[1]*(10/m[0])*(10/m[0]))+2*math.Log10(rs[name]))
 	}
 	slices.Sort(logs)
@@ -283,17 +285,24 @@ func TestPickGalaxyDepthHours(t *testing.T) {
 		t.Errorf("reason %q", p.Reason)
 	}
 	l := filterOf(p, "L")
+	d1 := 25 - 1.25*math.Log10(4) + 0.5*(20.6-20.5)
+	want := math.Pow(10, (25.8-d1)/1.25)
+	if l.Hours.Hours == nil || math.Abs(*l.Hours.Hours-want) > 1e-9 || l.Hours.Points != 1 || l.Hours.Goal != "25.8 mag/arcsec² at SNR 3" {
+		t.Fatalf("L hours %+v want %v", l.Hours, want)
+	}
 	sbG, ok := discover.BandToGaiaG(22.78, 0.87)
 	if !ok {
 		t.Fatal("B−V 0.87 out of range")
 	}
-	d1 := 25 - 1.25*math.Log10(4) + 0.5*(20.6-20.5)
-	want := math.Pow(10, (sbG+2.5*math.Log10(10/goals.DepthSNR)-d1)/1.25)
-	if l.Hours.Hours == nil || math.Abs(*l.Hours.Hours-want) > 1e-9 || l.Hours.Points != 1 {
-		t.Fatalf("L hours %+v want %v", l.Hours, want)
-	}
-	if !strings.Contains(l.Hours.Basis, "22.8 mag/arcsec² B (OpenNGC)") || !strings.Contains(l.Hours.Basis, "Gaia G") {
-		t.Errorf("basis %q", l.Hours.Basis)
+	for _, part := range []string{
+		"hours to the 25.8 mag/arcsec² Gaia G depth goal at SNR 3, the depth goal a new target gets for L",
+		"22.8 mag/arcsec² B (OpenNGC)",
+		fmt.Sprintf("is %.1f in Gaia G", sbG),
+		fmt.Sprintf("%.1f mag brighter than the goal, so the galaxy's mean brightness is above the goal depth", 25.8-sbG),
+	} {
+		if !strings.Contains(l.Hours.Basis, part) {
+			t.Errorf("basis %q lacks %q", l.Hours.Basis, part)
+		}
 	}
 	if g := filterOf(p, "G"); g.Hours.Hours != nil || !strings.HasPrefix(g.Hours.Unknown, "unknown: the sky brightness in G is not measured") {
 		t.Errorf("G hours %+v", g.Hours)
@@ -321,7 +330,7 @@ func TestPickGalaxyWithoutColourStatesBothBands(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := filterOf(p, "L")
-	if l.Hours.Hours != nil || !strings.Contains(l.Hours.Unknown, "is in B (OpenNGC) and the sky is in Gaia G") {
+	if l.Hours.Hours == nil || !strings.Contains(l.Hours.Basis, "in B (OpenNGC), and no B−V is catalogued to put it in Gaia G beside the goal") {
 		t.Errorf("%s L hours %+v", id, l.Hours)
 	}
 }
