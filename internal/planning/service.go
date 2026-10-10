@@ -79,6 +79,8 @@ type Plan struct {
 	Basis          string  `json:"completionBasis"`
 	GoalDriven     bool    `json:"goalDriven"`
 	Complete       bool    `json:"complete"`
+	CountPercent   float64 `json:"countPercent"`
+	CountBasis     string  `json:"countBasis"`
 }
 
 type FilterGoal struct {
@@ -613,13 +615,14 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 		pl := &t.Plans[i]
 		g := byFilter[pl.Filter]
 		pl.GoalDriven = g.GoalSet
+		pl.CountPercent, pl.CountBasis = planPercent(*pl, nil, env.grader, env.prefs)
 		switch {
 		case g.GoalSet && g.Progress == nil:
 			pl.Percent, pl.Basis = 0, BasisCollecting
 		case g.GoalSet:
 			pl.Percent, pl.Basis = planPercent(*pl, g.Progress, env.grader, env.prefs)
 		default:
-			pl.Percent, pl.Basis = planPercent(*pl, nil, env.grader, env.prefs)
+			pl.Percent, pl.Basis = pl.CountPercent, pl.CountBasis
 		}
 		pl.Complete = pl.Percent >= 100
 		if g.Readiness != nil {
