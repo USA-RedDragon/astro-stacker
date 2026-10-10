@@ -67,8 +67,8 @@ type Status struct {
 	WebEditing     *bool            `json:"web_editing,omitempty"`
 	API            *bool            `json:"api,omitempty"`
 	State          string           `json:"state,omitempty"`
-	Paused         bool             `json:"paused"`
-	PauseRequested bool             `json:"pause_requested"`
+	Paused         *bool            `json:"paused,omitempty"`
+	PauseRequested *bool            `json:"pause_requested,omitempty"`
 	Pause          *Pause           `json:"pause,omitempty"`
 	Target         *Target          `json:"target,omitempty"`
 	Exposure       *Exposure        `json:"exposure,omitempty"`
