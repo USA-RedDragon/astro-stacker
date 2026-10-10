@@ -33,6 +33,8 @@ type Prefs struct {
 }
 
 type Measurement struct {
+	Object         string            `json:"object"`
+	Filter         string            `json:"filter"`
 	SNR            float64           `json:"snr"`
 	Signal         float64           `json:"signal"`
 	Noise          float64           `json:"noise"`
@@ -61,7 +63,7 @@ type Measurement struct {
 
 func measurementOf(m app.GoalMeasurement) *Measurement {
 	out := &Measurement{
-		SNR: m.SNR, Signal: m.Signal, Noise: m.NoiseNow, NoiseMask: m.NoiseMask, Levels: m.Levels,
+		Object: m.Object, Filter: m.Filter, SNR: m.SNR, Signal: m.Signal, Noise: m.NoiseNow, NoiseMask: m.NoiseMask, Levels: m.Levels,
 		Subs: m.Subs, SubsTotal: m.SubsTotal, EffectiveHours: m.EffectiveHours, BandFraction: m.BandFraction,
 		NebFraction: m.NebFraction, HeldOutErrPct: m.HeldOutErrPct, Depth: m.Depth, DepthApprox: m.DepthApprox,
 		ZeroPointStars: m.ZeroPointStars, LowConfidence: m.LowConfidence, LowReason: m.LowReason,
