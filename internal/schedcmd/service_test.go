@@ -292,6 +292,7 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		schedcmd.KindProjectCreate:     planningSamples[schedcmd.KindProjectCreate],
 		schedcmd.KindProjectDelete:     planningSamples[schedcmd.KindProjectCreate],
 		schedcmd.KindCatalogMatch:      `{"subject":"project:Garlic Nebula","subject_name":"Garlic Nebula","object_id":"G116.9+00.2","before":"","after":"confirmed"}`,
+		schedcmd.KindMosaicAdopt:       `{"decisions":[{"id":3,"subject":"project:p","title":"Rho","before":"proposed","after":"accepted"}]}`,
 	}
 	reg := schedcmd.Default()
 	for _, k := range reg.Kinds() {
