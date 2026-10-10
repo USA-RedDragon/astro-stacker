@@ -25,7 +25,7 @@ type SeasonRow struct {
 }
 
 const (
-	increment = 0.25
+	StepHours = 0.25
 	epsilon   = 1e-9
 )
 
@@ -46,7 +46,7 @@ func Simulate(items []Item, s Strategy, hoursPerSeason float64, maxSeasons int) 
 	for season := 1; season <= maxSeasons; season++ {
 		budget := hoursPerSeason
 		for budget > epsilon && !allFinished(state) {
-			amount := math.Min(increment, budget)
+			amount := math.Min(StepHours, budget)
 			switch s {
 			case StrategyEven:
 				cursor = nextUnfinished(state, cursor)
@@ -118,11 +118,22 @@ func spreadByDone(items []Item, amount float64) float64 {
 			total += offWeight(it)
 		}
 	}
+	unfinished := 0
+	for _, it := range items {
+		if !finished(it) {
+			unfinished++
+		}
+	}
 	spent := 0.0
 	for i := range items {
-		if !finished(items[i]) {
-			spent += give(&items[i], amount*offWeight(items[i])/total)
+		if finished(items[i]) {
+			continue
 		}
+		share := 1 / float64(unfinished)
+		if total > 0 {
+			share = offWeight(items[i]) / total
+		}
+		spent += give(&items[i], amount*share)
 	}
 	return spent
 }
@@ -147,5 +158,5 @@ func summarize(items []Item, index int) SeasonRow {
 }
 
 func offWeight(it Item) float64 {
-	return math.Max(it.DoneHours, 0) + 0.5
+	return math.Max(it.DoneHours, 0)
 }
