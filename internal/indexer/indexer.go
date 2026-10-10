@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkcheck"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
@@ -120,7 +119,7 @@ func (ix *Indexer) scan(ctx context.Context) {
 	} else if n > 0 {
 		slog.Info("Measured lights without a scheduler record", "lights", n)
 	}
-	darkcheck.Run(ctx, ix.db, ix.download, photometryWorkers, coverage.SessionGap, ix.RejectDarksSince)
+	darkcheck.Run(ctx, ix.db, ix.download, photometryWorkers, ix.RejectDarksSince)
 	if ix.AfterScan != nil && ctx.Err() == nil {
 		ix.AfterScan(ctx)
 	}

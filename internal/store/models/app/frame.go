@@ -73,13 +73,15 @@ type Frame struct {
 	// rejected; nil until the dark is measured.
 	DarkSpread *float64
 
-	CalMedianADU   *float64
-	CalSpreadADU   *float64
-	CalNoiseADU    *float64
-	CalMeasuredAt  *time.Time
-	CalCheck       *string `gorm:"index"`
-	CalCheckReason *string `gorm:"type:text"`
-	ReadoutMode    *string
+	CalMedianADU    *float64
+	CalSpreadADU    *float64
+	CalNoiseADU     *float64
+	CalSpreadErrADU *float64 `gorm:"column:cal_spread_err_adu"`
+	CalMeasuredAt   *time.Time
+	CalMeasureRev   *int
+	CalCheck        *string `gorm:"index"`
+	CalCheckReason  *string `gorm:"type:text"`
+	ReadoutMode     *string
 
 	// IndexError is set when the header could not be read; the frame is
 	// retried when its ETag changes.

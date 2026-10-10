@@ -72,8 +72,13 @@ func TestDropLeakyDarksRecordsClean(t *testing.T) {
 	for i := range 5 {
 		m := darkcheck.Measure(testFrame(uint64(20+i), w, h, 0), w, h)
 		now := time.Now()
-		b := app.Frame{Key: fmt.Sprintf("bias%d.fit", i), Type: "BIAS", Gain: &gain, Offset: &offset, BinX: &bin,
-			CalMedianADU: &m.Median, CalSpreadADU: &m.Spread, CalNoiseADU: &m.Noise, CalMeasuredAt: &now}
+		typ, key, check := "BIAS", fmt.Sprintf("bias%d.fit", i), (*string)(nil)
+		if i >= 3 {
+			c := darkcheck.StateClean
+			typ, key, check = frameTypeDark, fmt.Sprintf("ref%d.fit", i), &c
+		}
+		b := app.Frame{Key: key, Type: typ, Gain: &gain, Offset: &offset, BinX: &bin, Exposure: &exp, SetTemp: &temp,
+			CalMedianADU: &m.Median, CalSpreadADU: &m.Spread, CalNoiseADU: &m.Noise, CalSpreadErrADU: &m.SpreadErr, CalMeasuredAt: &now, CalCheck: check}
 		if err := db.Create(&b).Error; err != nil {
 			t.Fatal(err)
 		}

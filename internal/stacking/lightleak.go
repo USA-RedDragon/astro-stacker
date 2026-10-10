@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkcheck"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -25,7 +24,7 @@ func frameSetup(f app.Frame) darkcheck.Setup {
 }
 
 func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files []string) (int, error) {
-	refs, err := darkcheck.LoadReferences(ctx, p.db, coverage.SessionGap)
+	refs, err := darkcheck.LoadReferences(ctx, p.db)
 	if err != nil {
 		return 0, err
 	}
@@ -45,10 +44,10 @@ func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files
 		}
 		m := darkcheck.Measure(im.Data, im.W, im.H)
 		s := frameSetup(f)
-		v := refs.Judge(s, m)
+		v := refs.Judge(f.ID, s, m)
 		cols := map[string]any{
-			"dark_spread": m.Spread, "cal_median_adu": m.Median, "cal_spread_adu": m.Spread, "cal_noise_adu": m.Noise,
-			"cal_measured_at": time.Now().UTC(), "cal_check": v.State, "cal_check_reason": v.Reason,
+			"dark_spread": m.Spread, "cal_median_adu": m.Median, "cal_spread_adu": m.Spread, "cal_noise_adu": m.Noise, "cal_spread_err_adu": m.SpreadErr,
+			"cal_measured_at": time.Now().UTC(), "cal_measure_rev": darkcheck.MeasureRevision, "cal_check": v.State, "cal_check_reason": v.Reason,
 		}
 		if v.State == darkcheck.StateLeak && !p.opts.RejectDarksSince.IsZero() && !s.TakenAt.Before(p.opts.RejectDarksSince) {
 			cols["light_leak"] = m.Spread
@@ -57,9 +56,7 @@ func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files
 				return 0, err
 			}
 		} else {
-			if v.State == darkcheck.StateClean {
-				refs.AddClean(s, m)
-			}
+			refs.AddDark(f.ID, s, m, v.State == darkcheck.StateClean)
 			left++
 		}
 		if err := p.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).UpdateColumns(cols).Error; err != nil {
