@@ -74,9 +74,11 @@ type ReferenceReset struct {
 
 // Mosaic is one filter's mosaic of a project's panel masters.
 type Mosaic struct {
-	ID      int    `gorm:"primaryKey;autoIncrement"`
-	Project string `gorm:"not null;uniqueIndex:idx_mosaic_project_filter"`
-	Filter  string `gorm:"not null;uniqueIndex:idx_mosaic_project_filter"`
+	ID            int    `gorm:"primaryKey;autoIncrement"`
+	Project       string `gorm:"not null;uniqueIndex:idx_mosaic_project_filter"`
+	Filter        string `gorm:"not null;uniqueIndex:idx_mosaic_project_filter"`
+	ProjectGUID   string `gorm:"index"`
+	SeamSignature string
 	// Panels is how many panels went in, of PanelsTotal in the project.
 	Panels      int
 	PanelsTotal int
