@@ -44,6 +44,7 @@ type Proposal struct {
 	Project     string         `json:"project"`
 	Kind        string         `json:"kind"`
 	Confidence  string         `json:"confidence"`
+	Rule        string         `json:"rule"`
 	Issue       string         `json:"issue"`
 	Suggestion  string         `json:"suggestion"`
 	Fingerprint string         `json:"fingerprint"`
@@ -96,6 +97,7 @@ func propose(p TSProject, rig Rig) (Proposal, bool) {
 	if names := colocated(p); len(names) > 0 {
 		return Proposal{
 			Kind: KindNotMosaic, Confidence: ConfidenceMedium,
+			Rule:       fmt.Sprintf("Medium: targets within %.1f° of each other frame the same field.", sameField),
 			Issue:      fmt.Sprintf("%s on the same field: %s.", fieldCount(len(names), len(p.Targets)), joinNames(names)),
 			Suggestion: fmt.Sprintf("Don't adopt it as a mosaic. Treat it as one target with %d exposure sets.", len(names)),
 		}, true
@@ -138,7 +140,7 @@ func namedMosaic(p TSProject, named []namedTarget, rig Rig) Proposal {
 		targets[i], numbers[i] = t.TSTarget, t.number
 	}
 	prop := Proposal{Kind: KindMosaic, Confidence: ConfidenceHigh, Panels: adopt(targets, numbers, rig)}
-	var issues, suggestions []string
+	var issues, suggestions, why []string
 	medium := false
 	for _, t := range named {
 		if !strings.EqualFold(t.prefix, strings.TrimSpace(p.Name)) {
@@ -149,21 +151,26 @@ func namedMosaic(p TSProject, named []namedTarget, rig Rig) Proposal {
 	}
 	if !sequential(numbers) {
 		medium = true
+		why = append(why, fmt.Sprintf("they are numbered %s rather than 1 to %d", joinInts(numbers), len(numbers)))
 		issues = append(issues, fmt.Sprintf("Its panels are numbered %s rather than 1 to %d.", joinInts(numbers), len(numbers)))
 		suggestions = append(suggestions, "Keep the numbers as they are and place panels by their coordinates, not their numbers.")
 	}
 	if !p.IsMosaic {
 		medium = true
+		why = append(why, "TS doesn't flag the project as a mosaic")
 		issues = append(issues, "TS doesn't flag it as a mosaic.")
 		suggestions = append(suggestions, "Adopt it as a mosaic and leave the TS project as it is.")
 	}
 	if lonely := isolated(prop.Panels); len(lonely) > 0 {
 		medium = true
+		why = append(why, fmt.Sprintf("%s %s no other panel by %.0f%% or more", panelList(lonely), verb(len(lonely), "overlaps", "overlap"), neighbourOverlap*100))
 		issues = append(issues, fmt.Sprintf("%s %s no other panel by 3%% or more.", panelList(lonely), verb(len(lonely), "overlaps", "overlap")))
 		suggestions = append(suggestions, fmt.Sprintf("Check the coordinates of %s in TS before adopting.", panelList(lonely)))
 	}
+	prop.Rule = fmt.Sprintf("High: the targets are named \"… Panel N\" and numbered 1 to N, TS flags the project as a mosaic, and every panel overlaps another by %.0f%% or more.", neighbourOverlap*100)
 	if medium {
 		prop.Confidence = ConfidenceMedium
+		prop.Rule = "Medium: the targets are named \"… Panel N\", but " + joinAnd(why) + "."
 	}
 	if len(issues) == 0 {
 		prop.Auto = true
@@ -199,6 +206,7 @@ func positionalMosaic(p TSProject, rig Rig) Proposal {
 	}
 	return Proposal{
 		Kind: KindMosaic, Confidence: ConfidenceLow, Panels: adopt(sorted, numbers, rig),
+		Rule:       "Low: TS flags the project as a mosaic, but its targets aren't named \"… Panel N\", so the panel order comes from grid position.",
 		Issue:      "Its targets aren't named \"<name> Panel N\", so their panel numbers come from where they sit in the grid.",
 		Suggestion: "Check the panel order on the preview, then adopt it as a mosaic and keep the target names.",
 	}
