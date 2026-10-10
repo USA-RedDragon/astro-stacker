@@ -17,6 +17,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -213,12 +214,10 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 	// Stacked masters for one target, one per filter.
 	r.GET("/stacks", stacksRoute(signer))
 
-	// Every target with lights, and whether Target Scheduler knows it, so
-	// targets imaged outside it can be listed too. A target counts as
-	// scheduled only when Target Scheduler has a record for at least half
-	// its lights: the TS5 upgrade dropped every earlier record, so targets
-	// imaged mostly before it are listed with the others. Panels of a
-	// mosaic never are.
+	// Every target with lights, how many of them Target Scheduler recorded
+	// (frame_targets links from a header GUID or an acquiredimage row), and
+	// whether it has a Target Scheduler target: a linked one, one of the
+	// same name, or a mosaic panel.
 	r.GET("/objects", objectsRoute)
 
 	// Stack a target again from scratch, with a new registration reference.
@@ -620,53 +619,78 @@ func objectsRoute(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	var rows []struct {
-		Object     string
-		Lights     int
-		Stacked    int
-		Nights     int
-		FirstNight *time.Time
-		LastNight  *time.Time
-	}
+	var rows []objectRow
 	if err := di.AppStore.DB().WithContext(ctx).Table("frames f").
 		Select("f.object, COUNT(*) AS lights, COUNT(sf.id) FILTER (WHERE sf.status = ?) AS stacked, "+
-			"COUNT(DISTINCT f.night) AS nights, MIN(f.night) AS first_night, MAX(f.night) AS last_night", app.StackStatusAdded).
+			"COUNT(DISTINCT f.night) AS nights, MIN(f.night) AS first_night, MAX(f.night) AS last_night, "+
+			"COUNT(ft.id) FILTER (WHERE ft.method IN ?) AS recorded",
+			app.StackStatusAdded, []string{app.LinkHeader, app.LinkAcquiredImage}).
 		Joins("LEFT JOIN stack_frames sf ON sf.frame_id = f.id").
+		Joins("LEFT JOIN frame_targets ft ON ft.frame_id = f.id").
 		Where("f.type = ? AND f.object <> '' AND f.index_error IS NULL", lightType).
 		Group("f.object").Order("f.object").Scan(&rows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 		return
 	}
-	var scheduled []struct {
-		Name     string
-		Acquired int
-	}
-	if err := di.SchedulerDBStore.DB().WithContext(ctx).Table("target t").
-		Select(`t.name, COUNT(a."Id") AS acquired`).
-		Joins(`LEFT JOIN acquiredimage a ON a."targetId" = t."Id"`).
-		Group("t.name").Scan(&scheduled).Error; err != nil {
+	var links []objectLink
+	if err := di.AppStore.DB().WithContext(ctx).Model(&app.FrameTarget{}).
+		Distinct("object", "target_guid").Scan(&links).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 		return
 	}
-	acquired := map[string]int{}
-	for _, t := range scheduled {
-		acquired[t.Name] += t.Acquired
+	targets, err := tslink.Targets(ctx, di.SchedulerDBStore.DB())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		return
 	}
-	// A mosaic's panels show in its mosaic, built from their files
-	// whatever Target Scheduler recorded.
 	panels, err := stacking.MosaicPanels(ctx, di.AppStore.DB(), di.SchedulerDBStore.DB())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 		return
 	}
-	type object struct {
-		Name       string  `json:"name"`
-		Lights     int     `json:"lights"`
-		Stacked    int     `json:"stacked"`
-		Nights     int     `json:"nights"`
-		FirstNight *string `json:"first_night,omitempty"`
-		LastNight  *string `json:"last_night,omitempty"`
-		Scheduled  bool    `json:"scheduled"`
+	c.JSON(http.StatusOK, objectsOf(rows, links, targets, panels))
+}
+
+type objectRow struct {
+	Object     string
+	Lights     int
+	Stacked    int
+	Nights     int
+	FirstNight *time.Time
+	LastNight  *time.Time
+	Recorded   int
+}
+
+type objectOut struct {
+	Name       string  `json:"name"`
+	Lights     int     `json:"lights"`
+	Stacked    int     `json:"stacked"`
+	Nights     int     `json:"nights"`
+	FirstNight *string `json:"first_night,omitempty"`
+	LastNight  *string `json:"last_night,omitempty"`
+	Recorded   int     `json:"recorded"`
+	Scheduled  bool    `json:"scheduled"`
+}
+
+type objectLink struct {
+	Object     string
+	TargetGUID string
+}
+
+func objectsOf(rows []objectRow, links []objectLink, targets []tslink.Target, panels map[string]bool) []objectOut {
+	guids := map[string]bool{}
+	names := map[string]bool{}
+	for _, t := range targets {
+		if t.GUID != "" {
+			guids[t.GUID] = true
+		}
+		names[t.Name] = true
+	}
+	linked := map[string]bool{}
+	for _, l := range links {
+		if guids[l.TargetGUID] {
+			linked[l.Object] = true
+		}
 	}
 	day := func(t *time.Time) *string {
 		if t == nil {
@@ -675,12 +699,13 @@ func objectsRoute(c *gin.Context) {
 		s := t.Format("2006-01-02")
 		return &s
 	}
-	out := make([]object, 0, len(rows))
+	out := make([]objectOut, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, object{Name: r.Object, Lights: r.Lights, Stacked: r.Stacked, Nights: r.Nights,
-			FirstNight: day(r.FirstNight), LastNight: day(r.LastNight), Scheduled: panels[r.Object] || 2*acquired[r.Object] >= r.Lights})
+		out = append(out, objectOut{Name: r.Object, Lights: r.Lights, Stacked: r.Stacked, Nights: r.Nights,
+			FirstNight: day(r.FirstNight), LastNight: day(r.LastNight), Recorded: r.Recorded,
+			Scheduled: linked[r.Object] || names[r.Object] || panels[r.Object]})
 	}
-	c.JSON(http.StatusOK, out)
+	return out
 }
 
 func restackRoute(c *gin.Context) {
