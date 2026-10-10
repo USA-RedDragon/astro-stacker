@@ -55,6 +55,7 @@ type PipelineOptions struct {
 	// MosaicQuiet.
 	MosaicInterval time.Duration
 	MosaicQuiet    time.Duration
+	MosaicSeams    bool
 	// CalibrationSettle is how long a flat, dark or bias set must go
 	// without a new frame before a master is built from it. Sets arrive a
 	// frame at a time, a dark library over hours; a master built meanwhile
@@ -93,6 +94,7 @@ func DefaultPipelineOptions() PipelineOptions {
 		Workers:           1,
 		MosaicInterval:    10 * time.Minute,
 		MosaicQuiet:       30 * time.Minute,
+		MosaicSeams:       true,
 		CalibrationSettle: 3 * time.Hour,
 		RecalibrateLimit:  300,
 		Stack:             DefaultOptions(),

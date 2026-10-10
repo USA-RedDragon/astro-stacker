@@ -52,6 +52,7 @@ type Adoption struct {
 	Issue       string                 `json:"issue"`
 	Suggestion  string                 `json:"suggestion"`
 	Status      string                 `json:"status"`
+	Clean       bool                   `json:"clean"`
 	Action      string                 `json:"action,omitempty"`
 	DecidedBy   string                 `json:"decidedBy,omitempty"`
 	DecidedAt   *time.Time             `json:"decidedAt,omitempty"`
@@ -63,7 +64,8 @@ type FramesProposal = mosaicstore.FramesProposal
 
 type Report struct {
 	DryRun    bool       `json:"dryRun"`
-	Auto      int        `json:"auto"`
+	Clean     int        `json:"clean"`
+	New       int        `json:"new"`
 	Review    int        `json:"review"`
 	Unchanged int        `json:"unchanged"`
 	Changed   int        `json:"changed"`
@@ -238,6 +240,9 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 				row = old
 				if row.Status == app.AdoptionProposed {
 					rep.Review++
+					if row.Clean {
+						rep.Clean++
+					}
 				}
 				if c.frames != nil && row.Status == app.AdoptionAccepted && !dryRun {
 					if err := mosaicstore.LinkFrames(tx, *c.frames, now); err != nil {
@@ -248,24 +253,19 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 				if seen {
 					rep.Changed++
 					row.ID, row.CreatedAt = old.ID, old.CreatedAt
+				} else {
+					rep.New++
 				}
 				row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionProposed, "", nil
+				row.Clean = c.auto
+				rep.Review++
+				action = "review"
 				if c.auto {
-					row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionAuto, "adoption", &now
-					rep.Auto++
-					action = "adopt"
-				} else {
-					rep.Review++
-					action = "review"
+					rep.Clean++
 				}
 				if !dryRun {
 					if err := tx.Save(&row).Error; err != nil {
 						return err
-					}
-					if c.auto {
-						if err := mosaicstore.WritePanels(tx, row.ProjectGUID, row.Project, c.panels, s.Rig, now); err != nil {
-							return err
-						}
 					}
 				}
 			}
@@ -280,7 +280,7 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 
 func toAdoption(r app.MosaicAdoption) Adoption {
 	a := Adoption{ID: r.ID, Subject: r.Subject, ProjectGUID: r.ProjectGUID, Project: r.Project, Kind: r.Kind, Confidence: r.Confidence,
-		Issue: r.Issue, Suggestion: r.Suggestion, Status: r.Status, DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt}
+		Issue: r.Issue, Suggestion: r.Suggestion, Status: r.Status, Clean: r.Clean, DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt}
 	if r.Kind == KindFrames {
 		var fp FramesProposal
 		if json.Unmarshal([]byte(r.Proposal), &fp) == nil {
@@ -297,7 +297,7 @@ func (s *Service) Adoptions(ctx context.Context) ([]Adoption, error) {
 	if err := s.App.WithContext(ctx).Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	order := map[string]int{app.AdoptionProposed: 0, app.AdoptionAccepted: 1, app.AdoptionRejected: 1, app.AdoptionAuto: 2}
+	order := map[string]int{app.AdoptionProposed: 0, app.AdoptionAccepted: 1, app.AdoptionRejected: 1, app.AdoptionAuto: 1}
 	slices.SortFunc(rows, func(a, b app.MosaicAdoption) int {
 		if order[a.Status] != order[b.Status] {
 			return order[a.Status] - order[b.Status]

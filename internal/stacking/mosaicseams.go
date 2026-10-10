@@ -290,11 +290,20 @@ func (p *Pipeline) saveSeams(ctx context.Context, g mosaicGroup, filter string, 
 }
 
 func (p *Pipeline) seamsDue() bool {
+	if !p.opts.MosaicSeams || p.stacking() {
+		return false
+	}
 	if p.seamBudget > 0 {
 		p.seamBudget--
 		return true
 	}
 	return false
+}
+
+func (p *Pipeline) stacking() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.busy) > 0
 }
 
 func (p *Pipeline) measureSeamsOnly(ctx context.Context, g mosaicGroup, filter string, masters []app.Stack, mosaic *app.Mosaic, sig string) error {

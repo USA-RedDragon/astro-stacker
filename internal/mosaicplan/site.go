@@ -40,8 +40,8 @@ func (s *Service) RunAdoptionEvery(ctx context.Context, interval time.Duration) 
 		switch {
 		case err != nil && ctx.Err() == nil:
 			slog.Error("Mosaic adoption failed", "error", err)
-		case err == nil && (rep.Auto > 0 || rep.Changed > 0):
-			slog.Info("Mosaic adoption", "adopted", rep.Auto, "to_review", rep.Review, "changed", rep.Changed)
+		case err == nil && rep.New+rep.Changed > 0:
+			slog.Info("Mosaic adoption proposals", "new", rep.New, "changed", rep.Changed, "to_review", rep.Review, "clean", rep.Clean)
 		}
 		select {
 		case <-ctx.Done():

@@ -172,6 +172,15 @@ func TestSaveSeamsReplacesAProjectFiltersRows(t *testing.T) {
 		t.Errorf("%d seams after replacing", count)
 	}
 	p.seamBudget = 1
+	if p.seamsDue() {
+		t.Error("seams measured with the switch off")
+	}
+	p.opts.MosaicSeams = true
+	p.busy = map[string]bool{"M31": true}
+	if p.seamsDue() {
+		t.Error("seams measured while a target is stacking")
+	}
+	p.busy = nil
 	if !p.seamsDue() || p.seamsDue() {
 		t.Error("seam budget not spent once")
 	}
