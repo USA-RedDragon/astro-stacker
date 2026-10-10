@@ -150,10 +150,7 @@ func author(c *gin.Context) string {
 	if u := c.GetHeader("X-Webauth-User"); u != "" {
 		return u
 	}
-	if u := c.GetHeader("Tailscale-User-Login"); u != "" {
-		return u
-	}
-	return "web"
+	return c.GetHeader("Tailscale-User-Login")
 }
 
 func commandError(c *gin.Context, err error) {

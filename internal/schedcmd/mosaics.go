@@ -109,7 +109,7 @@ func (mosaicAdoptSpec) ApplyApp(ctx context.Context, db *gorm.DB, p json.RawMess
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, x := range v.Decisions {
-			if _, err := mosaicstore.SetStatus(ctx, tx, x.ID, x.Before, x.After, "web", rig); err != nil {
+			if _, err := mosaicstore.SetStatus(ctx, tx, x.ID, x.Before, x.After, AuthorFrom(ctx), rig); err != nil {
 				return err
 			}
 		}
