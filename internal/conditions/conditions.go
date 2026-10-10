@@ -92,6 +92,7 @@ type Power struct {
 	Model            string   `json:"model,omitempty"`
 	Charge           *float64 `json:"charge,omitempty"`
 	InputVoltage     *float64 `json:"input_voltage,omitempty"`
+	RuntimeSeconds   *float64 `json:"runtime_seconds,omitempty"`
 	Flags            []string `json:"flags,omitempty"`
 	OnBattery        bool     `json:"on_battery"`
 	LowBattery       bool     `json:"low_battery"`
@@ -390,6 +391,8 @@ func fillPower(p *Power, samples []sample) {
 			p.Charge = finite(sm.value)
 		case "input_voltage":
 			p.InputVoltage = finite(sm.value)
+		case "battery_runtime":
+			p.RuntimeSeconds = finite(sm.value)
 		case "device_info":
 			p.Model = strings.TrimSpace(manufacturer(sm.labels["mfr"]) + " " + sm.labels["model"])
 		case "ups_status":

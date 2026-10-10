@@ -28,6 +28,7 @@ const promBody = `{"status":"success","data":{"resultType":"vector","result":[
 
 const upsBody = `{"status":"success","data":{"resultType":"vector","result":[
 {"metric":{"__name__":"network_ups_tools_battery_charge","ups":"observatory"},"value":[1,"97"]},
+{"metric":{"__name__":"network_ups_tools_battery_runtime","ups":"observatory"},"value":[1,"4300"]},
 {"metric":{"__name__":"network_ups_tools_device_info","mfr":"CPS","model":"EC450G","ups":"observatory"},"value":[1,"1"]},
 {"metric":{"__name__":"network_ups_tools_ups_status","flag":"OB","ups":"observatory"},"value":[1,"1"]},
 {"metric":{"__name__":"network_ups_tools_ups_status","flag":"OL","ups":"observatory"},"value":[1,"0"]}
@@ -71,6 +72,9 @@ func checkPower(t *testing.T, p Power) {
 	t.Helper()
 	if p.Model != "CyberPower EC450G" || !p.OnBattery || p.Charge == nil || *p.Charge != 97 || p.OnBatterySeconds == nil || *p.OnBatterySeconds != 95 {
 		t.Fatalf("power %+v", p)
+	}
+	if p.RuntimeSeconds == nil || *p.RuntimeSeconds != 4300 {
+		t.Fatalf("runtime %+v", p.RuntimeSeconds)
 	}
 }
 
