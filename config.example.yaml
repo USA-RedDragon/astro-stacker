@@ -147,8 +147,24 @@ discover:
   min-altitude: 30
   # Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky
   # sky-brightness: 0.0
+  # Ignored: the focal length is read from lights' FOCALLEN
+  # focal-length: 0.0
+  # Ignored: the pixel size is read from lights' XPIXSZ
+  # pixel-size: 0.0
+  # Ignored: the image width is read from lights' headers
+  # sensor-width: 0
+  # Ignored: the image height is read from lights' headers
+  # sensor-height: 0
+  # Ignored: a colour camera is recognised by BAYERPAT in lights' headers
+  colour: false
   # Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights
   # filters: []
+  # Ignored: the typical HFR is measured from recent lights
+  # typical-hfr: 0.0
+  # Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights
+  # typical-guide-rms: 0.0
+  # Ignored: sub lengths per filter are read from recent lights
+  # exposures: []
   # Read Starfront's public collaboration list for the Collabs page; read-only, no account
   starfront: true
   # Starfront collaboration server
