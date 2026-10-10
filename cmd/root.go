@@ -10,6 +10,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/goalmeasure"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
@@ -92,8 +93,9 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	mosaicPlans := newMosaicPlans(cfg, appStore, schedulerDBStore)
 	var restacker middleware.Restacker
 	drainStacker := func() {}
+	drainGoals := func() {}
 	broker := events.NewBroker()
-	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled {
+	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)
 		if err != nil {
@@ -118,6 +120,9 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 				time.Duration(cfg.PublicFrames.MaxAgeDays)*24*time.Hour)
 			go pf.Run(indexCtx, time.Duration(cfg.PublicFrames.IntervalSeconds)*time.Second)
 			slog.Info("Public frame renderer started", "bucket", cfg.S3.ProcessedBucket, "max_age_days", cfg.PublicFrames.MaxAgeDays)
+		}
+		if cfg.Goals.Enabled {
+			drainGoals = startGoals(cfg, s3, appStore, schedulerDBStore)
 		}
 		// Presigned URLs, for previews and masters, are signed for the public
 		// host browsers use.
@@ -182,6 +187,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		fmt.Println("")
 
 		slog.Info("Received signal", "signal", sig)
+		drainGoals()
 		drainStacker()
 		stopIndexer()
 
@@ -196,6 +202,29 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	shutdown.Listen(syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 
 	return nil
+}
+
+func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store) func() {
+	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
+		goalmeasure.VizierFetcher(nil, ""), goalmeasure.Options{
+			Interval: time.Duration(cfg.Goals.IntervalMinutes) * time.Minute,
+			MaxSubs:  cfg.Goals.MaxSubs,
+			Publish:  cfg.Goals.Publish,
+		})
+	done := make(chan struct{})
+	go func() {
+		r.Run(context.Background())
+		close(done)
+	}()
+	slog.Info("Goal measurement started", "interval_minutes", cfg.Goals.IntervalMinutes, "max_subs", cfg.Goals.MaxSubs, "publish", cfg.Goals.Publish)
+	return func() {
+		r.Drain()
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			slog.Warn("Goal measurement still busy at shutdown")
+		}
+	}
 }
 
 func credentials(cfg *config.Config) *miniocreds.Credentials {

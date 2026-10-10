@@ -79,3 +79,38 @@ func TestTSVerdicts(t *testing.T) {
 		}
 	}
 }
+
+func TestGoals(t *testing.T) {
+	t.Parallel()
+
+	defConfig, err := configulator.New(config.ConfigSchema()).Default()
+	if err != nil {
+		t.Fatalf("failed to create default config: %v", err)
+	}
+	if defConfig.Goals.Enabled || defConfig.Goals.Publish != config.GoalsPublishOff ||
+		defConfig.Goals.IntervalMinutes != 30 || defConfig.Goals.MaxSubs != 200 {
+		t.Errorf("goals defaults %+v", defConfig.Goals)
+	}
+	for _, mode := range []string{config.GoalsPublishOff, config.GoalsPublishDryRun, config.GoalsPublishOn} {
+		cfg := defConfig
+		cfg.Goals.Publish = mode
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("publish %q: %v", mode, err)
+		}
+	}
+	cfg := defConfig
+	cfg.Goals.Publish = "yes"
+	if err := cfg.Validate(); !errors.Is(err, config.ErrInvalidGoalsPublish) {
+		t.Errorf("publish yes: %v", err)
+	}
+	cfg = defConfig
+	cfg.Goals.Enabled = true
+	cfg.Goals.IntervalMinutes = 0
+	if err := cfg.Validate(); !errors.Is(err, config.ErrInvalidGoalsInterval) {
+		t.Errorf("interval 0: %v", err)
+	}
+	cfg.Goals.IntervalMinutes = 30
+	if err := cfg.Validate(); !errors.Is(err, config.ErrMissingS3Credentials) {
+		t.Errorf("enabled without S3 credentials: %v", err)
+	}
+}

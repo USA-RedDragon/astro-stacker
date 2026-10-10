@@ -134,6 +134,13 @@ type schedulerShadow struct {
 	Queue *bool   `json:"queue" toml:"queue" yaml:"queue"`
 }
 
+type goalsShadow struct {
+	Enabled         *bool   `json:"enabled"          toml:"enabled"          yaml:"enabled"`
+	IntervalMinutes *int    `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
+	MaxSubs         *int    `json:"max-subs"         toml:"max-subs"         yaml:"max-subs"`
+	Publish         *string `json:"publish"          toml:"publish"          yaml:"publish"`
+}
+
 type configShadow struct {
 	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
 	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
@@ -147,6 +154,7 @@ type configShadow struct {
 	PublicFrames *publicFramesShadow `json:"public-frames" toml:"public-frames" yaml:"public-frames"`
 	Discover     *discoverShadow     `json:"discover"      toml:"discover"      yaml:"discover"`
 	Scheduler    *schedulerShadow    `json:"scheduler"     toml:"scheduler"     yaml:"scheduler"`
+	Goals        *goalsShadow        `json:"goals"         toml:"goals"         yaml:"goals"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -276,6 +284,12 @@ func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) er
 	set("discover.starfront-minutes", configulator.LayerDefault, "default tag")
 	cfg.Scheduler.Queue = true
 	set("scheduler.queue", configulator.LayerDefault, "default tag")
+	cfg.Goals.IntervalMinutes = 30
+	set("goals.interval-minutes", configulator.LayerDefault, "default tag")
+	cfg.Goals.MaxSubs = 200
+	set("goals.max-subs", configulator.LayerDefault, "default tag")
+	cfg.Goals.Publish = "off"
+	set("goals.publish", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -625,6 +639,24 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Scheduler.Queue != nil {
 			cfg.Scheduler.Queue = *s.Scheduler.Queue
 			set("scheduler.queue", configulator.LayerFile, file)
+		}
+	}
+	if s.Goals != nil {
+		if s.Goals.Enabled != nil {
+			cfg.Goals.Enabled = *s.Goals.Enabled
+			set("goals.enabled", configulator.LayerFile, file)
+		}
+		if s.Goals.IntervalMinutes != nil {
+			cfg.Goals.IntervalMinutes = *s.Goals.IntervalMinutes
+			set("goals.interval-minutes", configulator.LayerFile, file)
+		}
+		if s.Goals.MaxSubs != nil {
+			cfg.Goals.MaxSubs = *s.Goals.MaxSubs
+			set("goals.max-subs", configulator.LayerFile, file)
+		}
+		if s.Goals.Publish != nil {
+			cfg.Goals.Publish = *s.Goals.Publish
+			set("goals.publish", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -1415,6 +1447,49 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Scheduler.Queue = p
 		set("scheduler.queue", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "goals", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.enabled",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Goals.Enabled = p
+		set("goals.enabled", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "goals", "interval-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.interval-minutes",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Goals.IntervalMinutes = int(p)
+		set("goals.interval-minutes", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "goals", "max-subs"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.max-subs",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Goals.MaxSubs = int(p)
+		set("goals.max-subs", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "goals", "publish"); ok {
+		cfg.Goals.Publish = v
+		set("goals.publish", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -1506,6 +1581,10 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"scheduler" + o.Separator + "url",
 		"scheduler" + o.Separator + "token",
 		"scheduler" + o.Separator + "queue",
+		"goals" + o.Separator + "enabled",
+		"goals" + o.Separator + "interval-minutes",
+		"goals" + o.Separator + "max-subs",
+		"goals" + o.Separator + "publish",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -1600,6 +1679,10 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[75], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
 	fs.String(names[76], "", "Bearer token for the plugin's API")
 	fs.Bool(names[77], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
+	fs.Bool(names[78], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
+	fs.Var(impl.NewInt(30), names[79], "Minutes between checks for masters to measure")
+	fs.Var(impl.NewInt(200), names[80], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
+	fs.String(names[81], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -2540,6 +2623,54 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Scheduler.Queue = v
 		set("scheduler.queue", configulator.LayerCLI, "--"+n)
 	}
+	if n := "goals" + o.Separator + "enabled"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.enabled",
+				Source: "--" + n,
+			}
+		}
+		cfg.Goals.Enabled = v
+		set("goals.enabled", configulator.LayerCLI, "--"+n)
+	}
+	if n := "goals" + o.Separator + "interval-minutes"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.interval-minutes",
+				Source: "--" + n,
+			}
+		}
+		cfg.Goals.IntervalMinutes = v
+		set("goals.interval-minutes", configulator.LayerCLI, "--"+n)
+	}
+	if n := "goals" + o.Separator + "max-subs"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.max-subs",
+				Source: "--" + n,
+			}
+		}
+		cfg.Goals.MaxSubs = v
+		set("goals.max-subs", configulator.LayerCLI, "--"+n)
+	}
+	if n := "goals" + o.Separator + "publish"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.publish",
+				Source: "--" + n,
+			}
+		}
+		cfg.Goals.Publish = v
+		set("goals.publish", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -2781,6 +2912,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Scheduler = &sub
+			}
+		case "goals":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("goals", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub goalsShadow
+				if err := sub.decodeJSON(dec, "goals"); err != nil {
+					return err
+				}
+				s.Goals = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -4387,6 +4537,95 @@ func (s *schedulerShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *goalsShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "enabled":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Enabled = &b
+			default:
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "interval-minutes":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".interval-minutes", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalMinutes = &num
+			default:
+				return configJSONError(path+".interval-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "max-subs":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".max-subs", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".max-subs", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.MaxSubs = &num
+			default:
+				return configJSONError(path+".max-subs", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "publish":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Publish = &str
+			default:
+				return configJSONError(path+".publish", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -4479,6 +4718,10 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "scheduler.url = %v\n", c.Scheduler.URL)
 	fmt.Fprintf(&b, "scheduler.token = %v\n", c.Scheduler.Token)
 	fmt.Fprintf(&b, "scheduler.queue = %v\n", c.Scheduler.Queue)
+	fmt.Fprintf(&b, "goals.enabled = %v\n", c.Goals.Enabled)
+	fmt.Fprintf(&b, "goals.interval-minutes = %v\n", c.Goals.IntervalMinutes)
+	fmt.Fprintf(&b, "goals.max-subs = %v\n", c.Goals.MaxSubs)
+	fmt.Fprintf(&b, "goals.publish = %v\n", c.Goals.Publish)
 	return b.String()
 }
 
