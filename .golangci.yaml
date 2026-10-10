@@ -59,6 +59,13 @@ linters:
       - path: internal/(stacking/.*|server/(covers|public|subs|webui|discover)|publicframe/render(er)?|events/events|indexer/(indexer|runloop)|siril/maincommand)_test\.go$
         linters:
           - testpackage
+      - path: internal/(goals|goalmeasure)/.*_test\.go$
+        linters:
+          - testpackage
+      - path: internal/goals/measure\.go$
+        linters:
+          - gosec
+        text: G404
       - path: internal/imagedata/fits\.go$
         linters:
           - gosec
