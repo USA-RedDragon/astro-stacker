@@ -169,3 +169,44 @@ func TestMoon(t *testing.T) {
 		t.Fatal("start moved")
 	}
 }
+
+func TestMoonMatchesUSNO(t *testing.T) {
+	t.Parallel()
+	const lat, lon = 31.546944, -99.382222
+	near := func(got time.Time, want string, tol time.Duration) {
+		t.Helper()
+		w, _ := time.Parse(time.RFC3339, want)
+		if d := got.Sub(w); d > tol || d < -tol {
+			t.Errorf("got %v, want %v", got, w)
+		}
+	}
+	m := Moon(lat, lon, time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 10, 23, 0, 0, 0, time.UTC))
+	if len(m.Rises) != 1 {
+		t.Fatalf("rises %v", m.Rises)
+	}
+	near(m.Rises[0], "2026-10-10T12:37:00Z", 4*time.Minute)
+	near(m.NextNew, "2026-10-10T15:50:00Z", 30*time.Minute)
+	near(m.NextFull, "2026-10-26T04:12:00Z", 30*time.Minute)
+	if m.NextNew.Second() != 0 || m.NextFull.Second() != 0 {
+		t.Errorf("phases not to the minute: %v %v", m.NextNew, m.NextFull)
+	}
+	m = Moon(lat, lon, time.Date(2026, 10, 22, 3, 0, 0, 0, time.UTC), time.Date(2026, 10, 22, 22, 30, 0, 0, time.UTC))
+	if len(m.Sets) != 1 || len(m.Rises) != 1 {
+		t.Fatalf("sets %v rises %v", m.Sets, m.Rises)
+	}
+	near(m.Sets[0], "2026-10-22T09:05:00Z", 4*time.Minute)
+	near(m.Rises[0], "2026-10-22T21:53:00Z", 4*time.Minute)
+	for _, c := range []struct {
+		at   time.Time
+		frac float64
+	}{
+		{time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC), 0.22},
+		{time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC), 0.84},
+		{time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC), 0.85},
+	} {
+		got := Moon(lat, lon, c.at, c.at).Illumination
+		if d := got - c.frac; d > 0.01 || d < -0.01 {
+			t.Errorf("%v: illumination %.3f, want %.2f", c.at, got, c.frac)
+		}
+	}
+}

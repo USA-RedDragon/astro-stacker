@@ -20,6 +20,9 @@ type Position struct {
 	// Age is the days since new moon, from the Moon's elongation: 0 at
 	// new, half a synodic month at full.
 	Age float64
+	// Illumination is the lit fraction of the disc, from the phase angle
+	// (Meeus chapter 48).
+	Illumination float64
 }
 
 func julianDay(t time.Time) float64 {
@@ -54,10 +57,14 @@ func At(t time.Time) Position {
 	if elong < 0 {
 		elong += 360
 	}
+	sunDist := (1.00014 - 0.01671*cos(M) - 0.00014*cos(2*M)) * 149597870.7
+	psi := math.Acos(cos(lat) * cos(lon-sun))
+	phase := math.Atan2(sunDist*math.Sin(psi), dist-sunDist*math.Cos(psi))
 	return Position{
 		RA: math.Mod(ra+360, 360), Dec: dec,
-		Parallax: math.Asin(6378.14/dist) / deg,
-		Age:      elong / 360 * synodicMonth,
+		Parallax:     math.Asin(6378.14/dist) / deg,
+		Age:          elong / 360 * synodicMonth,
+		Illumination: (1 + math.Cos(phase)) / 2,
 	}
 }
 

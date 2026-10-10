@@ -4,13 +4,14 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/moon"
-	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
 
 const (
 	synodicMonth = 29.530588
 	moonStep     = 10 * time.Minute
 	maxMoonSpan  = 36 * time.Hour
+	refraction   = 34.0 / 60
+	semiDiameter = 0.2725
 )
 
 type MoonPoint struct {
@@ -38,10 +39,11 @@ func Moon(lat, lon float64, start, end time.Time) MoonNight {
 	for t := start; !t.After(end); t = t.Add(moonStep) {
 		p := MoonPoint{T: t.UTC(), Alt: moon.At(t).Altitude(t, lat, lon)}
 		if prev != nil {
-			if prev.Alt < 0 && p.Alt >= 0 {
-				out.Rises = append(out.Rises, crossing(*prev, p))
-			} else if prev.Alt >= 0 && p.Alt < 0 {
-				out.Sets = append(out.Sets, crossing(*prev, p))
+			a, b := aboveHorizon(prev.T, lat, lon), aboveHorizon(p.T, lat, lon)
+			if a < 0 && b >= 0 {
+				out.Rises = append(out.Rises, bisect(prev.T, p.T, func(t time.Time) bool { return aboveHorizon(t, lat, lon) >= 0 }))
+			} else if a >= 0 && b < 0 {
+				out.Sets = append(out.Sets, bisect(prev.T, p.T, func(t time.Time) bool { return aboveHorizon(t, lat, lon) < 0 }))
 			}
 		}
 		out.Samples = append(out.Samples, p)
@@ -50,32 +52,44 @@ func Moon(lat, lon float64, start, end time.Time) MoonNight {
 	mid := start.Add(end.Sub(start) / 2)
 	pos := moon.At(mid)
 	out.Age = pos.Age
-	out.Illumination = sky.Illumination(pos.Age)
+	out.Illumination = pos.Illumination
 	out.Waxing = pos.Age < synodicMonth/2
 	out.NextNew, out.NextFull = nextPhases(start)
 	return out
 }
 
-func crossing(a, b MoonPoint) time.Time {
-	f := -a.Alt / (b.Alt - a.Alt)
-	return a.T.Add(time.Duration(f * float64(b.T.Sub(a.T)))).Truncate(time.Minute)
+func aboveHorizon(t time.Time, lat, lon float64) float64 {
+	p := moon.At(t)
+	return p.Altitude(t, lat, lon) + refraction + semiDiameter*p.Parallax
+}
+
+func bisect(lo, hi time.Time, after func(time.Time) bool) time.Time {
+	for hi.Sub(lo) > 30*time.Second {
+		mid := lo.Add(hi.Sub(lo) / 2)
+		if after(mid) {
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return hi.Round(time.Minute).UTC()
 }
 
 func nextPhases(from time.Time) (time.Time, time.Time) {
 	var newMoon, full time.Time
-	prev := moon.At(from).Age
+	prevT, prev := from, moon.At(from).Age
 	for t := from.Add(time.Hour); t.Before(from.Add(31 * 24 * time.Hour)); t = t.Add(time.Hour) {
 		age := moon.At(t).Age
 		if newMoon.IsZero() && age < prev-synodicMonth/2 {
-			newMoon = t.UTC()
+			newMoon = bisect(prevT, t, func(x time.Time) bool { return moon.At(x).Age < synodicMonth/2 })
 		}
 		if full.IsZero() && prev < synodicMonth/2 && age >= synodicMonth/2 {
-			full = t.UTC()
+			full = bisect(prevT, t, func(x time.Time) bool { return moon.At(x).Age >= synodicMonth/2 })
 		}
 		if !newMoon.IsZero() && !full.IsZero() {
 			break
 		}
-		prev = age
+		prevT, prev = t, age
 	}
 	return newMoon, full
 }
