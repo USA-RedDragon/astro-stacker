@@ -528,6 +528,13 @@ func ptr(v float64) *float64 {
 	return &v
 }
 
+func optString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func fillFrame(dst *app.Frame, f frameheader.Frame) {
 	dst.Type = f.Type
 	dst.Object = f.Object
@@ -541,6 +548,11 @@ func fillFrame(dst *app.Frame, f frameheader.Frame) {
 	dst.BinY = ptr(f.BinY)
 	dst.Rotator = ptr(f.Rotator)
 	dst.Camera = f.Camera
+	dst.TSProject, dst.TSTarget, dst.TSExposurePlan = optString(f.TSProject), optString(f.TSTarget), optString(f.TSExposurePlan)
+	if f.TSPanel > 0 {
+		n := f.TSPanel
+		dst.TSPanel = &n
+	}
 	dst.MountRA, dst.MountDec = ptr(f.RA), ptr(f.Dec)
 	dst.PointingRead, dst.PointingWCS, dst.PointingRev = true, true, PointingRevision
 	if f.HasDate {

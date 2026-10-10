@@ -26,7 +26,9 @@ type Frame struct {
 	Longitude float64
 	// RA and Dec are where the mount pointed, in degrees, or the centre of
 	// the plate solution; NaN if unknown.
-	RA, Dec float64
+	RA, Dec                             float64
+	TSProject, TSTarget, TSExposurePlan string
+	TSPanel                             int
 }
 
 // FromKeywords maps NINA's FITS keywords onto a Frame.
@@ -54,6 +56,10 @@ func FromKeywords(k Keywords) Frame {
 		f.Rotator = k.Float("ROTATOR")
 	}
 	f.DateObs, f.HasDate = k.Time("DATE-OBS")
+	f.TSProject, f.TSTarget, f.TSExposurePlan = k.String("TSPROJ"), k.String("TSTARGET"), k.String("TSEXPPLN")
+	if n := k.Float("TSPANEL"); n >= 1 && n == math.Trunc(n) {
+		f.TSPanel = int(n)
+	}
 	return f
 }
 
