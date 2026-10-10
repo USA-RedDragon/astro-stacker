@@ -61,10 +61,22 @@ type SeasonRow struct {
 	Strategy string  `json:"strategy"`
 }
 
+type ProjectionInputs struct {
+	HoursPerSeason  float64         `json:"hoursPerSeason"`
+	Pace            string          `json:"pace"`
+	Items           int             `json:"items"`
+	StepHours       float64         `json:"stepHours"`
+	MaxSeasons      int             `json:"maxSeasons"`
+	GoalHoursSource string          `json:"goalHoursSource"`
+	EffectivePerRaw *EffectiveRatio `json:"effectivePerRaw"`
+}
+
 type SeasonPlan struct {
 	Project         string                `json:"project"`
 	Strategy        string                `json:"strategy"`
-	Pace            string                `json:"pace"`
+	StrategyInForce string                `json:"strategyInForce"`
+	Projection      *ProjectionInputs     `json:"projection"`
+	Pace            *string               `json:"pace"`
 	HoursPerSeason  *float64              `json:"hoursPerSeason"`
 	Basis           SeasonBasis           `json:"basis"`
 	Last            *SeasonPace           `json:"lastSeason,omitempty"`
@@ -134,12 +146,23 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 	if err != nil {
 		return SeasonPlan{}, err
 	}
+	inForce := string(mosaics.StrategyOff)
+	if d.Balancing.On {
+		inForce = string(mosaics.StrategyWeakest)
+	}
 	switch mosaics.Strategy(strategy) {
 	case mosaics.StrategyWeakest, mosaics.StrategyEven, mosaics.StrategyOff:
+	case "":
+		strategy = inForce
 	default:
-		strategy = string(mosaics.StrategyWeakest)
+		return SeasonPlan{}, fmt.Errorf("%w: unknown strategy %q; use weakest, even or off", ErrBadRequest, strategy)
 	}
-	plan := SeasonPlan{Project: d.Project, Strategy: strategy, Pace: pace, Compare: map[string]int{}, Months: []Month{}, Rows: []SeasonRow{}}
+	switch pace {
+	case "", PaceMeasured, PaceLast, PaceBest, PaceWorst, "good", "poor":
+	default:
+		return SeasonPlan{}, fmt.Errorf("%w: unknown pace %q; use measured, last, best or worst", ErrBadRequest, pace)
+	}
+	plan := SeasonPlan{Project: d.Project, Strategy: strategy, StrategyInForce: inForce, Compare: map[string]int{}, Months: []Month{}, Rows: []SeasonRow{}}
 	ratio, err := s.effectivePerRaw(ctx, d)
 	if err != nil {
 		return SeasonPlan{}, err
@@ -190,7 +213,11 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 		return plan, err
 	}
 	plan.Basis = seasonBasis(hist, seasons, months, plan.SiteKnown)
-	plan.Pace, plan.HoursPerSeason = choosePace(pace, plan.Basis, seasons, now)
+	usedPace, hours := choosePace(pace, plan.Basis, seasons, now)
+	plan.HoursPerSeason = hours
+	if hours != nil {
+		plan.Pace = &usedPace
+	}
 	plan.PanelPriority = s.panelPriorities(ctx, d, now)
 	if plan.HoursPerSeason == nil {
 		if plan.Basis.Reason == nil {
@@ -200,9 +227,11 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 	}
 	if unconverted > 0 {
 		plan.Basis.Reason = reason(fmt.Sprintf("%d panel filters have only a scheduler plan in raw exposure hours, and no accepted sub has been scored yet to convert raw hours to effective hours", unconverted))
-		plan.HoursPerSeason = nil
+		plan.HoursPerSeason, plan.Pace = nil, nil
 		return plan, nil
 	}
+	plan.Projection = &ProjectionInputs{HoursPerSeason: *plan.HoursPerSeason, Pace: usedPace, Items: len(plan.Items), StepHours: mosaics.StepHours,
+		MaxSeasons: maxSeasons, GoalHoursSource: plan.GoalHoursSource, EffectivePerRaw: plan.EffectivePerRaw}
 	rows, finish := mosaics.Simulate(plan.Items, mosaics.Strategy(strategy), *plan.HoursPerSeason, maxSeasons)
 	for _, r := range rows {
 		plan.Rows = append(plan.Rows, SeasonRow{Index: r.Index, Name: seasonName(start.AddDate(r.Index-1, 0, 0)), Weakest: r.WeakestProgress,

@@ -2,6 +2,7 @@ package mosaicplan_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -328,7 +329,7 @@ func TestSeasonsPlanWithSite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.HoursPerSeason != nil || !plan.Basis.InsufficientHistory || plan.Basis.Reason == nil || len(plan.Rows) != 0 || plan.Pace != mosaicplan.PaceMeasured {
+	if plan.HoursPerSeason != nil || !plan.Basis.InsufficientHistory || plan.Basis.Reason == nil || len(plan.Rows) != 0 || plan.Pace != nil || plan.Projection != nil {
 		t.Fatalf("a rate was invented from two nights: %+v", plan)
 	}
 	if !plan.SiteKnown || len(plan.Months) != 12 || len(plan.PanelPriority) != 2 || len(plan.Basis.ClearNightsPerMonth) != 12 {
@@ -343,12 +344,21 @@ func TestSeasonsPlanWithSite(t *testing.T) {
 	if plan.Last == nil || plan.Last.Nights != 2 || math.Abs(plan.Last.Hours-3) > 1e-9 {
 		t.Errorf("last season %+v", plan.Last)
 	}
-	best, err := svc.Seasons(ctx, markarian, "bogus", "good", now)
+	if _, err := svc.Seasons(ctx, markarian, "bogus", "", now); !errors.Is(err, mosaicplan.ErrBadRequest) {
+		t.Errorf("unknown strategy: %v", err)
+	}
+	if _, err := svc.Seasons(ctx, markarian, "", "bogus", now); !errors.Is(err, mosaicplan.ErrBadRequest) {
+		t.Errorf("unknown pace: %v", err)
+	}
+	best, err := svc.Seasons(ctx, markarian, "", "good", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if best.Strategy != "weakest" || best.Pace != mosaicplan.PaceBest || best.HoursPerSeason == nil || *best.HoursPerSeason != 3 || len(best.Rows) == 0 {
+	if best.Strategy != "weakest" || best.StrategyInForce != "weakest" || best.Pace == nil || *best.Pace != mosaicplan.PaceBest || best.HoursPerSeason == nil || *best.HoursPerSeason != 3 || len(best.Rows) == 0 {
 		t.Errorf("best season %+v", best)
+	}
+	if pr := best.Projection; pr == nil || pr.HoursPerSeason != 3 || pr.Pace != mosaicplan.PaceBest || pr.Items == 0 || pr.StepHours != mosaics.StepHours || pr.EffectivePerRaw == nil {
+		t.Errorf("projection inputs %+v", best.Projection)
 	}
 
 	checkMeasuredSeasons(t, svc, appDB, now)
