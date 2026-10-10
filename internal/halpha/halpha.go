@@ -40,6 +40,9 @@ const (
 	maxRetry     = 24 * time.Hour
 	asinhScale   = 6500.0
 	maxSamples   = 40000
+
+	ScoreFloorR = 2.0
+	ScoreFullR  = 500.0
 )
 
 type Map struct {
@@ -121,10 +124,10 @@ func (m *Map) Sample(ra, dec, radiusDeg float64) (Sample, bool) {
 }
 
 func Score(s *Sample) float64 {
-	if s == nil || s.Rayleigh <= 2 {
+	if s == nil || s.Rayleigh <= ScoreFloorR {
 		return 0
 	}
-	return math.Min(1, math.Log10(s.Rayleigh/2)/math.Log10(250))
+	return math.Min(1, math.Log10(s.Rayleigh/ScoreFloorR)/math.Log10(ScoreFullR/ScoreFloorR))
 }
 
 func encode(data []float32) ([]byte, error) {
