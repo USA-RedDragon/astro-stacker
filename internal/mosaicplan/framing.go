@@ -33,8 +33,8 @@ type FramingRequest struct {
 	RA            float64  `json:"ra"`
 	Dec           float64  `json:"dec"`
 	MajorArcmin   float64  `json:"majorArcmin"`
-	MinorArcmin   float64  `json:"minorArcmin"`
-	PA            float64  `json:"pa"`
+	MinorArcmin   *float64 `json:"minorArcmin"`
+	PA            *float64 `json:"pa"`
 	Rotation      *float64 `json:"rotation,omitempty"`
 	Overlap       *float64 `json:"overlap,omitempty"`
 	Rows          int      `json:"rows,omitempty"`
@@ -76,10 +76,7 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 		return Framing{}, fmt.Errorf("%w: coordinates out of range", ErrBadRequest)
 	}
 	ra := math.Mod(req.RA+360, 360)
-	o := mosaics.Outline{Centre: mosaics.Point{RA: ra, Dec: req.Dec}, MajorArcmin: math.Max(0, req.MajorArcmin), MinorArcmin: math.Max(0, req.MinorArcmin), PADeg: req.PA}
-	if o.MinorArcmin == 0 {
-		o.MinorArcmin = o.MajorArcmin
-	}
+	o := outline(ra, req)
 	rig, info, err := s.rig(ctx)
 	if err != nil {
 		return Framing{}, err
@@ -212,4 +209,18 @@ func (s *Service) framingBasis(ctx context.Context, req FramingRequest, months [
 		b.Reason = reason("the observatory site is not known, so the target's season can't be worked out")
 	}
 	return nil
+}
+
+func outline(ra float64, req FramingRequest) mosaics.Outline {
+	o := mosaics.Outline{Centre: mosaics.Point{RA: ra, Dec: req.Dec}, MajorArcmin: math.Max(0, req.MajorArcmin)}
+	if req.MinorArcmin != nil {
+		o.MinorArcmin = math.Max(0, *req.MinorArcmin)
+	}
+	if o.MinorArcmin == 0 {
+		o.MinorArcmin = o.MajorArcmin
+	}
+	if req.PA != nil {
+		o.PADeg = *req.PA
+	}
+	return o
 }

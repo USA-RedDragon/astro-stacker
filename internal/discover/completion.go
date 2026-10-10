@@ -145,7 +145,7 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 		e.Hours[f] = math.Round(h*100) / 100
 	}
 	e.Tonight = s.tonightFor(n, o)
-	e.Fit = rig.fit(o.MajorArcmin, o.MinorArcmin)
+	e.Fit = rig.fit(o.MajorArcmin, o.Minor())
 	return e
 }
 

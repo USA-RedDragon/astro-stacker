@@ -4,7 +4,7 @@ const curatedSourceID = "curated-groups"
 
 func curated(id, designation, name string, aliases []string, typ string, ra, dec, major, minor, pa float64) Object {
 	return Object{ID: id, Designation: designation, Name: name, Aliases: aliases, Type: typ, RA: ra, Dec: dec,
-		MajorArcmin: major, MinorArcmin: minor, PA: pa, Source: curatedSourceID}
+		MajorArcmin: major, MinorArcmin: &minor, PA: &pa, Source: curatedSourceID}
 }
 
 func curatedOverlay() Overlay {
