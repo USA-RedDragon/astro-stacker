@@ -119,6 +119,29 @@ async function applyBulkPri() {
   }
 }
 
+async function adoptGoals() {
+  const goals = selected.value.flatMap((p) =>
+    p.targets
+      .filter((t) => t.guid)
+      .flatMap((t) =>
+        t.goals
+          .filter((g) => !g.goalSet)
+          .map((g) => ({ target_id: t.id, target_guid: t.guid, target_name: t.name, filter: g.filter, before: null, after: { kind: 0, snr_goal: 10, plateau_stop: true } })),
+      ),
+  )
+  if (!goals.length) {
+    showToast({ text: 'Nothing to change', sub: 'Every selected project already finishes on goals.' })
+    return
+  }
+  const one = selected.value.length === 1 ? selected.value[0] : null
+  try {
+    const r = await submitCommand('goal.edit', { project_id: one?.id ?? 0, project_name: one ? one.name : `${selected.value.length} projects`, goals })
+    notifyCommand(r)
+  } catch (e) {
+    errorToast(e)
+  }
+}
+
 function applySet() {
   const ids = selected.value.flatMap((p) => p.targets.map((t) => t.id))
   router.push({ name: 'templates', query: { targets: ids.join(',') } })
@@ -173,6 +196,7 @@ function open(p: Project) {
         <select v-model="bulkPri" class="input"><option>High</option><option>Normal</option><option>Low</option></select>
       </label>
       <button type="button" class="btn" @click="applyBulkPri">Set priority</button>
+      <button type="button" class="btn" title="Faint-signal SNR 10 per filter, with the plateau stop; the desired counts stay as a fallback" @click="adoptGoals">Finish on goals</button>
       <button type="button" class="btn primary" @click="applySet">Apply an exposure set…</button>
       <button type="button" class="btn link small" @click="clearSel">Clear</button>
     </div>
@@ -225,7 +249,7 @@ function open(p: Project) {
                   <div class="bar"><div :style="{ width: pct(p.progress) }" /></div>
                   <span style="font-weight: 600; width: 2.75rem; text-align: right">{{ p.weakest?.progress ? pct(p.progress) : '—' }}</span>
                 </div>
-                <div class="xsmall muted" style="white-space: nowrap">{{ weakestText(p) }}</div>
+                <div class="xsmall muted" style="white-space: nowrap">{{ weakestText(p) }}<span v-if="!p.goalDriven"> · finishes on counts</span></div>
               </td>
               <td style="white-space: nowrap">
                 <span class="badge" :class="{ violet: seasonLabel(p.season).cls === 'violet' }">{{ seasonLabel(p.season).label }}</span>
