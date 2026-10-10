@@ -9,21 +9,22 @@ import (
 // Frame is the acquisition metadata that calibration matching depends on.
 // Numeric fields are NaN when the keyword is missing.
 type Frame struct {
-	Type      string // LIGHT, FLAT, DARK, BIAS, DARKFLAT
-	Object    string
-	Filter    string
-	Exposure  float64
-	Gain      float64
-	Offset    float64
-	SetTemp   float64
-	CCDTemp   float64
-	BinX      float64
-	BinY      float64
-	Rotator   float64
-	Camera    string
-	DateObs   time.Time
-	HasDate   bool
-	Longitude float64
+	Type        string // LIGHT, FLAT, DARK, BIAS, DARKFLAT
+	Object      string
+	Filter      string
+	Exposure    float64
+	Gain        float64
+	Offset      float64
+	SetTemp     float64
+	CCDTemp     float64
+	BinX        float64
+	BinY        float64
+	Rotator     float64
+	Camera      string
+	ReadoutMode string
+	DateObs     time.Time
+	HasDate     bool
+	Longitude   float64
 	// RA and Dec are where the mount pointed, in degrees, or the centre of
 	// the plate solution; NaN if unknown.
 	RA, Dec                             float64
@@ -51,6 +52,7 @@ func FromKeywords(k Keywords) Frame {
 		BinY:         k.Float("YBINNING"),
 		Rotator:      k.Float("ROTATANG"),
 		Camera:       k.String("INSTRUME"),
+		ReadoutMode:  k.String("READOUTM"),
 		Longitude:    k.Float("SITELONG"),
 		FocalLength:  k.Float("FOCALLEN"),
 		PixelSize:    k.Float("XPIXSZ"),

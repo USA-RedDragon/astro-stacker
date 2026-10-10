@@ -41,6 +41,8 @@ type Indexer struct {
 
 	// Events, if set, hears when new frames are indexed.
 	Events *events.Broker
+
+	AfterScan func(context.Context)
 }
 
 func New(client *minio.Client, bucket string, db *gorm.DB, concurrency int) *Indexer {
@@ -118,6 +120,9 @@ func (ix *Indexer) scan(ctx context.Context) {
 		slog.Info("Measured lights without a scheduler record", "lights", n)
 	}
 	darkcheck.Run(ctx, ix.db, ix.download, photometryWorkers, coverage.SessionGap)
+	if ix.AfterScan != nil && ctx.Err() == nil {
+		ix.AfterScan(ctx)
+	}
 }
 
 // photometryPass measures one batch of lights' starlight and reports whether
@@ -623,6 +628,7 @@ func fillFrame(dst *app.Frame, f frameheader.Frame) {
 	dst.BinY = ptr(f.BinY)
 	dst.Rotator = ptr(f.Rotator)
 	dst.Camera = f.Camera
+	dst.ReadoutMode = optString(f.ReadoutMode)
 	dst.TSProject, dst.TSTarget, dst.TSExposurePlan = optString(f.TSProject), optString(f.TSTarget), optString(f.TSExposurePlan)
 	if f.TSPanel > 0 {
 		n := f.TSPanel
