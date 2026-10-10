@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/publicframe"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
@@ -154,7 +155,13 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"])
+	commands := &schedcmd.Service{
+		Log:    schedcmd.NewGormLog(appStore.DB()),
+		AppDB:  appStore.DB(),
+		Notify: func(r schedcmd.Record) { broker.Broadcast("command", r, false) },
+	}
+
+	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], server.Extras{Commands: commands})
 	if err := server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
 	}

@@ -30,7 +30,7 @@ type Server struct {
 
 const defTimeout = 5 * time.Second
 
-func NewServer(config *config.Config, appStore store.Store, schedulerDBStore store.Store, signer *previewer.Signer, broker *events.Broker, restacker middleware.Restacker, version string) *Server {
+func NewServer(config *config.Config, appStore store.Store, schedulerDBStore store.Store, signer *previewer.Signer, broker *events.Broker, restacker middleware.Restacker, version string, extras Extras) *Server {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -42,6 +42,8 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 
 	applyMiddleware(r, config, appStore, schedulerDBStore, version, restacker)
 	applyRoutes(r, signer, broker)
+	applySchedulerRoutes(r.Group("/api/v1"), extras)
+	applyWebUI(r)
 
 	var metricsServer *http.Server
 	var pprofServer *http.Server
