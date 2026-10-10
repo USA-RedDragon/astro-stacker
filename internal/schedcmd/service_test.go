@@ -205,8 +205,8 @@ func TestCancelLocalQueueWhileOffline(t *testing.T) {
 	ctx := context.Background()
 	r, _ := s.Submit(ctx, schedcmd.KindReplan, nil, author)
 	c, err := s.Cancel(ctx, r.ID)
-	if err != nil || c.Status != schedcmd.StatusCancelled {
-		t.Fatalf("got %s %v", c.Status, err)
+	if err != nil || c.Status != schedcmd.StatusCancelled || c.Message != "Cancelled before it was sent to the observatory." {
+		t.Fatalf("got %s %q %v", c.Status, c.Message, err)
 	}
 }
 
@@ -221,7 +221,12 @@ func TestResultsNeverRegress(t *testing.T) {
 		t.Fatalf("pending regressed to %s", got.Status)
 	}
 	got, _ = s.ApplyResult(ctx, schedcmd.Result{ID: r.ID, Status: schedcmd.StatusApplied})
-	if got.Status != schedcmd.StatusApplied || got.AppliedAt == nil {
+	if got.Status != schedcmd.StatusApplied || got.AppliedAt != nil {
+		t.Fatalf("an untimed result must not get a made-up applied_at: %+v", got)
+	}
+	at := time.Date(2026, 10, 10, 3, 0, 0, 0, time.UTC)
+	got, _ = s.ApplyResult(ctx, schedcmd.Result{ID: r.ID, Status: schedcmd.StatusApplied, UpdatedAt: at})
+	if got.AppliedAt == nil || !got.AppliedAt.Equal(at) {
 		t.Fatalf("got %+v", got)
 	}
 	got, _ = s.ApplyResult(ctx, schedcmd.Result{ID: r.ID, Status: schedcmd.StatusFailed})
