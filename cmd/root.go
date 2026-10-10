@@ -281,6 +281,7 @@ func newScheduler(ctx context.Context, cfg *config.Config, appStore, schedulerDB
 	}
 	redeliver := &observatory.Redeliverer{Service: commands, Client: obs}
 	monitor := observatory.NewMonitor(obs, commands, broker)
+	monitor.Contacts = observatory.GormContacts{DB: appStore.DB()}
 	commands.Snapshot = commandSnapshot{monitor: monitor, sched: schedulerDBStore.DB()}
 	monitor.OnOnline = func() { redeliver.Once(ctx) }
 	go monitor.Run(ctx)
