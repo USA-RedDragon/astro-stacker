@@ -43,6 +43,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applyMiddleware(r, config, appStore, schedulerDBStore, version, restacker)
 	applyRoutes(r, signer, broker)
 	applySchedulerRoutes(r.Group("/api/v1"), extras)
+	applyPlanningRoutes(r.Group("/api/v1"))
 	applyWebUI(r)
 
 	var metricsServer *http.Server
