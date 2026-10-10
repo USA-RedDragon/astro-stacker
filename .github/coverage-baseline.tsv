@@ -1,6 +1,6 @@
 cmd/discover.go	50	0
 cmd/mosaics.go	8	0
-cmd/root.go	146	0
+cmd/root.go	147	1
 cmd/stack.go	58	0
 internal/calmatch/calmatch.go	81	75
 internal/catalog/catalog.go	6	6
@@ -34,7 +34,7 @@ internal/frameheader/frame.go	42	41
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	386	315
+internal/goalmeasure/runner.go	397	333
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -44,7 +44,7 @@ internal/goals/measure.go	257	240
 internal/goals/progress.go	103	90
 internal/goals/readiness.go	29	28
 internal/goals/signals.go	51	46
-internal/goals/tsgoals.go	298	257
+internal/goals/tsgoals.go	312	277
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
