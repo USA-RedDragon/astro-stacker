@@ -185,3 +185,26 @@ func TestEmbeddedAtlasOverlay(t *testing.T) {
 		t.Errorf("NGC 224 is %s (%s), want the Messier designation", o.Designation, o.ID)
 	}
 }
+
+func TestCuratedGroupsAndAsterisms(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := ix.Search(context.Background(), "Markarian's Chain", 3)
+	if err != nil || len(hits) == 0 || hits[0].Name != "Markarian's Chain" || hits[0].Type != catalog.TypeGalaxyGroup || hits[0].MajorArcmin < 60 {
+		t.Fatalf("Markarian's Chain: %+v %v", hits, err)
+	}
+	m84, _ := ix.Get("M84")
+	n4477, _ := ix.Get("NGC4477")
+	c := hits[0]
+	if catalog.Separation(c.RA, c.Dec, m84.RA, m84.Dec) > c.MajorArcmin/120 || catalog.Separation(c.RA, c.Dec, n4477.RA, n4477.Dec) > c.MajorArcmin/120 {
+		t.Errorf("the chain's extent misses M84 or NGC 4477: %+v", c)
+	}
+	for _, name := range []string{"Coma Cluster", "Draco Triplet", "Kemble's Cascade", "Orion's Belt", "Copeland's Septet", "Deer Lick Group"} {
+		if hits, err := ix.Search(context.Background(), name, 1); err != nil || len(hits) == 0 || hits[0].Name != name {
+			t.Errorf("%s: %+v %v", name, hits, err)
+		}
+	}
+}

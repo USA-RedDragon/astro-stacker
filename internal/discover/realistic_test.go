@@ -239,6 +239,7 @@ func TestRealisticAutoLinks(t *testing.T) {
 		"project:Rosette": {"NGC 2238"}, "object:Omega & Eagle Nebulae": {eagleID, "M 17"}, "object:M 8 and M 20": {"M 8", "M 20"},
 		"object:Statue of Liberty Nebula": {"NGC 3576"}, "object:NGC1313": {"NGC 1313"}, "object:SH2-129": {"Sh2-129"},
 		"object:gum 3": {"RCW 1"}, "object:" + leoTriplet: {"M 65"}, "project:Veil": {"NGC 6960"},
+		"project:" + markarian: {"Markarian's Chain"}, "object:" + markarian: {"Markarian's Chain"},
 	}
 	for key, r := range matchRealistic(t) {
 		var got []string

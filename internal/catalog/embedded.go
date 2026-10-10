@@ -141,6 +141,7 @@ func LoadEmbedded() (*Index, error) {
 		return nil, fmt.Errorf("parse atlas overlay: %w", err)
 	}
 	ds.Apply(ov)
+	ds.Apply(curatedOverlay())
 	return NewIndex(ds), nil
 }
 
