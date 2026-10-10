@@ -32,17 +32,17 @@ func Rules() []Rule {
 	return []Rule{
 		{Name: "Project Priority", DefaultWeight: 50, Description: "High 1.0, Normal 0.5, Low 0."},
 		{Name: "Setting Soonest", DefaultWeight: 50, Description: "Higher the sooner the target sets tonight."},
-		{Name: "Percent Complete", DefaultWeight: 50, Description: "Fraction of the goal already reached."},
+		{Name: "Percent Complete", DefaultWeight: 50, Description: "Average completion of the target's enabled exposure plans: the goal where the stacker publishes one, otherwise accepted (or acquired) against desired."},
 		{Name: "Target Switch Penalty", DefaultWeight: 67, Description: "1.0 for the target already running."},
 		{Name: "Mosaic Completion", DefaultWeight: 0, Description: "Stock rule: favours a panel behind the mosaic's average."},
 		{Name: "Panel Deficit", DefaultWeight: 0, Description: "Steers time to the panel and filter furthest behind its goal."},
 		{Name: "Meridian Window Priority", DefaultWeight: 75, Description: "Favours targets inside their meridian window."},
 		{Name: "Meridian Flip Penalty", DefaultWeight: 0, Description: "Avoids targets about to need a flip."},
-		{Name: "Smart Exposure Order", DefaultWeight: 0, Description: "Favours filters that suit tonight's moon."},
-		{Name: "Novelty", DefaultWeight: 10, New: true, Description: "Favours targets with little data over deepening ones that already have plenty. 1.0 with no subs, falling to 0 as the weakest filter reaches its goal."},
+		{Name: "Smart Exposure Order", DefaultWeight: 0, Description: "Favours filters that suit tonight's moon. Scores 0 unless the project has Smart Exposure Order turned on."},
+		{Name: "Novelty", DefaultWeight: 10, New: true, Description: "Favours targets with little data over deepening ones that already have plenty. 1.0 with no data, falling to 0 as the least complete plan finishes, and 20% lower once it has an hour or more."},
 		{Name: "Rarity", DefaultWeight: 20, New: true, Description: "Favours targets with a short or closing season. 1.0 with 10 or fewer usable nights left, 0 with 120 or more. Nights count only when the target clears the horizon, its maximum altitude, its meridian window and the moon avoidance of at least one filter."},
 		{Name: RuleConditionMatch, DefaultWeight: 0, New: true, Description: "Favours targets that suit tonight: high in the sky against their own peak, a filter the moon allows (narrowband shrugs off a bright moon, broadband doesn't), and the sky quality the stacker measured on the last three hours of subs (poor skies favour narrowband)."},
-		{Name: RuleSeasonalRunway, DefaultWeight: 0, New: true, Description: "Favours targets that will run out of season before they finish: the hours their goals still need against about 30% of the usable hours left in their season. 1.0 when they won't make it."},
+		{Name: RuleSeasonalRunway, DefaultWeight: 0, New: true, Description: "Favours targets that will run out of season before they finish: the hours their goals still need against 30% of the usable hours left in their season (3 h a night when the season has no hour count). 1.0 when they won't make it."},
 		{Name: RuleSeasonPriority, DefaultWeight: 0, New: true, Description: "Pushes the mosaic panels the season plan says to push now: those furthest behind with the fewest months of window left. Only for mosaics using the weakest-first plan (balancing on)."},
 	}
 }
@@ -75,19 +75,26 @@ type Plan struct {
 	Gain           *int    `json:"gain"`
 	MoonSeparation float64 `json:"moonSeparation"`
 	MoonWidth      int     `json:"moonWidth"`
+	Percent        float64 `json:"percentComplete"`
+	Basis          string  `json:"completionBasis"`
 }
 
 type FilterGoal struct {
-	Filter     string          `json:"filter"`
-	StackKey   string          `json:"stackFilter"`
-	Goal       goals.Goal      `json:"goal"`
-	GoalSet    bool            `json:"goalSet"`
-	Measured   bool            `json:"measured"`
-	Progress   *goals.Progress `json:"progress,omitempty"`
-	Error      string          `json:"error,omitempty"`
-	Accepted   int             `json:"accepted"`
-	Desired    int             `json:"desired"`
-	ExposureHr float64         `json:"acceptedHours"`
+	Filter      string          `json:"filter"`
+	StackKey    string          `json:"stackFilter"`
+	Goal        *goals.Goal     `json:"goal"`
+	GoalSet     bool            `json:"goalSet"`
+	DefaultGoal goals.Goal      `json:"defaultGoal"`
+	Measured    bool            `json:"measured"`
+	Status      string          `json:"status"`
+	Measurement *Measurement    `json:"measurement,omitempty"`
+	Progress    *goals.Progress `json:"progress,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	Percent     float64         `json:"percentComplete"`
+	Basis       string          `json:"completionBasis"`
+	Accepted    int             `json:"accepted"`
+	Desired     int             `json:"desired"`
+	ExposureHr  float64         `json:"acceptedHours"`
 }
 
 type Season struct {
@@ -110,7 +117,10 @@ type Target struct {
 	Goals    []FilterGoal `json:"goals"`
 	Weakest  *FilterGoal  `json:"weakest,omitempty"`
 	Progress float64      `json:"progress"`
+	Percent  float64      `json:"percentComplete"`
 	EffHours float64      `json:"effectiveHours"`
+	HoursSrc string       `json:"effectiveHoursBasis"`
+	Driven   bool         `json:"goalDriven"`
 	Season   *Season      `json:"season,omitempty"`
 	Novelty  float64      `json:"novelty"`
 	Rarity   float64      `json:"rarity"`
@@ -141,6 +151,8 @@ type Project struct {
 	RuleWeights     []RuleWeight `json:"ruleWeights"`
 	FilterSteering  RuleWeight   `json:"filterSteering"`
 	GoalDriven      bool         `json:"goalDriven"`
+	Grader          bool         `json:"grader"`
+	Completion      Prefs        `json:"completion"`
 }
 
 type Template struct {
@@ -222,14 +234,6 @@ func deref[T any](p *T) T {
 	return *p
 }
 
-func Novelty(progress, effHours float64) float64 {
-	s := math.Max(0, math.Min(1, 1-progress))
-	if effHours >= 1 {
-		s *= 0.8
-	}
-	return s
-}
-
 func Rarity(s *Season) float64 {
 	if s == nil || s.OutOfSeason {
 		return 0
@@ -250,11 +254,13 @@ type rows struct {
 	seasons   map[string]Season
 	lastBy    map[int]time.Time
 	meas      map[goals.Key]app.GoalMeasurement
+	stacks    map[goals.Key]bool
+	prefs     map[string]Prefs
 }
 
 func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 	db := sched.WithContext(ctx)
-	r := &rows{seasons: map[string]Season{}, lastBy: map[int]time.Time{}, meas: map[goals.Key]app.GoalMeasurement{}}
+	r := &rows{seasons: map[string]Season{}, lastBy: map[int]time.Time{}, meas: map[goals.Key]app.GoalMeasurement{}, stacks: map[goals.Key]bool{}}
 	for _, q := range []any{&r.projects, &r.targets, &r.plans, &r.templates} {
 		if err := db.Order(`"Id"`).Find(q).Error; err != nil {
 			return nil, err
@@ -290,7 +296,17 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 		for _, m := range ms {
 			r.meas[goals.Key{Object: m.Object, Filter: m.Filter}] = m
 		}
+		if tableExists(appDB, "stacks") {
+			var st []struct{ Object, Filter string }
+			if err := appDB.WithContext(ctx).Table("stacks").Select("object, filter").Scan(&st).Error; err != nil {
+				return nil, err
+			}
+			for _, x := range st {
+				r.stacks[goals.Key{Object: x.Object, Filter: x.Filter}] = true
+			}
+		}
 	}
+	r.prefs = loadPrefs(ctx, db)
 	return r, nil
 }
 
@@ -370,8 +386,9 @@ func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
 		ID: pr.ID, GUID: deref(pr.GUID), Name: pr.Name, Description: deref(pr.Description),
 		State: label(States(), pr.State), Priority: label(Priorities(), pr.Priority),
 		MinimumTime: pr.MinimumTime, MinimumAltitude: pr.MinimumAltitude, IsMosaic: pr.IsMosaic != 0,
-		Progress: 1,
+		Progress: 1, Grader: pr.EnableGrader != 0, Completion: prefsFor(r.prefs, pr.ProfileID),
 	}
+	env := targetEnv{meas: r.meas, stacks: r.stacks, grader: p.Grader, prefs: p.Completion}
 	for _, rule := range Rules() {
 		w, ok := x.weightsBy[pr.ID][rule.Name]
 		p.RuleWeights = append(p.RuleWeights, RuleWeight{Name: rule.Name, Weight: w, Missing: !ok})
@@ -382,7 +399,7 @@ func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
 	var bestSeason *Season
 	anySeason := false
 	for _, tr := range x.targetsBy[pr.ID] {
-		t := buildTarget(tr, x.plansBy[tr.ID], x.tmplBy, r.meas, in)
+		t := buildTarget(tr, x.plansBy[tr.ID], x.tmplBy, env, in)
 		if s, ok := r.seasons[t.GUID]; ok && t.GUID != "" {
 			t.Season = &s
 			anySeason = true
@@ -456,11 +473,43 @@ func panelNumber(name string) int {
 	return n
 }
 
-func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, meas map[goals.Key]app.GoalMeasurement, in Inputs) Target {
-	t := Target{ID: tr.ID, GUID: deref(tr.GUID), Name: tr.Name, Active: tr.Active != 0, RAHours: tr.RA, Dec: tr.Dec, Rotation: tr.Rotation, Panel: panelNumber(tr.Name), Progress: 1, GoalMode: goals.KindSNR}
+type targetEnv struct {
+	meas   map[goals.Key]app.GoalMeasurement
+	stacks map[goals.Key]bool
+	grader bool
+	prefs  Prefs
+}
+
+func (in Inputs) targetGoalDriven(tr targetRow) bool {
+	for k := range in.Goals {
+		if k.Object == tr.Name || slices.Contains(in.objectsFor(tr), k.Object) {
+			return true
+		}
+	}
+	return false
+}
+
+func (in Inputs) measurementFor(tr targetRow, filter string, env targetEnv) (app.GoalMeasurement, goals.Key, bool, bool) {
+	key := goals.Key{Object: tr.Name, Filter: filter}
+	var m app.GoalMeasurement
+	found, stacked := false, false
+	for _, obj := range in.objectsFor(tr) {
+		k := goals.Key{Object: obj, Filter: filter}
+		stacked = stacked || env.stacks[k]
+		if cand, ok := env.meas[k]; ok && (!found || cand.EffectiveHours > m.EffectiveHours) {
+			m, found, key = cand, true, k
+		}
+	}
+	return m, key, found, stacked
+}
+
+func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env targetEnv, in Inputs) Target {
+	t := Target{ID: tr.ID, GUID: deref(tr.GUID), Name: tr.Name, Active: tr.Active != 0, RAHours: tr.RA, Dec: tr.Dec, Rotation: tr.Rotation, Panel: panelNumber(tr.Name), GoalMode: goals.KindSNR}
+	t.Driven = in.targetGoalDriven(tr)
 	byFilter := map[string]*FilterGoal{}
 	var order []string
 	var setNames []string
+	var enabledPlans []int
 	for _, p := range plans {
 		tm := tmplBy[deref(p.TemplateID)]
 		exp := p.Exposure
@@ -476,11 +525,12 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, meas
 		if !enabled {
 			continue
 		}
+		enabledPlans = append(enabledPlans, len(t.Plans)-1)
 		setNames = append(setNames, tm.Name)
 		f := tm.FilterName
 		g, ok := byFilter[f]
 		if !ok {
-			g = &FilterGoal{Filter: f, StackKey: frameheader.NormalizeFilter(f)}
+			g = &FilterGoal{Filter: f, StackKey: frameheader.NormalizeFilter(f), Percent: math.Inf(1)}
 			byFilter[f] = g
 			order = append(order, f)
 		}
@@ -489,65 +539,86 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, meas
 		g.ExposureHr += float64(p.Accepted) * exp / 3600
 	}
 	t.SetName = SetName(setNames)
-	minEff := math.Inf(1)
 	for _, f := range order {
 		g := byFilter[f]
-		key := goals.Key{Object: tr.Name, Filter: g.StackKey}
-		var m app.GoalMeasurement
-		found := false
-		for _, obj := range in.objectsFor(tr) {
-			k := goals.Key{Object: obj, Filter: g.StackKey}
-			if cand, ok := meas[k]; ok && (!found || cand.EffectiveHours > m.EffectiveHours) {
-				m, found, key = cand, true, k
-			}
-		}
+		m, key, found, stacked := in.measurementFor(tr, g.StackKey, env)
+		g.DefaultGoal = goals.DefaultGoal(g.StackKey)
+		g.DefaultGoal.TargetGUID, g.DefaultGoal.Filter = t.GUID, f
 		goal, set := in.Goals[key]
 		if !set {
 			goal, set = in.Goals[goals.Key{Object: tr.Name, Filter: g.StackKey}]
 		}
-		if !set {
-			goal = goals.DefaultGoal(g.StackKey)
-		}
-		goal.TargetGUID = t.GUID
-		goal.Filter = f
-		g.Goal = goal
 		g.GoalSet = set
 		if set {
 			t.GoalMode = goal.Kind
 		}
-		prog := 0.0
-		eff := 0.0
-		if found {
-			if m.Error != nil {
-				g.Error = *m.Error
-			} else {
-				ev := goals.Evaluate(m, goal)
-				g.Progress = &ev
-				g.Measured = true
-				prog = ev.Progress
-				eff = ev.EffectiveHours
-				if ev.Done {
-					prog = math.Max(prog, 1)
-				}
-			}
+		switch {
+		case found && m.Error != nil:
+			g.Status, g.Error = StatusFailed, *m.Error
+		case found:
+			g.Status, g.Measured = StatusMeasured, true
+			g.Measurement = measurementOf(m)
+		case stacked:
+			g.Status = StatusNotMeasured
+		default:
+			g.Status = StatusNoMaster
 		}
-		minEff = math.Min(minEff, eff)
-		if t.Weakest == nil || prog < t.Progress {
-			t.Progress = math.Min(prog, t.Progress)
+		if t.Driven && g.Measured {
+			if !set {
+				goal = g.DefaultGoal
+			}
+			goal.TargetGUID, goal.Filter = t.GUID, f
+			g.Goal = &goal
+			ev := goals.Evaluate(m, goal)
+			g.Progress = &ev
+		}
+	}
+	sum, minPct, novProg := 0.0, math.Inf(1), math.Inf(1)
+	goalHours, countHours, anyGoal := math.Inf(1), 0.0, false
+	for _, i := range enabledPlans {
+		pl := &t.Plans[i]
+		g := byFilter[pl.Filter]
+		pl.Percent, pl.Basis = planPercent(*pl, g.Progress, env.grader, env.prefs)
+		sum += pl.Percent
+		minPct = math.Min(minPct, pl.Percent)
+		if pl.Percent < g.Percent {
+			g.Percent, g.Basis = pl.Percent, pl.Basis
+		}
+		if g.Progress != nil {
+			novProg = math.Min(novProg, clamp01(g.Progress.Progress))
+		} else {
+			novProg = math.Min(novProg, clamp01(pl.Percent/100))
+		}
+		if g.Progress != nil {
+			anyGoal = true
+			goalHours = math.Min(goalHours, math.Max(0, g.Progress.EffectiveHours))
+		} else {
+			countHours += float64(max(0, pl.Accepted)) * math.Max(0, pl.Exposure) / 3600
+		}
+	}
+	for _, f := range order {
+		g := byFilter[f]
+		if math.IsInf(g.Percent, 1) {
+			g.Percent = 0
+		}
+		if t.Weakest == nil || g.Percent < t.Weakest.Percent {
 			t.Weakest = g
 		}
 		t.Goals = append(t.Goals, *g)
 	}
-	if len(order) == 0 {
-		t.Progress = 0
-		minEff = 0
+	if len(enabledPlans) > 0 {
+		t.Percent = sum / float64(len(enabledPlans)) / 100
+		t.Progress = minPct / 100
 	}
-	if math.IsInf(minEff, 1) {
-		minEff = 0
+	if anyGoal {
+		t.EffHours, t.HoursSrc = goalHours, "measured effective hours of the filters with a goal"
+	} else {
+		t.EffHours, t.HoursSrc = countHours, "accepted subs × exposure"
 	}
-	t.Progress = math.Min(t.Progress, 1)
-	t.EffHours = minEff
-	t.Novelty = Novelty(t.Progress, minEff)
+	if math.IsInf(novProg, 1) {
+		novProg = 0
+	}
+	t.Novelty = noveltyScore(novProg, t.EffHours)
 	if t.Weakest != nil {
 		w := *t.Weakest
 		t.Weakest = &w
