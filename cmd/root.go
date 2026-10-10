@@ -176,7 +176,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	})
 	extras := server.Extras{Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
-		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS, ShutdownSeconds: cfg.Scheduler.ShutdownSeconds}, schedulerDBStore.DB())}
+		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {
 		extras.Previews = obs
 	}
