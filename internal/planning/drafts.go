@@ -239,7 +239,7 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 		out.RuleWeights[r.Name] = r.DefaultWeight
 	}
 	if mosaic {
-		out.RuleWeights["Mosaic Completion"] = 75
+		out.RuleWeights["Panel Deficit"] = 75
 	}
 	plateau := true
 	if d.Goal.PlateauStop != nil {

@@ -14,6 +14,8 @@ const (
 	KindGoalEdit          Kind = "goal.edit"
 	KindRuleWeightEdit    Kind = "ruleweight.edit"
 	KindTemplateBatchEdit Kind = "exposuretemplate.batchedit"
+	KindProjectBatchEdit  Kind = "project.batchedit"
+	KindPlanBatchEdit     Kind = "exposureplan.batchedit"
 	KindTemplateClone     Kind = "exposuretemplate.clone"
 	KindTemplateDelete    Kind = "exposuretemplate.delete"
 	KindApplySet          Kind = "exposureplan.applyset"
@@ -408,15 +410,14 @@ func RuleWeightEditSpec() Spec {
 	}
 }
 
-func decodeTemplateBatch(p json.RawMessage) (TemplateBatchPayload, error) {
+func decodeBatch(p json.RawMessage, spec EditSpec) (TemplateBatchPayload, error) {
 	v, err := decodeInto[TemplateBatchPayload](p)
 	if err != nil {
 		return v, err
 	}
 	if len(v.Items) == 0 {
-		return v, fmt.Errorf("%w: no templates", ErrInvalid)
+		return v, fmt.Errorf("%w: nothing to edit", ErrInvalid)
 	}
-	spec := ExposureTemplateEdit()
 	for _, it := range v.Items {
 		it.Entity = spec.Entity
 		if err := spec.Validate(marshalRaw(it)); err != nil {
@@ -427,13 +428,24 @@ func decodeTemplateBatch(p json.RawMessage) (TemplateBatchPayload, error) {
 }
 
 func TemplateBatchEditSpec() Spec {
-	spec := ExposureTemplateEdit()
+	return batchSpec(KindTemplateBatchEdit, ExposureTemplateEdit(), "template", "templates")
+}
+
+func ProjectBatchEditSpec() Spec {
+	return batchSpec(KindProjectBatchEdit, ProjectEdit(), "project", "projects")
+}
+
+func PlanBatchEditSpec() Spec {
+	return batchSpec(KindPlanBatchEdit, ExposurePlanEdit(), "plan", "plans")
+}
+
+func batchSpec(kind Kind, spec EditSpec, one, many string) Spec {
 	return planningSpec{
-		kind:     KindTemplateBatchEdit,
-		category: CategoryTemplates,
-		validate: func(p json.RawMessage) error { _, err := decodeTemplateBatch(p); return err },
+		kind:     kind,
+		category: spec.CategoryName,
+		validate: func(p json.RawMessage) error { _, err := decodeBatch(p, spec); return err },
 		describe: func(p json.RawMessage) (Description, error) {
-			v, err := decodeTemplateBatch(p)
+			v, err := decodeBatch(p, spec)
 			if err != nil {
 				return Description{}, err
 			}
@@ -455,16 +467,11 @@ func TemplateBatchEditSpec() Spec {
 				}
 			}
 			sort.Strings(labels)
-			n := len(v.Items)
-			unit := "templates"
-			if n == 1 {
-				unit = "template"
-			}
-			d.Title = fmt.Sprintf("%s · %d %s", strings.Join(labels, ", "), n, unit)
+			d.Title = strings.Join(labels, ", ") + " · " + plural(len(v.Items), one, many)
 			return d, nil
 		},
 		inverse: func(p json.RawMessage) (Kind, json.RawMessage, error) {
-			v, err := decodeTemplateBatch(p)
+			v, err := decodeBatch(p, spec)
 			if err != nil {
 				return "", nil, err
 			}
@@ -473,7 +480,7 @@ func TemplateBatchEditSpec() Spec {
 					v.Items[i].Changes[j] = FieldChange{Field: c.Field, Before: c.After, After: c.Before}
 				}
 			}
-			return KindTemplateBatchEdit, marshalRaw(v), nil
+			return kind, marshalRaw(v), nil
 		},
 	}
 }
@@ -827,6 +834,8 @@ func PlanningSpecs() []Spec {
 		RuleWeightEditSpec(),
 		ExposureTemplateEdit(),
 		TemplateBatchEditSpec(),
+		ProjectBatchEditSpec(),
+		PlanBatchEditSpec(),
 		TemplateCloneSpec(),
 		TemplateDeleteSpec(),
 		ApplySetSpec(),

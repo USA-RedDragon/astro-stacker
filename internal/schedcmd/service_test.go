@@ -283,6 +283,8 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		schedcmd.KindRuleWeightEdit:    planningSamples[schedcmd.KindRuleWeightEdit],
 		"exposuretemplate.edit":        planningSamples["exposuretemplate.edit"],
 		schedcmd.KindTemplateBatchEdit: planningSamples[schedcmd.KindTemplateBatchEdit],
+		schedcmd.KindProjectBatchEdit:  planningSamples[schedcmd.KindProjectBatchEdit],
+		schedcmd.KindPlanBatchEdit:     planningSamples[schedcmd.KindPlanBatchEdit],
 		schedcmd.KindTemplateClone:     planningSamples[schedcmd.KindTemplateClone],
 		schedcmd.KindTemplateDelete:    planningSamples[schedcmd.KindTemplateDelete],
 		schedcmd.KindApplySet:          planningSamples[schedcmd.KindApplySet],
