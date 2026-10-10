@@ -56,11 +56,13 @@ func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmat
 				return "", "", fmt.Errorf("record master setup: %w", err)
 			}
 		}
-		if _, err := os.Stat(local); err == nil {
-			return local, key, nil
+		if _, err := os.Stat(local); err != nil {
+			if err := p.download(ctx, p.dest, cm.ObjectKey, local); err != nil {
+				return "", "", err
+			}
 		}
-		if err := p.download(ctx, p.dest, cm.ObjectKey, local); err != nil {
-			return "", "", err
+		if cm.Type == frameTypeBias && cm.MedianADU == nil {
+			p.recordBiasMedian(ctx, cm.ID, local)
 		}
 		return local, key, nil
 	case !errors.Is(err, gorm.ErrRecordNotFound):
@@ -101,6 +103,9 @@ func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmat
 	}
 	if err := p.db.WithContext(ctx).Model(&cm).UpdateColumns(masterSetup(set)).Error; err != nil {
 		return "", "", fmt.Errorf("record master setup: %w", err)
+	}
+	if set.Type == frameTypeBias {
+		p.recordBiasMedian(ctx, cm.ID, local)
 	}
 	slog.Info("Built calibration master", "type", set.Type, "night", set.Night.Format("2006-01-02"),
 		"filter", set.Filter, "frames", len(frames), "duration", time.Since(start).Round(time.Second))
@@ -276,4 +281,69 @@ func (p *Pipeline) sirilPreamble(float32bit bool) string {
 	}
 	ratio := math.Max(0.05, math.Min(0.9, p.opts.SirilMemoryRatio/float64(p.opts.Workers)))
 	return fmt.Sprintf("%s\nsetext fit\nsetcpu %d\nsetmem %.2f\n", depth, max(1, p.opts.SirilThreads), ratio)
+}
+
+func biasMedianADU(file string) (float64, error) {
+	data, _, _, err := readSub(file)
+	if err != nil {
+		return 0, err
+	}
+	var hist [math.MaxUint16 + 1]int
+	n := 0
+	for _, v := range data {
+		if math.IsNaN(float64(v)) {
+			continue
+		}
+		hist[int(math.Round(math.Min(1, math.Max(0, float64(v)))*math.MaxUint16))]++
+		n++
+	}
+	if n == 0 {
+		return 0, errors.New("master bias has no pixels")
+	}
+	seen := 0
+	for adu, c := range hist {
+		seen += c
+		if 2*seen >= n {
+			return float64(adu), nil
+		}
+	}
+	return math.MaxUint16, nil
+}
+
+func (p *Pipeline) recordBiasMedian(ctx context.Context, id int, file string) {
+	adu, err := biasMedianADU(file)
+	if err == nil {
+		err = p.db.WithContext(ctx).Model(&app.CalibrationMaster{}).Where("id = ?", id).UpdateColumn("median_adu", adu).Error
+	}
+	if err != nil && ctx.Err() == nil {
+		slog.Warn("Could not measure master bias level", "master", id, "error", err)
+	}
+}
+
+func (p *Pipeline) measureBiasMasters(ctx context.Context) {
+	var masters []app.CalibrationMaster
+	if err := p.db.WithContext(ctx).Where("type = ? AND median_adu IS NULL", frameTypeBias).Find(&masters).Error; err != nil {
+		if ctx.Err() == nil {
+			slog.Error("Finding master biases to measure failed", "error", err)
+		}
+		return
+	}
+	for _, cm := range masters {
+		if p.stopping(ctx) {
+			return
+		}
+		func() {
+			defer p.lockKey(cm.SetKey)()
+			local := filepath.Join(p.workDir, "masters", cm.SetKey+".fit")
+			if _, err := os.Stat(local); err != nil {
+				if err := p.download(ctx, p.dest, cm.ObjectKey, local); err != nil {
+					if ctx.Err() == nil {
+						slog.Warn("Could not download master bias to measure", "master", cm.ID, "error", err)
+					}
+					return
+				}
+			}
+			p.recordBiasMedian(ctx, cm.ID, local)
+		}()
+	}
 }

@@ -3,6 +3,7 @@ package stacking
 const (
 	frameTypeLight = "LIGHT"
 	frameTypeDark  = "DARK"
+	frameTypeBias  = "BIAS"
 )
 
 const (

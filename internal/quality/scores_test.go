@@ -238,7 +238,7 @@ func TestScorerMatchesLegacyAsImagesChange(t *testing.T) {
 	check := func(step string, wantReads int64) {
 		t.Helper()
 		metadataReads.Store(0)
-		got, err := s.Load(t.Context(), db, 506, measured)
+		got, err := s.Load(t.Context(), db, quality.Pedestals{Configured: 506}, measured)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -303,7 +303,7 @@ func BenchmarkLoadScores(b *testing.B) {
 	b.Run("scorer", func(b *testing.B) {
 		var s quality.Scorer
 		for b.Loop() {
-			if _, err := s.Load(b.Context(), db, 506, nil); err != nil {
+			if _, err := s.Load(b.Context(), db, quality.Pedestals{Configured: 506}, nil); err != nil {
 				b.Fatal(err)
 			}
 		}

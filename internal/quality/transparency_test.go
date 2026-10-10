@@ -132,7 +132,7 @@ func TestScoresTakeTransparency(t *testing.T) {
 		add(2, transparencyMeta(fmt.Sprintf("dark_%02d.xisf", i), filterRed, 0, 0, 700, 700+4+float64(i%3)), quality.GradingAccepted)
 	}
 
-	scores, err := quality.LoadScores(t.Context(), db, 506, []quality.Measured{
+	scores, err := quality.LoadScores(t.Context(), db, quality.Pedestals{Configured: 506}, []quality.Measured{
 		{File: "own.fits", Target: "Orion", Filter: "Luminance", Exposure: 300, SkyADU: 900, Offset: 50, HFR: 1.7, Stars: 10},
 	})
 	if err != nil {
@@ -248,7 +248,7 @@ func TestScoresTakeCoreTransparency(t *testing.T) {
 	add(21, "unmeasured.xisf", quality.GradingAccepted, nil, 993, 993+0.71*135, nil)
 	add(22, "verdict.xisf", quality.GradingRejected, "stacker: sky", 993, 993+0.71*135, photometry(0.44))
 	add(23, "graded.xisf", quality.GradingRejected, "HFR", 900, 900+135, photometry(1))
-	scores, err := quality.LoadScores(t.Context(), db, 506, measured)
+	scores, err := quality.LoadScores(t.Context(), db, quality.Pedestals{Configured: 506}, measured)
 	if err != nil {
 		t.Fatal(err)
 	}

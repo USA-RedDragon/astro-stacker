@@ -100,7 +100,7 @@ func TestPedestalAt(t *testing.T) {
 // Subs that came calibrated have no pedestal left to take off their sky.
 func TestCalibratedSubsScore(t *testing.T) {
 	t.Parallel()
-	scores, err := quality.LoadScores(t.Context(), emptyScheduler(t), 506, []quality.Measured{
+	scores, err := quality.LoadScores(t.Context(), emptyScheduler(t), quality.Pedestals{Configured: 506}, []quality.Measured{
 		{File: "a_cal.fits", Target: targetCrescent, Filter: filterHa, Exposure: 600, SkyADU: 177, HFR: 2.5, Calibrated: true},
 		{File: "b_cal.fits", Target: targetCrescent, Filter: filterHa, Exposure: 600, SkyADU: 180, HFR: 2.6, Calibrated: true},
 	})
