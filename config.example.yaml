@@ -9,6 +9,8 @@ http:
   port: 8080
   # Trusted proxies for the HTTP server
   # trusted-proxies: []
+  # The web app that the old web UI paths redirect to
+  web-url: "https://astro-processing.jackal-stargazer.ts.net"
 # Metrics server configuration
 metrics:
   # Enable metrics server
