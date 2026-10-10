@@ -138,6 +138,7 @@ func encodeSub(t *testing.T, rng *rand.Rand, model []float32) []byte {
 }
 
 type env struct {
+	mu        sync.Mutex
 	db, sched *gorm.DB
 	objects   *memObjects
 	fetches   int
@@ -165,6 +166,8 @@ func newEnv(t *testing.T) *env {
 }
 
 func (e *env) fetcher(context.Context, float64, float64, float64) ([]goals.CatalogStar, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.fetches++
 	return e.field.stars, nil
 }
@@ -431,6 +434,91 @@ func TestNeedsMeasurement(t *testing.T) {
 		if got := needsMeasurement(c.s, c.m, c.hash, c.mask); got != c.want {
 			t.Errorf("%s: %v", c.name, got)
 		}
+	}
+}
+
+func TestDueMeasuresNewStacksFirst(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e := newEnv(t)
+	old := e.addStack(t, "Old", testFilter, 4)
+	unmasked := e.addStack(t, "Unmasked", testFilter, 4)
+	sky := e.addStack(t, "Sky", "Red", 4)
+	fresh := e.addStack(t, "Fresh", testFilter, 4)
+	fresher := e.addStack(t, "Fresher", "Red", 4)
+	long := time.Now().Add(-48 * time.Hour)
+	zp := 6.0
+	for _, m := range []app.GoalMeasurement{
+		{Object: old.Object, Filter: testFilter, MethodRevision: goals.MethodRevision - 1, EffectiveHours: old.EffectiveSeconds / 3600, MeasuredAt: time.Now(), SkyRev: SkyRevision},
+		{Object: unmasked.Object, Filter: testFilter, MethodRevision: goals.MethodRevision, EffectiveHours: unmasked.EffectiveSeconds / 3600, MeasuredAt: long, SkyRev: SkyRevision},
+		{Object: sky.Object, Filter: "Red", MethodRevision: goals.MethodRevision, EffectiveHours: sky.EffectiveSeconds / 3600, MeasuredAt: long.Add(-time.Hour),
+			ZeroPoint: &zp, DepthSystem: goals.SystemGaiaG},
+	} {
+		if err := e.db.Create(&m).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.db.Create(&app.GoalMask{Object: sky.Object, Filter: "Red", Data: []byte{0}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := New(e.db, nil, e.objects, nil, Options{})
+	todo, n, err := r.due(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(todo))
+	for _, s := range todo {
+		got = append(got, s.Object)
+	}
+	want := []string{fresh.Object, fresher.Object, old.Object, sky.Object, unmasked.Object}
+	if n != 2 || strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("order %v, want %v, never measured %d", got, want, n)
+	}
+}
+
+func TestPassWaitsWhileStacking(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.addStack(t, testObject, testFilter, 8)
+	e.addStack(t, "Second", testFilter, 8)
+	var stacking sync.Mutex
+	busy := true
+	isBusy := func() bool {
+		stacking.Lock()
+		defer stacking.Unlock()
+		return busy
+	}
+	r := New(e.db, nil, e.objects, nil, Options{Workers: 2, Busy: isBusy})
+	r.poll = 5 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- r.Pass(context.Background()) }()
+	time.Sleep(50 * time.Millisecond)
+	e.objects.mu.Lock()
+	gets := e.objects.gets
+	e.objects.mu.Unlock()
+	if gets != 0 || r.Live().State != goals.BackfillPaused || r.Live().Queued != 2 || r.Live().QueuedNew != 2 {
+		t.Fatalf("measured while stacking: %d reads, %+v", gets, r.Live())
+	}
+	stacking.Lock()
+	busy = false
+	stacking.Unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("pass did not resume after stacking")
+	}
+	live := r.Live()
+	if live.State != goals.BackfillIdle || live.DoneInPass != 2 || live.LastHour != 2 || live.PerHour <= 0 {
+		t.Fatalf("live %+v", live)
+	}
+	var n int64
+	e.db.Model(&app.GoalMeasurement{}).Count(&n)
+	b, err := goals.CountBackfill(context.Background(), e.db, live)
+	if err != nil || n != 2 || b.Total != 2 || b.Measured != 2 || b.Current != 2 {
+		t.Fatalf("backfill %+v, rows %d, %v", b, n, err)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
@@ -36,6 +37,7 @@ type Extras struct {
 	Now        func() time.Time
 	Conditions *conditions.Service
 	Cutouts    *skycutout.Service
+	Backfill   func() goals.BackfillLive
 }
 
 const schedulerWriteTimeout = 45 * time.Second

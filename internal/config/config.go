@@ -72,6 +72,7 @@ type Goals struct {
 	Enabled         bool   `name:"enabled" description:"Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours"`
 	IntervalMinutes int    `name:"interval-minutes" description:"Minutes between checks for masters to measure" default:"30"`
 	MaxSubs         int    `name:"max-subs" description:"Most registered subs read per measurement; a master with more uses a fixed random subset of this many" default:"200"`
+	Workers         int    `name:"workers" description:"Masters measured at once, each using about one core; measurement waits while the stacker is working" default:"3"`
 	Publish         string `name:"publish" description:"Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on" default:"off"`
 }
 

@@ -145,6 +145,7 @@ type goalsShadow struct {
 	Enabled         *bool   `json:"enabled"          toml:"enabled"          yaml:"enabled"`
 	IntervalMinutes *int    `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
 	MaxSubs         *int    `json:"max-subs"         toml:"max-subs"         yaml:"max-subs"`
+	Workers         *int    `json:"workers"          toml:"workers"          yaml:"workers"`
 	Publish         *string `json:"publish"          toml:"publish"          yaml:"publish"`
 }
 
@@ -292,6 +293,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("goals.interval-minutes", configulator.LayerDefault, "default tag")
 	cfg.Goals.MaxSubs = 200
 	set("goals.max-subs", configulator.LayerDefault, "default tag")
+	cfg.Goals.Workers = 3
+	set("goals.workers", configulator.LayerDefault, "default tag")
 	cfg.Goals.Publish = "off"
 	set("goals.publish", configulator.LayerDefault, "default tag")
 	return nil
@@ -686,6 +689,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Goals.MaxSubs != nil {
 			cfg.Goals.MaxSubs = *s.Goals.MaxSubs
 			set("goals.max-subs", configulator.LayerFile, file)
+		}
+		if s.Goals.Workers != nil {
+			cfg.Goals.Workers = *s.Goals.Workers
+			set("goals.workers", configulator.LayerFile, file)
 		}
 		if s.Goals.Publish != nil {
 			cfg.Goals.Publish = *s.Goals.Publish
@@ -1575,6 +1582,19 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Goals.MaxSubs = int(p)
 		set("goals.max-subs", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "goals", "workers"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.workers",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Goals.Workers = int(p)
+		set("goals.workers", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "goals", "publish"); ok {
 		cfg.Goals.Publish = v
 		set("goals.publish", configulator.LayerEnv, n)
@@ -1680,6 +1700,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"goals" + o.Separator + "enabled",
 		"goals" + o.Separator + "interval-minutes",
 		"goals" + o.Separator + "max-subs",
+		"goals" + o.Separator + "workers",
 		"goals" + o.Separator + "publish",
 	}
 	for i, name := range names {
@@ -1784,7 +1805,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Bool(names[85], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
 	fs.Var(impl.NewInt(30), names[86], "Minutes between checks for masters to measure")
 	fs.Var(impl.NewInt(200), names[87], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
-	fs.String(names[88], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.Var(impl.NewInt(3), names[88], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
+	fs.String(names[89], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -2845,6 +2867,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Goals.MaxSubs = v
 		set("goals.max-subs", configulator.LayerCLI, "--"+n)
+	}
+	if n := "goals" + o.Separator + "workers"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.workers",
+				Source: "--" + n,
+			}
+		}
+		cfg.Goals.Workers = v
+		set("goals.workers", configulator.LayerCLI, "--"+n)
 	}
 	if n := "goals" + o.Separator + "publish"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -4887,6 +4921,26 @@ func (s *goalsShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".max-subs", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "workers":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".workers", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".workers", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Workers = &num
+			default:
+				return configJSONError(path+".workers", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
 		case "publish":
 			v, err := dec.ReadToken()
 			if err != nil {
@@ -5017,6 +5071,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "goals.enabled = %v\n", c.Goals.Enabled)
 	fmt.Fprintf(&b, "goals.interval-minutes = %v\n", c.Goals.IntervalMinutes)
 	fmt.Fprintf(&b, "goals.max-subs = %v\n", c.Goals.MaxSubs)
+	fmt.Fprintf(&b, "goals.workers = %v\n", c.Goals.Workers)
 	fmt.Fprintf(&b, "goals.publish = %v\n", c.Goals.Publish)
 	return b.String()
 }
