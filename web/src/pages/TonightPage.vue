@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { editEntity } from '../api/commands'
-import { getPreview, getProjects, postPreview, type Night, type OverrideField, type Preview, type SchedProject } from '../api/scheduler'
+import { getMoon, getPreview, getProjects, postPreview, type MoonNight, type Night, type OverrideField, type Preview, type SchedProject } from '../api/scheduler'
 import { clock, hm, longDate, nightOf } from '../format'
 import {
   FIELD_LABELS,
@@ -26,6 +27,7 @@ import {
   type WhatIfChange,
 } from '../plan'
 import { errorToast, notifyCommand, shell, showToast } from '../shell'
+import { moonLine, moonPhaseText, mosaicBalance, nightSpan } from '../nowtonight'
 
 const night = ref<Night>('tonight')
 const preview = ref<Preview | null>(null)
@@ -37,12 +39,28 @@ async function load(fresh = false) {
   try {
     preview.value = await getPreview(night.value, fresh)
     error.value = ''
+    loadMoon()
     if (fresh) showToast({ text: 'Re-simulated at ' + hm(Date.now()), sub: "The plan now reflects the scheduler's current state." })
   } catch (e) {
     preview.value = null
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+const moonNight = ref<MoonNight | null>(null)
+const moonError = ref('')
+
+async function loadMoon() {
+  const r = nightRange(preview.value)
+  if (!r) return
+  try {
+    moonNight.value = await getMoon(new Date(r[0]).toISOString(), new Date(r[1]).toISOString())
+    moonError.value = ''
+  } catch (e) {
+    moonNight.value = null
+    moonError.value = e instanceof Error ? e.message : String(e)
   }
 }
 
@@ -106,6 +124,48 @@ const nowX = computed(() => {
   if (!s || night.value !== 'tonight' || shell.now < s.t0 || shell.now > s.t1) return null
   return s.x(shell.now)
 })
+
+const MOON_Y = 170
+const moonY = (alt: number) => MOON_Y - Math.max(-44, Math.min(44, alt)) * 0.5
+const moonPaths = computed(() => {
+  const s = sc.value
+  const m = moonNight.value
+  if (!s || !m) return { below: '', above: [] as string[], marks: [] as { x: number; label: string; anchor: string }[] }
+  const pts = m.samples.map((p) => ({ t: ms(p.t), alt: p.alt })).filter((p) => p.t >= s.t0 && p.t <= s.t1)
+  const below = pts.map((p, i) => `${i ? 'L' : 'M'}${s.x(p.t).toFixed(1)} ${moonY(Math.min(0, p.alt)).toFixed(1)}`).join(' ')
+  const above: string[] = []
+  let seg: string[] = []
+  for (const p of pts) {
+    if (p.alt >= 0) seg.push(`${seg.length ? 'L' : 'M'}${s.x(p.t).toFixed(1)} ${moonY(p.alt).toFixed(1)}`)
+    else if (seg.length) {
+      above.push(seg.join(' '))
+      seg = []
+    }
+  }
+  if (seg.length) above.push(seg.join(' '))
+  const marks: { x: number; label: string; anchor: string }[] = []
+  const add = (v: string, word: string) => {
+    const t = ms(v)
+    if (t < s.t0 || t > s.t1) return
+    const x = s.x(t)
+    marks.push({ x, label: `${word} ${hm(t)}`, anchor: x > W - 120 ? 'end' : 'start' })
+  }
+  m.rises.forEach((v) => add(v, 'rises'))
+  m.sets.forEach((v) => add(v, 'sets'))
+  return { below, above, marks }
+})
+const moonCaption = computed(() => {
+  const r = range.value
+  return r ? moonLine(moonNight.value, r[0], r[1]) : ''
+})
+const moonPhase = computed(() => moonPhaseText(moonNight.value))
+const phaseText = computed(() => {
+  const bar = Math.max(2, (W - LABEL_W) * (moonNight.value?.illumination ?? 0))
+  return bar > (W - LABEL_W) * 0.6 ? { x: LABEL_W + 8, fill: 'var(--background)' } : { x: LABEL_W + bar + 8, fill: 'var(--muted-foreground)' }
+})
+const moonAllDown = computed(() => /below the horizon all night/.test(moonCaption.value))
+const svgH = computed(() => (moonNight.value ? 270 : 150))
+const bandH = computed(() => svgH.value - 36)
 
 const PALETTE = ['var(--c1)', 'var(--c4)', 'var(--c2)', 'var(--c3)']
 
@@ -173,8 +233,9 @@ const legend = [
 
 const timelineLabel = computed(() => {
   const r = runs(preview.value?.blocks).filter((x) => !x.wait)
-  if (!r.length) return 'Tonight has nothing planned.'
-  return "Tonight's plan: " + r.map((x) => `${x.target_name} from ${hm(x.start)} to ${hm(x.end)}`).join(', ') + '.'
+  const moon = moonCaption.value ? ' ' + moonCaption.value : ''
+  if (!r.length) return 'Tonight has nothing planned.' + moon
+  return "Tonight's plan: " + r.map((x) => `${x.target_name} from ${hm(x.start)} to ${hm(x.end)}`).join(', ') + '.' + moon
 })
 
 const picks = computed(() => pickTable(preview.value?.blocks))
@@ -296,6 +357,7 @@ const compareCurrent = computed(() => bars(preview.value, compareOrder.value))
 const compareWhatIf = computed(() => bars(whatIf.value, compareOrder.value))
 const compareTicks = computed(() => ticks.value.filter((_, i) => i % 4 === 1))
 const unreachable = computed(() => !!error.value)
+const balance = computed(() => mosaicBalance(preview.value, whatIf.value, projects.value))
 </script>
 
 <template>
@@ -311,8 +373,8 @@ const unreachable = computed(() => !!error.value)
       <div class="row">
         <label for="night" class="small muted">Night</label>
         <select id="night" v-model="night" class="input">
-          <option value="tonight">Tonight</option>
-          <option value="tomorrow">Tomorrow</option>
+          <option value="tonight">Tonight, {{ nightSpan(nightOf(shell.now)) }}</option>
+          <option value="tomorrow">Tomorrow, {{ nightSpan(new Date(nightOf(shell.now).getTime() + 24 * 3600 * 1000)) }}</option>
         </select>
         <button type="button" class="btn" :disabled="loading" @click="load(true)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" /></svg>
@@ -350,17 +412,35 @@ const unreachable = computed(() => !!error.value)
         </div>
         <p v-if="!preview" class="empty">{{ loading ? 'Simulating.' : 'No plan yet.' }}</p>
         <div v-else-if="sc" class="scroll-x">
-          <svg :viewBox="`0 0 ${W} 150`" style="width: 100%; min-width: 56rem; display: block" role="img" :aria-label="timelineLabel">
-            <rect v-for="(b, i) in bands" :key="'b' + i" :x="b.x" y="22" :width="b.w" height="114" fill="var(--day)" :opacity="b.opacity" />
+          <svg :viewBox="`0 0 ${W} ${svgH}`" style="width: 100%; min-width: 56rem; display: block" role="img" :aria-label="timelineLabel">
+            <rect v-for="(b, i) in bands" :key="'b' + i" :x="b.x" y="22" :width="b.w" :height="bandH" fill="var(--day)" :opacity="b.opacity" />
             <g font-size="11" fill="var(--muted-foreground)" text-anchor="middle">
               <text v-for="t in ticks" :key="'t' + t.x" :x="t.x" y="14">{{ t.label }}</text>
             </g>
             <g stroke="var(--border)" stroke-width="1">
-              <line v-for="t in ticks" :key="'l' + t.x" :x1="t.x" y1="22" :x2="t.x" y2="136" />
+              <line v-for="t in ticks" :key="'l' + t.x" :x1="t.x" y1="22" :x2="t.x" :y2="22 + bandH" />
             </g>
             <g font-size="12" fill="var(--muted-foreground)">
               <text x="0" y="72">Target</text>
               <text x="0" y="116">Filter</text>
+              <template v-if="moonNight">
+                <text x="0" y="170">Moon altitude</text>
+                <text x="0" y="238">Moon phase</text>
+              </template>
+            </g>
+            <g v-if="moonNight && sc">
+              <line :x1="LABEL_W" :y1="MOON_Y" :x2="W" :y2="MOON_Y" stroke="var(--muted-foreground)" stroke-width="1" />
+              <text :x="LABEL_W + 6" :y="MOON_Y - 6" font-size="10" fill="var(--muted-foreground)">horizon</text>
+              <path :d="moonPaths.below" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-dasharray="4 4" />
+              <path v-for="(d, i) in moonPaths.above" :key="'ma' + i" :d="d" fill="none" stroke="var(--foreground)" stroke-width="2" />
+              <template v-for="(mk, i) in moonPaths.marks" :key="'mk' + i">
+                <circle :cx="mk.x" :cy="MOON_Y" r="3.5" fill="var(--foreground)" />
+                <text :x="mk.anchor === 'end' ? mk.x - 6 : mk.x + 6" :y="MOON_Y - 14" font-size="10" :text-anchor="mk.anchor" fill="var(--foreground)">{{ mk.label }}</text>
+              </template>
+              <text v-if="moonAllDown" :x="(LABEL_W + W) / 2" y="208" font-size="10" text-anchor="middle" fill="var(--muted-foreground)">below horizon all night</text>
+              <rect :x="LABEL_W" y="226" :width="W - LABEL_W" height="16" rx="3" fill="var(--secondary)" />
+              <rect :x="LABEL_W" y="226" :width="Math.max(2, (W - LABEL_W) * moonNight.illumination)" height="16" rx="3" fill="var(--foreground)" opacity="0.85" />
+              <text :x="phaseText.x" y="238" font-size="10" :fill="phaseText.fill">{{ moonPhase }}</text>
             </g>
             <g v-for="(b, i) in targetBars" :key="'tb' + i">
               <title>{{ b.title }}</title>
@@ -384,7 +464,7 @@ const unreachable = computed(() => !!error.value)
               <rect v-for="(f, i) in filterBars" :key="'f' + i" :x="f.x" y="104" :width="f.w" height="16" :fill="f.fill"><title>{{ f.title }}</title></rect>
             </g>
             <template v-if="nowX !== null">
-              <line :x1="nowX" y1="22" :x2="nowX" y2="136" stroke="var(--foreground)" stroke-width="2" />
+              <line :x1="nowX" y1="22" :x2="nowX" :y2="22 + bandH" stroke="var(--foreground)" stroke-width="2" />
               <text :x="nowX + 4" y="34" font-size="11" font-weight="600" fill="var(--foreground)">now</text>
             </template>
           </svg>
@@ -393,6 +473,7 @@ const unreachable = computed(() => !!error.value)
         <div class="row xsmall muted" style="gap: 0.875rem">
           <span v-for="l in legend" :key="l.label"><span class="key" :style="{ background: l.fill, borderRadius: 0 }"></span>{{ l.label }}</span>
           <span>Twilight times are for the observatory site, rounded to the minute.</span>
+          <span v-if="moonError">The Moon is not drawn: {{ moonError }}</span>
         </div>
       </section>
     </template>
@@ -508,6 +589,10 @@ const unreachable = computed(() => !!error.value)
               <span>{{ d.name }}</span><span style="font-weight: 600">{{ d.change }}</span>
             </li>
           </ul>
+          <div v-for="b in balance" :key="b.projectGuid" role="status" class="balance">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
+            <span>{{ b.text }} <RouterLink :to="{ name: 'mosaic', params: { projectId: b.projectGuid }, query: { tab: 'panels' } }" class="underline">Review balancing</RouterLink></span>
+          </div>
           <div class="actions">
             <button type="button" class="btn" :disabled="!changes.length" @click="discard">Discard</button>
             <button type="button" class="btn primary" :disabled="!changes.length || applying" @click="apply">Apply after this exposure</button>
@@ -628,6 +713,19 @@ const unreachable = computed(() => !!error.value)
   gap: 0.75rem;
   border-bottom: 1px solid var(--border);
   padding-bottom: 0.375rem;
+}
+.balance {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  background: var(--warn-bg);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.8125rem;
+}
+.underline {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .actions {
   display: flex;

@@ -185,10 +185,96 @@ export interface TonightSub {
   preview_url?: string
 }
 
+export interface HFRLimit {
+  target_id: number
+  filter: string
+  mean: number
+  sd: number
+  samples: number
+  limit: number
+}
+
 export interface TonightSubs {
   since: string
   subs: TonightSub[]
   latest?: TonightSub
+  hfr_sigma?: number
+  hfr_limits?: HFRLimit[]
+}
+
+export type ConditionSource = 'none' | 'error' | 'prometheus' | 'symmetricds'
+
+export interface SourceState {
+  source: ConditionSource
+  error?: string
+}
+
+export interface WeatherReport extends SourceState {
+  connected?: boolean
+  cloud_cover?: number
+  rain_rate?: number
+  wind_speed?: number
+  wind_gust?: number
+  humidity?: number
+  dew_point?: number
+  temperature?: number
+  sky_temperature?: number
+  sky_brightness?: number
+  pressure?: number
+}
+
+export interface SafetyReport extends SourceState {
+  connected?: boolean
+  safe?: boolean
+}
+
+export interface MountReport extends SourceState {
+  connected?: boolean
+  tracking?: boolean
+  parked?: boolean
+  slewing?: boolean
+  at_home?: boolean
+  altitude?: number
+  flip_hours?: number
+}
+
+export interface PowerReport extends SourceState {
+  model?: string
+  charge?: number
+  input_voltage?: number
+  flags?: string[]
+  on_battery: boolean
+  low_battery: boolean
+  on_battery_seconds?: number
+  shutdown_seconds?: number
+}
+
+export interface SyncReport extends SourceState {
+  node?: string
+  heartbeat?: string
+  last_batch?: string
+  lag_seconds?: number
+  errors: number
+}
+
+export interface Conditions {
+  at: string
+  weather: WeatherReport
+  safety: SafetyReport
+  mount: MountReport
+  power: PowerReport
+  sync: SyncReport
+}
+
+export interface MoonNight {
+  samples: { t: string; alt: number }[]
+  illumination: number
+  age: number
+  waxing: boolean
+  rises: string[]
+  sets: string[]
+  next_new: string
+  next_full: string
 }
 
 export type Night = 'tonight' | 'tomorrow'
@@ -204,3 +290,7 @@ export const postPreview = (night: Night, overrides: Override[]) =>
 export const getProjects = () => api.get<SchedProject[]>('/scheduler/projects')
 
 export const getTonightSubs = (since?: string) => api.get<TonightSubs>('/scheduler/tonight-subs' + query({ since }))
+
+export const getConditions = () => api.get<Conditions>('/scheduler/conditions')
+
+export const getMoon = (start: string, end: string) => api.get<MoonNight>('/scheduler/moon' + query({ start, end }))

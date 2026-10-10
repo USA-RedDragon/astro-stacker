@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { submitCommand, type CommandRecord } from '../api/commands'
 import { onEvent } from '../api/events'
-import { getPreview, getTonightSubs, type Preview, type TonightSub, type TonightSubs } from '../api/scheduler'
+import { getConditions, getMoon, getPreview, getTonightSubs, type Conditions, type MoonNight, type Preview, type TonightSub, type TonightSubs } from '../api/scheduler'
 import { clock, hm, longDate, mmss, nightOf } from '../format'
 import {
   capitalise,
@@ -14,6 +14,7 @@ import {
   isRejected,
   median,
   ms,
+  nightRange,
   pausePayload,
   priorityName,
   raHms,
@@ -25,6 +26,7 @@ import {
   type ResumeMode,
 } from '../plan'
 import { errorToast, exposureEnd, notifyCommand, shell } from '../shell'
+import { conditionPills, hasData, hfrLimitFor, moonLine, noSourceText, powerView, safetyBadge, weatherNote, weatherRows } from '../nowtonight'
 
 const st = computed(() => shell.scheduler)
 const online = computed(() => st.value.reachable === 'online')
@@ -46,10 +48,34 @@ async function loadSubs() {
   }
 }
 
+const conditions = ref<Conditions | null>(null)
+const conditionsError = ref('')
+const moonNight = ref<MoonNight | null>(null)
+
+async function loadConditions() {
+  try {
+    conditions.value = await getConditions()
+    conditionsError.value = ''
+  } catch (e) {
+    conditionsError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function loadMoon() {
+  const r = nightRange(preview.value)
+  if (!r) return
+  try {
+    moonNight.value = await getMoon(new Date(r[0]).toISOString(), new Date(r[1]).toISOString())
+  } catch {
+    moonNight.value = null
+  }
+}
+
 async function loadPreview() {
   try {
     preview.value = await getPreview('tonight')
     previewError.value = ''
+    loadMoon()
   } catch (e) {
     preview.value = null
     previewError.value = e instanceof Error ? e.message : String(e)
@@ -58,6 +84,7 @@ async function loadPreview() {
 
 let subsTimer: ReturnType<typeof setInterval> | undefined
 let previewTimer: ReturnType<typeof setInterval> | undefined
+let conditionsTimer: ReturnType<typeof setInterval> | undefined
 let debounce: ReturnType<typeof setTimeout> | undefined
 const offs: (() => void)[] = []
 
@@ -76,6 +103,8 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => {
   loadSubs()
   loadPreview()
+  loadConditions()
+  conditionsTimer = setInterval(loadConditions, 30000)
   subsTimer = setInterval(loadSubs, 60000)
   previewTimer = setInterval(loadPreview, 300000)
   offs.push(onEvent('frames', soon), onEvent('preview', soon))
@@ -85,6 +114,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (subsTimer) clearInterval(subsTimer)
   if (previewTimer) clearInterval(previewTimer)
+  if (conditionsTimer) clearInterval(conditionsTimer)
   if (debounce) clearTimeout(debounce)
   offs.forEach((f) => f())
   window.removeEventListener('keydown', onKey)
@@ -165,7 +195,7 @@ const systems = computed(() => {
   const conn = s.reachable === 'online' ? 'reachable' : s.reachable === 'offline' ? 'unreachable' : s.reachable === 'unconfigured' ? 'not set up' : 'checking'
   const queued = shell.waiting.filter((c) => c.status === 'queued').length
   const pend = (s.pending?.length ?? 0) + queued
-  const items: { label: string; value: string; dot: string }[] = [
+  const items: { label: string; value: string; dot: string; title?: string }[] = [
     { label: 'Scheduler API', value: conn, dot: s.reachable === 'online' ? 'var(--ok)' : 'var(--bad)' },
     { label: 'Link', value: s.reachable === 'online' ? (s.live ? 'live' : 'polling') : '—', dot: s.live ? 'var(--ok)' : 'var(--muted-foreground)' },
     { label: 'State', value: state.value || '—', dot: state.value === 'imaging' ? 'var(--ok)' : 'var(--muted-foreground)' },
@@ -175,6 +205,7 @@ const systems = computed(() => {
       dot: s.web_editing === false ? 'var(--bad)' : s.web_editing ? 'var(--ok)' : 'var(--muted-foreground)',
     },
     { label: 'Last plan', value: s.last_plan_at ? hm(s.last_plan_at) : '—', dot: s.last_plan_at ? 'var(--ok)' : 'var(--muted-foreground)' },
+    ...conditionPills(conditions.value),
     { label: 'Pending', value: String(pend), dot: pend > 0 ? 'var(--warn)' : 'var(--ok)' },
   ]
   if (s.version) items.push({ label: 'Plugin', value: s.version, dot: 'var(--ok)' })
@@ -257,7 +288,16 @@ const chartRange = computed<[number, number]>(() => {
 const hfrBox = { x0: 56, x1: 1180, yTop: 20, yBottom: 190 }
 const rmsBox = { x0: 56, x1: 1180, yTop: 8, yBottom: 70 }
 const curId = computed(() => target.value?.target_id ?? latest.value?.target_id)
-const hfr = computed(() => subChart(allSubs.value, (s) => s.hfr, curId.value, chartRange.value[0], chartRange.value[1], hfrBox, { minSpan: 1 }))
+const hfrLimit = computed(() =>
+  hfrLimitFor(subs.value?.hfr_limits, allSubs.value, curId.value, target.value && exposure.value && target.value.target_id === curId.value ? exposure.value.filter : undefined),
+)
+const hfr = computed(() =>
+  subChart(allSubs.value, (s) => s.hfr, curId.value, chartRange.value[0], chartRange.value[1], hfrBox, {
+    minSpan: 1,
+    include: hfrLimit.value ? [hfrLimit.value.limit] : [],
+  }),
+)
+const rejectY = computed(() => (hfrLimit.value ? hfr.value.y(hfrLimit.value.limit) : null))
 const rms = computed(() => subChart(allSubs.value, (s) => s.guiding_rms, curId.value, chartRange.value[0], chartRange.value[1], rmsBox, { zero: true, minSpan: 1, unit: '″' }))
 const hasHfr = computed(() => allSubs.value.some((s) => s.hfr !== undefined))
 const hasRms = computed(() => allSubs.value.some((s) => s.guiding_rms !== undefined))
@@ -367,6 +407,28 @@ async function resume() {
   await send('scheduler.resume', {})
 }
 
+const weather = computed(() => weatherRows(conditions.value?.weather))
+const safety = computed(() => safetyBadge(conditions.value?.safety))
+const moonText = computed(() => {
+  const r = nightRange(preview.value)
+  return r ? moonLine(moonNight.value, r[0], r[1]) : ''
+})
+const weatherFoot = computed(() => weatherNote(conditions.value?.weather, moonText.value))
+const weatherEmpty = computed(() => {
+  if (conditionsError.value) return 'Conditions are not available: ' + conditionsError.value
+  if (!conditions.value) return 'Loading.'
+  const w = conditions.value.weather
+  if (!hasData(w)) return noSourceText(w, 'weather')
+  if (w.connected === false) return 'The weather device is not connected in NINA, so there are no readings.'
+  return weather.value.length ? '' : 'The weather device reported nothing.'
+})
+const power = computed(() => powerView(conditions.value?.power))
+const powerEmpty = computed(() => {
+  if (conditionsError.value) return 'Conditions are not available: ' + conditionsError.value
+  if (!conditions.value) return 'Loading.'
+  return power.value ? '' : noSourceText(conditions.value.power, 'UPS')
+})
+
 const fmt = (v: number | null | undefined, d = 2) => (v === null || v === undefined ? '—' : v.toFixed(d))
 const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r} ${y + r} M${x + r} ${y - r} L${x - r} ${y + r}`
 </script>
@@ -414,7 +476,7 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
     <p v-if="blockedLine" class="muted small blocked">{{ blockedLine }}</p>
 
     <section aria-label="System status" class="row">
-      <span v-for="s in systems" :key="s.label" class="pill">
+      <span v-for="s in systems" :key="s.label" class="pill" :title="s.title">
         <svg width="7" height="7" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="4" :fill="s.dot" /></svg>
         <span class="muted">{{ s.label }}</span>
         <span class="num" style="font-weight: 500">{{ s.value }}</span>
@@ -437,7 +499,7 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
               </div>
               <h2 id="current-h" class="target-h">
                 <RouterLink class="lnk" :to="{ name: 'target', params: { projectId: String(target.project_id) } }">{{ target.project_name }}</RouterLink>
-                <span class="muted" style="font-weight: 400"> / </span>{{ target.target_name }}
+                <template v-if="target.target_name !== target.project_name"><span class="muted" style="font-weight: 400"> / </span>{{ target.target_name }}</template>
               </h2>
               <p class="muted small coords num">
                 <template v-if="target.ra_hours !== undefined && target.ra_hours !== null">RA {{ raHms(target.ra_hours) }} · </template>
@@ -598,6 +660,10 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
             <text v-for="tk in hfr.xTicks" :key="'x' + tk.pos" :x="tk.pos" y="210" text-anchor="middle" font-size="11" fill="var(--muted-foreground)">{{ tk.label }}</text>
             <text :x="hfrBox.x1" y="210" text-anchor="end" font-size="11" fill="var(--foreground)">{{ hm(shell.now) }} now</text>
             <line v-if="nowX < hfrBox.x1 - 2" :x1="nowX" y1="12" :x2="nowX" y2="192" stroke="var(--foreground)" stroke-width="1" stroke-dasharray="2 3" opacity="0.6" />
+            <template v-if="rejectY !== null && hfrLimit">
+              <line :x1="hfrBox.x0" :y1="rejectY" :x2="hfrBox.x1" :y2="rejectY" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="6 4" />
+              <text :x="hfrBox.x0 + 6" :y="rejectY - 6" font-size="11" fill="var(--warn)">reject above {{ hfrLimit.limit.toFixed(2) }} px</text>
+            </template>
             <text v-if="hfr.firstLabel" :x="hfrBox.x0 + 8" y="14" font-size="11" fill="var(--muted-foreground)">{{ hfr.firstLabel }}</text>
             <template v-for="(c, i) in hfr.changes" :key="'c' + i">
               <line :x1="c.x" y1="12" :x2="c.x" y2="192" stroke="var(--foreground)" stroke-width="1" stroke-dasharray="2 3" />
@@ -650,6 +716,8 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
         <span class="legend"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="2.5" fill="var(--muted-foreground)" /></svg>Earlier target</span>
         <span class="legend"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3 L11 11 M11 3 L3 11" stroke="var(--bad)" stroke-width="2" /></svg>Rejected by the stacker or the grader</span>
         <span class="legend"><svg width="18" height="14" viewBox="0 0 18 14" aria-hidden="true"><path d="M1 7h16" stroke="var(--ok)" stroke-width="1.5" stroke-dasharray="4 3" /></svg>Median for this target</span>
+        <span v-if="hfrLimit" class="legend"><svg width="18" height="14" viewBox="0 0 18 14" aria-hidden="true"><path d="M1 7h16" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="6 4" /></svg>Grader's HFR limit for {{ filterName(hfrLimit.filter) }}: mean of {{ hfrLimit.samples }} accepted subs + {{ subs?.hfr_sigma }}σ</span>
+        <span v-else-if="subs && subs.hfr_sigma === undefined">The grader's HFR check is off, so there is no reject line.</span>
       </div>
     </section>
 
@@ -675,6 +743,44 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
         <p v-else-if="previewError" class="empty">The plan is not available: {{ previewError }}</p>
         <p v-else-if="preview" class="empty">Nothing else is planned tonight.</p>
         <p v-else class="empty">Loading.</p>
+      </section>
+
+      <section aria-labelledby="safety-h" class="card" style="gap: 0.75rem">
+        <div class="spread" style="align-items: center">
+          <h2 id="safety-h">Weather and safety</h2>
+          <span class="badge" :class="safety.tone">{{ safety.label }}</span>
+        </div>
+        <dl v-if="weather.length" class="wx num">
+          <div v-for="w in weather" :key="w.label">
+            <dt class="xsmall muted">{{ w.label }}</dt>
+            <dd>{{ w.value }}</dd>
+          </div>
+        </dl>
+        <p v-else class="empty" style="padding: 0">{{ weatherEmpty }}</p>
+        <p v-if="weatherFoot" class="xsmall muted" style="margin: 0">{{ weatherFoot }}</p>
+      </section>
+
+      <section aria-labelledby="ups-h" class="card" style="gap: 0.75rem">
+        <div class="spread" style="align-items: center">
+          <h2 id="ups-h">Power</h2>
+          <span v-if="power" class="badge" :class="power.tone">{{ power.label }}</span>
+          <span v-else class="badge">No data</span>
+        </div>
+        <template v-if="power">
+          <div class="row num" style="align-items: baseline; gap: 0.5rem">
+            <span class="stat-lg">{{ power.charge }}</span>
+            <span class="small muted">battery{{ power.model ? ' · ' + power.model : '' }}</span>
+          </div>
+          <div v-if="power.alert" role="status" class="battery-alert num">{{ power.alert }}<template v-if="power.voltage"> · {{ power.voltage }}</template></div>
+          <details v-if="power.shutdown" class="small">
+            <summary><span style="font-weight: 500">Auto-shutdown armed</span> <span class="muted">· {{ power.shutdown }}</span></summary>
+            <p class="xsmall muted" style="margin: 0.5rem 0 0">
+              After {{ conditions?.power.shutdown_seconds }} s on battery NINA parks the mount, the Powerbox switches its outputs off, then Windows shuts down. While on
+              battery this card also shows the input voltage. The UPS reports no load or runtime, so neither is shown.
+            </p>
+          </details>
+        </template>
+        <p v-else class="empty" style="padding: 0">{{ powerEmpty }}</p>
       </section>
     </div>
 
@@ -879,6 +985,25 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
 }
 .stat-lg {
   font-size: 1.375rem;
+  font-weight: 600;
+}
+.wx {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+  font-size: 0.8125rem;
+}
+.wx dd {
+  margin: 0;
+  font-weight: 600;
+}
+.battery-alert {
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 0.875rem;
   font-weight: 600;
 }
 .legend {

@@ -502,6 +502,7 @@ export interface SubChart {
   xTicks: ChartTick[]
   changes: ChartChange[]
   firstLabel: string
+  y: (v: number) => number
 }
 
 export interface ChartBox {
@@ -525,10 +526,10 @@ export function subChart(
   t0: number,
   t1: number,
   box: ChartBox,
-  opts: { zero?: boolean; minSpan?: number; unit?: string } = {},
+  opts: { zero?: boolean; minSpan?: number; unit?: string; include?: number[] } = {},
 ): SubChart {
   const sc = scale(t0, t1, box.x0, box.x1)
-  const vals = subs.map(value).filter((v): v is number => v !== undefined && isFinite(v))
+  const vals = [...subs.map(value), ...(opts.include ?? [])].filter((v): v is number => v !== undefined && isFinite(v))
   let lo = vals.length ? Math.min(...vals) : 0
   let hi = vals.length ? Math.max(...vals) : 1
   if (opts.zero) lo = 0
@@ -589,7 +590,7 @@ export function subChart(
     if (m === null) continue
     medians.push({ x1: Math.min(...e.xs) - 10, x2: Math.max(...e.xs) + 4, y: y(m), current: id === currentTargetId, value: m })
   }
-  return { points, paths, medians, yTicks, xTicks, changes, firstLabel: subs.length ? subs[0].target : '' }
+  return { points, paths, medians, yTicks, xTicks, changes, firstLabel: subs.length ? subs[0].target : '', y }
 }
 
 export function skipPayload(t: SchedulerTarget, wholeProject: boolean, minutes: number) {
