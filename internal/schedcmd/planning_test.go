@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"gorm.io/gorm"
 )
 
 func samples() map[schedcmd.Kind]string {
@@ -177,9 +179,10 @@ func TestProjectBatchTitle(t *testing.T) {
 func TestWizardMosaicPanelsFollowCreateAndUndo(t *testing.T) {
 	t.Parallel()
 	s := newService(t, &fakeTransport{up: true, status: schedcmd.StatusApplied})
-	if err := s.AppDB.AutoMigrate(&app.MosaicPanel{}); err != nil {
+	if err := s.AppDB.AutoMigrate(&app.MosaicPanel{}, &app.Frame{}); err != nil {
 		t.Fatal(err)
 	}
+	seedRig(t, s.AppDB)
 	payload := `{"project":{"guid":"mg","name":"Gecko Mosaic","priority":1,"state":1,"minimumtime":60,"minimumaltitude":15,"is_mosaic":true},` +
 		`"mosaic":{"layout":"grid","rotation":0,"overlap":15,"cols":2,"rows":1},` +
 		`"targets":[{"guid":"t1","name":"Gecko Mosaic Panel 1","ra_hours":22.4,"dec":40.8,"rotation":0,"plans":[]},` +
@@ -206,9 +209,10 @@ func TestWizardMosaicPanelsFollowCreateAndUndo(t *testing.T) {
 func TestWizardMosaicPanelsGoWhenCreateIsCancelled(t *testing.T) {
 	t.Parallel()
 	s := newService(t, &fakeTransport{up: true, status: schedcmd.StatusPending, cancelAs: schedcmd.StatusCancelled})
-	if err := s.AppDB.AutoMigrate(&app.MosaicPanel{}); err != nil {
+	if err := s.AppDB.AutoMigrate(&app.MosaicPanel{}, &app.Frame{}); err != nil {
 		t.Fatal(err)
 	}
+	seedRig(t, s.AppDB)
 	payload := `{"project":{"guid":"mc","name":"Cancelled Mosaic","priority":1,"state":1,"is_mosaic":true},` +
 		`"targets":[{"guid":"c1","name":"Cancelled Mosaic Panel 1","ra_hours":5.5,"dec":-5.4,"rotation":0},` +
 		`{"guid":"c2","name":"Cancelled Mosaic Panel 2","ra_hours":5.7,"dec":-5.4,"rotation":0}]}`
@@ -223,5 +227,17 @@ func TestWizardMosaicPanelsGoWhenCreateIsCancelled(t *testing.T) {
 	s.AppDB.Model(&app.MosaicPanel{}).Where("project_guid = ?", "mc").Count(&n)
 	if n != 0 {
 		t.Fatalf("cancel left %d panels", n)
+	}
+}
+
+const lightFrame = "LIGHT"
+
+func seedRig(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	now := time.Now()
+	w, h, fl, px := 6248, 4176, 405.0, 3.76
+	if err := db.Create(&app.Frame{Key: "rig-light", ETag: "e", Type: lightFrame, Object: "Rig", DateObs: &now, LastModified: now,
+		Width: &w, Height: &h, FocalLength: &fl, PixelSize: &px}).Error; err != nil {
+		t.Fatal(err)
 	}
 }

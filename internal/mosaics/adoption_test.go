@@ -9,7 +9,7 @@ import (
 )
 
 func panelProject(guid, project, prefix string, centre mosaics.Point, rows, cols int, overlap float64, numbers []int) mosaics.TSProject {
-	centres := gridCentres(centre, rows, cols, 0, overlap, mosaics.DefaultRig())
+	centres := gridCentres(centre, rows, cols, 0, overlap, testRig())
 	p := mosaics.TSProject{GUID: guid, Name: project, IsMosaic: true}
 	for i, c := range centres {
 		n := i + 1
@@ -118,7 +118,7 @@ func TestPropose(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ps := mosaics.Propose([]mosaics.TSProject{tc.project}, mosaics.DefaultRig())
+			ps := mosaics.Propose([]mosaics.TSProject{tc.project}, testRig())
 			if len(ps) != 1 {
 				t.Fatalf("%d proposals", len(ps))
 			}
@@ -150,7 +150,7 @@ func TestPropose(t *testing.T) {
 func TestProposeMarkarianGeometry(t *testing.T) {
 	t.Parallel()
 	project := markarian()
-	p := mosaics.Propose([]mosaics.TSProject{project}, mosaics.DefaultRig())[0]
+	p := mosaics.Propose([]mosaics.TSProject{project}, testRig())[0]
 	want := map[int]int{1: 2, 2: 3, 3: 2, 4: 3, 5: 4, 6: 3, 7: 2, 8: 3, 9: 2}
 	for i, a := range p.Panels {
 		if a.Panel != i+1 || a.Row != i/3 || a.Col != i%3 {
@@ -159,7 +159,7 @@ func TestProposeMarkarianGeometry(t *testing.T) {
 		if a.TargetGUID != project.Targets[i].GUID || a.Target != project.Targets[i].Name {
 			t.Fatalf("panel %d is %q %q", a.Panel, a.TargetGUID, a.Target)
 		}
-		if a.Footprint != mosaics.PanelFootprint(a.Centre, a.RotationDeg, mosaics.DefaultRig()) {
+		if a.Footprint != mosaics.PanelFootprint(a.Centre, a.RotationDeg, testRig()) {
 			t.Fatalf("panel %d footprint does not match its centre", a.Panel)
 		}
 		if len(a.Neighbours) != want[a.Panel] {
@@ -177,7 +177,7 @@ func TestProposeRhoPlacesByCoordinates(t *testing.T) {
 	t.Parallel()
 	project := rho()
 	project.Targets[0], project.Targets[5] = project.Targets[5], project.Targets[0]
-	p := mosaics.Propose([]mosaics.TSProject{project}, mosaics.DefaultRig())[0]
+	p := mosaics.Propose([]mosaics.TSProject{project}, testRig())[0]
 	for i, a := range p.Panels {
 		if a.Panel != i+1 || a.Row != i/4 || a.Col != i%4 {
 			t.Fatalf("panel %d at %d,%d", a.Panel, a.Row, a.Col)
@@ -187,7 +187,7 @@ func TestProposeRhoPlacesByCoordinates(t *testing.T) {
 
 func TestProposeGappyRowsAndCols(t *testing.T) {
 	t.Parallel()
-	p := mosaics.Propose([]mosaics.TSProject{gappy()}, mosaics.DefaultRig())[0]
+	p := mosaics.Propose([]mosaics.TSProject{gappy()}, testRig())[0]
 	wantPanels := []int{1, 2, 3, 6, 12}
 	for i, a := range p.Panels {
 		if a.Panel != wantPanels[i] || a.Row != 0 || a.Col != i {
@@ -204,7 +204,7 @@ func TestProposeLooseNamesNumberEastFirst(t *testing.T) {
 		{GUID: "w", Name: "Arc West", RA: west.RA, Dec: west.Dec},
 		{GUID: "e", Name: "Arc East", RA: east.RA, Dec: east.Dec},
 	}}
-	p := mosaics.Propose([]mosaics.TSProject{project}, mosaics.DefaultRig())[0]
+	p := mosaics.Propose([]mosaics.TSProject{project}, testRig())[0]
 	if p.Panels[0].TargetGUID != "e" || p.Panels[0].Panel != 1 || p.Panels[1].TargetGUID != "w" || p.Panels[1].Panel != 2 {
 		t.Fatalf("panels %+v", p.Panels)
 	}
@@ -225,7 +225,7 @@ func TestProposeSkipsAndOrders(t *testing.T) {
 		{GUID: "a", Name: "Alpha", RA: 10, Dec: 10},
 		{GUID: "b", Name: "Beta", RA: 10, Dec: 10},
 	}}
-	ps := mosaics.Propose([]mosaics.TSProject{rosette(), single, rho(), empty, unrelated, twins, markarian(), gappy()}, mosaics.DefaultRig())
+	ps := mosaics.Propose([]mosaics.TSProject{rosette(), single, rho(), empty, unrelated, twins, markarian(), gappy()}, testRig())
 	names := make([]string, 0, len(ps))
 	for _, p := range ps {
 		names = append(names, p.Project)
@@ -233,7 +233,7 @@ func TestProposeSkipsAndOrders(t *testing.T) {
 	if got := strings.Join(names, "|"); got != "Markarian Chain|Pelican|Rho|Rosette" {
 		t.Fatalf("proposals %s", got)
 	}
-	if ps := mosaics.Propose(nil, mosaics.DefaultRig()); len(ps) != 0 {
+	if ps := mosaics.Propose(nil, testRig()); len(ps) != 0 {
 		t.Fatalf("proposals from nothing: %v", ps)
 	}
 }
@@ -276,8 +276,8 @@ func TestFingerprint(t *testing.T) {
 			}
 		})
 	}
-	a := mosaics.Propose([]mosaics.TSProject{base}, mosaics.DefaultRig())
-	b := mosaics.Propose([]mosaics.TSProject{rho()}, mosaics.DefaultRig())
+	a := mosaics.Propose([]mosaics.TSProject{base}, testRig())
+	b := mosaics.Propose([]mosaics.TSProject{rho()}, testRig())
 	if a[0].Fingerprint != b[0].Fingerprint || a[0].Fingerprint != fp {
 		t.Fatalf("re-running changed the fingerprint")
 	}

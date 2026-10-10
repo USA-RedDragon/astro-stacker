@@ -169,7 +169,7 @@ func ConfigSchema() *configulator.Schema[Config] {
 	}
 }
 
-func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) error {
+func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) error {
 	cfg.LogLevel = LogLevel("info")
 	set("log-level", configulator.LayerDefault, "default tag")
 	cfg.HTTP.Bind = "[::]"
@@ -264,21 +264,6 @@ func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) er
 	set("public-frames.max-age-days", configulator.LayerDefault, "default tag")
 	cfg.Discover.MinAltitude = 30.0
 	set("discover.min-altitude", configulator.LayerDefault, "default tag")
-	cfg.Discover.SkyBrightness = 21.4
-	set("discover.sky-brightness", configulator.LayerDefault, "default tag")
-	cfg.Discover.FocalLength = 405.0
-	set("discover.focal-length", configulator.LayerDefault, "default tag")
-	cfg.Discover.PixelSize = 3.76
-	set("discover.pixel-size", configulator.LayerDefault, "default tag")
-	cfg.Discover.SensorWidth = 6248
-	set("discover.sensor-width", configulator.LayerDefault, "default tag")
-	cfg.Discover.SensorHeight = 4176
-	set("discover.sensor-height", configulator.LayerDefault, "default tag")
-	{
-		lst := impl.SplitList("L,R,G,B,H,O,S", sep)
-		cfg.Discover.Filters = lst
-		set("discover.filters", configulator.LayerDefault, "default tag")
-	}
 	cfg.Discover.Starfront = true
 	set("discover.starfront", configulator.LayerDefault, "default tag")
 	cfg.Discover.StarfrontURL = "https://collab.starfront.space"
@@ -1705,17 +1690,16 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Float64(names[59], 0.0, "Observatory east longitude in degrees")
 	fs.Float64(names[60], 0.0, "Observatory elevation in metres")
 	fs.Float64(names[61], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
-	fs.Float64(names[62], 21.4, "Dark-sky brightness at the site in mag/arcsec², for brightness scores")
-	fs.Float64(names[63], 405.0, "Telescope focal length in mm")
-	fs.Float64(names[64], 3.76, "Camera pixel size in µm")
-	fs.Var(impl.NewInt(6248), names[65], "Camera width in pixels")
-	fs.Var(impl.NewInt(4176), names[66], "Camera height in pixels")
-	fs.Bool(names[67], false, "The camera is one-shot colour")
-	fs.StringSlice(names[68], nil, "Filters on the wheel as L, R, G, B, H, O or S, each optionally =bandpass in nm (H=3)")
-	fs.Lookup(names[68]).DefValue = "[L,R,G,B,H,O,S]"
-	fs.Float64(names[69], 0.0, "Typical star HFR in arcseconds, for collaboration limits; 0 if unknown")
-	fs.Float64(names[70], 0.0, "Typical guiding RMS in arcseconds, for collaboration limits; 0 if unknown")
-	fs.StringSlice(names[71], nil, "Sub lengths in seconds per filter (H=600), for collaboration limits")
+	fs.Float64(names[62], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky")
+	fs.Float64(names[63], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
+	fs.Float64(names[64], 0.0, "Ignored: the pixel size is read from lights' XPIXSZ")
+	fs.Var(impl.NewInt(0), names[65], "Ignored: the image width is read from lights' headers")
+	fs.Var(impl.NewInt(0), names[66], "Ignored: the image height is read from lights' headers")
+	fs.Bool(names[67], false, "Ignored: a colour camera is recognised by BAYERPAT in lights' headers")
+	fs.StringSlice(names[68], nil, "Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights")
+	fs.Float64(names[69], 0.0, "Ignored: the typical HFR is measured from recent lights")
+	fs.Float64(names[70], 0.0, "Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights")
+	fs.StringSlice(names[71], nil, "Ignored: sub lengths per filter are read from recent lights")
 	fs.Bool(names[72], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
 	fs.String(names[73], "https://collab.starfront.space", "Starfront collaboration server")
 	fs.Var(impl.NewInt(30), names[74], "Minutes between fetches of the collaboration list")

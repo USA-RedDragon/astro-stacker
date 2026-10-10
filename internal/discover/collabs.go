@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 )
@@ -57,7 +58,7 @@ type Collab struct {
 	Panels      int                 `json:"panels"`
 	Columns     int                 `json:"columns"`
 	Rows        int                 `json:"rows"`
-	Coverage    float64             `json:"coverage"`
+	Coverage    *float64            `json:"coverage"`
 	Tonight     *Tonight            `json:"tonight,omitempty"`
 	Curve       []sky.AltitudePoint `json:"curve,omitempty"`
 	Months      [12]float64         `json:"months"`
@@ -72,48 +73,24 @@ type CollabsView struct {
 	Open      []Collab              `json:"open"`
 	Closed    []Collab              `json:"closed"`
 	ClosedAll int                   `json:"closedTotal"`
-	Rig       RigInfo               `json:"rig"`
+	Rig       rigsource.Rig         `json:"rig"`
 	Night     *NightInfo            `json:"night,omitempty"`
 	SiteError string                `json:"siteError,omitempty"`
 }
 
-type RigInfo struct {
-	FocalLength float64  `json:"focalLength"`
-	Scale       float64  `json:"scale"`
-	WidthDeg    float64  `json:"widthDeg"`
-	HeightDeg   float64  `json:"heightDeg"`
-	Colour      bool     `json:"colour"`
-	Filters     []string `json:"filters"`
-}
+const (
+	ruleAny          = "any"
+	criterionFilters = "Filters"
+)
 
-func CanonicalFilter(name string) string {
-	n := strings.ToUpper(strings.TrimSpace(name))
-	n = strings.NewReplacer("-", "", " ", "", "_", "").Replace(n)
-	switch {
-	case strings.HasPrefix(n, "HA") || strings.HasPrefix(n, "HALPHA") || n == "H":
-		return "H"
-	case strings.HasPrefix(n, "OIII") || n == "O3" || n == "O":
-		return "O"
-	case strings.HasPrefix(n, "SII") || n == "S2" || n == "S":
-		return "S"
-	case strings.HasPrefix(n, "L"):
-		return "L"
-	case strings.HasPrefix(n, "R"):
-		return "R"
-	case strings.HasPrefix(n, "G"):
-		return "G"
-	case strings.HasPrefix(n, "B"):
-		return "B"
-	}
-	return n
-}
+func CanonicalFilter(name string) string { return rigsource.CanonicalFilter(name) }
 
-func filterOrder() []string { return []string{"L", "R", "G", "B", "H", "O", "S"} }
+func filterOrder() []string { return rigsource.FilterOrder() }
 
-func (s *Service) rigFilters() []string {
+func rigFilters(rig Rig) []string {
 	var out []string
 	for _, f := range filterOrder() {
-		if _, ok := s.Rig.Filters[f]; ok {
+		if _, ok := rig.Filters[f]; ok {
 			out = append(out, f)
 		}
 	}
@@ -129,24 +106,26 @@ func span(lo, hi *float64, unit string) string {
 	case hi != nil:
 		return fmt.Sprintf("at most %g%s", *hi, unit)
 	}
-	return "any"
+	return ruleAny
 }
 
 func within(v float64, lo, hi *float64) bool {
 	return (lo == nil || v >= *lo) && (hi == nil || v <= *hi)
 }
 
-func (s *Service) criteria(p starfront.Project) []Criterion {
+func criteria(p starfront.Project, rig Rig, info rigsource.Rig) []Criterion {
 	r := p.Payload.Requirements
-	fl, scale := s.Rig.Frame.FocalLength, s.Rig.Frame.Scale()
+	fl, scale := rig.Frame.FocalLength, rig.Frame.Scale()
 	var out []Criterion
 	add := func(name, rule, you, result string) {
 		out = append(out, Criterion{Name: name, Rule: rule, You: you, Result: result})
 	}
 	limited := func(name string, v float64, lo, hi *float64, unit, you string) {
 		switch {
+		case !rig.known() && (lo != nil || hi != nil):
+			add(name, span(lo, hi, unit), "not measured", CriterionOpen)
 		case lo == nil && hi == nil:
-			add(name, "any", you, CriterionOpen)
+			add(name, ruleAny, you, CriterionOpen)
 		case within(v, lo, hi):
 			add(name, span(lo, hi, unit), you, CriterionPass)
 		default:
@@ -156,30 +135,32 @@ func (s *Service) criteria(p starfront.Project) []Criterion {
 	limited("Focal length", fl, r.MinFocalLength, r.MaxFocalLength, " mm", fmt.Sprintf("%g mm", fl))
 	limited("Image scale", scale, r.MinScale, r.MaxScale, "″/px", fmt.Sprintf("%.3f″/px", scale))
 	camera := "mono"
-	if s.Rig.Colour {
+	if rig.Colour {
 		camera = "colour"
 	}
 	switch {
+	case info.Colour == nil:
+		add("Camera", "mono or colour", "not measured", CriterionOpen)
 	case r.AcceptColour == nil || *r.AcceptColour:
 		add("Camera", "mono or colour", camera, CriterionPass)
-	case s.Rig.Colour:
+	case rig.Colour:
 		add("Camera", "mono only", camera, CriterionFail)
 	default:
 		add("Camera", "mono only", camera, CriterionPass)
 	}
 	if r.ColourMaxMoon != nil {
-		if s.Rig.Colour {
+		if rig.Colour {
 			add("Colour and Moon", fmt.Sprintf("colour cameras only below %g%% Moon", *r.ColourMaxMoon*100), "a rule you can meet", CriterionOpen)
 		} else {
 			add("Colour and Moon", fmt.Sprintf("colour cameras only below %g%% Moon", *r.ColourMaxMoon*100), "mono: does not apply", CriterionOpen)
 		}
 	}
-	out = append(out, s.filterCriterion(r))
-	out = append(out, s.qualityCriteria(r)...)
+	out = append(out, filterCriterion(r, rig))
+	out = append(out, qualityCriteria(r, rig)...)
 	if r.MinExposure != nil || r.MaxExposure != nil {
 		var ok, bad []string
 		for _, f := range filterOrder() {
-			if e, has := s.Rig.Exposures[f]; has && e > 0 {
+			if e, has := rig.Exposures[f]; has && e > 0 {
 				if within(e, r.MinExposure, r.MaxExposure) {
 					ok = append(ok, fmt.Sprintf("%s %gs", f, e))
 				} else {
@@ -189,7 +170,7 @@ func (s *Service) criteria(p starfront.Project) []Criterion {
 		}
 		switch {
 		case len(ok) == 0 && len(bad) == 0:
-			add("Sub length", span(r.MinExposure, r.MaxExposure, " s"), "not set", CriterionOpen)
+			add("Sub length", span(r.MinExposure, r.MaxExposure, " s"), "not measured", CriterionOpen)
 		case len(ok) == 0:
 			add("Sub length", span(r.MinExposure, r.MaxExposure, " s"), strings.Join(bad, ", "), CriterionFail)
 		default:
@@ -218,37 +199,40 @@ func (s *Service) criteria(p starfront.Project) []Criterion {
 	return out
 }
 
-func (s *Service) qualityCriteria(r starfront.Requirements) []Criterion {
+func qualityCriteria(r starfront.Requirements, rig Rig) []Criterion {
 	var out []Criterion
 	add := func(name, rule, you, result string) {
 		out = append(out, Criterion{Name: name, Rule: rule, You: you, Result: result})
 	}
 	if r.MaxHFR != nil {
 		switch {
-		case s.Rig.TypicalHFR <= 0:
+		case rig.TypicalHFR <= 0:
 			add("Star size", fmt.Sprintf("HFR at most %g″", *r.MaxHFR), "not measured", CriterionOpen)
-		case s.Rig.TypicalHFR <= *r.MaxHFR:
-			add("Star size", fmt.Sprintf("HFR at most %g″", *r.MaxHFR), fmt.Sprintf("%.1f″ typical", s.Rig.TypicalHFR), CriterionPass)
+		case rig.TypicalHFR <= *r.MaxHFR:
+			add("Star size", fmt.Sprintf("HFR at most %g″", *r.MaxHFR), fmt.Sprintf("%.1f″ typical", rig.TypicalHFR), CriterionPass)
 		default:
-			add("Star size", fmt.Sprintf("HFR at most %g″", *r.MaxHFR), fmt.Sprintf("%.1f″ typical", s.Rig.TypicalHFR), CriterionFail)
+			add("Star size", fmt.Sprintf("HFR at most %g″", *r.MaxHFR), fmt.Sprintf("%.1f″ typical", rig.TypicalHFR), CriterionFail)
 		}
 	}
 	if r.MaxGuideRMS != nil {
 		switch {
-		case s.Rig.TypicalRMS <= 0:
+		case rig.TypicalRMS <= 0:
 			add("Guiding", fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS), "not measured", CriterionOpen)
-		case s.Rig.TypicalRMS <= *r.MaxGuideRMS:
-			add("Guiding", fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS), fmt.Sprintf("%.2f″ typical", s.Rig.TypicalRMS), CriterionPass)
+		case rig.TypicalRMS <= *r.MaxGuideRMS:
+			add("Guiding", fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS), fmt.Sprintf("%.2f″ typical", rig.TypicalRMS), CriterionPass)
 		default:
-			add("Guiding", fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS), fmt.Sprintf("%.2f″ typical", s.Rig.TypicalRMS), CriterionFail)
+			add("Guiding", fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS), fmt.Sprintf("%.2f″ typical", rig.TypicalRMS), CriterionFail)
 		}
 	}
 	return out
 }
 
-func (s *Service) filterCriterion(r starfront.Requirements) Criterion {
+func filterCriterion(r starfront.Requirements, rig Rig) Criterion {
 	if len(r.Filters) == 0 {
-		return Criterion{Name: "Filters", Rule: "any", You: strings.Join(s.rigFilters(), " "), Result: CriterionOpen}
+		return Criterion{Name: criterionFilters, Rule: ruleAny, You: strings.Join(rigFilters(rig), " "), Result: CriterionOpen}
+	}
+	if len(rig.Filters) == 0 {
+		return Criterion{Name: criterionFilters, Rule: ruleAny, You: "not measured", Result: CriterionOpen}
 	}
 	var want, have, narrow []string
 	anyLimit := false
@@ -261,7 +245,7 @@ func (s *Service) filterCriterion(r starfront.Requirements) Criterion {
 		if limit != nil {
 			anyLimit = true
 		}
-		bp, mine := s.Rig.Filters[f]
+		bp, mine := rig.Filters[f]
 		if !mine {
 			continue
 		}
@@ -289,10 +273,10 @@ func (s *Service) filterCriterion(r starfront.Requirements) Criterion {
 	if len(have) == 0 {
 		result = CriterionFail
 	}
-	return Criterion{Name: "Filters", Rule: rule, You: you, Result: result}
+	return Criterion{Name: criterionFilters, Rule: rule, You: you, Result: result}
 }
 
-func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.State, n *sky.Night, yr *sky.Year, subjects []Subject) Collab {
+func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.State, n *sky.Night, yr *sky.Year, subjects []Subject, rig Rig, info rigsource.Rig) Collab {
 	reg := p.Payload.Region
 	c := Collab{
 		ID: p.ID, Name: p.Name, Coordinator: p.Coordinator, Status: p.Status, Kind: p.Payload.Kind, Created: p.CreatedAt(),
@@ -308,14 +292,16 @@ func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.
 			c.Progress[f] = math.Round(h*100) / 100
 		}
 	}
-	c.Criteria = s.criteria(p)
+	c.Criteria = criteria(p, rig, info)
 	c.Fits = !slices.ContainsFunc(c.Criteria, func(cr Criterion) bool { return cr.Result == CriterionFail })
-	fit := s.Rig.Frame.Fit(reg.Width*60, reg.Height*60, sky.DefaultOverlap)
-	c.Panels, c.Columns, c.Rows = fit.Panels, fit.Columns, fit.Rows
-	if c.Kind != "mosaic" {
-		c.Panels, c.Columns, c.Rows = 1, 1, 1
+	if fit := rig.fit(reg.Width*60, reg.Height*60); fit != nil {
+		c.Panels, c.Columns, c.Rows = fit.Panels, fit.Columns, fit.Rows
+		if c.Kind != "mosaic" {
+			c.Panels, c.Columns, c.Rows = 1, 1, 1
+		}
+		cov := math.Round(rig.Frame.Coverage(reg.Width, reg.Height)*1000) / 1000
+		c.Coverage = &cov
 	}
-	c.Coverage = math.Round(s.Rig.Frame.Coverage(reg.Width, reg.Height)*1000) / 1000
 	if near, _ := s.Catalog.Cone(ctx, reg.RA, reg.Dec, math.Max(0.5, math.Min(reg.Width, reg.Height)/4)); len(near) > 0 {
 		best := near[0]
 		for _, o := range near {
@@ -356,11 +342,8 @@ func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.
 }
 
 func (s *Service) Collabs(ctx context.Context, src CollabSource) (CollabsView, error) {
-	v := CollabsView{
-		Open: []Collab{}, Closed: []Collab{},
-		Rig: RigInfo{FocalLength: s.Rig.Frame.FocalLength, Scale: s.Rig.Frame.Scale(), WidthDeg: s.Rig.Frame.WidthDeg(), HeightDeg: s.Rig.Frame.HeightDeg(),
-			Colour: s.Rig.Colour, Filters: s.rigFilters()},
-	}
+	rig, info := s.rig(ctx)
+	v := CollabsView{Open: []Collab{}, Closed: []Collab{}, Rig: info}
 	if src == nil {
 		return v, nil
 	}
@@ -379,12 +362,12 @@ func (s *Service) Collabs(ctx context.Context, src CollabSource) (CollabsView, e
 	cutoff := s.now().Add(-30 * 24 * time.Hour)
 	for _, p := range st.Projects {
 		if p.Status == starfront.StatusOpen {
-			v.Open = append(v.Open, s.collab(ctx, p, st, n, yr, subjects))
+			v.Open = append(v.Open, s.collab(ctx, p, st, n, yr, subjects, rig, info))
 			continue
 		}
 		v.ClosedAll++
 		if p.CreatedAt().After(cutoff) {
-			v.Closed = append(v.Closed, s.collab(ctx, p, st, n, yr, subjects))
+			v.Closed = append(v.Closed, s.collab(ctx, p, st, n, yr, subjects, rig, info))
 		}
 	}
 	return v, nil

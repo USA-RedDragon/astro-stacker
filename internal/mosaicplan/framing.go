@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 )
 
 const (
@@ -45,6 +46,7 @@ type FramingOption struct {
 
 type Framing struct {
 	Rig               mosaics.Rig     `json:"rig"`
+	RigInfo           rigsource.Rig   `json:"rigInfo"`
 	Rotation          float64         `json:"rotation"`
 	SuggestedRotation float64         `json:"suggestedRotation"`
 	Overlap           float64         `json:"overlap"`
@@ -64,11 +66,15 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 	if o.MinorArcmin == 0 {
 		o.MinorArcmin = o.MajorArcmin
 	}
-	out := Framing{Rig: s.Rig, Overlap: defaultOverlap, NightHours: defaultNightHours, BestMonths: []string{}}
+	rig, info, err := s.rig(ctx)
+	if err != nil {
+		return Framing{}, err
+	}
+	out := Framing{Rig: rig, RigInfo: info, Overlap: defaultOverlap, NightHours: defaultNightHours, BestMonths: []string{}}
 	if req.Overlap != nil {
 		out.Overlap = math.Max(0, math.Min(50, *req.Overlap))
 	}
-	out.SuggestedRotation = mosaics.SuggestRotation(o, out.Overlap, s.Rig)
+	out.SuggestedRotation = mosaics.SuggestRotation(o, out.Overlap, rig)
 	out.Rotation = out.SuggestedRotation
 	if req.Rotation != nil {
 		out.Rotation = math.Mod(math.Mod(*req.Rotation, 180)+180, 180)
@@ -120,7 +126,7 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 		opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d nights · %s", opt.Hours, opt.Nights, season)
 		return opt
 	}
-	for i, l := range mosaics.Alternatives(o, out.Rotation, out.Overlap, s.Rig) {
+	for i, l := range mosaics.Alternatives(o, out.Rotation, out.Overlap, rig) {
 		opt := cost(l)
 		opt.Recommended = i == 0
 		out.Options = append(out.Options, opt)
@@ -128,9 +134,9 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 	if req.Rows > 0 && req.Cols > 0 {
 		var l mosaics.Layout
 		if req.Brick {
-			l = mosaics.Brick(o, req.Rows, req.Cols, out.Rotation, out.Overlap, s.Rig)
+			l = mosaics.Brick(o, req.Rows, req.Cols, out.Rotation, out.Overlap, rig)
 		} else {
-			l = mosaics.Grid(o, req.Rows, req.Cols, out.Rotation, out.Overlap, s.Rig)
+			l = mosaics.Grid(o, req.Rows, req.Cols, out.Rotation, out.Overlap, rig)
 		}
 		c := cost(l)
 		out.Chosen = &c

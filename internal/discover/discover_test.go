@@ -9,6 +9,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -335,7 +336,7 @@ func TestCollabs(t *testing.T) {
 		t.Fatalf("open %d closed %d of %d", len(v.Open), len(v.Closed), v.ClosedAll)
 	}
 	o := v.Open[0]
-	if !o.Fits || o.Panels != 1 || o.Coverage < 0.3 || o.Progress["H"] != 12.5 || o.Summary == nil || o.Tonight == nil || len(o.Curve) == 0 {
+	if !o.Fits || o.Panels != 1 || o.Coverage == nil || *o.Coverage < 0.3 || o.Progress["H"] != 12.5 || o.Summary == nil || o.Tonight == nil || len(o.Curve) == 0 {
 		t.Errorf("open collab %+v", o)
 	}
 	c := v.Closed[0]
@@ -357,5 +358,50 @@ func TestCollabs(t *testing.T) {
 	}
 	if discover.CanonicalFilter("H-a") != "H" || discover.CanonicalFilter("O-III") != "O" || discover.CanonicalFilter("Lum") != "L" {
 		t.Error("filter canonicalisation")
+	}
+}
+
+func TestUnknownRigIsNotInvented(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	s.Measure = func(context.Context) rigsource.Rig { return rigsource.Empty() }
+	ctx := context.Background()
+	res, err := s.Finder(ctx, discover.FinderQuery{Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RigError == nil || len(res.Rows) != 0 || res.Frame.Scale != 0 || res.Rig.FocalLength != nil || res.Rig.Basis.Source != rigsource.SourceNone {
+		t.Fatalf("finder with no rig %+v", res)
+	}
+	d, err := s.Object(ctx, "M31")
+	if err != nil || d.Fit != nil {
+		t.Fatalf("object fit without a rig: %+v %v", d.Fit, err)
+	}
+	src := fakeCollabs{starfront.State{Enabled: true, Projects: []starfront.Project{{ID: "a", Status: starfront.StatusOpen,
+		Payload: starfront.Payload{Kind: "single", Region: starfront.Region{RA: 10.6, Dec: 41.2, Width: 2, Height: 1},
+			Requirements: starfront.Requirements{MinFocalLength: ptr(100.0), MaxHFR: ptr(3.0)}}}}}}
+	v, err := s.Collabs(ctx, src)
+	if err != nil || len(v.Open) != 1 {
+		t.Fatalf("%+v %v", v, err)
+	}
+	for _, c := range v.Open[0].Criteria {
+		if c.Result == discover.CriterionFail {
+			t.Errorf("an unmeasured rig failed %+v", c)
+		}
+	}
+	if v.Open[0].Coverage != nil {
+		t.Errorf("coverage without a rig")
+	}
+
+	fl, px, w, h, rms := 405.0, 3.76, 6248, 4176, 0.6
+	s.Measure = func(context.Context) rigsource.Rig {
+		r := rigsource.Empty()
+		r.FocalLength, r.PixelSize, r.WidthPx, r.HeightPx, r.TypicalGuideRMS = &fl, &px, &w, &h, &rms
+		r.Filters = []string{"H"}
+		return r
+	}
+	res, err = s.Finder(ctx, discover.FinderQuery{Limit: 5})
+	if err != nil || res.RigError != nil || len(res.Rows) == 0 || res.Frame.Scale == 0 {
+		t.Fatalf("finder with a measured rig %+v %v", res.RigError, err)
 	}
 }

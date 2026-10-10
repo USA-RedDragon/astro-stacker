@@ -11,7 +11,7 @@ const singleID = "single"
 
 func TestGrid(t *testing.T) {
 	t.Parallel()
-	rig := mosaics.DefaultRig()
+	rig := testRig()
 	cases := []struct {
 		name       string
 		o          mosaics.Outline
@@ -84,7 +84,7 @@ func TestGrid(t *testing.T) {
 func TestGridNumbersFromNorthEast(t *testing.T) {
 	t.Parallel()
 	o := mosaics.Outline{Centre: mosaics.Point{RA: 187, Dec: 13}, MajorArcmin: 300, MinorArcmin: 200}
-	l := mosaics.Grid(o, 2, 3, 0, 15, mosaics.DefaultRig())
+	l := mosaics.Grid(o, 2, 3, 0, 15, testRig())
 	first, last := l.Panels[0].Centre, l.Panels[len(l.Panels)-1].Centre
 	if first.Dec <= last.Dec || first.RA <= last.RA {
 		t.Fatalf("panel 1 at %v is not north-east of panel 6 at %v", first, last)
@@ -115,7 +115,7 @@ func TestGridOverlapMatchesRequest(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			o := mosaics.Outline{Centre: mosaics.Point{RA: 100, Dec: tc.dec}, MajorArcmin: 600, MinorArcmin: 400}
-			l := mosaics.Grid(o, 3, 4, tc.rot, tc.overlap, mosaics.DefaultRig())
+			l := mosaics.Grid(o, 3, 4, tc.rot, tc.overlap, testRig())
 			for i := range l.Panels {
 				a := l.Panels[i]
 				for _, b := range l.Panels[i+1:] {
@@ -134,7 +134,7 @@ func TestGridOverlapMatchesRequest(t *testing.T) {
 
 func TestBrick(t *testing.T) {
 	t.Parallel()
-	rig := mosaics.DefaultRig()
+	rig := testRig()
 	o := mosaics.Outline{Centre: mosaics.Point{RA: 187, Dec: 13}, MajorArcmin: 400, MinorArcmin: 300}
 	cases := []struct {
 		name       string
@@ -172,7 +172,7 @@ func TestBrick(t *testing.T) {
 
 func TestAlternatives(t *testing.T) {
 	t.Parallel()
-	rig := mosaics.DefaultRig()
+	rig := testRig()
 	cases := []struct {
 		name      string
 		o         mosaics.Outline
@@ -249,7 +249,7 @@ func TestAlternatives(t *testing.T) {
 func TestAlternativesFullAndCheap(t *testing.T) {
 	t.Parallel()
 	o := mosaics.Outline{Centre: mosaics.Point{RA: 305, Dec: 40}, MajorArcmin: 480, MinorArcmin: 360, PADeg: 20}
-	ls := mosaics.Alternatives(o, 0, 15, mosaics.DefaultRig())
+	ls := mosaics.Alternatives(o, 0, 15, testRig())
 	full, cheap := -1, -1
 	for i, l := range ls {
 		if l.Kind == mosaics.KindGrid && l.Coverage >= 0.98 && (full < 0 || len(l.Panels) < len(ls[full].Panels)) {
@@ -267,8 +267,8 @@ func TestAlternativesFullAndCheap(t *testing.T) {
 	if cheap < 0 {
 		t.Fatalf("no cheaper option than %s in %v", ls[full].ID, ids(ls))
 	}
-	smaller := mosaics.Grid(o, ls[full].Rows, ls[full].Cols-1, 0, 15, mosaics.DefaultRig())
-	smallerRows := mosaics.Grid(o, ls[full].Rows-1, ls[full].Cols, 0, 15, mosaics.DefaultRig())
+	smaller := mosaics.Grid(o, ls[full].Rows, ls[full].Cols-1, 0, 15, testRig())
+	smallerRows := mosaics.Grid(o, ls[full].Rows-1, ls[full].Cols, 0, 15, testRig())
 	if smaller.Coverage >= 0.98 || smallerRows.Coverage >= 0.98 {
 		t.Fatalf("%s is not the smallest full grid", ls[full].ID)
 	}
@@ -277,7 +277,7 @@ func TestAlternativesFullAndCheap(t *testing.T) {
 func TestAlternativesDropEmptyPanels(t *testing.T) {
 	t.Parallel()
 	o := mosaics.Outline{Centre: mosaics.Point{RA: 305, Dec: 40}, MajorArcmin: 480, MinorArcmin: 360, PADeg: 20}
-	for _, l := range mosaics.Alternatives(o, 0, 15, mosaics.DefaultRig()) {
+	for _, l := range mosaics.Alternatives(o, 0, 15, testRig()) {
 		if l.Kind != mosaics.KindBrick && l.Kind != mosaics.KindGrid {
 			continue
 		}
@@ -319,7 +319,7 @@ func TestSuggestRotation(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := mosaics.SuggestRotation(tc.o, 15, mosaics.DefaultRig())
+			got := mosaics.SuggestRotation(tc.o, 15, testRig())
 			if got < 0 || got >= 180 {
 				t.Fatalf("rotation %v outside [0,180)", got)
 			}

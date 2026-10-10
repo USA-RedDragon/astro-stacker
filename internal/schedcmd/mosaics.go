@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicstore"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"gorm.io/gorm"
 )
 
@@ -103,9 +103,13 @@ func (mosaicAdoptSpec) ApplyApp(ctx context.Context, db *gorm.DB, p json.RawMess
 	if err != nil {
 		return err
 	}
+	rig, err := rigsource.MosaicRig(ctx, db)
+	if err != nil {
+		return err
+	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, x := range v.Decisions {
-			if _, err := mosaicstore.SetStatus(ctx, tx, x.ID, x.Before, x.After, "web", mosaics.DefaultRig()); err != nil {
+			if _, err := mosaicstore.SetStatus(ctx, tx, x.ID, x.Before, x.After, "web", rig); err != nil {
 				return err
 			}
 		}

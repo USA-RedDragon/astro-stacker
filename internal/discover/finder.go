@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
 
@@ -75,7 +76,7 @@ type FinderRow struct {
 	Group       string         `json:"group"`
 	Fit         sky.Fit        `json:"fit"`
 	Brightness  string         `json:"brightness"`
-	BrightScore float64        `json:"brightScore"`
+	BrightScore *float64       `json:"brightScore"`
 	Narrowband  string         `json:"narrowband"`
 	Months      [12]float64    `json:"months"`
 	BestMonths  []int          `json:"bestMonths"`
@@ -88,11 +89,13 @@ type FinderRow struct {
 }
 
 type FinderResult struct {
-	Total     int         `json:"total"`
-	Rows      []FinderRow `json:"rows"`
-	SiteError string      `json:"siteError,omitempty"`
-	Frame     FrameInfo   `json:"frame"`
-	Sky       float64     `json:"skyBrightness"`
+	Total     int           `json:"total"`
+	Rows      []FinderRow   `json:"rows"`
+	SiteError string        `json:"siteError,omitempty"`
+	RigError  *string       `json:"rigError"`
+	Frame     FrameInfo     `json:"frame"`
+	Rig       rigsource.Rig `json:"rig"`
+	Sky       float64       `json:"skyBrightness"`
 }
 
 type FrameInfo struct {
@@ -103,8 +106,11 @@ type FrameInfo struct {
 
 type finderCache struct {
 	day  time.Time
+	key  string
 	rows []FinderRow
 }
+
+const errRigUnknown = "the rig is not known yet: no lights with FOCALLEN, XPIXSZ and image size have been indexed"
 
 func fillScore(f sky.Fit) float64 {
 	switch {
@@ -118,13 +124,10 @@ func fillScore(f sky.Fit) float64 {
 	return math.Max(0, f.Fill/0.3)
 }
 
-func (s *Service) brightness(o catalog.Object) (string, float64) {
-	skyMag := s.Rig.SkyBright
-	if skyMag == 0 {
-		skyMag = 21.4
-	}
+func brightness(o catalog.Object, skyMag float64) (string, *float64) {
 	if o.BrightScore != nil {
-		return o.Brightness, *o.BrightScore
+		v := *o.BrightScore
+		return o.Brightness, &v
 	}
 	sb := o.SurfaceBrightness
 	if sb == nil && o.Magnitude != nil && o.MajorArcmin > 0 {
@@ -136,12 +139,18 @@ func (s *Service) brightness(o catalog.Object) (string, float64) {
 		v := *o.Magnitude + 2.5*math.Log10(area)
 		sb = &v
 	}
-	if sb != nil {
+	switch {
+	case sb != nil && skyMag > 0:
 		margin := skyMag - *sb
-		return fmt.Sprintf("%.1f mag/arcsec², %+.1f against your sky", *sb, margin), math.Max(0, math.Min(1, (margin+3.5)/4))
+		v := math.Round(math.Max(0, math.Min(1, (margin+3.5)/4))*100) / 100
+		return fmt.Sprintf("%.1f mag/arcsec², %+.1f against your sky", *sb, margin), &v
+	case sb != nil:
+		return fmt.Sprintf("%.1f mag/arcsec²; your sky is not measured yet", *sb), nil
 	}
-	return "Brightness not catalogued", 0.5
+	return "Brightness not catalogued", nil
 }
+
+const unknownBrightWeight = 0.5
 
 func bestMonths(m [12]float64) []int {
 	var out []int
@@ -153,17 +162,21 @@ func bestMonths(m [12]float64) []int {
 	return out
 }
 
-func (s *Service) finderRows(ctx context.Context) ([]FinderRow, error) {
+func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) {
 	site, err := s.site(ctx)
 	if err != nil {
 		return nil, err
 	}
+	if !rig.known() {
+		return nil, nil
+	}
 	now := s.now()
 	day := site.LocalNoon(now)
+	key := fmt.Sprintf("%+v|%v", rig.Frame, rig.SkyBright)
 	s.mu.Lock()
 	cached := s.finder
 	s.mu.Unlock()
-	if cached != nil && cached.day.Equal(day) {
+	if cached != nil && cached.day.Equal(day) && cached.key == key {
 		return cached.rows, nil
 	}
 	yr, err := s.year(ctx, now.Year())
@@ -182,7 +195,7 @@ func (s *Service) finderRows(ctx context.Context) ([]FinderRow, error) {
 		if g == "" || o.MajorArcmin <= 0 || o.Dec < maxDec {
 			continue
 		}
-		fit := s.Rig.Frame.Fit(o.MajorArcmin, o.MinorArcmin, sky.DefaultOverlap)
+		fit := rig.Frame.Fit(o.MajorArcmin, o.MinorArcmin, sky.DefaultOverlap)
 		if fit.Fill < minFinderFill {
 			continue
 		}
@@ -191,31 +204,39 @@ func (s *Service) finderRows(ctx context.Context) ([]FinderRow, error) {
 		if len(best) == 0 {
 			continue
 		}
-		label, bright := s.brightness(o)
+		label, bright := brightness(o, rig.SkyBright)
 		maxH := slices.Max(months[:])
-		score := 0.35*fillScore(fit) + 0.25*bright + 0.25*math.Min(1, maxH/8)
+		bw := unknownBrightWeight
+		if bright != nil {
+			bw = *bright
+		}
+		score := 0.35*fillScore(fit) + 0.25*bw + 0.25*math.Min(1, maxH/8)
 		gap := len(o.Lists) > 0
 		if gap {
 			score += 0.15
 		}
 		rows = append(rows, FinderRow{
-			Object: o, Group: g, Fit: fit, Brightness: label, BrightScore: math.Round(bright*100) / 100, Narrowband: narrowband(o.Type),
+			Object: o, Group: g, Fit: fit, Brightness: label, BrightScore: bright, Narrowband: narrowband(o.Type),
 			Months: months, BestMonths: best, Tonight: n.HoursAbove(o.RA, o.Dec, minAlt), Score: math.Round(score*1000) / 1000,
 			Rotation: o.PA, CatalogGap: gap,
 		})
 	}
 	s.mu.Lock()
-	s.finder = &finderCache{day: day, rows: rows}
+	s.finder = &finderCache{day: day, key: key, rows: rows}
 	s.mu.Unlock()
 	return rows, nil
 }
 
 func (s *Service) Finder(ctx context.Context, q FinderQuery) (FinderResult, error) {
-	out := FinderResult{
-		Frame: FrameInfo{WidthDeg: s.Rig.Frame.WidthDeg(), HeightDeg: s.Rig.Frame.HeightDeg(), Scale: s.Rig.Frame.Scale()},
-		Sky:   s.Rig.SkyBright, Rows: []FinderRow{},
+	rig, info := s.rig(ctx)
+	out := FinderResult{Sky: rig.SkyBright, Rows: []FinderRow{}, Rig: info}
+	if rig.known() {
+		out.Frame = FrameInfo{WidthDeg: rig.Frame.WidthDeg(), HeightDeg: rig.Frame.HeightDeg(), Scale: rig.Frame.Scale()}
+	} else {
+		msg := errRigUnknown
+		out.RigError = &msg
 	}
-	rows, siteErr := s.finderRows(ctx)
+	rows, siteErr := s.finderRows(ctx, rig)
 	if siteErr != nil {
 		out.SiteError = siteErr.Error()
 	}

@@ -45,21 +45,21 @@ type PanelFilter struct {
 }
 
 type Panel struct {
-	Number     int               `json:"number"`
-	TargetID   int               `json:"targetId"`
-	TargetGUID string            `json:"targetGuid"`
-	Target     string            `json:"target"`
-	Objects    []string          `json:"objects"`
-	Row        int               `json:"row"`
-	Col        int               `json:"col"`
-	RA         float64           `json:"ra"`
-	Dec        float64           `json:"dec"`
-	Rotation   float64           `json:"rotation"`
-	Footprint  mosaics.Footprint `json:"footprint"`
-	Filters    []PanelFilter     `json:"filters"`
-	Progress   float64           `json:"progress"`
-	Weakest    string            `json:"weakest"`
-	PastGoal   bool              `json:"pastGoal"`
+	Number     int                `json:"number"`
+	TargetID   int                `json:"targetId"`
+	TargetGUID string             `json:"targetGuid"`
+	Target     string             `json:"target"`
+	Objects    []string           `json:"objects"`
+	Row        int                `json:"row"`
+	Col        int                `json:"col"`
+	RA         float64            `json:"ra"`
+	Dec        float64            `json:"dec"`
+	Rotation   float64            `json:"rotation"`
+	Footprint  *mosaics.Footprint `json:"footprint"`
+	Filters    []PanelFilter      `json:"filters"`
+	Progress   float64            `json:"progress"`
+	Weakest    string             `json:"weakest"`
+	PastGoal   bool               `json:"pastGoal"`
 }
 
 type Balancing struct {
@@ -268,7 +268,7 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	if len(g.Panels) > 0 {
 		d.Rotation = g.Panels[0].Rotation
 	}
-	rows, cols := mosaics.GridCells(centres, d.Rotation, s.Rig)
+	rows, cols, footprints := s.panelGeometry(ctx, g, centres, d.Rotation)
 	ids, err := s.targetIDs(ctx, g)
 	if err != nil {
 		return d, err
@@ -276,11 +276,7 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	for i, pn := range g.Panels {
 		p := Panel{Number: pn.Number, TargetID: ids[pn.TargetGUID], TargetGUID: pn.TargetGUID, Target: pn.Object, Objects: pn.Objects, Row: rows[i], Col: cols[i],
 			RA: pn.RA, Dec: pn.Dec, Rotation: pn.Rotation, Progress: 1}
-		if pn.Planned != nil {
-			p.Footprint = *pn.Planned
-		} else {
-			p.Footprint = mosaics.PanelFootprint(centres[i], pn.Rotation, s.Rig)
-		}
+		p.Footprint = footprints[i]
 		d.Rows, d.Cols = max(d.Rows, rows[i]+1), max(d.Cols, cols[i]+1)
 		for _, f := range d.Filters {
 			st, have := best[fmt.Sprintf("%d\x00%s", i, f)]
@@ -322,6 +318,25 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	d.Noise, d.SeamStatus = NoiseAndStatus(d.Mosaics, d.Seams)
 	d.Needs = Needs(d)
 	return d, nil
+}
+
+func (s *Service) panelGeometry(ctx context.Context, g stacking.MosaicGroup, centres []mosaics.Point, rotation float64) (rows, cols []int, fps []*mosaics.Footprint) {
+	rig, _, rigErr := s.rig(ctx)
+	rows, cols, fps = make([]int, len(centres)), make([]int, len(centres)), make([]*mosaics.Footprint, len(centres))
+	if rigErr == nil {
+		rows, cols = mosaics.GridCells(centres, rotation, rig)
+	}
+	for i, pn := range g.Panels {
+		switch {
+		case pn.Planned != nil:
+			fp := *pn.Planned
+			fps[i] = &fp
+		case rigErr == nil:
+			fp := mosaics.PanelFootprint(centres[i], pn.Rotation, rig)
+			fps[i] = &fp
+		}
+	}
+	return rows, cols, fps
 }
 
 func bestStacks(g stacking.MosaicGroup, stacks []app.Stack) (map[string]app.Stack, []goals.Key) {
