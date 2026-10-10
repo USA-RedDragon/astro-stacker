@@ -25,7 +25,7 @@ func frameSetup(f app.Frame) darkcheck.Setup {
 }
 
 func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files []string) (int, error) {
-	refs, _, err := darkcheck.LoadReferences(ctx, p.db, coverage.SessionGap)
+	refs, err := darkcheck.LoadReferences(ctx, p.db, coverage.SessionGap)
 	if err != nil {
 		return 0, err
 	}
