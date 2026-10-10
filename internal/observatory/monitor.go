@@ -271,3 +271,17 @@ func (m *Monitor) applyResult(ctx context.Context, r schedcmd.Result) {
 		slog.Warn("Recording a scheduler result failed", "id", r.ID, "error", err)
 	}
 }
+
+func (m *Monitor) SchedulerState() (schedcmd.SchedulerState, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.reachable != Online || m.status == nil {
+		return schedcmd.SchedulerState{}, false
+	}
+	s := m.status
+	out := schedcmd.SchedulerState{State: s.State, Paused: s.Paused, PauseRequested: s.PauseRequested}
+	for _, k := range s.Skips {
+		out.Skips = append(out.Skips, schedcmd.SkipState{Scope: k.Scope, TargetID: k.TargetID, ProjectID: k.ProjectID, Until: k.Until})
+	}
+	return out, true
+}

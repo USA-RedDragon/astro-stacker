@@ -665,7 +665,7 @@ func applySetDiffs(v ApplySetPayload, undo bool) []Diff {
 		if len(parts) == 0 {
 			continue
 		}
-		out = append(out, Diff{Object: o, Field: "Exposure plans", Before: quote("as before"), After: quote(strings.Join(parts, "; "))})
+		out = append(out, Diff{Object: o, Field: "Exposure plans", After: quote(strings.Join(parts, "; "))})
 	}
 	return out
 }

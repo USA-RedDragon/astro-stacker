@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -30,6 +31,7 @@ import (
 	miniocreds "github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
 	"github.com/ztrue/shutdown"
+	"gorm.io/gorm"
 )
 
 func NewCommand(version, commit string) *cobra.Command {
@@ -244,6 +246,24 @@ func credentials(cfg *config.Config) *miniocreds.Credentials {
 	return miniocreds.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, "")
 }
 
+var errNoSchedulerDB = errors.New("no scheduler database")
+
+type commandSnapshot struct {
+	monitor *observatory.Monitor
+	sched   *gorm.DB
+}
+
+func (c commandSnapshot) SchedulerState() (schedcmd.SchedulerState, bool) {
+	return c.monitor.SchedulerState()
+}
+
+func (c commandSnapshot) TargetPlans(ctx context.Context, targetID int64) ([]schedcmd.PlanState, error) {
+	if c.sched == nil {
+		return nil, errNoSchedulerDB
+	}
+	return schedcmd.TargetPlansFrom(ctx, c.sched, targetID)
+}
+
 func newScheduler(ctx context.Context, cfg *config.Config, appStore, schedulerDBStore store.Store, broker *events.Broker, onCommand func(schedcmd.Record)) (*schedcmd.Service, *observatory.Monitor, *observatory.Client) {
 	obs := observatory.NewClient(cfg.Scheduler.URL, cfg.Scheduler.Token)
 	transports := []schedcmd.Transport{observatory.NewAPITransport(obs)}
@@ -261,6 +281,7 @@ func newScheduler(ctx context.Context, cfg *config.Config, appStore, schedulerDB
 	}
 	redeliver := &observatory.Redeliverer{Service: commands, Client: obs}
 	monitor := observatory.NewMonitor(obs, commands, broker)
+	commands.Snapshot = commandSnapshot{monitor: monitor, sched: schedulerDBStore.DB()}
 	monitor.OnOnline = func() { redeliver.Once(ctx) }
 	go monitor.Run(ctx)
 	go redeliver.Run(ctx, observatory.RedeliverInterval)
