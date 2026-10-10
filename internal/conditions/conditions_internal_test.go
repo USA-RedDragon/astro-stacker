@@ -47,7 +47,7 @@ func TestReportFromPrometheus(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	s := New(Options{MetricsURL: srv.URL + "/", ShutdownSeconds: 60}, nil)
+	s := New(Options{MetricsURL: srv.URL + "/"}, nil)
 	r := s.Report(context.Background())
 	if r.Weather.Source.Source != SourcePrometheus || r.Weather.Humidity == nil || *r.Weather.Humidity != 51 || r.Weather.Pressure != nil {
 		t.Fatalf("weather %+v", r.Weather)
@@ -61,12 +61,16 @@ func TestReportFromPrometheus(t *testing.T) {
 	if r.Rotator.Source.Source != SourcePrometheus || r.Rotator.Position == nil || *r.Rotator.Position != 359.5 {
 		t.Fatalf("rotator %+v", r.Rotator)
 	}
-	p := r.Power
-	if p.Model != "CyberPower EC450G" || !p.OnBattery || p.Charge == nil || *p.Charge != 97 || p.OnBatterySeconds == nil || *p.OnBatterySeconds != 95 || p.ShutdownSeconds != 60 {
-		t.Fatalf("power %+v", p)
-	}
+	checkPower(t, r.Power)
 	if r.Sync.Source.Source != SourceNone {
 		t.Fatalf("sync %+v", r.Sync)
+	}
+}
+
+func checkPower(t *testing.T, p Power) {
+	t.Helper()
+	if p.Model != "CyberPower EC450G" || !p.OnBattery || p.Charge == nil || *p.Charge != 97 || p.OnBatterySeconds == nil || *p.OnBatterySeconds != 95 {
+		t.Fatalf("power %+v", p)
 	}
 }
 

@@ -193,8 +193,6 @@ scheduler:
   # metrics-url: ""
   # The ups label of the observatory UPS in the NUT exporter's metrics
   ups: "observatory"
-  # Seconds on battery before the observatory PC shuts itself down, for the Power card; 0 if it never does
-  shutdown-seconds: 60
 # Faint-signal SNR and depth of every master, measured from random half stacks of its registered subs, and progress toward Target Scheduler goals
 goals:
   # Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours

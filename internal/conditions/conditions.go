@@ -96,7 +96,6 @@ type Power struct {
 	OnBattery        bool     `json:"on_battery"`
 	LowBattery       bool     `json:"low_battery"`
 	OnBatterySeconds *float64 `json:"on_battery_seconds,omitempty"`
-	ShutdownSeconds  int      `json:"shutdown_seconds,omitempty"`
 }
 
 type Sync struct {
@@ -120,9 +119,8 @@ type Report struct {
 }
 
 type Options struct {
-	MetricsURL      string
-	UPS             string
-	ShutdownSeconds int
+	MetricsURL string
+	UPS        string
 }
 
 type Service struct {
@@ -256,9 +254,6 @@ func (s *Service) fillMetrics(ctx context.Context, r *Report) {
 		return
 	}
 	fillPower(&r.Power, ups)
-	if r.Power.Source.Source == SourcePrometheus {
-		r.Power.ShutdownSeconds = s.opts.ShutdownSeconds
-	}
 	if r.Power.OnBattery {
 		q := fmt.Sprintf(`time() - max_over_time(timestamp(network_ups_tools_ups_status{flag="OB",ups=%q} == 0)[6h:30s])`, s.opts.UPS)
 		if v, err := s.query(ctx, q); err == nil && len(v) > 0 {
