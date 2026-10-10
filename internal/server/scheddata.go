@@ -316,14 +316,16 @@ type TonightSub struct {
 	PreviewURL    string     `json:"preview_url,omitempty"`
 	Width         *int       `json:"width"`
 	Height        *int       `json:"height"`
+	Indexed       bool       `json:"indexed"`
 	previewKey    string
 }
 
 type TonightSubs struct {
-	Since  time.Time                 `json:"since"`
-	Subs   []TonightSub              `json:"subs"`
-	Latest *TonightSub               `json:"latest,omitempty"`
-	Grader observatory.GraderSummary `json:"grader"`
+	Since         time.Time                 `json:"since"`
+	Subs          []TonightSub              `json:"subs"`
+	Latest        *TonightSub               `json:"latest,omitempty"`
+	LatestPreview *TonightSub               `json:"latest_preview,omitempty"`
+	Grader        observatory.GraderSummary `json:"grader"`
 }
 
 func finite(f quality.Float) *float64 {
@@ -360,7 +362,7 @@ type subKey struct {
 	file   string
 }
 
-func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, since time.Time) (TonightSubs, error) {
+func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, signer *previewer.Signer, since time.Time) (TonightSubs, error) {
 	out := TonightSubs{Since: since, Subs: []TonightSub{}}
 	if sched == nil || !sched.Migrator().HasTable(tableAcquired) {
 		return out, nil
@@ -411,9 +413,24 @@ func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, since time.Time
 			return out, err
 		}
 	}
+	for i := range out.Subs {
+		if out.Subs[i].previewKey == "" || signer == nil {
+			continue
+		}
+		if u, err := signer.URL(ctx, out.Subs[i].previewKey); err == nil {
+			out.Subs[i].PreviewURL = u
+		}
+	}
 	if n := len(out.Subs); n > 0 {
 		l := out.Subs[n-1]
 		out.Latest = &l
+	}
+	for i := len(out.Subs) - 1; i >= 0; i-- {
+		if out.Subs[i].PreviewURL != "" {
+			p := out.Subs[i]
+			out.LatestPreview = &p
+			break
+		}
 	}
 	return out, nil
 }
@@ -470,6 +487,7 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 		subs[i].CCDTemp = r.CCDTemp
 		subs[i].Width, subs[i].Height = r.Width, r.Height
 		subs[i].previewKey = deref(r.PreviewKey)
+		subs[i].Indexed = true
 		if r.Status != nil {
 			subs[i].Verdict = *r.Status
 			subs[i].Score = r.Score
@@ -536,17 +554,12 @@ func applySchedDataRoutes(g *gin.RouterGroup, signer *previewer.Signer, grader G
 		if di.AppStore != nil {
 			appDB = di.AppStore.DB()
 		}
-		out, err := LoadTonightSubs(c.Request.Context(), sched, appDB, since.UTC())
+		out, err := LoadTonightSubs(c.Request.Context(), sched, appDB, signer, since.UTC())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
 		out.Grader = graderFor(c.Request.Context(), grader, out.Subs)
-		if out.Latest != nil && out.Latest.previewKey != "" && signer != nil {
-			if u, err := signer.URL(c.Request.Context(), out.Latest.previewKey); err == nil {
-				out.Latest.PreviewURL = u
-			}
-		}
 		c.JSON(http.StatusOK, out)
 	})
 }

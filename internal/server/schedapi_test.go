@@ -16,12 +16,15 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
+	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	"github.com/glebarez/sqlite"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -360,6 +363,55 @@ func TestTonightSubs(t *testing.T) {
 	empty := newHandler(t, memDB(t, "s0"), memDB(t, "a0"), server.Extras{})
 	if code, body = do(t, empty, http.MethodGet, pathSubs, ""); code != http.StatusOK || !strings.Contains(string(body), `"subs":[]`) {
 		t.Fatalf("no tables: %d %s", code, body)
+	}
+}
+
+func tonightSubsWithSigner(t *testing.T, sched, appDB *gorm.DB, at func(int) time.Time) server.TonightSubs {
+	t.Helper()
+	mc, err := minio.New("127.0.0.1:1", &minio.Options{Creds: credentials.NewStaticV4("k", "s", ""), Region: "us-east-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := configulator.New(config.ConfigSchema()).Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := previewer.NewSigner(mc, mc, "processed", time.Hour)
+	h := server.NewServer(&cfg, dbStore{appDB}, dbStore{sched}, signer, events.NewBroker(), nil, "test", server.Extras{Now: func() time.Time { return at(9) }}).Handler()
+	code, body := do(t, h, http.MethodGet, pathSubs, "")
+	var got server.TonightSubs
+	if err := json.Unmarshal(body, &got); code != http.StatusOK || err != nil || len(got.Subs) != 3 {
+		t.Fatalf("%d %s", code, body)
+	}
+	return got
+}
+
+func TestTonightLatestPreviewTrailsAnUnindexedSub(t *testing.T) {
+	t.Parallel()
+	sched, appDB, at := tonightFixture(t)
+	got := tonightSubsWithSigner(t, sched, appDB, at)
+	a, c := got.Subs[0], got.Subs[2]
+	if !a.Indexed || !strings.Contains(a.PreviewURL, "previews/a.jpg") || got.Subs[1].PreviewURL != "" || !got.Subs[1].Indexed || c.Indexed {
+		t.Fatalf("subs %+v", got.Subs)
+	}
+	if got.Latest == nil || got.Latest.ID != 3 || got.Latest.PreviewURL != "" || got.Latest.Indexed {
+		t.Fatalf("latest %+v", got.Latest)
+	}
+	if got.LatestPreview == nil || got.LatestPreview.ID != 1 || got.LatestPreview.PreviewURL != a.PreviewURL || got.LatestPreview.Filter != "R" {
+		t.Fatalf("latest preview %+v", got.LatestPreview)
+	}
+
+	dobs := at(7)
+	key := "previews/c.jpg"
+	if err := appDB.Create(&app.Frame{Key: "lights/Garlic Nebula/c.fits", ETag: "4", Type: light, Object: "Garlic Nebula", Filter: "Ha", DateObs: &dobs, PreviewKey: &key}).Error; err != nil {
+		t.Fatal(err)
+	}
+	got = tonightSubsWithSigner(t, sched, appDB, at)
+	if got.Latest == nil || got.Latest.ID != 3 || !got.Latest.Indexed || !strings.Contains(got.Latest.PreviewURL, "previews/c.jpg") {
+		t.Fatalf("latest %+v", got.Latest)
+	}
+	if got.LatestPreview == nil || got.LatestPreview.ID != 3 || got.LatestPreview.PreviewURL != got.Latest.PreviewURL {
+		t.Fatalf("latest preview %+v", got.LatestPreview)
 	}
 }
 
