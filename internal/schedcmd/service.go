@@ -216,7 +216,7 @@ func (s *Service) Cancel(ctx context.Context, id string) (Record, error) {
 	if !r.Status.Waiting() {
 		return r, ErrNotWaiting
 	}
-	cancelled := false
+	cancelled, cancelledBy, message := false, "", ""
 	for _, t := range s.Transports {
 		res, err := t.Cancel(ctx, id)
 		if err != nil {
@@ -230,13 +230,30 @@ func (s *Service) Cancel(ctx context.Context, id string) (Record, error) {
 			}
 			return rec, ErrNotWaiting
 		}
-		cancelled = true
+		if !cancelled {
+			cancelled, cancelledBy, message = true, t.Name(), res.Message
+		}
 	}
 	if !cancelled && r.Status == StatusPending {
 		return r, ErrUnreachable
 	}
-	rec, err := s.record(ctx, Result{ID: id, Status: StatusCancelled, Message: "Cancelled before it reached the scheduler.", UpdatedAt: s.now()}, "")
+	if message == "" {
+		message = cancelMessage(r.Status, cancelled, cancelledBy)
+	}
+	rec, err := s.record(ctx, Result{ID: id, Status: StatusCancelled, Message: message, UpdatedAt: s.now()}, "")
 	return rec, err
+}
+
+func cancelMessage(was Status, cancelled bool, by string) string {
+	switch {
+	case cancelled && by == "queue":
+		return "Withdrawn from the database queue before the scheduler applied it."
+	case cancelled:
+		return "Cancelled on the observatory PC while it waited to apply."
+	case was == StatusQueued:
+		return "Cancelled before it was sent to the observatory."
+	}
+	return "Cancelled."
 }
 
 func (s *Service) ApplyResult(ctx context.Context, res Result) (Record, error) {
@@ -268,11 +285,8 @@ func (s *Service) record(ctx context.Context, res Result, transport string) (Rec
 		if transport != "" && r.Transport == "" {
 			r.Transport = transport
 		}
-		if res.Status == StatusApplied && r.AppliedAt == nil {
+		if res.Status == StatusApplied && r.AppliedAt == nil && !res.UpdatedAt.IsZero() {
 			t := res.UpdatedAt
-			if t.IsZero() {
-				t = s.now()
-			}
 			r.AppliedAt = &t
 		}
 		r.UpdatedAt = s.now()
