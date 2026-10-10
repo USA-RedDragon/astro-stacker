@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 )
 
@@ -248,7 +249,7 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 		out.RuleWeights[r.Name] = r.DefaultWeight
 	}
 	if mosaic {
-		out.RuleWeights["Panel Deficit"] = 75
+		out.RuleWeights["Panel Deficit"] = mosaics.PanelDeficitOnWeight
 	}
 	plateau := true
 	if d.Goal.PlateauStop != nil {
