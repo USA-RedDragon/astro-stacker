@@ -1,5 +1,5 @@
 cmd/root.go	97	0
-cmd/stack.go	57	0
+cmd/stack.go	58	0
 internal/calmatch/calmatch.go	81	75
 internal/catalog/designation.go	76	69
 internal/catalog/embedded.go	138	128
@@ -27,7 +27,7 @@ internal/indexer/indexer.go	273	41
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	81
 internal/moon/moon.go	30	28
-internal/mosaicplan/adoption.go	155	125
+internal/mosaicplan/adoption.go	154	124
 internal/mosaicplan/detail.go	241	204
 internal/mosaicplan/framing.go	63	41
 internal/mosaicplan/seasons.go	147	115
@@ -94,7 +94,7 @@ internal/stacking/moonlit.go	127	46
 internal/stacking/mosaic.go	423	136
 internal/stacking/mosaiclayout.go	211	172
 internal/stacking/mosaicmatch.go	265	237
-internal/stacking/mosaicseams.go	206	142
+internal/stacking/mosaicseams.go	211	147
 internal/stacking/outputs.go	104	17
 internal/stacking/pipeline.go	354	123
 internal/stacking/pointing.go	73	53
