@@ -146,6 +146,9 @@ func (n Night) Window(ra, dec, minAlt float64) Window {
 				w.Start = &at
 			}
 			end := at.Add(n.Step)
+			if n.Dawn != nil && end.After(*n.Dawn) {
+				end = *n.Dawn
+			}
 			w.End = &end
 		}
 	}
