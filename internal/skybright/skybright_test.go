@@ -107,3 +107,32 @@ func TestMeasureLeavesOutMoonlitSubs(t *testing.T) {
 		t.Fatalf("no value without a site: %+v", unlit)
 	}
 }
+
+func TestMeasureUsesRGBWithoutLuminance(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	now := time.Date(2026, 10, 9, 18, 0, 0, 0, time.UTC)
+	id := 0
+	for d := 1; d <= 3; d++ {
+		night := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, d)
+		for _, f := range []struct {
+			name string
+			mag  float64
+		}{{"Red", 20.8}, {"Green", 21.1}, {"H-a", 15}} {
+			for range 6 {
+				id++
+				add(t, db, id, f.name, night, night.Add(30*time.Hour), f.mag)
+			}
+		}
+	}
+	v, err := skybright.Measure(context.Background(), db, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Mag == nil || *v.Mag != 21.1 || v.Basis.Filter != "G" || v.Basis.Band != skybright.Band || v.Basis.Nights != 3 {
+		t.Fatalf("value %+v %+v", v.Mag, v.Basis)
+	}
+	if !skybright.Broadband("Blue") || skybright.Broadband("O-III") {
+		t.Error("broadband filters")
+	}
+}
