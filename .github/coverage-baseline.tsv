@@ -7,9 +7,11 @@ internal/catalog/coords.go	32	30
 internal/catalog/curated.go	2	2
 internal/catalog/designation.go	80	74
 internal/catalog/embedded.go	189	174
+internal/catalog/gen/audit.go	145	0
 internal/catalog/gen/finalize.go	72	0
-internal/catalog/gen/main.go	609	0
-internal/catalog/gen/nina.go	183	0
+internal/catalog/gen/main.go	628	0
+internal/catalog/gen/names.go	103	0
+internal/catalog/gen/nina.go	195	0
 internal/catalog/notcatalogue.go	29	28
 internal/conditions/conditions.go	204	149
 internal/conditions/moon.go	34	34
