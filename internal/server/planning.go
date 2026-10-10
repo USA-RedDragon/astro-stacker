@@ -23,6 +23,8 @@ func loadGoalSettings(ctx context.Context, appDB, sched *gorm.DB) (map[goals.Key
 }
 
 func applyPlanningRoutes(g *gin.RouterGroup) {
+	g.GET("/goals/mask", goalMaskRoute)
+	g.GET("/goals/mask/info", goalMaskInfoRoute)
 	g.GET("/planning", func(c *gin.Context) {
 		s, ok := planningSnapshot(c)
 		if !ok {
