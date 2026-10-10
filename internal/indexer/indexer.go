@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
+	"github.com/USA-RedDragon/astro-stacker/internal/darkcheck"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
@@ -115,6 +117,7 @@ func (ix *Indexer) scan(ctx context.Context) {
 	} else if n > 0 {
 		slog.Info("Measured lights without a scheduler record", "lights", n)
 	}
+	darkcheck.Run(ctx, ix.db, ix.download, photometryWorkers, coverage.SessionGap)
 }
 
 // photometryPass measures one batch of lights' starlight and reports whether
