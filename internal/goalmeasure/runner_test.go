@@ -147,7 +147,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	db := openDB(t)
-	if err := db.AutoMigrate(&app.Frame{}, &app.Stack{}, &app.StackFrame{}, &app.TargetReference{}, &app.GoalMeasurement{}, &app.GaiaField{}, &app.FrameTarget{}, &app.XPField{}, &app.SkySample{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.Stack{}, &app.StackFrame{}, &app.TargetReference{}, &app.GoalMeasurement{}, &app.GoalMask{}, &app.GaiaField{}, &app.FrameTarget{}, &app.XPField{}, &app.SkySample{}); err != nil {
 		t.Fatal(err)
 	}
 	sched := openDB(t)
@@ -238,6 +238,7 @@ func TestPassMeasuresStacks(t *testing.T) {
 	if twin.Error == nil || *twin.Error != goals.ErrInsufficientData.Error() || twin.SNR != 0 || twin.TargetGUID != "" {
 		t.Errorf("insufficient stack %+v", twin)
 	}
+	e.checkMask(t, m)
 
 	gets := e.objects.gets
 	if err := r.Pass(ctx); err != nil {
@@ -258,6 +259,110 @@ func TestPassMeasuresStacks(t *testing.T) {
 	var cache app.GaiaField
 	if err := e.db.Where(columnObject+" = ?", testObject).First(&cache).Error; err != nil || cache.Stars == "" {
 		t.Fatalf("catalogue cache %v", err)
+	}
+}
+
+func (e *env) checkMask(t *testing.T, m app.GoalMeasurement) app.GoalMask {
+	t.Helper()
+	var masks int64
+	e.db.Model(&app.GoalMask{}).Count(&masks)
+	if masks != 1 {
+		t.Fatalf("%d masks, want only the measured stack's", masks)
+	}
+	var gm app.GoalMask
+	if err := e.db.Where(columnObject+" = ? AND filter = ?", m.Object, m.Filter).First(&gm).Error; err != nil {
+		t.Fatal(err)
+	}
+	if gm.Width != testW/goals.NoiseBin || gm.Height != testH/goals.NoiseBin || gm.FrameWidth != testW || gm.FrameHeight != testH ||
+		gm.Bin != goals.NoiseBin || gm.Subs != m.Subs || !gm.MeasuredAt.Equal(m.MeasuredAt) || gm.NoiseMask != m.NoiseMask {
+		t.Fatalf("mask %+v", gm)
+	}
+	bits, err := goals.DecompressMask(gm.Data, gm.Width, gm.Height)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gm.Data) >= len(bits) {
+		t.Errorf("mask is %d bytes for %d pixels", len(gm.Data), len(bits))
+	}
+	counts := map[uint8]int{}
+	for _, v := range bits {
+		for _, b := range []uint8{goals.MaskCovered, goals.MaskBand, goals.MaskStar, goals.MaskSky} {
+			if v&b != 0 {
+				counts[b]++
+			}
+		}
+		if v&goals.MaskBand != 0 && (v&goals.MaskStar != 0 || v&goals.MaskCovered == 0) {
+			t.Fatal("band pixel is a star or uncovered")
+		}
+	}
+	if counts[goals.MaskCovered] != gm.Covered || counts[goals.MaskBand] != gm.Band || counts[goals.MaskStar] != gm.Stars ||
+		counts[goals.MaskSky] != gm.SkyPixels || gm.Band == 0 || gm.Stars == 0 || gm.SkyPixels == 0 {
+		t.Fatalf("counts %v, mask %+v", counts, gm)
+	}
+	if got := float64(gm.Band) / float64(gm.Covered); got != m.BandFraction {
+		t.Errorf("mask band fraction %v, measurement %v", got, m.BandFraction)
+	}
+	return gm
+}
+
+func TestMastersWithoutMaskAreMeasuredOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e := newEnv(t)
+	e.addStack(t, testObject, testFilter, 16)
+	r := New(e.db, nil, e.objects, nil, Options{})
+	if err := r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.Where("1 = 1").Delete(&app.GoalMask{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	gets := e.objects.gets
+	if err := r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if e.objects.gets != gets+16 {
+		t.Fatalf("remeasure without a mask: %d reads", e.objects.gets-gets)
+	}
+	gm := e.checkMask(t, e.measurement(t, testObject, testFilter))
+	if gm.Source != goals.NoiseMaskFaint || gm.BandLo == nil || gm.BandHi == nil || !(*gm.BandLo < *gm.BandHi) {
+		t.Errorf("automatic band %+v", gm)
+	}
+	gets = e.objects.gets
+	if err := r.Pass(ctx); err != nil || e.objects.gets != gets {
+		t.Fatalf("measured again with a mask: %v, %d reads", err, e.objects.gets-gets)
+	}
+}
+
+func TestRegionMaskIsThePolygon(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e := newEnv(t)
+	st := e.addStack(t, testObject, testFilter, 16)
+	region := []goals.Point{{X: 0.1, Y: 0.1}, {X: 0.5, Y: 0.1}, {X: 0.5, Y: 0.6}, {X: 0.1, Y: 0.6}}
+	r := New(e.db, nil, e.objects, nil, Options{})
+	if err := r.MeasureStack(ctx, st, region, ""); err != nil {
+		t.Fatal(err)
+	}
+	gm := e.checkMask(t, e.measurement(t, testObject, testFilter))
+	if gm.Source != goals.NoiseMaskRegion || gm.BandLo != nil || gm.BandHi != nil {
+		t.Fatalf("region mask %+v", gm)
+	}
+	bits, err := goals.DecompressMask(gm.Data, gm.Width, gm.Height)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for y := range gm.Height {
+		for x := range gm.Width {
+			fx := (float64(x)*goals.NoiseBin + goals.NoiseBin/2.0) / testW
+			fy := (float64(y)*goals.NoiseBin + goals.NoiseBin/2.0) / testH
+			in := fx > 0.1 && fx < 0.5 && fy > 0.1 && fy < 0.6
+			if v := bits[y*gm.Width+x]; v&goals.MaskBand != 0 && !in {
+				t.Fatalf("band pixel %d,%d is outside the region", x, y)
+			} else if in && v&goals.MaskCovered != 0 && v&goals.MaskStar == 0 && v&goals.MaskBand == 0 {
+				t.Fatalf("clean region pixel %d,%d is not in the band", x, y)
+			}
+		}
 	}
 }
 
@@ -310,17 +415,20 @@ func TestNeedsMeasurement(t *testing.T) {
 		s    app.Stack
 		m    *app.GoalMeasurement
 		hash string
+		mask bool
 		want bool
 	}{
-		{"none", s, nil, "", true},
-		{"current", s, m, "", false},
-		{"grew 10%", app.Stack{EffectiveSeconds: 3960}, m, "", false},
-		{"grew 20%", app.Stack{EffectiveSeconds: 4320}, m, "", true},
-		{"region", s, m, "abc", true},
-		{"revision", s, &app.GoalMeasurement{MethodRevision: goals.MethodRevision - 1, EffectiveHours: 1}, "", true},
+		{"none", s, nil, "", false, true},
+		{"current", s, m, "", true, false},
+		{"grew 10%", app.Stack{EffectiveSeconds: 3960}, m, "", true, false},
+		{"grew 20%", app.Stack{EffectiveSeconds: 4320}, m, "", true, true},
+		{"region", s, m, "abc", true, true},
+		{"revision", s, &app.GoalMeasurement{MethodRevision: goals.MethodRevision - 1, EffectiveHours: 1}, "", true, true},
+		{"no mask", s, m, "", false, true},
+		{"no mask, insufficient data", s, &app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, Error: new(string)}, "", false, false},
 	}
 	for _, c := range cases {
-		if got := needsMeasurement(c.s, c.m, c.hash); got != c.want {
+		if got := needsMeasurement(c.s, c.m, c.hash, c.mask); got != c.want {
 			t.Errorf("%s: %v", c.name, got)
 		}
 	}
@@ -515,20 +623,20 @@ func TestOldBroadbandMeasurementsAreRemeasuredForSky(t *testing.T) {
 	zp := 6.0
 	st := app.Stack{Filter: "Green", EffectiveSeconds: 3600}
 	m := &app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, ZeroPoint: &zp, DepthSystem: goals.SystemGaiaG}
-	if !needsMeasurement(st, m, "") {
+	if !needsMeasurement(st, m, "", true) {
 		t.Error("a broadband master without sky samples is not remeasured")
 	}
 	m.SkyRev = SkyRevision
-	if needsMeasurement(st, m, "") {
+	if needsMeasurement(st, m, "", true) {
 		t.Error("remeasured after its sky samples")
 	}
 	m.SkyRev = 0
 	st.Filter = testFilter
-	if needsMeasurement(st, m, "") {
+	if needsMeasurement(st, m, "", true) {
 		t.Error("a narrowband master was remeasured for sky")
 	}
 	st.Filter, m.ZeroPoint = "Green", nil
-	if needsMeasurement(st, m, "") {
+	if needsMeasurement(st, m, "", true) {
 		t.Error("remeasured without a zero point")
 	}
 }

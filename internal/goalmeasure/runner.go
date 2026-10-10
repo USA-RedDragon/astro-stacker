@@ -172,13 +172,15 @@ func (r *Runner) loadGoals(ctx context.Context) (map[goals.Key]goals.Goal, map[s
 	return gs, guids
 }
 
-func needsMeasurement(s app.Stack, m *app.GoalMeasurement, regionHash string) bool {
+func needsMeasurement(s app.Stack, m *app.GoalMeasurement, regionHash string, hasMask bool) bool {
 	switch {
 	case m == nil:
 		return true
 	case m.MethodRevision != goals.MethodRevision:
 		return true
 	case m.RegionHash != regionHash:
+		return true
+	case m.Error == nil && !hasMask:
 		return true
 	case m.EffectiveHours <= 0:
 		return s.EffectiveSeconds > 0
@@ -201,6 +203,14 @@ func (r *Runner) due(ctx context.Context, goalsByKey map[goals.Key]goals.Goal) (
 	for i := range ms {
 		byKey[goals.Key{Object: ms[i].Object, Filter: ms[i].Filter}] = &ms[i]
 	}
+	var maskKeys []goals.Key
+	if err := r.db.WithContext(ctx).Model(&app.GoalMask{}).Select(columnObject, columnFilter).Scan(&maskKeys).Error; err != nil {
+		return nil, fmt.Errorf("load goal masks: %w", err)
+	}
+	masked := make(map[goals.Key]bool, len(maskKeys))
+	for _, k := range maskKeys {
+		masked[k] = true
+	}
 	type item struct {
 		s  app.Stack
 		at time.Time
@@ -209,7 +219,7 @@ func (r *Runner) due(ctx context.Context, goalsByKey map[goals.Key]goals.Goal) (
 	for _, s := range stacks {
 		k := goals.Key{Object: s.Object, Filter: s.Filter}
 		m := byKey[k]
-		if !needsMeasurement(s, m, goals.RegionHash(goalsByKey[k].Region)) {
+		if !needsMeasurement(s, m, goals.RegionHash(goalsByKey[k].Region), masked[k]) {
 			continue
 		}
 		var at time.Time
@@ -302,7 +312,7 @@ func (r *Runner) MeasureStack(ctx context.Context, stack app.Stack, region []goa
 		m.Error = &msg
 		m.Seconds = time.Since(start).Seconds()
 		slog.Info("Goal measurement", "object", stack.Object, columnFilter, stack.Filter, "subs", len(rows), "result", msg)
-		return r.save(ctx, m)
+		return r.save(ctx, m, nil)
 	}
 	if err != nil {
 		return err
@@ -325,6 +335,10 @@ func (r *Runner) MeasureStack(ctx context.Context, stack app.Stack, region []goa
 	m.LowConfidence, m.LowReason = res.LowConfidence, res.LowReason
 	m.BandFraction, m.NebFraction, m.NoiseMask = res.BandFraction, res.NebFraction, res.NoiseMask
 	m.Points = string(pts)
+	mask, err := maskRecord(stack, res, m)
+	if err != nil {
+		return err
+	}
 	r.depth(ctx, stack, res, &m)
 	if err := r.saveSkySamples(ctx, stack, m, used, skyRates); err != nil {
 		slog.Warn("Could not save sky samples", "object", stack.Object, columnFilter, stack.Filter, "error", err)
@@ -342,7 +356,43 @@ func (r *Runner) MeasureStack(ctx context.Context, stack app.Stack, region []goa
 	}
 	args = append(args, "duration", time.Since(start).Round(time.Second))
 	slog.Info("Goal measurement", args...)
-	return r.save(ctx, m)
+	return r.save(ctx, m, mask)
+}
+
+func finite(v float64) *float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return nil
+	}
+	return &v
+}
+
+func maskRecord(stack app.Stack, res goals.Result, m app.GoalMeasurement) (*app.GoalMask, error) {
+	bits := res.Masks.Bits()
+	data, err := goals.CompressMask(bits)
+	if err != nil {
+		return nil, fmt.Errorf("compress goal mask: %w", err)
+	}
+	gm := &app.GoalMask{Object: stack.Object, Filter: stack.Filter, Width: res.BW, Height: res.BH, Bin: goals.NoiseBin,
+		FrameWidth: stack.Width, FrameHeight: stack.Height, Source: goals.NoiseMaskFaint, NoiseMask: res.NoiseMask,
+		Sky: res.Sky, BandLo: finite(res.BandLo), BandHi: finite(res.BandHi), Subs: m.Subs, Data: data, MeasuredAt: m.MeasuredAt}
+	if m.RegionHash != "" {
+		gm.Source = goals.NoiseMaskRegion
+	}
+	for _, v := range bits {
+		if v&goals.MaskCovered != 0 {
+			gm.Covered++
+		}
+		if v&goals.MaskBand != 0 {
+			gm.Band++
+		}
+		if v&goals.MaskStar != 0 {
+			gm.Stars++
+		}
+		if v&goals.MaskSky != 0 {
+			gm.SkyPixels++
+		}
+	}
+	return gm, nil
 }
 
 func round(v float64, places int) float64 {
@@ -485,9 +535,15 @@ func (r *Runner) saveSkySamples(ctx context.Context, stack app.Stack, m app.Goal
 	}).Create(&samples).Error
 }
 
-func (r *Runner) save(ctx context.Context, m app.GoalMeasurement) error {
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: columnObject}, {Name: "filter"}},
-		UpdateAll: true,
-	}).Create(&m).Error
+func (r *Runner) save(ctx context.Context, m app.GoalMeasurement, mask *app.GoalMask) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		upsert := clause.OnConflict{Columns: []clause.Column{{Name: columnObject}, {Name: columnFilter}}, UpdateAll: true}
+		if err := tx.Clauses(upsert).Create(&m).Error; err != nil {
+			return err
+		}
+		if mask == nil {
+			return tx.Where(columnObject+" = ? AND "+columnFilter+" = ?", m.Object, m.Filter).Delete(&app.GoalMask{}).Error
+		}
+		return tx.Clauses(upsert).Create(mask).Error
+	})
 }

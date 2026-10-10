@@ -260,6 +260,8 @@ type Result struct {
 	BandFraction   float64
 	NebFraction    float64
 	SkyStep        float64
+	BandLo         float64
+	BandHi         float64
 	NoiseMask      string
 	Points         []DrawPoint
 	BW, BH         int
@@ -292,6 +294,7 @@ func (m *Measurer) Finish(totalHours float64) (Result, error) {
 	res.Masks = mk.Masks
 	res.Sky = mk.sky
 	res.SkyStep = mk.skyStep
+	res.BandLo, res.BandHi = mk.bandLo, mk.bandHi
 	nCovered := count(covered)
 	nOK := mk.ok
 	res.BandFraction = float64(count(mk.Band)) / float64(nCovered)
@@ -405,6 +408,8 @@ type maskSet struct {
 	sky     float64
 	ok      int
 	skyStep float64
+	bandLo  float64
+	bandHi  float64
 }
 
 func buildMasks(mean []float64, covered []bool, bw, bh, w, h int, region []Point) maskSet {
@@ -458,6 +463,7 @@ func buildMasks(mean []float64, covered []bool, bw, bh, w, h int, region []Point
 		neb[i] = ok[i] && smooth[i]-sky > NebulaSpread*spread
 	}
 	var band []bool
+	bandLo, bandHi := math.NaN(), math.NaN()
 	if len(region) >= 3 {
 		band = and(rasterize(region, bw, bh, w, h), ok)
 	} else {
@@ -465,12 +471,12 @@ func buildMasks(mean []float64, covered []bool, bw, bh, w, h int, region []Point
 		if n := count(neb); n > 0 && float64(n) > MinBandFraction*float64(count(covered)) {
 			nebVals := selectValues(smooth, neb)
 			slices.Sort(nebVals)
-			lo := percentileSorted(nebVals, BandLowPercentile)
-			hi := percentileSorted(nebVals, BandHighPercent)
+			bandLo = percentileSorted(nebVals, BandLowPercentile)
+			bandHi = percentileSorted(nebVals, BandHighPercent)
 			for i := range np {
-				band[i] = neb[i] && smooth[i] >= lo && smooth[i] <= hi
+				band[i] = neb[i] && smooth[i] >= bandLo && smooth[i] <= bandHi
 			}
 		}
 	}
-	return maskSet{Masks: Masks{Covered: covered, Stars: stars, Background: bg, Nebula: neb, Band: band}, sky: sky, ok: count(ok), skyStep: skyStep}
+	return maskSet{Masks: Masks{Covered: covered, Stars: stars, Background: bg, Nebula: neb, Band: band}, sky: sky, ok: count(ok), skyStep: skyStep, bandLo: bandLo, bandHi: bandHi}
 }
