@@ -17,6 +17,7 @@ import (
 
 const (
 	GroupEmission   = "em"
+	GroupNebula     = "neb"
 	GroupRemnant    = "snr"
 	GroupDark       = "dark"
 	GroupReflection = "ref"
@@ -33,8 +34,10 @@ const (
 
 func TypeGroup(t string) string {
 	switch t {
-	case catalog.TypeEmission, catalog.TypeNebula, catalog.TypeClusterNebula:
+	case catalog.TypeEmission, catalog.TypeClusterNebula:
 		return GroupEmission
+	case catalog.TypeNebula:
+		return GroupNebula
 	case catalog.TypeSNR:
 		return GroupRemnant
 	case catalog.TypeDark:

@@ -599,6 +599,38 @@ func TestBrightnessIsLabelledNotScored(t *testing.T) {
 	}
 }
 
+func TestFinderKeepsUnresolvedNebulaeUntyped(t *testing.T) {
+	t.Parallel()
+	if g := discover.TypeGroup(catalog.TypeNebula); g != discover.GroupNebula {
+		t.Fatalf("nebula group %q", g)
+	}
+	s := newService(t)
+	ctx := context.Background()
+	em, err := s.Finder(ctx, discover.FinderQuery{Types: []string{discover.GroupEmission}, Limit: 500})
+	if err != nil || len(em.Rows) == 0 {
+		t.Fatalf("%+v %v", em, err)
+	}
+	for _, r := range em.Rows {
+		if r.Object.Type == catalog.TypeNebula {
+			t.Fatalf("unresolved nebula %s listed as emission", r.Object.Designation)
+		}
+	}
+	neb, err := s.Finder(ctx, discover.FinderQuery{Types: []string{discover.GroupNebula}, Limit: 500})
+	if err != nil || len(neb.Rows) == 0 {
+		t.Fatalf("%+v %v", neb, err)
+	}
+	for _, r := range neb.Rows {
+		if r.Object.Type != catalog.TypeNebula || r.Group != discover.GroupNebula {
+			t.Fatalf("row %s %s in the nebula group", r.Object.Designation, r.Object.Type)
+		}
+		for _, term := range r.Terms {
+			if term.Key == discover.TermHAlpha {
+				t.Fatalf("%s scored as emission: %+v", r.Object.Designation, term)
+			}
+		}
+	}
+}
+
 func TestFinderUsesTheHAlphaMap(t *testing.T) {
 	t.Parallel()
 	s := newService(t)
