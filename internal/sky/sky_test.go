@@ -120,3 +120,17 @@ func TestLocalNoon(t *testing.T) {
 		t.Errorf("noon %v for %v", noon, at)
 	}
 }
+
+func TestFitRotationLaysTheLongSideAlongTheMajorAxis(t *testing.T) {
+	t.Parallel()
+	f := sky.Frame{FocalLength: 405, PixelSize: 3.76, WidthPx: 6248, HeightPx: 4176}
+	if r := f.Fit(190, 60, sky.DefaultOverlap).Rotation(35); r != 125 {
+		t.Errorf("M31 at PA 35 wants the camera at 125, got %v", r)
+	}
+	if r := f.Fit(10, 5, sky.DefaultOverlap).Rotation(10); r != 100 {
+		t.Errorf("got %v", r)
+	}
+	if r := f.Fit(10, 5, sky.DefaultOverlap).Rotation(170); r != 80 {
+		t.Errorf("got %v", r)
+	}
+}

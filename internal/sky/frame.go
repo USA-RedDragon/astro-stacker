@@ -28,6 +28,19 @@ type Fit struct {
 	Columns  int     `json:"columns"`
 	Rows     int     `json:"rows"`
 	Category string  `json:"category"`
+	Turned   bool    `json:"-"`
+}
+
+func (f Fit) Rotation(paDeg float64) float64 {
+	r := paDeg - 90
+	if f.Turned {
+		r = paDeg
+	}
+	r = math.Mod(r, 180)
+	if r < 0 {
+		r += 180
+	}
+	return r
 }
 
 const (
@@ -61,6 +74,7 @@ func (f Frame) Fit(majorArcmin, minorArcmin, overlap float64) Fit {
 	altCols, altRows := panelsFor(minor, w, overlap), panelsFor(major, h, overlap)
 	if altCols*altRows < cols*rows {
 		cols, rows = altCols, altRows
+		out.Turned = true
 	}
 	out.Columns, out.Rows, out.Panels = cols, rows, cols*rows
 	switch {
