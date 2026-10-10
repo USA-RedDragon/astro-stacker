@@ -450,21 +450,21 @@ func TestNarrowbandDepthUsesGaiaXP(t *testing.T) {
 	}
 }
 
-func TestLuminanceSubsGiveSkyBrightness(t *testing.T) {
+func TestBroadbandSubsGiveSkyBrightness(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	st := e.addStack(t, testObject, "L", 8)
+	st := e.addStack(t, testObject, "Red", 8)
 	addReference(t, e)
 	night := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	if err := e.db.Model(&app.Frame{}).Where("filter = ?", "L").Updates(map[string]any{"night": night, "date_obs": night.Add(30 * time.Hour)}).Error; err != nil {
+	if err := e.db.Model(&app.Frame{}).Where("filter = ?", "Red").Updates(map[string]any{"night": night, "date_obs": night.Add(30 * time.Hour)}).Error; err != nil {
 		t.Fatal(err)
 	}
 	r := New(e.db, e.sched, e.objects, e.fetcher, Options{MaxSubs: 200, Publish: goals.PublishOff})
 	if err := r.MeasureStack(context.Background(), st, nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	m := e.measurement(t, testObject, "L")
-	if m.ZeroPoint == nil || m.DepthSystem != goals.SystemGaiaG || m.DepthApprox {
+	m := e.measurement(t, testObject, "Red")
+	if m.ZeroPoint == nil || m.DepthSystem != goals.SystemGaiaG || m.DepthApprox || m.SkyRev != SkyRevision {
 		t.Fatalf("luminance zero point %+v", m)
 	}
 	var samples []app.SkySample
@@ -507,5 +507,28 @@ func TestParseXPTSV(t *testing.T) {
 	}
 	if _, err := ParseXPTSV(strings.NewReader("RA_ICRS\tDE_ICRS\n")); err == nil {
 		t.Error("missing flux columns accepted")
+	}
+}
+
+func TestOldBroadbandMeasurementsAreRemeasuredForSky(t *testing.T) {
+	t.Parallel()
+	zp := 6.0
+	st := app.Stack{Filter: "Green", EffectiveSeconds: 3600}
+	m := &app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, ZeroPoint: &zp, DepthSystem: goals.SystemGaiaG}
+	if !needsMeasurement(st, m, "") {
+		t.Error("a broadband master without sky samples is not remeasured")
+	}
+	m.SkyRev = SkyRevision
+	if needsMeasurement(st, m, "") {
+		t.Error("remeasured after its sky samples")
+	}
+	m.SkyRev = 0
+	st.Filter = testFilter
+	if needsMeasurement(st, m, "") {
+		t.Error("a narrowband master was remeasured for sky")
+	}
+	st.Filter, m.ZeroPoint = "Green", nil
+	if needsMeasurement(st, m, "") {
+		t.Error("remeasured without a zero point")
 	}
 }

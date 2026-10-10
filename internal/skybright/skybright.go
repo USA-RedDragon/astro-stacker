@@ -18,17 +18,29 @@ const (
 	SourceConfig   = "config"
 	SourceNone     = "none"
 
-	Filter          = "L"
+	Band            = "Gaia G"
 	MaxNights       = 10
 	MinNightFrames  = 5
 	History         = 365 * 24 * time.Hour
 	defaultTTL      = 30 * time.Minute
-	methodText      = "Gaia G zero point of each L master applied to its subs' own sky level, per night; median of the newest clear nights"
-	methodMoonText  = methodText + ", moon below the horizon"
-	reasonNoSamples = "no L master with a Gaia zero point has been measured yet"
-	reasonFewFrames = "no night has enough measured L subs"
-	reasonMoon      = "every measured L sub was taken with the moon up"
+	methodText      = "Each sub's sky level divided by its master's zero point, fitted on Gaia G magnitudes of the field's stars, so the sky reads in Gaia G mag/arcsec² as if it had the stars' median colour; median per night, then the median of the newest clear nights"
+	methodMoonText  = methodText + "; subs taken with the moon up are left out"
+	reasonNoSamples = "no L, R, G or B master with a Gaia zero point has been measured yet"
+	reasonFewFrames = "no night has enough measured broadband subs"
+	reasonMoon      = "every measured broadband sub was taken with the moon up"
 )
+
+func filterPreference() []string { return []string{"L", "G", "R", "B"} }
+
+func Broadband(filter string) bool {
+	f := rigsource.CanonicalFilter(filter)
+	for _, b := range filterPreference() {
+		if f == b {
+			return true
+		}
+	}
+	return false
+}
 
 type Night struct {
 	Night  string  `json:"night"`
@@ -40,6 +52,7 @@ type Basis struct {
 	Source   string  `json:"source"`
 	Method   string  `json:"method"`
 	Filter   string  `json:"filter"`
+	Band     string  `json:"band"`
 	Nights   int     `json:"nights"`
 	Frames   int     `json:"frames"`
 	From     *string `json:"from"`
@@ -57,12 +70,12 @@ type SiteFunc func(ctx context.Context) (lat, lon float64, ok bool)
 
 func none(reason string) Value {
 	r := reason
-	return Value{Basis: Basis{Source: SourceNone, Method: methodText, Filter: Filter, PerNight: []Night{}, Reason: &r}}
+	return Value{Basis: Basis{Source: SourceNone, Method: methodText, Band: Band, PerNight: []Night{}, Reason: &r}}
 }
 
 func Configured(mag float64) Value {
 	m := mag
-	return Value{Mag: &m, Basis: Basis{Source: SourceConfig, Method: "set in discover.sky-brightness", Filter: Filter, PerNight: []Night{}}}
+	return Value{Mag: &m, Basis: Basis{Source: SourceConfig, Method: "set in discover.sky-brightness", Band: Band, PerNight: []Night{}}}
 }
 
 func median(v []float64) float64 {
@@ -88,29 +101,42 @@ func Measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time) (Va
 	if site != nil {
 		lat, lon, known = site(ctx)
 	}
-	byNight := map[string][]float64{}
-	seen := false
+	perFilter := map[string]map[string][]float64{}
+	seen, dark := false, false
 	for _, r := range rows {
-		if rigsource.CanonicalFilter(r.Filter) != Filter || math.IsNaN(r.SkyMag) || math.IsInf(r.SkyMag, 0) {
+		f := rigsource.CanonicalFilter(r.Filter)
+		if !Broadband(f) || math.IsNaN(r.SkyMag) || math.IsInf(r.SkyMag, 0) {
 			continue
 		}
 		seen = true
 		if known && r.DateObs != nil && moon.At(*r.DateObs).Altitude(*r.DateObs, lat, lon) > 0 {
 			continue
 		}
+		dark = true
+		if perFilter[f] == nil {
+			perFilter[f] = map[string][]float64{}
+		}
 		k := r.Night.Format(time.DateOnly)
-		byNight[k] = append(byNight[k], r.SkyMag)
+		perFilter[f][k] = append(perFilter[f][k], r.SkyMag)
 	}
 	if !seen {
 		return none(reasonNoSamples), nil
 	}
-	if len(byNight) == 0 {
+	if !dark {
 		return none(reasonMoon), nil
 	}
-	keys := make([]string, 0, len(byNight))
-	for k, v := range byNight {
-		if len(v) >= MinNightFrames {
-			keys = append(keys, k)
+	var filter string
+	var keys []string
+	var byNight map[string][]float64
+	for _, f := range filterPreference() {
+		for k, v := range perFilter[f] {
+			if len(v) >= MinNightFrames {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) > 0 {
+			filter, byNight = f, perFilter[f]
+			break
 		}
 	}
 	if len(keys) == 0 {
@@ -119,7 +145,7 @@ func Measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time) (Va
 	slices.Sort(keys)
 	slices.Reverse(keys)
 	keys = keys[:min(len(keys), MaxNights)]
-	v := Value{Basis: Basis{Source: SourceMeasured, Method: methodText, Filter: Filter, PerNight: []Night{}}}
+	v := Value{Basis: Basis{Source: SourceMeasured, Method: methodText, Filter: filter, Band: Band, PerNight: []Night{}}}
 	if known {
 		v.Basis.Method = methodMoonText
 	}

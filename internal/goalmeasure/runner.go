@@ -16,7 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
-	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
+	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 	"golang.org/x/sync/errgroup"
@@ -26,6 +26,7 @@ import (
 
 const (
 	GrowthRemeasure = 1.2
+	SkyRevision     = 1
 	failureBackoff  = 6 * time.Hour
 	columnObject    = "object"
 	columnFilter    = "filter"
@@ -181,6 +182,8 @@ func needsMeasurement(s app.Stack, m *app.GoalMeasurement, regionHash string) bo
 		return true
 	case m.EffectiveHours <= 0:
 		return s.EffectiveSeconds > 0
+	case m.SkyRev < SkyRevision && m.ZeroPoint != nil && m.DepthSystem != goals.SystemXPAB && skybright.Broadband(s.Filter):
+		return true
 	}
 	return s.EffectiveSeconds >= GrowthRemeasure*m.EffectiveHours*3600
 }
@@ -326,6 +329,7 @@ func (r *Runner) MeasureStack(ctx context.Context, stack app.Stack, region []goa
 	if err := r.saveSkySamples(ctx, stack, m, used, skyRates); err != nil {
 		slog.Warn("Could not save sky samples", "object", stack.Object, columnFilter, stack.Filter, "error", err)
 	}
+	m.SkyRev = SkyRevision
 	m.Seconds = time.Since(start).Seconds()
 	args := []any{"object", stack.Object, columnFilter, stack.Filter, "subs", m.Subs, "subs_total", m.SubsTotal,
 		"hours", round(totalHours, 2), "snr", round(m.SNR, 2), "sigma_now", m.NoiseNow, "b", m.NoiseB,
@@ -460,7 +464,7 @@ func (r *Runner) applyZeroPoint(res goals.Result, stack app.Stack, w goals.WCS, 
 }
 
 func (r *Runner) saveSkySamples(ctx context.Context, stack app.Stack, m app.GoalMeasurement, rows []subRow, skyRates []float64) error {
-	if m.ZeroPoint == nil || m.DepthSystem != goals.SystemGaiaG || rigsource.CanonicalFilter(stack.Filter) != "L" {
+	if m.ZeroPoint == nil || m.DepthSystem != goals.SystemGaiaG || !skybright.Broadband(stack.Filter) {
 		return nil
 	}
 	var samples []app.SkySample

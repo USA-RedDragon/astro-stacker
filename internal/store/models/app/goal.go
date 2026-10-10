@@ -37,6 +37,7 @@ type GoalMeasurement struct {
 	DepthSystem    string
 	DepthBand      string
 	DepthApprox    bool `gorm:"default:false"`
+	SkyRev         int  `gorm:"default:0"`
 }
 
 type XPField struct {
