@@ -119,6 +119,10 @@ type Pipeline struct {
 	// scorer keeps the scheduler's parsed acquired images between batches.
 	scorer quality.Scorer
 
+	liveMu sync.Mutex
+	live   map[string]quality.SubScore
+	liveAt time.Time
+
 	// busy holds the targets workers are stacking, so no two work on the
 	// same target's reference and masters.
 	mu   sync.Mutex
@@ -867,4 +871,22 @@ func (p *Pipeline) loadScores(ctx context.Context, measured []quality.Measured) 
 		return nil, err
 	}
 	return p.scorer.Load(ctx, p.sched, peds, measured)
+}
+
+func (p *Pipeline) Scores(ctx context.Context) (map[string]quality.SubScore, error) {
+	p.liveMu.Lock()
+	defer p.liveMu.Unlock()
+	if p.live != nil && time.Since(p.liveAt) < time.Minute {
+		return p.live, nil
+	}
+	measured, err := p.measuredSubs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scores, err := p.loadScores(ctx, measured)
+	if err != nil {
+		return nil, err
+	}
+	p.live, p.liveAt = scores, time.Now()
+	return scores, nil
 }
