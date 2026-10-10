@@ -18,6 +18,7 @@ import (
 
 const (
 	RequestTimeout = 5 * time.Second
+	PreviewTimeout = 30 * time.Second
 	maxBody        = 8 << 20
 	pathCommands   = "/os/v1/commands"
 	pathPreview    = "/os/v1/preview"
@@ -40,7 +41,7 @@ func NewClient(baseURL, token string) *Client {
 	return &Client{
 		base:  strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		token: token,
-		http:  &http.Client{Timeout: RequestTimeout},
+		http:  &http.Client{},
 	}
 }
 
@@ -53,6 +54,10 @@ func unreachable(err error) error {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
+	return c.doWithin(ctx, RequestTimeout, method, path, body, out)
+}
+
+func (c *Client) doWithin(ctx context.Context, timeout time.Duration, method, path string, body any, out any) error {
 	if !c.Configured() {
 		return unreachable(ErrUnconfigured)
 	}
@@ -64,7 +69,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		}
 		rd = bytes.NewReader(b)
 	}
-	ctx, cancel := context.WithTimeout(ctx, RequestTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rd)
 	if err != nil {
@@ -145,13 +150,13 @@ func (c *Client) Preview(ctx context.Context, start *time.Time) (json.RawMessage
 		p += "?start=" + url.QueryEscape(start.UTC().Format(time.RFC3339))
 	}
 	var raw json.RawMessage
-	err := c.do(ctx, http.MethodGet, p, nil, &raw)
+	err := c.doWithin(ctx, PreviewTimeout, http.MethodGet, p, nil, &raw)
 	return raw, err
 }
 
 func (c *Client) PreviewWith(ctx context.Context, req PreviewRequest) (json.RawMessage, error) {
 	var raw json.RawMessage
-	err := c.do(ctx, http.MethodPost, pathPreview, req, &raw)
+	err := c.doWithin(ctx, PreviewTimeout, http.MethodPost, pathPreview, req, &raw)
 	return raw, err
 }
 

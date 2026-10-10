@@ -25,7 +25,7 @@ import {
   verdictBadge,
   type ResumeMode,
 } from '../plan'
-import { errorToast, exposureEnd, notifyCommand, shell } from '../shell'
+import { errorToast, exposureEnd, notifyCommand, queuedShort, shell } from '../shell'
 import { conditionPills, hasData, hfrLimitFor, moonLine, noSourceText, powerView, safetyBadge, weatherNote, weatherRows } from '../nowtonight'
 
 const st = computed(() => shell.scheduler)
@@ -171,7 +171,7 @@ const pausedChip = computed(() => {
   }
   if (s.pause_requested) return 'Pauses after this exposure'
   const w = pauseWaiting.value
-  if (w) return w.status === 'queued' ? 'Pause queued offline' : 'Pause applies about ' + (exposureEnd() || 'the next plan')
+  if (w) return w.status === 'queued' ? 'Pause ' + queuedShort() : 'Pause applies about ' + (exposureEnd() || 'the next plan')
   return ''
 })
 
@@ -179,7 +179,7 @@ const skipChips = computed(() => {
   const out: { label: string; tone: string }[] = []
   for (const c of waitingOf('scheduler.skip')) {
     out.push({
-      label: c.status === 'queued' ? 'Skip queued offline · sends when the PC answers' : 'Skip queued · applies about ' + (exposureEnd() || 'the next plan'),
+      label: c.status === 'queued' ? (shell.scheduler.reachable === 'offline' ? 'Skip queued offline · sends when the PC answers' : 'Skip ' + queuedShort()) : 'Skip queued · applies about ' + (exposureEnd() || 'the next plan'),
       tone: 'warn',
     })
   }

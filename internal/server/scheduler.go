@@ -36,7 +36,17 @@ type Extras struct {
 	Conditions *conditions.Service
 }
 
+const schedulerWriteTimeout = 45 * time.Second
+
+func ExtendWriteDeadline(d time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(d))
+		c.Next()
+	}
+}
+
 func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer) {
+	g.Use(ExtendWriteDeadline(schedulerWriteTimeout))
 	now := x.Now
 	if now == nil {
 		now = time.Now

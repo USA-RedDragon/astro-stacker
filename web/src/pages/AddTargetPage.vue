@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, query } from '../api/client'
 import { submitCommand, type CommandRecord } from '../api/commands'
 import { draftProject, getPlanning, type GoalKind, type PanelDraft, type Snapshot } from '../api/planning'
-import { errorToast, notifyCommand, undo, whenApplies } from '../shell'
+import { errorToast, notifyCommand, queuedText, undo, whenApplies } from '../shell'
 import FramePlanner, { type FramePlan } from '../components/FramePlanner.vue'
 
 interface CatalogObject {
@@ -436,7 +436,7 @@ const canNext = computed(() => {
 
 const applyLine = computed(() => {
   const r = created.value?.record
-  if (r) return r.status === 'queued' ? 'The PC is unreachable, so it is queued and goes out when the PC answers.' : `It reaches the scheduler at ${whenApplies(r)}.`
+  if (r) return r.status === 'queued' ? queuedText() : `It reaches the scheduler at ${whenApplies(r)}.`
   return 'It is created through the scheduler, which allocates the ids, and applies when the current exposure ends.'
 })
 
