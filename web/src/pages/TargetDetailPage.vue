@@ -754,11 +754,12 @@ function numInput(e: Event): number {
 }
 .goalrow {
   display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr) 11rem;
+  grid-template-columns: 6.5rem minmax(0, 1fr) 11rem;
   gap: 0.75rem;
   align-items: center;
 }
 .swatch {
+  flex: none;
   width: 0.625rem;
   height: 0.625rem;
   border-radius: 2px;
