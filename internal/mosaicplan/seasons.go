@@ -20,7 +20,7 @@ const (
 	poorSeason    = 20.0
 	minPace       = 20.0
 	maxSeasons    = 8
-	usableMonthly = 0.5
+	usableMonthly = 2.0
 )
 
 type SiteSource func(ctx context.Context) (mosaics.Site, bool)
