@@ -16,6 +16,7 @@ var (
 	ErrMissingTemplate = errors.New("the observatory has no template for this set")
 	ErrNoTargets       = errors.New("no targets chosen")
 	ErrNoDesired       = errors.New("no desired count")
+	ErrNoExposure      = errors.New("no sub length")
 )
 
 type TargetEffect struct {
@@ -183,6 +184,11 @@ type MosaicDraft struct {
 	Rows     int     `json:"rows"`
 }
 
+type PlanDraft struct {
+	TemplateID int     `json:"templateId"`
+	Exposure   float64 `json:"exposure"`
+}
+
 type ProjectDraft struct {
 	Mosaic          *MosaicDraft `json:"mosaic"`
 	Name            string       `json:"name"`
@@ -193,6 +199,8 @@ type ProjectDraft struct {
 	MinimumAltitude float64      `json:"minimumAltitude"`
 	MinimumTime     int          `json:"minimumTime"`
 	SetID           string       `json:"setId"`
+	Plans           []PlanDraft  `json:"plans"`
+	GoalDriven      bool         `json:"goalDriven"`
 	Desired         int          `json:"desired"`
 	Goal            GoalDraft    `json:"goal"`
 	Panels          []PanelDraft `json:"panels"`
@@ -220,9 +228,9 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 	if len(d.Panels) == 0 {
 		return nil, errors.New("no panels")
 	}
-	set, ok := s.SetByID(d.SetID)
-	if !ok {
-		return nil, ErrUnknownSet
+	items, err := s.draftItems(d)
+	if err != nil {
+		return nil, err
 	}
 	minTime := d.MinimumTime
 	if minTime <= 0 {
@@ -276,16 +284,9 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 		}
 		nt := schedcmd.NewTarget{GUID: newID(), Name: tname, RAHours: pd.RAHours, Dec: pd.Dec, Rotation: pd.Rotation}
 		filters := []string{}
-		for _, it := range set.Items {
-			t, ok := s.templateByName(it.Template)
-			if !ok {
-				return nil, fmt.Errorf("%w: %s", ErrMissingTemplate, it.Template)
-			}
-			n, err := desiredFor(d.Desired, it)
-			if err != nil {
-				return nil, err
-			}
-			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Exposure: it.Exposure, Desired: n})
+		for _, it := range items {
+			t := it.tmpl
+			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Exposure: it.exposure, Desired: it.desired})
 			if !containsFold(filters, t.Filter) {
 				filters = append(filters, t.Filter)
 				g := setting
@@ -297,6 +298,78 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 			}
 		}
 		out.Targets = append(out.Targets, nt)
+	}
+	return out, nil
+}
+
+type draftItem struct {
+	tmpl     Template
+	exposure float64
+	desired  int
+}
+
+func (s *Snapshot) templateByID(id int) (Template, bool) {
+	for _, t := range s.Templates {
+		if t.ID == id {
+			return t, true
+		}
+	}
+	return Template{}, false
+}
+
+func (s *Snapshot) templateDesired(id int) int {
+	var v []int
+	for _, p := range s.Projects {
+		for _, t := range p.Targets {
+			for _, pl := range t.Plans {
+				if pl.TemplateID == id && pl.Desired > 0 {
+					v = append(v, pl.Desired)
+				}
+			}
+		}
+	}
+	return medianInt(v)
+}
+
+func (s *Snapshot) draftItems(d ProjectDraft) ([]draftItem, error) {
+	var out []draftItem
+	if d.SetID == "" && len(d.Plans) > 0 {
+		for _, pd := range d.Plans {
+			t, ok := s.templateByID(pd.TemplateID)
+			if !ok {
+				return nil, fmt.Errorf("%w: template %d", ErrMissingTemplate, pd.TemplateID)
+			}
+			if !(pd.Exposure > 0) {
+				return nil, fmt.Errorf("%w for %s", ErrNoExposure, t.Name)
+			}
+			n := d.Desired
+			if n <= 0 {
+				n = s.templateDesired(t.ID)
+			}
+			if n <= 0 && d.GoalDriven {
+				n = goals.UnmeasurableSubLimit
+			}
+			if n <= 0 {
+				return nil, fmt.Errorf("%w for %s", ErrNoDesired, t.Name)
+			}
+			out = append(out, draftItem{tmpl: t, exposure: pd.Exposure, desired: n})
+		}
+		return out, nil
+	}
+	set, ok := s.SetByID(d.SetID)
+	if !ok {
+		return nil, ErrUnknownSet
+	}
+	for _, it := range set.Items {
+		t, ok := s.templateByName(it.Template)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrMissingTemplate, it.Template)
+		}
+		n, err := desiredFor(d.Desired, it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, draftItem{tmpl: t, exposure: it.Exposure, desired: n})
 	}
 	return out, nil
 }

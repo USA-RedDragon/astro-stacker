@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 )
 
 func seq() func() string {
@@ -97,5 +99,44 @@ func TestDraftProjectMosaic(t *testing.T) {
 	d, err := s.DraftProject(ProjectDraft{Name: "Deep", SetID: hoo, MinimumTime: 30, Goal: GoalDraft{Kind: "depth"}, Panels: []PanelDraft{{RAHours: 1, Dec: 2}}}, seq())
 	if err != nil || d.Goals[0].Setting.DepthGoal == nil || *d.Goals[0].Setting.DepthGoal != 25.5 || d.Project.IsMosaic || d.Project.MinimumAltitude != 0 {
 		t.Fatalf("%+v %v", d, err)
+	}
+}
+
+func TestDraftProjectFromPickedPlans(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	if err := sched.Exec(`insert into exposuretemplate values (4,'p','S-II','S-II',100,10,1,2,1,45,7,85,600,0,0,1,'t4')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	s, _ := Load(context.Background(), sched, appDB, Inputs{})
+	base := ProjectDraft{Name: "Eagle", MinimumTime: 30, MinimumAltitude: 30, Panels: []PanelDraft{{RAHours: 18.3, Dec: -13.8}}}
+	d := base
+	d.Plans = []PlanDraft{{TemplateID: 1, Exposure: 180}, {TemplateID: 2, Exposure: 240}}
+	p, err := s.DraftProject(d, seq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl := p.Targets[0].Plans
+	if len(pl) != 2 || pl[0].TemplateName != filterHa || pl[0].Exposure != 180 || pl[0].Desired != 300 || pl[1].Exposure != 240 || len(p.Goals) != 2 {
+		t.Fatalf("%+v %+v", pl, p.Goals)
+	}
+	d.Plans = []PlanDraft{{TemplateID: 4, Exposure: 300}}
+	if _, err := s.DraftProject(d, seq()); !errors.Is(err, ErrNoDesired) {
+		t.Fatalf("a template no plan uses needs a desired count: %v", err)
+	}
+	d.GoalDriven = true
+	if p, err := s.DraftProject(d, seq()); err != nil || p.Targets[0].Plans[0].Desired != goals.UnmeasurableSubLimit {
+		t.Fatalf("goal-driven count: %+v %v", p, err)
+	}
+	d.Plans = []PlanDraft{{TemplateID: 99, Exposure: 300}}
+	if _, err := s.DraftProject(d, seq()); !errors.Is(err, ErrMissingTemplate) {
+		t.Fatalf("unknown template: %v", err)
+	}
+	d.Plans = []PlanDraft{{TemplateID: 1}}
+	if _, err := s.DraftProject(d, seq()); !errors.Is(err, ErrNoExposure) {
+		t.Fatalf("no sub length: %v", err)
+	}
+	if _, err := s.DraftProject(base, seq()); !errors.Is(err, ErrUnknownSet) {
+		t.Fatalf("neither a set nor plans: %v", err)
 	}
 }
