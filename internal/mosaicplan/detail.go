@@ -26,8 +26,6 @@ const (
 	DonePlan             = "plan"
 	HoursEffective       = "effective"
 	HoursRaw             = "raw"
-	noiseWarn            = 1.5
-	gapWarn              = 0.02
 )
 
 type PanelFilter struct {
@@ -107,6 +105,7 @@ type Detail struct {
 	Seams          []app.MosaicSeam        `json:"seams"`
 	Health         []app.MosaicPanelHealth `json:"health"`
 	Needs          []string                `json:"needs"`
+	SeamLimits     stacking.SeamLimits     `json:"seamLimits"`
 	Mosaics        []app.Mosaic            `json:"mosaics"`
 	Noise          []MosaicNoise           `json:"noise"`
 	SeamStatus     []SeamStatus            `json:"seamStatus"`
@@ -243,7 +242,8 @@ func (s *Service) Detail(ctx context.Context, key string) (Detail, error) {
 
 func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, error) {
 	d := Detail{Project: g.Project, ProjectGUID: g.ProjectGUID, Seams: []app.MosaicSeam{}, Health: []app.MosaicPanelHealth{}, Needs: []string{},
-		Noise: []MosaicNoise{}, SeamStatus: []SeamStatus{}, Balancing: Balancing{OnWeight: mosaics.PanelDeficitOnWeight}}
+		Noise: []MosaicNoise{}, SeamStatus: []SeamStatus{}, Balancing: Balancing{OnWeight: mosaics.PanelDeficitOnWeight},
+		SeamLimits: stacking.Limits()}
 	var adopted int64
 	if err := s.App.WithContext(ctx).Model(&app.MosaicPanel{}).Where("project_guid = ?", g.ProjectGUID).Count(&adopted).Error; err != nil {
 		return d, err
@@ -474,6 +474,7 @@ func layoutText(d Detail) *string {
 
 func Needs(d Detail) []string {
 	out := []string{}
+	limits := stacking.Limits()
 	byNumber := map[int]Panel{}
 	for _, p := range d.Panels {
 		byNumber[p.Number] = p
@@ -494,7 +495,7 @@ func Needs(d Detail) []string {
 	}
 	worst := map[string]need{}
 	for _, sm := range d.Seams {
-		if sm.NoiseRatio <= noiseWarn {
+		if sm.NoiseRatio <= limits.NoiseRatio {
 			continue
 		}
 		noisier := sm.PanelA
@@ -519,24 +520,37 @@ func Needs(d Detail) []string {
 	})
 	for _, n := range needs {
 		if n.hours > 0 {
-			out = append(out, fmt.Sprintf("Panel %d needs about +%.1f h %s (noise ratio %.1f vs neighbours)", n.panel, n.hours, n.filter, n.ratio))
+			out = append(out, fmt.Sprintf("Panel %d needs about +%s effective %s to match its neighbour (noise ratio %.1f×, above the %.1f× limit)",
+				n.panel, effectiveTime(n.hours), n.filter, n.ratio, limits.NoiseRatio))
 		} else {
-			out = append(out, fmt.Sprintf("Panel %d is noisier in %s (noise ratio %.1f vs neighbours)", n.panel, n.filter, n.ratio))
+			out = append(out, fmt.Sprintf("Panel %d is noisier in %s (noise ratio %.1f×, above the %.1f× limit); it has no effective hours on record to scale",
+				n.panel, n.filter, n.ratio, limits.NoiseRatio))
 		}
 	}
 	seen := map[int]bool{}
 	for _, h := range d.Health {
-		if h.GapFraction <= gapWarn || seen[h.Panel] {
+		if h.GapFraction <= limits.GapFraction || seen[h.Panel] {
 			continue
 		}
 		seen[h.Panel] = true
-		where := h.GapWhere
-		if where == "" {
-			where = "edge"
+		where := "location not measured"
+		if h.GapWhere != "" {
+			where = "at the " + h.GapWhere
 		}
-		out = append(out, fmt.Sprintf("Panel %d gap of %.2f deg² (%.0f%%) at the %s: re-frame or shift", h.Panel, h.GapDeg2, h.GapFraction*100, where))
+		out = append(out, fmt.Sprintf("Panel %d gap of %.2f deg² (%.0f%% of its planned frame, above the %.0f%% limit), %s: re-frame or shift",
+			h.Panel, h.GapDeg2, h.GapFraction*100, limits.GapFraction*100, where))
 	}
 	return out
+}
+
+func effectiveTime(h float64) string {
+	switch m := h * 60; {
+	case m < 1:
+		return "under a minute"
+	case m < 90:
+		return fmt.Sprintf("%.0f min", m)
+	}
+	return fmt.Sprintf("%.1f h", h)
 }
 
 func compareFilters(a, b string) int {

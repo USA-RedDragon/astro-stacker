@@ -30,6 +30,22 @@ const (
 	colourProblem   = "star colour differs by "
 )
 
+type SeamLimits struct {
+	LevelSigma        float64 `json:"levelSigma"`
+	StepSigma         float64 `json:"stepSigma"`
+	NoiseRatio        float64 `json:"noiseRatio"`
+	MinBlocks         int     `json:"minBlocks"`
+	RegistrationP90Px float64 `json:"registrationP90Px"`
+	MinStarMatches    int     `json:"minStarMatches"`
+	ColourMismatch    float64 `json:"colourMismatch"`
+	GapFraction       float64 `json:"gapFraction"`
+}
+
+func Limits() SeamLimits {
+	return SeamLimits{LevelSigma: seamLevelWarn, StepSigma: seamStepWarn, NoiseRatio: seamNoiseWarn, MinBlocks: seamSamplesWarn,
+		RegistrationP90Px: regWarn, MinStarMatches: minSeamStars, ColourMismatch: colourWarn, GapFraction: gapWarn}
+}
+
 type seamMeasure struct {
 	I, J        int
 	Fit         overlapFit
