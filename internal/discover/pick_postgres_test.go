@@ -41,7 +41,7 @@ func TestPickOnPostgres(t *testing.T) {
 		t.Fatalf("pick %+v", p)
 	}
 	ha := filterOf(p, "H-α")
-	if ha.Exposure == nil || *ha.Exposure != 300 || ha.Subs != 7 || ha.Hours.Hours == nil || ha.Hours.Points != 4 {
+	if ha.Exposure == nil || *ha.Exposure != 300 || ha.Subs != 7 || ha.Hours.Hours != nil || ha.Hours.Unknown == "" || ha.Hours.Points != 4 {
 		t.Errorf("H-α %+v", ha)
 	}
 	g, err := s.Pick(ctx, "M81", pickPlans())

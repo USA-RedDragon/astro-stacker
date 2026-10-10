@@ -243,9 +243,44 @@ func checkHAlphaHours(t *testing.T, ha *discover.PickFilter, r discover.PickRule
 		logs = append(logs, math.Log10(m[1]*(10/m[0])*(10/m[0]))+2*math.Log10(rs[name]))
 	}
 	slices.Sort(logs)
-	want := math.Pow(10, (logs[1]+logs[2])/2) / (400 * 400)
-	if ha.Hours.Hours == nil || math.Abs(*ha.Hours.Hours-want) > 1e-9*want || ha.Hours.Points != 4 || ha.Hours.Low == nil || *ha.Hours.Low > want || *ha.Hours.High < want {
-		t.Errorf("H-α hours %+v want %v", ha.Hours, want)
+	k := (logs[1] + logs[2]) / 2
+	want := fmt.Sprintf("unknown: your 4 H-α targets don't follow H-α brightness closely enough to predict hours (they sit %.2g× to %.2g× the fit;",
+		math.Pow(10, logs[0]-k), math.Pow(10, logs[3]-k))
+	if ha.Hours.Hours != nil || ha.Hours.Low != nil || ha.Hours.Points != 4 || !strings.HasPrefix(ha.Hours.Unknown, want) || ha.Hours.Goal != "SNR 10" {
+		t.Errorf("H-α hours %+v want %q", ha.Hours, want)
+	}
+	if !strings.Contains(ha.Hours.Unknown, "the fit misses their hours by a median 26×, and ignoring H-α misses by 1.8×)") {
+		t.Errorf("H-α leave-one-out %q", ha.Hours.Unknown)
+	}
+}
+
+func TestPickHAlphaHoursWhenTargetsFollowBrightness(t *testing.T) {
+	t.Parallel()
+	s, db := pickFixture(t)
+	scatter := map[string]float64{m42: 1.2, ngc7000: 0.9, m8: 1.1, m27: 0.8}
+	rs := map[string]float64{m42: 1000, ngc7000: 800, m8: 100, m27: 60}
+	for obj, f := range scatter {
+		h := 2e4 / (rs[obj] * rs[obj]) * f
+		if err := db.Model(&app.GoalMeasurement{}).Where("object = ? AND filter = ?", obj, hydrogen).
+			Updates(map[string]any{"snr": 10 / math.Sqrt(h), "effective_hours": 1}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := s.Pick(context.Background(), "M16", pickPlans())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ha := filterOf(p, "H-α")
+	want := 2e4 * math.Sqrt(0.9*1.1) / (400 * 400)
+	if ha.Hours.Hours == nil || math.Abs(*ha.Hours.Hours-want) > 1e-9*want || ha.Hours.Points != 4 {
+		t.Fatalf("H-α hours %+v want %v", ha.Hours, want)
+	}
+	lo, hi := want*0.8/1.1, want*1.2/0.9
+	if math.Abs(*ha.Hours.Low-lo) > 1e-9 || math.Abs(*ha.Hours.High-hi) > 1e-9 {
+		t.Errorf("range %v to %v want %v to %v", *ha.Hours.Low, *ha.Hours.High, lo, hi)
+	}
+	if !strings.Contains(ha.Hours.Basis, "left out one at a time, the fit misses their hours by a median") || !strings.Contains(ha.Hours.Basis, "at the 400 R on the map here") {
+		t.Errorf("basis %q", ha.Hours.Basis)
 	}
 }
 

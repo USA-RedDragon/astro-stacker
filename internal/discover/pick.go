@@ -175,10 +175,13 @@ func rText(r float64) string {
 }
 
 func hText(h float64) string {
-	if h >= 10 {
+	switch {
+	case h >= 10:
 		return fmt.Sprintf("%.0f h", h)
+	case h >= 0.1:
+		return fmt.Sprintf("%.1f h", h)
 	}
-	return fmt.Sprintf("%.1f h", h)
+	return fmt.Sprintf("%.2g h", h)
 }
 
 type pastTarget struct {
@@ -411,9 +414,30 @@ func scaleMatches(m, rig float64) bool {
 }
 
 type hAlphaFit struct {
-	k, lo, hi float64
-	n         int
-	why       string
+	k, lo, hi       float64
+	looLo, looHi    float64
+	looFit, looNull float64
+	n               int
+	why             string
+}
+
+func leaveOneOut(v []float64) []float64 {
+	out := make([]float64, len(v))
+	for i := range v {
+		rest := make([]float64, 0, len(v)-1)
+		rest = append(rest, v[:i]...)
+		rest = append(rest, v[i+1:]...)
+		out[i] = v[i] - medianOf(rest)
+	}
+	return out
+}
+
+func medianAbs(v []float64) float64 {
+	a := make([]float64, len(v))
+	for i, x := range v {
+		a[i] = math.Abs(x)
+	}
+	return medianOf(a)
 }
 
 func (s *Service) fitHAlpha(past []pastTarget, ms []app.GoalMeasurement, scale float64, snr float64) hAlphaFit {
@@ -436,11 +460,18 @@ func (s *Service) fitHAlpha(past []pastTarget, ms []app.GoalMeasurement, scale f
 			best[m.Object] = m
 		}
 	}
-	var resid []float64
-	logs := make([]float64, 0, len(best))
-	for obj, m := range best {
-		h := m.EffectiveHours * (snr / m.SNR) * (snr / m.SNR)
-		logs = append(logs, math.Log10(h)+2*math.Log10(byObject[obj].sample.Rayleigh))
+	objs := make([]string, 0, len(best))
+	for obj := range best {
+		objs = append(objs, obj)
+	}
+	slices.Sort(objs)
+	logs := make([]float64, 0, len(objs))
+	plain := make([]float64, 0, len(objs))
+	for _, obj := range objs {
+		m := best[obj]
+		lh := math.Log10(m.EffectiveHours * (snr / m.SNR) * (snr / m.SNR))
+		plain = append(plain, lh)
+		logs = append(logs, lh+2*math.Log10(byObject[obj].sample.Rayleigh))
 	}
 	f := hAlphaFit{n: len(logs)}
 	if f.n < MinHAlphaPoints {
@@ -448,10 +479,19 @@ func (s *Service) fitHAlpha(past []pastTarget, ms []app.GoalMeasurement, scale f
 		return f
 	}
 	f.k = medianOf(logs)
+	resid := make([]float64, 0, len(logs))
 	for _, l := range logs {
 		resid = append(resid, l-f.k)
 	}
 	f.lo, f.hi = slices.Min(resid), slices.Max(resid)
+	loo := leaveOneOut(logs)
+	f.looLo, f.looHi = slices.Min(loo), slices.Max(loo)
+	f.looFit, f.looNull = medianAbs(loo), medianAbs(leaveOneOut(plain))
+	if f.looFit >= f.looNull {
+		f.why = fmt.Sprintf("your %d H-α targets don't follow H-α brightness closely enough to predict hours (they sit %.2g× to %.2g× the fit; "+
+			"left out one at a time, the fit misses their hours by a median %.2g×, and ignoring H-α misses by %.2g×)",
+			f.n, math.Pow(10, f.lo), math.Pow(10, f.hi), math.Pow(10, f.looFit), math.Pow(10, f.looNull))
+	}
 	return f
 }
 
@@ -466,10 +506,11 @@ func (f hAlphaFit) hours(r float64, snr float64) PickHours {
 		return out
 	}
 	h := math.Pow(10, f.k) / (r * r)
-	lo, hi := h*math.Pow(10, f.lo), h*math.Pow(10, f.hi)
+	lo, hi := h*math.Pow(10, f.looLo), h*math.Pow(10, f.looHi)
 	out.Hours, out.Low, out.High = ptrf(h), ptrf(lo), ptrf(hi)
-	out.Basis = fmt.Sprintf("hours to SNR %g ∝ R⁻² (sky-limited, signal ∝ R), fitted to %d of your H-α targets; they sit %.2g× to %.2g× the fit, so %s to %s",
-		snr, f.n, math.Pow(10, f.lo), math.Pow(10, f.hi), hText(lo), hText(hi))
+	out.Basis = fmt.Sprintf("hours to SNR %g ∝ R⁻² (sky-limited, signal ∝ R) at the %s on the map here, fitted to %d of your H-α targets; "+
+		"left out one at a time, the fit misses their hours by a median %.2g× (ignoring H-α misses by %.2g×) and by %.2g× to %.2g× at worst, so %s to %s",
+		snr, rText(r), f.n, math.Pow(10, f.looFit), math.Pow(10, f.looNull), math.Pow(10, f.looLo), math.Pow(10, f.looHi), hText(lo), hText(hi))
 	return out
 }
 
