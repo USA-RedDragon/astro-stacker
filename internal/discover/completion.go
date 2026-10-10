@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
@@ -253,6 +254,7 @@ type ObjectDetail struct {
 	Months [12]float64        `json:"months"`
 	Lists  []catalog.ListInfo `json:"lists"`
 	Rig    rigsource.Rig      `json:"rig"`
+	HAlpha *halpha.Sample     `json:"halpha"`
 }
 
 func (s *Service) Object(ctx context.Context, id string) (ObjectDetail, error) {
@@ -267,6 +269,11 @@ func (s *Service) Object(ctx context.Context, id string) (ObjectDetail, error) {
 	n, _ := s.tonightNight(ctx)
 	rig, info := s.rig(ctx)
 	d := ObjectDetail{CatalogueEntry: s.entry(snap, subjectMap(snap), n, o, rig), Links: snap.byObject[o.ID], Rig: info}
+	if m, _ := s.halphaMap(); m != nil {
+		if smp, ok := m.Sample(o.RA, o.Dec, o.MajorArcmin/120); ok {
+			d.HAlpha = &smp
+		}
+	}
 	if d.Links == nil {
 		d.Links = []Link{}
 	}

@@ -171,6 +171,14 @@ discover:
   starfront-url: "https://collab.starfront.space"
   # Minutes between fetches of the collaboration list
   starfront-minutes: 30
+  # Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score
+  halpha-map: true
+  # Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database
+  sky-cutouts: true
+  # CDS hips2fits service for the H-α map and survey cutouts
+  hips2fits-url: "https://alasky.cds.unistra.fr/hips-image-services/hips2fits"
+  # Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit
+  cutouts-per-minute: 20
 # The observatory-scheduler plugin's API and the durable command queue
 scheduler:
   # Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
@@ -48,19 +49,15 @@ func TypeGroup(t string) string {
 	return ""
 }
 
-func narrowband(t string) string {
-	switch t {
-	case catalog.TypeEmission, catalog.TypeClusterNebula:
-		return "H-α emission"
-	case catalog.TypeSNR:
-		return "H-α and O-III filaments"
-	case catalog.TypePN:
-		return "O-III and H-α"
-	case catalog.TypeNebula:
-		return "Possibly H-α"
+func halphaWeighted(group string) bool {
+	switch group {
+	case GroupEmission, GroupRemnant, GroupPlanetary:
+		return true
 	}
-	return "Broadband"
+	return false
 }
+
+const halphaWeight = 0.15
 
 type FinderQuery struct {
 	Fits    []string
@@ -79,6 +76,7 @@ type FinderRow struct {
 	Brightness  string         `json:"brightness"`
 	BrightScore *float64       `json:"brightScore"`
 	Narrowband  string         `json:"narrowband"`
+	HAlpha      *halpha.Sample `json:"halpha"`
 	Months      [12]float64    `json:"months"`
 	BestMonths  []int          `json:"bestMonths"`
 	Tonight     float64        `json:"tonightHours"`
@@ -96,6 +94,7 @@ type FinderResult struct {
 	RigError  *string       `json:"rigError"`
 	Frame     FrameInfo     `json:"frame"`
 	Rig       rigsource.Rig `json:"rig"`
+	HAlphaMap halpha.Status `json:"halphaMap"`
 	skybright.Value
 }
 
@@ -173,7 +172,8 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) 
 	}
 	now := s.now()
 	day := site.LocalNoon(now)
-	key := fmt.Sprintf("%+v|%v", rig.Frame, rig.SkyBright)
+	hmap, hst := s.halphaMap()
+	key := fmt.Sprintf("%+v|%v|%s|%v", rig.Frame, rig.SkyBright, hst.State, hst.FetchedAt)
 	s.mu.Lock()
 	cached := s.finder
 	s.mu.Unlock()
@@ -211,13 +211,20 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) 
 		if bright != nil {
 			bw = *bright
 		}
+		var ha *halpha.Sample
+		if smp, ok := hmap.Sample(o.RA, o.Dec, o.MajorArcmin/120); ok {
+			ha = &smp
+		}
 		score := 0.35*fillScore(fit) + 0.25*bw + 0.25*math.Min(1, maxH/8)
+		if halphaWeighted(g) {
+			score += halphaWeight * halpha.Score(ha)
+		}
 		gap := len(o.Lists) > 0
 		if gap {
 			score += 0.15
 		}
 		rows = append(rows, FinderRow{
-			Object: o, Group: g, Fit: fit, Brightness: label, BrightScore: bright, Narrowband: narrowband(o.Type),
+			Object: o, Group: g, Fit: fit, Brightness: label, BrightScore: bright, Narrowband: halpha.Label(ha), HAlpha: ha,
 			Months: months, BestMonths: best, Tonight: n.HoursAbove(o.RA, o.Dec, minAlt), Score: math.Round(score*1000) / 1000,
 			Rotation: o.PA, CatalogGap: gap,
 		})
@@ -230,7 +237,8 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) 
 
 func (s *Service) Finder(ctx context.Context, q FinderQuery) (FinderResult, error) {
 	rig, info := s.rig(ctx)
-	out := FinderResult{Value: s.skyValue(ctx), Rows: []FinderRow{}, Rig: info}
+	_, hst := s.halphaMap()
+	out := FinderResult{Value: s.skyValue(ctx), Rows: []FinderRow{}, Rig: info, HAlphaMap: hst}
 	if rig.known() {
 		out.Frame = FrameInfo{WidthDeg: rig.Frame.WidthDeg(), HeightDeg: rig.Frame.HeightDeg(), Scale: rig.Frame.Scale()}
 	} else {

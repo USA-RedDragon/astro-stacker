@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
@@ -35,6 +36,7 @@ type SiteFunc func(ctx context.Context) (sky.Site, error)
 type Service struct {
 	Measure func(ctx context.Context) rigsource.Rig
 	Sky     func(ctx context.Context) skybright.Value
+	HAlpha  func() (*halpha.Map, halpha.Status)
 	Catalog *catalog.Index
 	AppDB   *gorm.DB
 	SchedDB *gorm.DB
@@ -106,6 +108,13 @@ func staticInfo(r Rig) rigsource.Rig {
 		out.TypicalGuideRMS = &v
 	}
 	return out
+}
+
+func (s *Service) halphaMap() (*halpha.Map, halpha.Status) {
+	if s.HAlpha == nil {
+		return nil, halpha.Status{State: halpha.StateOff, Source: halpha.SourceText}
+	}
+	return s.HAlpha()
 }
 
 func (s *Service) skyValue(ctx context.Context) skybright.Value {

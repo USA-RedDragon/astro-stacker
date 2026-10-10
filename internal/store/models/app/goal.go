@@ -72,3 +72,28 @@ type GaiaField struct {
 	Stars     string `gorm:"type:text"`
 	FetchedAt time.Time
 }
+
+type HAlphaMap struct {
+	ID        int    `gorm:"primaryKey;autoIncrement"`
+	Source    string `gorm:"not null;index"`
+	Width     int
+	Height    int
+	CRPix1    float64
+	CRPix2    float64
+	CDelt1    float64
+	CDelt2    float64
+	CRVal1    float64
+	CRVal2    float64
+	Data      []byte
+	FetchedAt time.Time
+}
+
+type SkyCutout struct {
+	ID          int    `gorm:"primaryKey;autoIncrement"`
+	Key         string `gorm:"not null;uniqueIndex"`
+	ContentType string
+	ETag        string
+	Data        []byte
+	FetchedAt   time.Time `gorm:"index"`
+	UsedAt      time.Time
+}
