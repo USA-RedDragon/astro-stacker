@@ -543,7 +543,7 @@ func (s *Service) Collabs(ctx context.Context, src CollabSource) (CollabsView, e
 	n, siteErr := s.tonightNight(ctx)
 	v.SiteError = siteErr
 	if n != nil {
-		v.Night = nightInfo(*n, s.minAlt())
+		v.Night = nightInfo(*n, s.minAlt(), s.minAltSource())
 	}
 	yr, _ := s.year(ctx, s.now().Year())
 	subjects, err := s.Subjects(ctx)

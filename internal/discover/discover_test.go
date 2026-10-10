@@ -2,15 +2,19 @@ package discover_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -43,32 +47,54 @@ func openDB(t *testing.T, name string) *gorm.DB {
 	return db
 }
 
+func wcsCards(t *testing.T, ra, dec, arcsec float64, w, h int) string {
+	t.Helper()
+	d := arcsec / 3600
+	f := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+	cards := []frameheader.Card{
+		{Name: "CTYPE1", Value: "RA---TAN", Quoted: true}, {Name: "CTYPE2", Value: "DEC--TAN", Quoted: true},
+		{Name: "CRVAL1", Value: f(ra)}, {Name: "CRVAL2", Value: f(dec)},
+		{Name: "CRPIX1", Value: f(float64(w+1) / 2)}, {Name: "CRPIX2", Value: f(float64(h+1) / 2)},
+		{Name: "CD1_1", Value: f(-d)}, {Name: "CD1_2", Value: "0"}, {Name: "CD2_1", Value: "0"}, {Name: "CD2_2", Value: f(d)},
+	}
+	b, err := json.Marshal(cards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 func newService(t *testing.T) *discover.Service {
 	t.Helper()
 	sched := openDB(t, "sched")
 	for _, q := range []string{
-		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, name TEXT, state INTEGER, "isMosaic" INTEGER)`,
-		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, ra REAL, dec REAL, projectid INTEGER)`,
-		`INSERT INTO project VALUES (1, 'Garlic Nebula', 1, 0), (2, 'Cygnis Loop', 1, 1), (3, 'M13', 1, 0), (4, 'C/2025 R2', 1, 0)`,
-		`INSERT INTO target VALUES (1, 'Garlic Nebula', 23.986944, 62.436667, 1), (2, 'Cygnis Loop Panel 1', 20.868, 31.537, 2),
-			(3, 'Cygnis Loop Panel 2', 20.868, 29.760, 2), (4, 'M 13', 16.6949, 36.4613, 3),
-			(5, 'C/2025 R2', 13.4, 10.2, 4)`,
+		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, name TEXT, state INTEGER, "isMosaic" INTEGER, minimumaltitude REAL, "profileId" TEXT, enablegrader INTEGER)`,
+		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, ra REAL, dec REAL, projectid INTEGER, rotation REAL)`,
+		`CREATE TABLE exposureplan ("Id" INTEGER PRIMARY KEY, desired INTEGER, acquired INTEGER, accepted INTEGER, targetid INTEGER, enabled INTEGER)`,
+		`INSERT INTO project VALUES (1, 'Garlic Nebula', 1, 0, 30, 'p', 1), (2, 'Cygnis Loop', 1, 1, 30, 'p', 1), (3, 'M13', 1, 0, 42, 'p', 1),
+			(4, 'C/2025 R2', 1, 0, 30, 'p', 1), (5, 'Andromeda Galaxy', 1, 0, 30, 'p', 1), (6, 'Pleiades', 0, 0, 30, 'p', 1)`,
+		`INSERT INTO target VALUES (1, 'Garlic Nebula', 23.986944, 62.436667, 1, 0), (2, 'Cygnis Loop Panel 1', 20.868, 31.537, 2, 0),
+			(3, 'Cygnis Loop Panel 2', 20.868, 29.760, 2, 0), (4, 'M 13', 16.6949, 36.4613, 3, 0),
+			(5, 'C/2025 R2', 13.4, 10.2, 4, 0), (6, 'Andromeda Galaxy', 23.986944, 62.436667, 5, 0), (7, 'Pleiades', 3.7911, 24.1167, 6, 0)`,
+		`INSERT INTO exposureplan VALUES (1, 20, 20, 12, 1, 1), (2, 40, 50, 40, 4, 1), (3, 10, 0, 0, 4, 0)`,
 	} {
 		if err := sched.Exec(q).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
 	appDB := openDB(t, "app")
-	if err := appDB.AutoMigrate(&app.Stack{}, &app.Frame{}, &app.ObjectXref{}); err != nil {
+	if err := appDB.AutoMigrate(&app.Stack{}, &app.Frame{}, &app.ObjectXref{}, &app.TargetReference{}, &app.GoalMeasurement{}); err != nil {
 		t.Fatal(err)
 	}
-	ra, dec, night := 150.0, 20.0, time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC)
+	ra, dec, night := 170.06, 13.26, time.Date(2026, 9, 1, 4, 0, 0, 0, time.UTC)
 	appDB.Create(&[]app.Stack{
-		{Object: garlicName, Filter: hydrogen, EffectiveSeconds: 36000, Subs: 120},
-		{Object: garlicName, Filter: "O-III", EffectiveSeconds: 18000, Subs: 60},
+		{Object: garlicName, Filter: hydrogen, EffectiveSeconds: 36000, Subs: 120, Width: 6248, Height: 4176},
+		{Object: garlicName, Filter: "O-III", EffectiveSeconds: 18000, Subs: 60, Width: 6248, Height: 4176},
 		{Object: "Cygnis Loop Panel 1", Filter: hydrogen, EffectiveSeconds: 7200, Subs: 24},
 		{Object: leoTriplet, Filter: "L", EffectiveSeconds: 3600, Subs: 12},
 	})
+	w := wcsCards(t, 359.804, 62.437, 1.915, 6248, 4176)
+	appDB.Create(&app.TargetReference{Object: garlicName, FrameID: 1, ObjectKey: "ref", WCS: &w})
 	appDB.Create(&app.Frame{Key: "a.fits", ETag: "e", Size: 1, LastModified: night, Type: "LIGHT", Object: leoTriplet, MountRA: &ra, MountDec: &dec, DateObs: &night})
 	ix, err := catalog.LoadEmbedded()
 	if err != nil {
@@ -85,6 +111,15 @@ func newService(t *testing.T) *discover.Service {
 	}
 }
 
+func linkTo(links []discover.Link, designation string) *discover.Link {
+	for i := range links {
+		if links[i].Object.Designation == designation {
+			return &links[i]
+		}
+	}
+	return nil
+}
+
 func TestSubjectsAndLinks(t *testing.T) {
 	t.Parallel()
 	s := newService(t)
@@ -98,39 +133,47 @@ func TestSubjectsAndLinks(t *testing.T) {
 		byKey[sb.Key] = sb
 	}
 	g := byKey[garlicKey]
-	if !g.HasPos || g.Hours[hydrogen] != 10 || g.Hours["O-III"] != 5 || g.Mosaic || g.StateName != "Active" {
+	if !g.HasPos || g.Hours[hydrogen] != 10 || g.Hours["O-III"] != 5 || g.Mosaic || g.StateName != "Active" || g.Footprint != discover.FieldFrames {
 		t.Errorf("garlic subject %+v", g)
-	}
-	if c := byKey[cygnisKey]; !c.Mosaic || len(c.Targets) != 2 || c.Radius < 0.8 {
-		t.Errorf("cygnis subject %+v", c)
-	}
-	leo, ok := byKey["object:Leo Triplet"]
-	if !ok || !leo.HasPos || leo.RA < 149.999 || leo.RA > 150.001 || leo.LastNight == nil {
-		t.Errorf("stacker-only subject %+v", leo)
-	}
-	links, _ := s.Links(ctx, garlicKey)
-	if len(links) == 0 || links[0].Object.ID != catalog.Key(garlicID) || links[0].Status != discover.StatusAuto {
-		t.Fatalf("garlic links %+v", links)
-	}
-	cyg, _ := s.Links(ctx, cygnisKey)
-	found := false
-	for _, l := range cyg {
-		if l.Object.Designation == "G074.0-08.5" {
-			found = l.Status == discover.StatusSuggested && l.Method == discover.MethodSimilar
-		}
-	}
-	if !found {
-		t.Errorf("Cygnis Loop should be a suggested fuzzy match to the Cygnus Loop: %+v", cyg)
 	}
 	if comet := byKey[cometKey]; comet.NotCatalogue != catalog.ReasonComet || byKey[garlicKey].NotCatalogue != "" {
 		t.Errorf("comet subject %+v", comet)
 	}
-	if cl, _ := s.Links(ctx, cometKey); slices.ContainsFunc(cl, func(l discover.Link) bool { return l.Status != discover.StatusInFrame }) {
+	if c := byKey[cygnisKey]; !c.Mosaic || len(c.Targets) != 2 || c.Radius < 0.8 || c.Footprint != discover.BasisTarget {
+		t.Errorf("cygnis subject %+v", c)
+	}
+	leo, ok := byKey["object:Leo Triplet"]
+	if !ok || !leo.HasPos || leo.RA < 170.059 || leo.RA > 170.061 || leo.LastNight == nil || leo.Footprint != discover.FieldPointing {
+		t.Errorf("stacker-only subject %+v", leo)
+	}
+}
+
+func TestFootprintLinks(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	ctx := context.Background()
+	links, _ := s.Links(ctx, garlicKey)
+	gl := linkTo(links, garlicID)
+	if gl == nil || links[0].Object.ID != catalog.Key(garlicID) || gl.Status != discover.StatusImaged || gl.Basis != discover.BasisFrames ||
+		gl.Coverage == nil || *gl.Coverage != 1 || !gl.CentreInside || gl.NameMatch != discover.MethodName || !strings.Contains(gl.Why, "100% of it covered") {
+		t.Fatalf("garlic links %+v", links)
+	}
+	cyg, _ := s.Links(ctx, cygnisKey)
+	if l := linkTo(cyg, "G074.0-08.5"); l == nil || l.Status != discover.StatusImaged || l.Basis != discover.BasisTarget ||
+		!slices.Contains(l.Targets, "Cygnis Loop Panel 1") || l.Similarity == nil {
+		t.Errorf("the Cygnus Loop should be imaged by the Cygnis Loop frames: %+v", l)
+	}
+	if cl, _ := s.Links(ctx, cometKey); slices.ContainsFunc(cl, func(l discover.Link) bool { return l.Status != discover.StatusPlanned }) {
 		t.Errorf("comet links %+v", cl)
 	}
 	m13, _ := s.Links(ctx, "project:M13")
-	if len(m13) == 0 || m13[0].Object.Designation != m13Name || m13[0].Method != discover.MethodDesignation {
+	if len(m13) == 0 || m13[0].Object.Designation != m13Name || m13[0].Status != discover.StatusPlanned || m13[0].NameMatch != discover.MethodDesignation {
 		t.Errorf("M13 links %+v", m13)
+	}
+	for _, l := range append(links, m13...) {
+		if l.Separation != nil && *l.Separation < 0 {
+			t.Errorf("negative separation %+v", l)
+		}
 	}
 }
 
@@ -142,47 +185,44 @@ func TestReviewAndDecisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cyg *discover.ReviewItem
-	for i := range review {
-		if review[i].Subject == cygnisKey && review[i].Object.Designation == "G074.0-08.5" {
-			cyg = &review[i]
-		}
+	for _, r := range review {
+		t.Logf("%s -> %s %s", r.SubjectName, r.Object.Designation, r.Why)
 	}
-	if cyg == nil {
-		t.Fatalf("no review item for the Cygnus Loop in %d items", len(review))
+	if len(review) != 1 || review[0].Subject != "project:Andromeda Galaxy" || review[0].Object.Designation != m31ID ||
+		review[0].Rule != discover.RuleNameOutside || !strings.Contains(review[0].Why, "none of it is in your planned frames") {
+		t.Fatalf("review %+v", review)
 	}
-	if slices.ContainsFunc(review, func(r discover.ReviewItem) bool { return r.Subject == cometKey }) {
-		t.Error("a comet is in the review queue")
-	}
-	s.AppDB.Create(&app.ObjectXref{Subject: cygnisKey, ObjectID: cyg.Object.ID, Decision: app.XrefConfirmed})
-	s.AppDB.Create(&app.ObjectXref{Subject: garlicKey, ObjectID: "M31", Decision: app.XrefConfirmed})
+	far := review[0]
+	s.AppDB.Create(&app.ObjectXref{Subject: far.Subject, ObjectID: far.Object.ID, Decision: app.XrefConfirmed})
+	s.AppDB.Create(&app.ObjectXref{Subject: garlicKey, ObjectID: "M33", Decision: app.XrefConfirmed, DecidedAt: time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC)})
+	s.AppDB.Create(&app.ObjectXref{Subject: garlicKey, ObjectID: "LBN576", Decision: app.XrefRejected})
 	s.Invalidate()
-	links, _ := s.Links(ctx, cygnisKey)
-	confirmed := false
-	for _, l := range links {
-		if l.Object.ID == cyg.Object.ID {
-			confirmed = l.Status == discover.StatusConfirmed && l.Linked()
-		}
-	}
-	if !confirmed {
+	links, _ := s.Links(ctx, far.Subject)
+	if l := linkTo(links, m31ID); l == nil || l.Status != discover.StatusConfirmed || !l.Linked() {
 		t.Errorf("confirmed decision not applied: %+v", links)
 	}
 	g, _ := s.Links(ctx, garlicKey)
-	manual := false
-	for _, l := range g {
-		manual = manual || l.Object.ID == "M31" && l.Method == "manual"
+	if l := linkTo(g, "M 33"); l == nil || l.Method != discover.MethodManual || l.Why != "Confirmed by you on 2026-10-01." || l.Separation != nil {
+		t.Errorf("a confirmed link outside the candidates %+v", l)
 	}
-	if !manual {
-		t.Error("a confirmed link outside the candidates was dropped")
+	if l := linkTo(g, "LBN 576"); l == nil || l.Status != discover.StatusRejected || l.Linked() {
+		t.Errorf("a rejected footprint link %+v", l)
 	}
 	decided, _ := s.Review(ctx, true)
-	shown := false
-	for _, d := range decided {
-		shown = shown || d.Decided && d.Subject == cygnisKey && d.Status == discover.StatusConfirmed
-	}
-	if !shown {
+	if !slices.ContainsFunc(decided, func(d discover.ReviewItem) bool {
+		return d.Decided && d.Subject == far.Subject && d.Status == discover.StatusConfirmed
+	}) {
 		t.Errorf("the confirmed match is not in the decided review: %+v", decided)
 	}
+}
+
+func entryFor(entries []discover.CatalogueEntry, id string) discover.CatalogueEntry {
+	for _, e := range entries {
+		if e.Object.ID == catalog.Key(id) {
+			return e
+		}
+	}
+	return discover.CatalogueEntry{}
 }
 
 func TestCatalogues(t *testing.T) {
@@ -193,8 +233,11 @@ func TestCatalogues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Night == nil || ov.Night.DarkHours < 8 || ov.SiteError != "" {
+	if ov.Night == nil || ov.Night.DarkHours < 8 || ov.SiteError != "" || ov.Night.UpTonightHours != 1 || ov.Night.AltitudeSource == "" {
 		t.Errorf("night %+v %s", ov.Night, ov.SiteError)
+	}
+	if ov.Backfill == nil || ov.Backfill.Total != 4 || ov.Backfill.Measured != 0 || ov.Backfill.State != goals.BackfillOff {
+		t.Errorf("backfill %+v", ov.Backfill)
 	}
 	var messier discover.CatalogueSummary
 	for _, c := range ov.Catalogues {
@@ -202,7 +245,15 @@ func TestCatalogues(t *testing.T) {
 			messier = c
 		}
 	}
-	if messier.Total != 110 || messier.InProgress < 1 || messier.Done+messier.InProgress+messier.NotStarted != 110 || messier.UpTonight == 0 {
+	scheduled := 0
+	for _, c := range ov.Catalogues {
+		scheduled += c.Scheduled
+	}
+	if scheduled == 0 {
+		t.Error("nothing counted as scheduled with nothing captured")
+	}
+	if messier.Total != 110 || messier.Done != 1 || messier.DoneTS != 1 ||
+		messier.Done+messier.InProgress+messier.Measuring+messier.NotStarted != 110 || messier.UpTonight == 0 {
 		t.Errorf("messier summary %+v", messier)
 	}
 	entries, err := s.Catalogue(ctx, "messier")
@@ -210,17 +261,22 @@ func TestCatalogues(t *testing.T) {
 		t.Fatal(err)
 	}
 	m13 := entries[12]
-	if m13.Label != m13Name || m13.Index != 13 || m13.Status != discover.CompletionInProgress || len(m13.Subjects) == 0 {
-		t.Errorf("M 13 entry %+v", m13)
+	if m13.Label != m13Name || m13.Index != 13 || m13.Status != discover.CompletionDone || m13.DoneBy != discover.DoneByTS || len(m13.Subjects) == 0 ||
+		m13.Tonight == nil || m13.Tonight.MinAltitude != 42 || !strings.Contains(m13.Tonight.AltitudeSource, "M13") {
+		t.Errorf("M 13 entry %+v %+v", m13, m13.Tonight)
 	}
+}
+
+func TestObjectEntries(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	ctx := context.Background()
 	green, err := s.Catalogue(ctx, "green")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range green {
-		if e.Object.ID == catalog.Key(garlicID) && (e.Status != discover.CompletionInProgress || e.Hours[hydrogen] != 10) {
-			t.Errorf("garlic entry %+v", e)
-		}
+	if e := entryFor(green, garlicID); e.Status != discover.CompletionMeasuring || e.Hours[hydrogen] != 10 || e.Tally.Filters != 2 || e.Tally.Measured != 0 {
+		t.Errorf("garlic entry %+v", e)
 	}
 	if _, err := s.Catalogue(ctx, "nope"); err == nil {
 		t.Error("unknown catalogue accepted")
@@ -234,6 +290,30 @@ func TestCatalogues(t *testing.T) {
 	}
 	if _, err := s.Object(ctx, "nothing-here"); err == nil {
 		t.Error("missing object found")
+	}
+}
+
+func TestCompletionBuckets(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	ctx := context.Background()
+	s.AppDB.Create(&[]app.GoalMeasurement{
+		{Object: garlicName, Filter: hydrogen, MethodRevision: goals.MethodRevision, Subs: 120, SNR: 12, GainPerHourPct: 3, EffectiveHours: 10},
+		{Object: garlicName, Filter: "O-III", MethodRevision: goals.MethodRevision, Subs: 60, SNR: 4, GainPerHourPct: 6, EffectiveHours: 5},
+	})
+	green, _ := s.Catalogue(ctx, "green")
+	if e := entryFor(green, garlicID); e.Status != discover.CompletionInProgress || e.Tally.Measured != 2 || e.Tally.Done != 1 {
+		t.Errorf("one filter short of its goal %+v", e)
+	}
+	s.AppDB.Model(&app.GoalMeasurement{}).Where("filter = ?", "O-III").Update("snr", 11)
+	s.Invalidate()
+	green, _ = s.Catalogue(ctx, "green")
+	if e := entryFor(green, garlicID); e.Status != discover.CompletionDone || e.DoneBy != discover.DoneByGoals {
+		t.Errorf("every filter at its goal %+v", e)
+	}
+	ov, _ := s.Overview(ctx)
+	if ov.Backfill.Measured != 2 || ov.Backfill.Current != 2 {
+		t.Errorf("backfill %+v", ov.Backfill)
 	}
 }
 
@@ -300,12 +380,12 @@ func TestResolve(t *testing.T) {
 		t.Error("empty resolve accepted")
 	}
 	byPos, _ := s.Resolve(ctx, "", &discover.Position{RA: 359.80, Dec: 62.44}, 0)
-	if len(byPos) == 0 || byPos[0].Method != discover.MethodCoordinates {
+	if len(byPos) == 0 || byPos[0].Object.Designation != garlicID || byPos[0].Method != discover.MethodFootprint || byPos[0].Status != discover.StatusPlanned {
 		t.Errorf("coordinate resolve %+v", byPos)
 	}
 	for _, q := range []string{"23h59m12s +62d26m", "359.8 62.44", "RA 23:59:12 Dec +62:26", "23.9867h +62°26′"} {
 		typed, err := s.Resolve(ctx, q, nil, 0)
-		if err != nil || len(typed) == 0 || typed[0].Object.Designation != garlicID || typed[0].Method != discover.MethodCoordinates {
+		if err != nil || len(typed) == 0 || typed[0].Object.Designation != garlicID || typed[0].Method != discover.MethodFootprint {
 			t.Errorf("coordinates typed as a name %q: %v %+v", q, err, typed)
 		}
 	}

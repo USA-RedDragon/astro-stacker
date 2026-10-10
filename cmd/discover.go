@@ -11,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
@@ -73,19 +74,20 @@ func siteFunc(cfg *config.Config, appStore store.Store) discover.SiteFunc {
 	}
 }
 
-func newDiscover(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store) (*discover.Service, *starfront.Poller) {
+func newDiscover(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, backfill func() goals.BackfillLive) (*discover.Service, *starfront.Poller) {
 	ix, err := catalog.LoadEmbedded()
 	if err != nil {
 		slog.Error("Catalogue store failed to load; the Discover pages are off", "error", err)
 		return nil, nil
 	}
 	svc := &discover.Service{
-		Catalog: ix,
-		AppDB:   appStore.DB(),
-		SchedDB: schedStore.DB(),
-		Site:    siteFunc(cfg, appStore),
-		Rig:     discoverRig(cfg),
-		Measure: (&rigsource.Source{App: appStore.DB(), Sched: schedStore.DB()}).Get,
+		Catalog:  ix,
+		AppDB:    appStore.DB(),
+		SchedDB:  schedStore.DB(),
+		Site:     siteFunc(cfg, appStore),
+		Rig:      discoverRig(cfg),
+		Measure:  (&rigsource.Source{App: appStore.DB(), Sched: schedStore.DB()}).Get,
+		Backfill: backfill,
 	}
 	sky := &skybright.Source{DB: appStore.DB(), Override: cfg.Discover.SkyBrightness, Site: func(ctx context.Context) (float64, float64, bool) {
 		site, err := svc.Site(ctx)

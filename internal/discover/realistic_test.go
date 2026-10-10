@@ -9,6 +9,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
 
 const (
@@ -26,7 +27,7 @@ func catalogService(t *testing.T) *discover.Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &discover.Service{Catalog: ix}
+	return &discover.Service{Catalog: ix, Rig: discover.Rig{Frame: sky.Frame{FocalLength: 405, PixelSize: 3.76, WidthPx: 6248, HeightPx: 4176}}}
 }
 
 type realSubject struct {
@@ -157,7 +158,7 @@ func TestRealisticNotCatalogue(t *testing.T) {
 			continue
 		}
 		for _, l := range r.links {
-			if l.Status != discover.StatusInFrame {
+			if l.Status != discover.StatusPlanned {
 				t.Errorf("%s is not a catalogue object but links %s as %s", key, l.Object.Designation, l.Status)
 			}
 		}
@@ -177,7 +178,7 @@ func TestNotCatalogueInACrowdedField(t *testing.T) {
 		t.Errorf("HD number reason %q", reason)
 	}
 	for _, l := range links {
-		if l.Status != discover.StatusInFrame {
+		if l.Status != discover.StatusPlanned {
 			t.Errorf("HD number links %s as %s", l.Object.Designation, l.Status)
 		}
 	}
@@ -190,7 +191,7 @@ func TestNotCatalogueInACrowdedField(t *testing.T) {
 func linkedIDs(links []discover.Link) map[string]discover.Link {
 	out := map[string]discover.Link{}
 	for _, l := range links {
-		if l.Linked() && l.Method != discover.MethodFootprint {
+		if l.Linked() && l.NameMatch != "" {
 			out[l.Object.Designation] = l
 		}
 	}
@@ -201,20 +202,21 @@ func TestCombinedNames(t *testing.T) {
 	t.Parallel()
 	res := matchRealistic(t)
 	for key, want := range map[string][]string{
-		"project:" + heartAndSoul:      {heartID, soulID},
-		"project:Heart and Soul SHO":   {heartID, soulID},
-		"object:Omega & Eagle Nebulae": {eagleID, "M 17"},
-		"object:M 8 and M 20":          {"M 8", "M 20"},
+		"project:" + heartAndSoul:    {heartID, soulID},
+		"project:Heart and Soul SHO": {heartID, soulID},
+		"object:M 8 and M 20":        {"M 8", "M 20"},
 	} {
 		got := linkedIDs(res[key].links)
-		if len(got) != len(want) {
-			t.Errorf("%s links %v, want %v", key, got, want)
-		}
 		for _, w := range want {
 			if l, ok := got[w]; !ok || !strings.Contains(l.Why, "names more than one object") {
 				t.Errorf("%s: %s not linked as a part: %+v", key, w, l)
 			}
 		}
+	}
+	omega := res["object:Omega & Eagle Nebulae"].links
+	if i := slices.IndexFunc(omega, func(l discover.Link) bool { return l.Object.Designation == "M 17" }); i < 0 ||
+		omega[i].Status != discover.StatusSuggested || omega[i].Rule != discover.RuleNameOutside || !strings.Contains(omega[i].Why, "this is “Omega Nebula”") {
+		t.Errorf("M 17 lies outside the frame at the Eagle and should wait for review: %+v", omega)
 	}
 	s := catalogService(t)
 	for _, name := range []string{"War and Peace", "War and Peace Nebula"} {
@@ -226,7 +228,7 @@ func TestCombinedNames(t *testing.T) {
 	}
 }
 
-func TestRealisticAutoLinks(t *testing.T) {
+func TestRealisticNameLinks(t *testing.T) {
 	t.Parallel()
 	want := map[string][]string{
 		"project:" + garlicName: {garlicID}, "project:M13": {m13Name}, "project:Rho": {"IC 4604"},
@@ -236,26 +238,25 @@ func TestRealisticAutoLinks(t *testing.T) {
 		"project:Witch Head": {"NGC 1909"}, "project:Blue Horsehead": {"IC 4592"}, "project:California": {"NGC 1499"},
 		"project:Eagle": {eagleID}, "project:Elephant Trunk": {"IC 1396"}, "project:NGC 7822": {"NGC 7822"},
 		"project:North America": {"NGC 7000"}, "project:Sagittarius Star Cloud": {"M 24"}, "project:Spaghetti": {"Sh2-240"},
-		"project:Rosette": {"NGC 2238"}, "object:Omega & Eagle Nebulae": {eagleID, "M 17"}, "object:M 8 and M 20": {"M 8", "M 20"},
+		"object:Omega & Eagle Nebulae": {eagleID}, "object:M 8 and M 20": {"M 8", "M 20"},
 		"object:Statue of Liberty Nebula": {"NGC 3576"}, "object:NGC1313": {"NGC 1313"}, "object:SH2-129": {"Sh2-129"},
-		"object:gum 3": {"RCW 1"}, "object:" + leoTriplet: {"M 65"}, "project:Veil": {"NGC 6960"},
-		"project:" + markarian: {"Markarian's Chain"}, "object:" + markarian: {"Markarian's Chain"},
+		"project:Veil": {"NGC 6960"}, "project:" + markarian: {"Markarian's Chain"}, "object:" + markarian: {"Markarian's Chain"},
 	}
 	for key, r := range matchRealistic(t) {
-		var got []string
-		for _, l := range r.links {
-			if l.Status == discover.StatusAuto {
-				got = append(got, l.Object.Designation)
-			}
-			if strings.Contains(l.Why, "from your coordinates") && (l.Confidence > 0.5 || l.Status == discover.StatusAuto) {
-				t.Errorf("%s: a far name match kept %.2f (%s)", key, l.Confidence, l.Status)
+		w, ok := want[key]
+		if !ok {
+			continue
+		}
+		got := linkedIDs(r.links)
+		for _, d := range w {
+			if _, ok := got[d]; !ok {
+				t.Errorf("%s does not link %s by name: %v", key, d, got)
 			}
 		}
-		slices.Sort(got)
-		w := slices.Clone(want[key])
-		slices.Sort(w)
-		if !slices.Equal(got, w) {
-			t.Errorf("%s auto-links %v, want %v", key, got, w)
+		for _, l := range r.links {
+			if l.Status == discover.StatusPlanned && (l.Coverage == nil || l.Rule != discover.RuleInsidePlan) {
+				t.Errorf("%s: planned link without its evidence %+v", key, l)
+			}
 		}
 	}
 }
@@ -264,13 +265,10 @@ func TestNameFarFromCoordinates(t *testing.T) {
 	t.Parallel()
 	s := catalogService(t)
 	garlic, _ := s.Catalog.Lookup(garlicID)
-	for _, tc := range []struct {
-		name, want string
-		conf, full float64
-	}{
-		{"Abell 85", garlicID, 0.5, 0.99},
-		{m31ID, m31ID, 0.5, 0.99},
-		{"Andromeda Galaxy", m31ID, 0.48, 0.96},
+	for _, tc := range []struct{ name, want string }{
+		{"Abell 85", garlicID},
+		{m31ID, m31ID},
+		{"Andromeda Galaxy", m31ID},
 	} {
 		ra, dec := 10.46, -9.3
 		if tc.want == m31ID {
@@ -284,13 +282,18 @@ func TestNameFarFromCoordinates(t *testing.T) {
 			continue
 		}
 		l := links[i]
-		if l.Confidence != tc.conf || l.Status != discover.StatusSuggested || !strings.Contains(l.Why, "° from your coordinates") {
+		if l.Status != discover.StatusSuggested || l.Rule != discover.RuleNameOutside || !strings.Contains(l.Why, "from the nearest frame centre") {
 			t.Errorf("%s: far name match %+v", tc.name, l)
 		}
 		near, _ := s.MatchSubject(context.Background(), discover.Subject{Key: "project:" + tc.name, Name: tc.name, Kind: discover.SubjectProject,
 			Targets: []string{tc.name}, RA: l.Object.RA, Dec: l.Object.Dec, HasPos: true, Hours: map[string]float64{}})
-		if len(near) == 0 || near[0].Object.Designation != tc.want || near[0].Status != discover.StatusAuto || near[0].Confidence != tc.full {
+		if len(near) == 0 || near[0].Object.Designation != tc.want || near[0].Status != discover.StatusPlanned || near[0].NameMatch == "" {
 			t.Errorf("%s: agreeing name match %+v", tc.name, near)
 		}
+	}
+	names, _ := (&discover.Service{Catalog: s.Catalog}).MatchSubject(context.Background(), discover.Subject{Key: "project:x", Name: m31ID,
+		Kind: discover.SubjectProject, Targets: []string{m31ID}, RA: 10.46, Dec: -9.3, HasPos: true, Hours: map[string]float64{}})
+	if len(names) == 0 || names[0].Rule != discover.RuleNameFar || names[0].Separation == nil || names[0].AgreeRadius == nil {
+		t.Errorf("name-only match without a rig %+v", names)
 	}
 }
