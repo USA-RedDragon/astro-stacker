@@ -20,8 +20,22 @@ import (
 func goalMaskEngine(t *testing.T) *gin.Engine {
 	t.Helper()
 	appStore := memStore(t)
-	if err := appStore.DB().AutoMigrate(&app.GoalMask{}); err != nil {
+	if err := appStore.DB().AutoMigrate(&app.GoalMask{}, &app.GoalMeasurement{}, &app.Stack{}); err != nil {
 		t.Fatal(err)
+	}
+	for _, f := range []string{filterHa, "O-III", filterSII, filterLuminance} {
+		if err := appStore.DB().Create(&app.Stack{Object: objectVeil, Filter: f, Subs: 10}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	failed := "too few registered subs"
+	for _, m := range []app.GoalMeasurement{
+		{Object: objectVeil, Filter: filterSII, MeasuredAt: time.Date(2026, 10, 8, 3, 0, 0, 0, time.UTC)},
+		{Object: objectVeil, Filter: filterLuminance, Error: &failed},
+	} {
+		if err := appStore.DB().Create(&m).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	bits := []uint8{
 		0, goals.MaskCovered, goals.MaskCovered | goals.MaskBand,
@@ -39,7 +53,7 @@ func goalMaskEngine(t *testing.T) *gin.Engine {
 		t.Fatal(err)
 	}
 	r := gin.New()
-	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{}, AppStore: appStore, SchedulerDBStore: memStore(t)}))
+	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{Goals: config.Goals{Enabled: true}}, AppStore: appStore, SchedulerDBStore: memStore(t)}))
 	applyPlanningRoutes(r.Group("/api/v1"), nil)
 	return r
 }
@@ -70,8 +84,22 @@ func TestGoalMaskInfoRoute(t *testing.T) {
 		info.BandHighPct != goals.BandHighPercent || *info.BandLo != 1.5 || info.Subs != 40 {
 		t.Fatalf("info %+v", info)
 	}
-	if w := serve(r, "/api/v1/goals/mask/info?object=Veil&filter=O-III"); w.Code != http.StatusNotFound {
-		t.Errorf("unmeasured filter: %d", w.Code)
+	for filter, want := range map[string]string{
+		"O-III":         "this master has had no goal pass yet",
+		"S-II":          "measured 2026-10-08T03:00:00Z, before masks were stored; the mask is stored on this master's next goal pass",
+		filterLuminance: "the last goal pass failed: too few registered subs",
+	} {
+		w := serve(r, "/api/v1/goals/mask/info?object=Veil&filter="+filter)
+		var got GoalMaskInfo
+		if err := json.Unmarshal(w.Body.Bytes(), &got); w.Code != http.StatusOK || err != nil || got.Measured || got.Reason != want {
+			t.Errorf("%s: %d %+v, want 200 with %q", filter, w.Code, got, want)
+		}
+	}
+	if !info.Measured {
+		t.Error("measured mask not marked measured")
+	}
+	if w := serve(r, "/api/v1/goals/mask/info?object=Veil&filter=L"); w.Code != http.StatusNotFound {
+		t.Errorf("no master: %d", w.Code)
 	}
 	if w := serve(r, "/api/v1/goals/mask/info?object=Veil"); w.Code != http.StatusBadRequest {
 		t.Errorf("no filter: %d", w.Code)
@@ -114,3 +142,8 @@ func TestGoalMaskRoute(t *testing.T) {
 		t.Errorf("unmeasured: %d", w.Code)
 	}
 }
+
+const (
+	filterLuminance = "Luminance"
+	filterSII       = "S-II"
+)
