@@ -104,3 +104,33 @@ func TestWithScoring(t *testing.T) {
 		t.Errorf("stacking off: %+v", off[0])
 	}
 }
+
+func TestLowestScores(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.StackFrame{}); err != nil {
+		t.Fatal(err)
+	}
+	one, two := 1, 2
+	for i, sf := range []app.StackFrame{
+		{StackID: &one, Status: app.StackStatusAdded, Score: 0.28},
+		{StackID: &one, Status: app.StackStatusAdded, Score: 0.6},
+		{StackID: &one, Status: app.StackStatusLowScore, Score: 0.1},
+		{StackID: &two, Status: app.StackStatusMoon, Score: 0.2},
+	} {
+		sf.FrameID = i + 1
+		if err := db.Create(&sf).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := lowestScores(context.Background(), db, []app.Stack{{ID: 1}, {ID: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[1] != 0.28 {
+		t.Errorf("lowest %v, want stack 1 at 0.28", got)
+	}
+}
