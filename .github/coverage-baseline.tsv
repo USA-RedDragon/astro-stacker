@@ -1,4 +1,4 @@
-cmd/discover.go	46	0
+cmd/discover.go	49	0
 cmd/mosaics.go	8	0
 cmd/root.go	136	0
 cmd/stack.go	58	0
@@ -15,17 +15,17 @@ internal/conditions/moon.go	34	34
 internal/config/config.go	27	21
 internal/coverage/coverage.go	148	132
 internal/discover/collabs.go	179	140
-internal/discover/completion.go	116	107
-internal/discover/finder.go	148	143
+internal/discover/completion.go	119	110
+internal/discover/finder.go	152	147
 internal/discover/match.go	190	180
-internal/discover/service.go	189	174
+internal/discover/service.go	192	177
 internal/discover/subjects.go	170	145
 internal/events/events.go	104	79
 internal/frameheader/frame.go	42	41
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	250	196
+internal/goalmeasure/runner.go	250	195
 internal/goalmeasure/xp.go	95	61
 internal/goals/fit.go	81	77
 internal/goals/image.go	124	120
@@ -33,6 +33,7 @@ internal/goals/measure.go	253	236
 internal/goals/progress.go	70	60
 internal/goals/tsgoals.go	213	174
 internal/goals/zeropoint.go	143	127
+internal/halpha/halpha.go	183	160
 internal/imagedata/fits.go	62	51
 internal/imagedata/fitswrite.go	49	41
 internal/imagedata/pedestal16.go	9	9
