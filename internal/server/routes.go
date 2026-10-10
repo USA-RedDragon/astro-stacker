@@ -54,9 +54,11 @@ type Master struct {
 	// FitError is why the master couldn't be fitted to the others.
 	FitError string `json:"fit_error,omitempty"`
 	// Comet* are a comet's master aligned on the comet, when there is one.
-	CometPreviewURL string `json:"comet_preview_url,omitempty"`
-	CometURL        string `json:"comet_url,omitempty"`
-	CometXISFURL    string `json:"comet_xisf_url,omitempty"`
+	CometPreviewURL string   `json:"comet_preview_url,omitempty"`
+	CometURL        string   `json:"comet_url,omitempty"`
+	CometXISFURL    string   `json:"comet_xisf_url,omitempty"`
+	MinScore        float64  `json:"min_score"`
+	LowestScore     *float64 `json:"lowest_score"`
 }
 
 // Crop is the well-covered part of an image as fractions of its width and
@@ -533,6 +535,11 @@ func stacksRoute(signer *previewer.Signer) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
+		lowest, err := lowestScores(c.Request.Context(), di.AppStore.DB(), stacks)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+			return
+		}
 		out := make([]Master, 0, len(stacks))
 		for _, s := range stacks {
 			m, err := stackMaster(c.Request.Context(), signer, s)
@@ -540,10 +547,34 @@ func stacksRoute(signer *previewer.Signer) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 				return
 			}
+			m.MinScore = di.Config.Stacking.MinScore
+			if v, ok := lowest[s.ID]; ok {
+				m.LowestScore = &v
+			}
 			out = append(out, m)
 		}
 		c.JSON(http.StatusOK, out)
 	}
+}
+
+func lowestScores(ctx context.Context, db *gorm.DB, stacks []app.Stack) (map[int]float64, error) {
+	ids := make([]int, 0, len(stacks))
+	for _, s := range stacks {
+		ids = append(ids, s.ID)
+	}
+	var rows []struct {
+		StackID int
+		Lowest  float64
+	}
+	if err := db.WithContext(ctx).Model(&app.StackFrame{}).Select("stack_id, MIN(score) AS lowest").
+		Where("stack_id IN ? AND status = ?", ids, app.StackStatusAdded).Group("stack_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int]float64, len(rows))
+	for _, r := range rows {
+		out[r.StackID] = r.Lowest
+	}
+	return out, nil
 }
 
 func stackMaster(ctx context.Context, signer *previewer.Signer, s app.Stack) (Master, error) {
