@@ -39,3 +39,22 @@ export function show(v: unknown): string {
   if (typeof v === 'string') return v
   return JSON.stringify(v)
 }
+
+const clockFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: SITE_TZ, timeZoneName: 'short' })
+const longFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: SITE_TZ })
+const hourFmt = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: SITE_TZ })
+
+export function clock(v: string | number | Date | undefined | null): string {
+  const d = toDate(v)
+  return d ? clockFmt.format(d) : ''
+}
+
+export function longDate(v: string | number | Date | undefined | null): string {
+  const d = toDate(v)
+  return d ? longFmt.format(d) : ''
+}
+
+export function nightOf(now: number = Date.now()): Date {
+  const h = Number(hourFmt.format(new Date(now)))
+  return new Date(h < 12 ? now - 12 * 3600 * 1000 : now)
+}

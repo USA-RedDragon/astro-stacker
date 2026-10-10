@@ -25,7 +25,7 @@ const connLabel = computed(() => {
 const exposureLine = computed(() => {
   const e = s.value.exposure
   if (s.value.paused) return 'Paused · no exposure running'
-  if (!e) return s.value.state ? s.value.state : 'No exposure running'
+  if (!e || !e.ends_at) return s.value.state ? s.value.state : 'No exposure running'
   const left = (new Date(e.ends_at).getTime() - shell.now) / 1000
   const n = e.number ? 'Exposure ' + e.number + ' · ' : ''
   return `${n}${e.filter} ${Math.round(e.seconds)} s · ends ${hm(e.ends_at)} (${mmss(left)} left)`
