@@ -10,7 +10,7 @@ internal/catalog/gen/finalize.go	72	0
 internal/catalog/gen/main.go	609	0
 internal/catalog/gen/nina.go	183	0
 internal/catalog/notcatalogue.go	29	28
-internal/conditions/conditions.go	181	136
+internal/conditions/conditions.go	204	149
 internal/conditions/moon.go	34	34
 internal/config/config.go	27	21
 internal/coverage/coverage.go	148	132
@@ -53,7 +53,7 @@ internal/mosaics/geometry.go	165	161
 internal/mosaics/seasons.go	67	66
 internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
-internal/observatory/client.go	84	69
+internal/observatory/client.go	91	75
 internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	137	122
 internal/observatory/transport.go	50	45
