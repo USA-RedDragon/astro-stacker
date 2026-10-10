@@ -88,6 +88,11 @@ func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage
 	if err != nil {
 		return Record{}, err
 	}
+	if fx, ok := spec.(AppSideEffect); ok && spec.Destination() != DestinationApp {
+		if err := fx.ApplyAppSide(ctx, s.AppDB, payload); err != nil {
+			return Record{}, err
+		}
+	}
 	now := s.now()
 	r := Record{
 		ID:          s.newID(),
@@ -228,7 +233,9 @@ func (s *Service) ApplyResult(ctx context.Context, res Result) (Record, error) {
 
 func (s *Service) record(ctx context.Context, res Result, transport string) (Record, error) {
 	changed := false
+	var was Status
 	rec, err := s.Log.Update(ctx, res.ID, func(r *Record) error {
+		was = r.Status
 		if !acceptResult(r.Status, res.Status) {
 			return nil
 		}
@@ -257,10 +264,36 @@ func (s *Service) record(ctx context.Context, res Result, transport string) (Rec
 	if err != nil {
 		return rec, err
 	}
+	if was.Waiting() && rec.Status.Final() && rec.Status != StatusApplied && rec.Status != StatusSaved {
+		s.revertSideEffect(ctx, rec)
+	}
 	if changed {
 		s.notify(rec)
 	}
 	return rec, nil
+}
+
+func (s *Service) revertSideEffect(ctx context.Context, r Record) {
+	spec, err := s.registry().Get(r.Kind)
+	if err != nil {
+		return
+	}
+	if _, ok := spec.(AppSideEffect); !ok {
+		return
+	}
+	kind, inv, err := spec.Inverse(r.Payload)
+	if err != nil {
+		return
+	}
+	ispec, err := s.registry().Get(kind)
+	if err != nil {
+		return
+	}
+	if fx, ok := ispec.(AppSideEffect); ok {
+		if err := fx.ApplyAppSide(ctx, s.AppDB, inv); err != nil {
+			slog.Warn("Reverting a command's app-side change failed", "id", r.ID, "error", err)
+		}
+	}
 }
 
 func acceptResult(current, next Status) bool {

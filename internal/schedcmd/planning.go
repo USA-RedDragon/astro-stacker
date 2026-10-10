@@ -1,6 +1,7 @@
 package schedcmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -8,6 +9,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaicstore"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"gorm.io/gorm"
 )
 
 const (
@@ -143,7 +150,20 @@ type NewGoal struct {
 	Setting    GoalSetting `json:"setting"`
 }
 
+type MosaicPlan struct {
+	Layout   string  `json:"layout,omitempty"`
+	Rotation float64 `json:"rotation"`
+	Overlap  float64 `json:"overlap"`
+	Cols     int     `json:"cols,omitempty"`
+	Rows     int     `json:"rows,omitempty"`
+}
+
+type AppSideEffect interface {
+	ApplyAppSide(ctx context.Context, db *gorm.DB, payload json.RawMessage) error
+}
+
 type ProjectCreatePayload struct {
+	Mosaic      *MosaicPlan        `json:"mosaic,omitempty"`
 	Project     NewProject         `json:"project"`
 	Targets     []NewTarget        `json:"targets"`
 	Goals       []NewGoal          `json:"goals,omitempty"`
@@ -178,6 +198,14 @@ type planningSpec struct {
 	validate func(json.RawMessage) error
 	describe func(json.RawMessage) (Description, error)
 	inverse  func(json.RawMessage) (Kind, json.RawMessage, error)
+	appSide  func(context.Context, *gorm.DB, json.RawMessage) error
+}
+
+func (s planningSpec) ApplyAppSide(ctx context.Context, db *gorm.DB, p json.RawMessage) error {
+	if s.appSide == nil || db == nil {
+		return nil
+	}
+	return s.appSide(ctx, db, p)
 }
 
 func (s planningSpec) Kind() Kind                                      { return s.kind }
@@ -788,10 +816,50 @@ func projectCreateDescription(v ProjectCreatePayload, deleting bool) Description
 	return d
 }
 
+func writeWizardPanels(ctx context.Context, db *gorm.DB, p json.RawMessage) error {
+	v, err := decodeProjectCreate(p)
+	if err != nil {
+		return err
+	}
+	if !v.Project.IsMosaic || len(v.Targets) < 2 {
+		return nil
+	}
+	targets := make([]mosaics.TSTarget, len(v.Targets))
+	for i, t := range v.Targets {
+		targets[i] = mosaics.TSTarget{GUID: t.GUID, Name: t.Name, RA: t.RAHours * 15, Dec: t.Dec, Rotation: t.Rotation, Active: true}
+	}
+	rig := mosaics.DefaultRig()
+	now := time.Now().UTC()
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("project_guid = ? AND source = ?", v.Project.GUID, app.MosaicSourceWizard).Delete(&app.MosaicPanel{}).Error; err != nil {
+			return err
+		}
+		for _, panel := range mosaics.PlannedPanels(targets, rig) {
+			row, err := mosaicstore.PanelRow(v.Project.GUID, v.Project.Name, panel, rig, app.MosaicSourceWizard, now)
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func removeWizardPanels(ctx context.Context, db *gorm.DB, p json.RawMessage) error {
+	v, err := decodeProjectCreate(p)
+	if err != nil {
+		return err
+	}
+	return db.WithContext(ctx).Where("project_guid = ? AND source = ?", v.Project.GUID, app.MosaicSourceWizard).Delete(&app.MosaicPanel{}).Error
+}
+
 func ProjectCreateSpec() Spec {
 	return planningSpec{
 		kind:     KindProjectCreate,
 		category: CategoryCreated,
+		appSide:  writeWizardPanels,
 		validate: func(p json.RawMessage) error { _, err := decodeProjectCreate(p); return err },
 		describe: func(p json.RawMessage) (Description, error) {
 			v, err := decodeProjectCreate(p)
@@ -813,6 +881,7 @@ func ProjectDeleteSpec() Spec {
 	return planningSpec{
 		kind:     KindProjectDelete,
 		category: CategoryCreated,
+		appSide:  removeWizardPanels,
 		validate: func(p json.RawMessage) error { _, err := decodeProjectCreate(p); return err },
 		describe: func(p json.RawMessage) (Description, error) {
 			v, err := decodeProjectCreate(p)

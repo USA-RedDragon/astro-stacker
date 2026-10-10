@@ -1,11 +1,13 @@
 package schedcmd_test
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
 func samples() map[schedcmd.Kind]string {
@@ -169,5 +171,57 @@ func TestProjectBatchTitle(t *testing.T) {
 	_ = json.Unmarshal(d.Diffs[0].After, &after)
 	if after != "High" {
 		t.Fatalf("%q", after)
+	}
+}
+
+func TestWizardMosaicPanelsFollowCreateAndUndo(t *testing.T) {
+	t.Parallel()
+	s := newService(t, &fakeTransport{up: true, status: schedcmd.StatusApplied})
+	if err := s.AppDB.AutoMigrate(&app.MosaicPanel{}); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"project":{"guid":"mg","name":"Gecko Mosaic","priority":1,"state":1,"minimumtime":60,"minimumaltitude":15,"is_mosaic":true},` +
+		`"mosaic":{"layout":"grid","rotation":0,"overlap":15,"cols":2,"rows":1},` +
+		`"targets":[{"guid":"t1","name":"Gecko Mosaic Panel 1","ra_hours":22.4,"dec":40.8,"rotation":0,"plans":[]},` +
+		`{"guid":"t2","name":"Gecko Mosaic Panel 2","ra_hours":22.6,"dec":40.8,"rotation":0,"plans":[]}]}`
+	r, err := s.Submit(context.Background(), schedcmd.KindProjectCreate, json.RawMessage(payload), "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var panels []app.MosaicPanel
+	s.AppDB.Where("project_guid = ?", "mg").Order("panel").Find(&panels)
+	if len(panels) != 2 || panels[0].Source != app.MosaicSourceWizard || panels[0].TargetGUID != "t1" || panels[1].Neighbours == "[]" {
+		t.Fatalf("%+v", panels)
+	}
+	if _, err := s.Undo(context.Background(), r.ID, "web"); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	s.AppDB.Model(&app.MosaicPanel{}).Where("project_guid = ?", "mg").Count(&n)
+	if n != 0 {
+		t.Fatalf("undo left %d panels", n)
+	}
+}
+
+func TestWizardMosaicPanelsGoWhenCreateIsCancelled(t *testing.T) {
+	t.Parallel()
+	s := newService(t, &fakeTransport{up: true, status: schedcmd.StatusPending, cancelAs: schedcmd.StatusCancelled})
+	if err := s.AppDB.AutoMigrate(&app.MosaicPanel{}); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"project":{"guid":"mc","name":"Cancelled Mosaic","priority":1,"state":1,"is_mosaic":true},` +
+		`"targets":[{"guid":"c1","name":"Cancelled Mosaic Panel 1","ra_hours":5.5,"dec":-5.4,"rotation":0},` +
+		`{"guid":"c2","name":"Cancelled Mosaic Panel 2","ra_hours":5.7,"dec":-5.4,"rotation":0}]}`
+	r, err := s.Submit(context.Background(), schedcmd.KindProjectCreate, json.RawMessage(payload), "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Undo(context.Background(), r.ID, "web"); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	s.AppDB.Model(&app.MosaicPanel{}).Where("project_guid = ?", "mc").Count(&n)
+	if n != 0 {
+		t.Fatalf("cancel left %d panels", n)
 	}
 }
