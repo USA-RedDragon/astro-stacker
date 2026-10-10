@@ -92,22 +92,31 @@ func TestReport(t *testing.T) {
 func TestDarkGaps(t *testing.T) {
 	t.Parallel()
 	rows := []coverage.Row{
-		{Night: "2025-11-15", Gain: f(0), Offset: f(50), SetTemp: f(-13), Lights: 10},
-		{Night: gapNight, Gain: f(0), Offset: f(50), SetTemp: f(-17), Lights: 5},
-		{Night: gapNight, Gain: f(100), Offset: f(50), SetTemp: f(4), Lights: 7},
-		{Night: laterNight, Gain: f(0), Offset: f(50), SetTemp: f(-4), Lights: 3},
-		{Night: "2025-11-18", SetTemp: f(-13), Lights: 4}, // no gain recorded
+		{Night: "2025-11-15", Exposure: 300, Gain: f(0), Offset: f(50), SetTemp: f(-13), Lights: 10},
+		{Night: gapNight, Exposure: 300, Gain: f(0), Offset: f(50), SetTemp: f(-17), Lights: 5},
+		{Night: gapNight, Exposure: 600, Gain: f(0), Offset: f(50), SetTemp: f(-15), Lights: 4},
+		{Night: gapNight, Exposure: 600, Gain: f(100), Offset: f(50), SetTemp: f(4), Lights: 7},
+		{Night: laterNight, Exposure: 300, Gain: f(0), Offset: f(50), SetTemp: f(-4), Lights: 3},
+		{Night: laterNight, Exposure: 600, Gain: f(0), Offset: f(50), SetTemp: f(-15), Lights: 2},
+		{Night: "2025-11-18", Exposure: 300, SetTemp: f(-13), Lights: 4},
 	}
-	have := []calmatch.Set{{Type: typeDark, Gain: 0, Offset: 50, SetTemp: -5}}
+	have := []calmatch.Set{
+		{Type: typeDark, Exposure: 300, Gain: 0, Offset: 50, SetTemp: -5, Count: 20},
+		{Type: typeDark, Exposure: 300, Gain: 0, Offset: 50, SetTemp: -15, Count: 20},
+		{Type: typeDark, Exposure: 600, Gain: 0, Offset: 50, SetTemp: -15, Count: 2},
+	}
 	gaps := coverage.DarkGaps(rows, have)
 	if len(gaps) != 2 {
 		t.Fatalf("got %+v", gaps)
 	}
-	if gaps[0].SetTemp != -15 || *gaps[0].Gain != 0 || gaps[0].Lights != 15 || gaps[0].Nights != 2 || gaps[0].Latest != gapNight {
+	if gaps[0].SetTemp != 5 || *gaps[0].Gain != 100 || *gaps[0].Exposure != 600 || gaps[0].Lights != 7 ||
+		len(gaps[0].OtherExposures) != 0 {
 		t.Errorf("first gap %+v", gaps[0])
 	}
-	if gaps[1].SetTemp != 5 || *gaps[1].Gain != 100 || gaps[1].Lights != 7 {
-		t.Errorf("second gap %+v", gaps[1])
+	g := gaps[1]
+	if g.SetTemp != -15 || *g.Gain != 0 || *g.Exposure != 600 || g.Lights != 6 || g.Nights != 2 ||
+		g.Latest != laterNight || len(g.OtherExposures) != 1 || g.OtherExposures[0] != 300 {
+		t.Errorf("second gap %+v", g)
 	}
 }
 

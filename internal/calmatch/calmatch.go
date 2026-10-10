@@ -135,7 +135,7 @@ func Choose(g Group, sets []Set) Result {
 func chooseFlat(g Group, sets []Set) Match {
 	var cands []Set
 	for _, s := range sets {
-		if s.Type == "FLAT" && buildable(s) && s.Filter == g.Filter && same(s.BinX, g.BinX) {
+		if s.Type == "FLAT" && Buildable(s) && s.Filter == g.Filter && same(s.BinX, g.BinX) {
 			cands = append(cands, s)
 		}
 	}
@@ -171,7 +171,7 @@ func chooseFlat(g Group, sets []Set) Match {
 func chooseBias(g Group, sets []Set) Match {
 	var cands []Set
 	for _, s := range sets {
-		if s.Type == "BIAS" && buildable(s) && same(s.Gain, g.Gain) && same(s.Offset, g.Offset) && same(s.BinX, g.BinX) {
+		if s.Type == "BIAS" && Buildable(s) && same(s.Gain, g.Gain) && same(s.Offset, g.Offset) && same(s.BinX, g.BinX) {
 			cands = append(cands, s)
 		}
 	}
@@ -186,7 +186,7 @@ func chooseBias(g Group, sets []Set) Match {
 func chooseDark(g Group, sets []Set) Match {
 	var cands []Set
 	for _, s := range sets {
-		if s.Type != "DARK" || !buildable(s) || !same(s.Gain, g.Gain) || !same(s.Offset, g.Offset) || !same(s.BinX, g.BinX) {
+		if s.Type != "DARK" || !Buildable(s) || !same(s.Gain, g.Gain) || !same(s.Offset, g.Offset) || !same(s.BinX, g.BinX) {
 			continue
 		}
 		if TempOff(g, s) > SetTempScaleMaxC || !(s.Exposure > 0) {
@@ -225,10 +225,10 @@ func chooseDark(g Group, sets []Set) Match {
 // next best rather than failing every light that matches it.
 const MinFrames = 3
 
-// buildable reports whether a set can give a master: a master made
+// Buildable reports whether a set can give a master: a master made
 // elsewhere (Master), a set of at least MinFrames frames, or one whose count
 // isn't known (0).
-func buildable(s Set) bool { return s.Master != "" || s.Count == 0 || s.Count >= MinFrames }
+func Buildable(s Set) bool { return s.Master != "" || s.Count == 0 || s.Count >= MinFrames }
 
 func sameExposure(g Group, s Set) bool {
 	return math.Abs(s.Exposure-g.Exposure) <= ExposureTolerance*g.Exposure
