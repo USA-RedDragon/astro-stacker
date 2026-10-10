@@ -7,7 +7,10 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 )
 
-const srcLBN = "vii-9-catalog"
+const (
+	srcLBN = "vii-9-catalog"
+	srcNGC = "openngc"
+)
 
 func TestResolveNebulaeEmbedded(t *testing.T) {
 	t.Parallel()
@@ -20,6 +23,9 @@ func TestResolveNebulaeEmbedded(t *testing.T) {
 		{"M 17", catalog.TypeEmission, "listed as Sh2-45 (Sharpless 1959, a catalogue of H II regions), 0.3′ from its centre"},
 		{"IC 405", catalog.TypeNebula, "emission or reflection is not settled: it is listed as Sh2-229"},
 		{"IC 4628", catalog.TypeNebula, "emission or reflection is not known: OpenNGC v20260501 types it only as a nebula"},
+		{"NGC 1432", catalog.TypeReflection, "OpenNGC v20260501 types it emission, but it is listed as vdB 21 (van den Bergh 1966, a catalogue of reflection nebulae), 0.0′ from its centre"},
+		{"NGC 2282", catalog.TypeReflection, "OpenNGC v20260501 types it emission, but it is listed as vdB 85"},
+		{"IC 448", "", ""},
 		{"M 57", "", ""},
 	} {
 		o, ok := ix.Get(c.id)
@@ -41,7 +47,7 @@ func TestResolveNebulaeEmbedded(t *testing.T) {
 func TestResolveNebulaeMatching(t *testing.T) {
 	t.Parallel()
 	ds := catalog.Dataset{
-		Sources: []catalog.Source{{ID: srcLBN, Name: "Lynds 1965"}},
+		Sources: []catalog.Source{{ID: srcLBN, Name: "Lynds 1965"}, {ID: srcNGC, Name: "OpenNGC"}},
 		Objects: []catalog.Object{
 			{ID: "VDB1", Designation: "vdB 3", Type: catalog.TypeReflection, RA: 10, Dec: 10, MajorArcmin: 10},
 			{ID: "SH2-1", Designation: "Sh2-1", Type: catalog.TypeEmission, RA: 50, Dec: 10, MajorArcmin: 120},
@@ -52,6 +58,12 @@ func TestResolveNebulaeMatching(t *testing.T) {
 			{ID: "CORE", Designation: "LBN 3", Type: catalog.TypeNebula, RA: 50, Dec: 10.02, MajorArcmin: 10, Source: srcLBN},
 			{ID: "NOSIZE", Designation: "LBN 4", Type: catalog.TypeNebula, RA: 50, Dec: 10.3, Source: srcLBN},
 			{ID: "BOTH", Designation: "LBN 5", Type: catalog.TypeNebula, RA: 80, Dec: 10.01, MajorArcmin: 20, Source: srcLBN},
+			{ID: "VDB7", Designation: "vdB 7", Type: catalog.TypeReflection, RA: 120, Dec: 10, MajorArcmin: 20},
+			{ID: "CATEM", Designation: "NGC 1", Type: catalog.TypeEmission, RA: 120, Dec: 10, MajorArcmin: 20, Source: srcNGC},
+			{ID: "NEAREM", Designation: "NGC 2", Type: catalog.TypeEmission, RA: 120, Dec: 10.07, MajorArcmin: 20, Source: srcNGC},
+			{ID: "VDB8", Designation: "vdB 8", Type: catalog.TypeReflection, RA: 160, Dec: 10, MajorArcmin: 20},
+			{ID: "SH2-8", Designation: "Sh2-8", Type: catalog.TypeEmission, RA: 160, Dec: 10.2, MajorArcmin: 30},
+			{ID: "BACKED", Designation: "NGC 3", Type: catalog.TypeEmission, RA: 160, Dec: 10, MajorArcmin: 20, Source: srcNGC},
 			{ID: "SELF", Designation: "LBN 6", Aliases: []string{"vdB 9"}, Type: catalog.TypeNebula, RA: 200, Dec: 0, Source: srcLBN},
 		},
 	}
@@ -76,6 +88,14 @@ func TestResolveNebulaeMatching(t *testing.T) {
 	}
 	if b := got["BOTH"].TypeBasis; !strings.Contains(b, "not settled") || !strings.Contains(b, "RCW 1") || !strings.Contains(b, "vdB 2") {
 		t.Errorf("conflict basis %q", b)
+	}
+	if o := got["CATEM"]; o.Type != catalog.TypeReflection || o.TypeBasis != "OpenNGC types it emission, but it is listed as vdB 7 (van den Bergh 1966, a catalogue of reflection nebulae), 0.0′ from its centre" {
+		t.Errorf("contradicted = %s %q", o.Type, o.TypeBasis)
+	}
+	for _, id := range []string{"NEAREM", "BACKED"} {
+		if o := got[id]; o.Type != catalog.TypeEmission || o.TypeBasis != "" {
+			t.Errorf("%s = %s %q, want emission", id, o.Type, o.TypeBasis)
+		}
 	}
 	if got["VDB1"].TypeBasis != "" {
 		t.Error("a typed entry was given a basis")

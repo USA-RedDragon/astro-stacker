@@ -11,6 +11,7 @@ import (
 const (
 	classMatchFloorDeg = 0.1
 	classMatchMaxRatio = 4.0
+	classCoincideAM    = 1.0
 )
 
 type classEvidence struct {
@@ -92,7 +93,9 @@ func nebulaSourceName(src string, sources []Source) string {
 // reflection from the van den Bergh, Sharpless and RCW entries for the same
 // nebula, and records the basis in TypeBasis. An object with no
 // such entry, or with entries of both kinds, stays "nebula" and TypeBasis
-// says why.
+// says why. An object a catalogue types emission or reflection takes the
+// other type when an entry of that kind sits on it and no entry supports
+// its own type.
 func ResolveNebulae(ds *Dataset) {
 	type witness struct {
 		i int
@@ -106,7 +109,13 @@ func ResolveNebulae(ds *Dataset) {
 	}
 	for i := range ds.Objects {
 		o := &ds.Objects[i]
-		if o.Type != TypeNebula {
+		switch o.Type {
+		case TypeNebula:
+		case TypeEmission, TypeReflection:
+			if _, ok := typedEvidence(o); ok {
+				continue
+			}
+		default:
 			continue
 		}
 		ev := ownEvidence(o)
@@ -129,8 +138,29 @@ func ResolveNebulae(ds *Dataset) {
 			}
 			return cmp.Compare(a.sepAM, b.sepAM)
 		})
-		resolveNebula(o, ev, ds.Sources)
+		if o.Type == TypeNebula {
+			resolveNebula(o, ev, ds.Sources)
+		} else {
+			correctNebula(o, ev, ds.Sources)
+		}
 	}
+}
+
+func correctNebula(o *Object, ev []classEvidence, sources []Source) {
+	var on []classEvidence
+	for _, e := range ev {
+		if e.typ == o.Type {
+			return
+		}
+		if e.self || e.sepAM <= classCoincideAM {
+			on = append(on, e)
+		}
+	}
+	if len(on) == 0 {
+		return
+	}
+	o.TypeBasis = fmt.Sprintf("%s types it %s, but it is %s", nebulaSourceName(o.Source, sources), o.Type, evidenceText(on))
+	o.Type = on[0].typ
 }
 
 func resolveNebula(o *Object, ev []classEvidence, sources []Source) {
