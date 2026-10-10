@@ -84,10 +84,11 @@ type NightInfo struct {
 	DarkHours        float64    `json:"darkHours"`
 	MoonIllumination float64    `json:"moonIllumination"`
 	MinAltitude      float64    `json:"minAltitude"`
+	MinAltitudeFrom  string     `json:"minAltitudeSource"`
 }
 
 func nightInfo(n sky.Night, minAlt float64) *NightInfo {
-	return &NightInfo{Start: n.Start, Dusk: n.Dusk, Dawn: n.Dawn, DarkHours: n.DarkHours(), MoonIllumination: math.Round(n.MoonIllumination()*100) / 100, MinAltitude: minAlt}
+	return &NightInfo{Start: n.Start, Dusk: n.Dusk, Dawn: n.Dawn, DarkHours: n.DarkHours(), MoonIllumination: math.Round(n.MoonIllumination()*100) / 100, MinAltitude: minAlt, MinAltitudeFrom: MinAltitudeSetting}
 }
 
 func (s *Service) minAlt() float64 {

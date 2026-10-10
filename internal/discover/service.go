@@ -18,6 +18,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const MinAltitudeSetting = "discover.min-altitude"
+
 var ErrNoSite = errors.New("the observatory site is not known yet: set discover.site-latitude and discover.site-longitude, or wait for a light with SITELAT and SITELONG in its header")
 
 type Rig struct {
