@@ -257,7 +257,8 @@ func TestGoalDrivenPlansIgnoreDesired(t *testing.T) {
 	if ha.Readiness == nil || ha.Readiness.State != goals.StateCollecting || ha.Readiness.StackSubs != goals.MinSubs-1 || !ha.Readiness.Open {
 		t.Fatalf("collecting %+v", ha.Readiness)
 	}
-	if pl := p2.Plans[0]; !pl.GoalDriven || pl.Complete || pl.Percent != 0 || pl.Basis != BasisCollecting || pl.Accepted < pl.Desired {
+	if pl := p2.Plans[0]; !pl.GoalDriven || pl.Complete || pl.Percent != 0 || pl.Basis != BasisCollecting || pl.Accepted < pl.Desired ||
+		pl.CountPercent != 100 || pl.CountBasis != BasisAccepted {
 		t.Fatalf("a goal-driven plan past its desired count must stay open while collecting: %+v", pl)
 	}
 	if pl := p2.Plans[1]; pl.GoalDriven || pl.Complete || pl.Basis != BasisProvisional {
