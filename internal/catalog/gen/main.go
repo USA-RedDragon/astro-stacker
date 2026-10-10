@@ -472,10 +472,16 @@ func openNGCRow(t table, row []string) (*catalog.Object, []ngcDup) {
 	o.MajorArcmin, _ = num(t.get(row, "MajAx"))
 	o.MinorArcmin = axis(t.get(row, "MinAx"))
 	o.PA = ptr(num(t.get(row, "PosAng")))
-	if v, ok := num(t.get(row, "V-Mag")); ok {
-		o.Magnitude, o.MagnitudeBand = &v, "V"
-	} else if v, ok := num(t.get(row, "B-Mag")); ok {
-		o.Magnitude, o.MagnitudeBand = &v, "B"
+	vMag, vOK := num(t.get(row, "V-Mag"))
+	bMag, bOK := num(t.get(row, "B-Mag"))
+	if vOK {
+		o.Magnitude, o.MagnitudeBand = &vMag, "V"
+	} else if bOK {
+		o.Magnitude, o.MagnitudeBand = &bMag, "B"
+	}
+	if vOK && bOK {
+		bv := math.Round((bMag-vMag)*100) / 100
+		o.BMinusV = &bv
 	}
 	if o.SurfaceBrightness = ptr(num(t.get(row, "SurfBr"))); o.SurfaceBrightness != nil {
 		o.SurfaceBrightnessSource = srcOpenNGC
