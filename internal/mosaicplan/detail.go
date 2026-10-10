@@ -67,6 +67,7 @@ type Balancing struct {
 	PanelDeficitSet  bool    `json:"panelDeficitSet"`
 	MosaicCompletion float64 `json:"mosaicCompletion"`
 	On               bool    `json:"on"`
+	OnWeight         float64 `json:"onWeight"`
 }
 
 type Project struct {
@@ -213,7 +214,7 @@ func (s *Service) Detail(ctx context.Context, key string) (Detail, error) {
 
 func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, error) {
 	d := Detail{Project: g.Project, ProjectGUID: g.ProjectGUID, Seams: []app.MosaicSeam{}, Health: []app.MosaicPanelHealth{}, Needs: []string{},
-		Noise: []MosaicNoise{}, SeamStatus: []SeamStatus{}}
+		Noise: []MosaicNoise{}, SeamStatus: []SeamStatus{}, Balancing: Balancing{OnWeight: mosaics.PanelDeficitOnWeight}}
 	var adopted int64
 	if err := s.App.WithContext(ctx).Model(&app.MosaicPanel{}).Where("project_guid = ?", g.ProjectGUID).Count(&adopted).Error; err != nil {
 		return d, err
