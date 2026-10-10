@@ -57,6 +57,26 @@ func bestA(pts []DrawPoint, b, la0 float64) (float64, float64) {
 	return golden(func(la float64) float64 { return fitCost(pts, la, b) }, la0-6, la0+6, 80)
 }
 
+func FitSqrtT(points []DrawPoint) (float64, bool) {
+	pts := usable(points)
+	if len(pts) == 0 {
+		return 0, false
+	}
+	var la float64
+	for _, p := range pts {
+		la += math.Log(p.Sigma) + 0.5*math.Log(p.Hours)
+	}
+	return math.Exp(la / float64(len(pts))), true
+}
+
+func FitLevels(points []DrawPoint, levels int) (a, b float64, ok bool) {
+	if FloorMeasurable(levels) {
+		return FitNoise(points)
+	}
+	a, ok = FitSqrtT(points)
+	return a, 0, ok
+}
+
 func FitNoise(points []DrawPoint) (a, b float64, ok bool) {
 	pts := usable(points)
 	if len(pts) < 2 {
@@ -116,7 +136,7 @@ func heldOut(points []DrawPoint, n int) (float64, bool) {
 			levels[p.N] = true
 		}
 	}
-	if len(levels) < 3 || len(topS) == 0 {
+	if !FloorMeasurable(len(levels)) || len(topS) == 0 {
 		return 0, false
 	}
 	a, b, ok := FitNoise(train)

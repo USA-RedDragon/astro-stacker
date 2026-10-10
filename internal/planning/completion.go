@@ -81,7 +81,7 @@ func measurementOf(m app.GoalMeasurement) *Measurement {
 	if m.Subs > 0 && m.NoiseA > 0 && m.EffectiveHours > 0 {
 		g := m.GainPerHourPct
 		out.GainPerHourPct = &g
-		out.Plateau = g < goals.PlateauGainPct
+		out.Plateau = goals.IsPlateau(m)
 	}
 	if m.Points != "" {
 		_ = json.Unmarshal([]byte(m.Points), &out.Points)

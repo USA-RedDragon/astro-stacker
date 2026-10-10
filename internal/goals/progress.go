@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
+	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
@@ -34,6 +36,56 @@ func GainPerHour(a, b, hours float64) float64 {
 		return 100
 	}
 	return 100 * (1 - NoiseAt(a, b, hours+1)/NoiseAt(a, b, hours))
+}
+
+func FloorMeasurable(levels int) bool {
+	return levels >= MinFloorLevels
+}
+
+func FloorReason(levels int) string {
+	return fmt.Sprintf("noise floor not measurable from %d draw levels", levels)
+}
+
+func IsPlateau(m app.GoalMeasurement) bool {
+	return m.Subs > 0 && FloorMeasurable(m.Levels) && m.GainPerHourPct < PlateauGainPct
+}
+
+func RefitWithoutFloor(m *app.GoalMeasurement) bool {
+	if m.Error != nil || m.Subs <= 0 || m.EffectiveHours <= 0 || FloorMeasurable(m.Levels) || m.Points == "" {
+		return false
+	}
+	var pts []DrawPoint
+	if json.Unmarshal([]byte(m.Points), &pts) != nil {
+		return false
+	}
+	a, ok := FitSqrtT(pts)
+	if !ok {
+		return false
+	}
+	before := *m
+	m.NoiseA, m.NoiseB = a, 0
+	m.NoiseNow = NoiseAt(a, 0, m.EffectiveHours)
+	m.GainPerHourPct = GainPerHour(a, 0, m.EffectiveHours)
+	m.SNR = m.Signal / m.NoiseNow
+	if m.ZeroPoint != nil {
+		if d, ok := Depth(*m.ZeroPoint, m.NoiseNow, m.PixelScale); ok {
+			m.Depth = &d
+		}
+	}
+	if reason := FloorReason(m.Levels); !slices.Contains(strings.Split(m.LowReason, "; "), reason) {
+		if m.LowReason != "" {
+			m.LowReason += "; "
+		}
+		m.LowReason += reason
+	}
+	m.LowConfidence = true
+	return m.NoiseA != before.NoiseA || m.NoiseB != before.NoiseB || m.NoiseNow != before.NoiseNow ||
+		m.GainPerHourPct != before.GainPerHourPct || m.SNR != before.SNR || !sameDepth(m.Depth, before.Depth) ||
+		m.LowReason != before.LowReason || m.LowConfidence != before.LowConfidence
+}
+
+func sameDepth(a, b *float64) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
 }
 
 func HoursForSNR(hours, snr, target float64) float64 {
@@ -88,7 +140,7 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 	if math.IsInf(p.HoursNeeded, 0) || math.IsNaN(p.HoursNeeded) {
 		p.HoursNeeded = -1
 	}
-	p.Plateau = m.Subs > 0 && m.GainPerHourPct < PlateauGainPct
+	p.Plateau = IsPlateau(m)
 	p.Done = p.Progress >= 1 || (g.PlateauStop && p.Plateau)
 	return p
 }

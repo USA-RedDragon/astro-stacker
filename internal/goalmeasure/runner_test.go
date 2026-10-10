@@ -728,3 +728,30 @@ func TestOldBroadbandMeasurementsAreRemeasuredForSky(t *testing.T) {
 		t.Error("remeasured without a zero point")
 	}
 }
+
+func TestPassRefitsStoredMeasurementsWithoutANoiseFloor(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e := newEnv(t)
+	pts := `[{"n":4,"t":0.2783315944633578,"sigma":7.73107505937816e-8},{"n":4,"t":0.2795662755549598,"sigma":7.753653950533588e-8},{"n":4,"t":0.2862299851603613,"sigma":7.755059968964953e-8}]`
+	rows := []app.GoalMeasurement{
+		{Object: "Pelican", Filter: "Blue", Subs: 9, Levels: 1, EffectiveHours: 0.6364448280832384, Signal: 4.150851964368485e-7,
+			NoiseA: 2.591412588243134e-9, NoiseB: 7.731075059249109e-8, NoiseNow: 7.737896104594509e-8, SNR: 5.36, GainPerHourPct: 0.05, Points: pts},
+		{Object: "Deep", Filter: "S-II", Subs: 40, Levels: 3, EffectiveHours: 3, Signal: 1, NoiseA: 1, NoiseB: 0.5, NoiseNow: 0.76, SNR: 1.3, GainPerHourPct: 1, Points: pts},
+	}
+	if err := e.db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := New(e.db, e.sched, e.objects, e.fetcher, Options{Publish: goals.PublishOff})
+	if err := r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	m := e.measurement(t, "Pelican", "Blue")
+	if m.NoiseB != 0 || m.GainPerHourPct < 30 || math.Abs(m.SNR-8.06) > 0.05 || !m.LowConfidence ||
+		m.LowReason != "noise floor not measurable from 1 draw levels" || goals.Evaluate(m, goals.DefaultGoal("Blue")).Done {
+		t.Fatalf("refit %+v", m)
+	}
+	if deep := e.measurement(t, "Deep", "S-II"); deep.NoiseB != 0.5 || deep.GainPerHourPct != 1 || deep.LowConfidence {
+		t.Fatalf("three-level row changed %+v", deep)
+	}
+}

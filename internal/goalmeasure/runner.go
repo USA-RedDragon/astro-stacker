@@ -191,6 +191,9 @@ func (r *Runner) Run(ctx context.Context) {
 }
 
 func (r *Runner) Pass(ctx context.Context) error {
+	if err := r.refitStored(ctx); err != nil && ctx.Err() == nil {
+		slog.Warn("Could not refit stored goal measurements", "error", err)
+	}
 	goalsByKey, guids := r.loadGoals(ctx)
 	todo, fresh, err := r.due(ctx, goalsByKey)
 	if err != nil {
@@ -684,6 +687,30 @@ func (r *Runner) saveSkySamples(ctx context.Context, stack app.Stack, m app.Goal
 		Columns:   []clause.Column{{Name: "frame_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"object", "filter", "night", "date_obs", "sky_rate", "zero_point", "pixel_scale", "sky_mag", "measured_at"}),
 	}).Create(&samples).Error
+}
+
+func (r *Runner) refitStored(ctx context.Context) error {
+	var ms []app.GoalMeasurement
+	if err := r.db.WithContext(ctx).Where("levels < ? AND error IS NULL AND subs > 0", goals.MinFloorLevels).Order("id").Find(&ms).Error; err != nil {
+		return fmt.Errorf("load goal measurements: %w", err)
+	}
+	n := 0
+	for i := range ms {
+		m := &ms[i]
+		if !goals.RefitWithoutFloor(m) {
+			continue
+		}
+		if err := r.db.WithContext(ctx).Model(m).
+			Select("noise_a", "noise_b", "noise_now", "gain_per_hour_pct", "snr", "depth", "low_reason", "low_confidence").
+			Updates(m).Error; err != nil {
+			return fmt.Errorf("refit %s %s: %w", m.Object, m.Filter, err)
+		}
+		n++
+	}
+	if n > 0 {
+		slog.Info("Refit stored goal measurements without a noise floor", "rows", n)
+	}
+	return nil
 }
 
 func (r *Runner) save(ctx context.Context, m app.GoalMeasurement, mask *app.GoalMask) error {

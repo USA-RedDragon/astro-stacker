@@ -332,7 +332,7 @@ func (m *Measurer) Finish(totalHours float64) (Result, error) {
 		levels[d.n] = true
 	}
 	res.Levels = len(levels)
-	a, b, ok := FitNoise(res.Points)
+	a, b, ok := FitLevels(res.Points, res.Levels)
 	if !ok {
 		return res, errors.New("too few noise measurements to fit")
 	}
@@ -360,6 +360,9 @@ func (m *Measurer) Finish(totalHours float64) (Result, error) {
 		if math.IsNaN(res.Signal) {
 			res.Signal = 0
 		}
+	}
+	if !FloorMeasurable(res.Levels) {
+		reasons = append(reasons, FloorReason(res.Levels))
 	}
 	res.LowConfidence = len(reasons) > 0
 	res.LowReason = strings.Join(reasons, "; ")
