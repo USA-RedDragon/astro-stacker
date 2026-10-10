@@ -1,6 +1,6 @@
 cmd/discover.go	50	0
 cmd/mosaics.go	8	0
-cmd/root.go	145	0
+cmd/root.go	146	0
 cmd/stack.go	58	0
 internal/calmatch/calmatch.go	81	75
 internal/catalog/catalog.go	6	6
@@ -32,7 +32,7 @@ internal/frameheader/frame.go	42	41
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	370	302
+internal/goalmeasure/runner.go	370	301
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	81	77
@@ -67,6 +67,7 @@ internal/mosaics/seasons.go	75	74
 internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
 internal/observatory/client.go	91	75
+internal/observatory/grader.go	108	94
 internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	189	161
 internal/observatory/transport.go	50	45
@@ -108,7 +109,7 @@ internal/server/mosaicplan.go	58	2
 internal/server/planning.go	93	56
 internal/server/public.go	12	12
 internal/server/routes.go	348	57
-internal/server/scheddata.go	280	236
+internal/server/scheddata.go	227	187
 internal/server/schedpreview.go	68	65
 internal/server/scheduler.go	77	18
 internal/server/server.go	88	27
