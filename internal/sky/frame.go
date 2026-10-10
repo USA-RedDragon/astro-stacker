@@ -88,10 +88,10 @@ func (f Frame) Fit(majorArcmin, minorArcmin, overlap float64) Fit {
 	return out
 }
 
-func (f Frame) Coverage(widthDeg, heightDeg float64) float64 {
+func (f Frame) Coverage(widthDeg, heightDeg float64) (float64, bool) {
 	area := widthDeg * heightDeg
-	if area <= 0 {
-		return 1
+	if area <= 0 || f.WidthDeg() <= 0 || f.HeightDeg() <= 0 {
+		return 0, false
 	}
-	return math.Min(1, f.WidthDeg()*f.HeightDeg()/area)
+	return math.Min(f.WidthDeg(), widthDeg) * math.Min(f.HeightDeg(), heightDeg) / area, true
 }

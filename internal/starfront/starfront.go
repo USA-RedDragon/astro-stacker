@@ -420,3 +420,5 @@ func (p *Poller) Run(ctx context.Context) {
 		wait = interval
 	}
 }
+
+func (p *Poller) URL() string { return p.BaseURL }

@@ -106,8 +106,14 @@ func TestFrame(t *testing.T) {
 	if big.Category != sky.FitMany {
 		t.Errorf("Barnard's Loop fit %+v", big)
 	}
-	if c := f.Coverage(5.36773, 3.5788); math.Abs(c-0.383) > 0.01 {
+	if c, ok := f.Coverage(5.36773, 3.5788); !ok || math.Abs(c-0.383) > 0.01 {
 		t.Errorf("coverage %.3f", c)
+	}
+	if c, ok := f.Coverage(10, 1); !ok || math.Abs(c-f.WidthDeg()/10) > 1e-9 {
+		t.Errorf("coverage of a long thin region %.3f", c)
+	}
+	if _, ok := f.Coverage(0, 1); ok {
+		t.Error("coverage of a region with no size")
 	}
 	if (sky.Frame{}).Scale() != 0 {
 		t.Error("empty frame has a scale")
