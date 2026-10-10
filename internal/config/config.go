@@ -37,9 +37,12 @@ type Config struct {
 }
 
 type Scheduler struct {
-	URL   string `name:"url" description:"Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued"`
-	Token string `name:"token" description:"Bearer token for the plugin's API"`
-	Queue bool   `name:"queue" description:"Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory" default:"true"`
+	URL             string `name:"url" description:"Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued"`
+	Token           string `name:"token" description:"Bearer token for the plugin's API"`
+	Queue           bool   `name:"queue" description:"Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory" default:"true"`
+	MetricsURL      string `name:"metrics-url" description:"Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source"`
+	UPS             string `name:"ups" description:"The ups label of the observatory UPS in the NUT exporter's metrics" default:"observatory"`
+	ShutdownSeconds int    `name:"shutdown-seconds" description:"Seconds on battery before the observatory PC shuts itself down, for the Power card; 0 if it never does" default:"60"`
 }
 
 type Discover struct {

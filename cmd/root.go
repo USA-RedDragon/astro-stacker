@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/goalmeasure"
@@ -171,7 +172,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			disc.Invalidate()
 		}
 	})
-	extras := server.Extras{Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs}
+	extras := server.Extras{Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs,
+		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS, ShutdownSeconds: cfg.Scheduler.ShutdownSeconds}, schedulerDBStore.DB())}
 	if obs.Configured() {
 		extras.Previews = obs
 	}

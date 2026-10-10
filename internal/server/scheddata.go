@@ -271,9 +271,111 @@ type TonightSub struct {
 }
 
 type TonightSubs struct {
-	Since  time.Time    `json:"since"`
-	Subs   []TonightSub `json:"subs"`
-	Latest *TonightSub  `json:"latest,omitempty"`
+	Since     time.Time    `json:"since"`
+	Subs      []TonightSub `json:"subs"`
+	Latest    *TonightSub  `json:"latest,omitempty"`
+	HFRSigma  *float64     `json:"hfr_sigma,omitempty"`
+	HFRLimits []HFRLimit   `json:"hfr_limits"`
+}
+
+type HFRLimit struct {
+	TargetID int     `json:"target_id"`
+	Filter   string  `json:"filter"`
+	Mean     float64 `json:"mean"`
+	SD       float64 `json:"sd"`
+	Samples  int     `json:"samples"`
+	Limit    float64 `json:"limit"`
+}
+
+const minGraderSamples = 3
+
+func graderHFRSigma(ctx context.Context, sched *gorm.DB) *float64 {
+	if !sched.Migrator().HasTable("profilepreference") || !sched.Migrator().HasTable(tableProject) {
+		return nil
+	}
+	var projects []tsProjectRow
+	if err := sched.WithContext(ctx).Select(`"profileId"`).Find(&projects).Error; err != nil {
+		return nil
+	}
+	var row struct {
+		Enabled *int
+		Sigma   *float64
+	}
+	if err := sched.WithContext(ctx).Table("profilepreference").
+		Select(`"enableGradeHFR" AS enabled, "hfrSigmaFactor" AS sigma`).
+		Where(`"profileId" = ?`, activeProfile(projects)).Limit(1).Scan(&row).Error; err != nil {
+		return nil
+	}
+	if row.Enabled == nil || *row.Enabled == 0 || row.Sigma == nil || !(*row.Sigma > 0) {
+		return nil
+	}
+	return row.Sigma
+}
+
+func loadHFRLimits(ctx context.Context, sched *gorm.DB, subs []TonightSub, sigma float64) ([]HFRLimit, error) {
+	ids := map[int]bool{}
+	for _, s := range subs {
+		ids[s.TargetID] = true
+	}
+	if len(ids) == 0 {
+		return []HFRLimit{}, nil
+	}
+	list := make([]int, 0, len(ids))
+	for id := range ids {
+		list = append(list, id)
+	}
+	rows, err := sched.WithContext(ctx).Table(tableAcquired).
+		Select(`coalesce("targetId", 0), coalesce(filtername, ''), coalesce(metadata, '')`).
+		Where(`"targetId" IN ? AND "gradingStatus" = ?`, list, quality.GradingAccepted).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type key struct {
+		target int
+		filter string
+	}
+	values := map[key][]float64{}
+	for rows.Next() {
+		var k key
+		var meta string
+		if err := rows.Scan(&k.target, &k.filter, &meta); err != nil {
+			return nil, err
+		}
+		var m tonightMeta
+		if json.Unmarshal([]byte(meta), &m) != nil {
+			continue
+		}
+		if h := finite(m.HFR); h != nil {
+			values[k] = append(values[k], *h)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := []HFRLimit{}
+	for k, v := range values {
+		if len(v) < minGraderSamples {
+			continue
+		}
+		var sum, sq float64
+		for _, x := range v {
+			sum += x
+		}
+		mean := sum / float64(len(v))
+		for _, x := range v {
+			sq += (x - mean) * (x - mean)
+		}
+		sd := math.Sqrt(sq / float64(len(v)))
+		out = append(out, HFRLimit{TargetID: k.target, Filter: k.filter, Mean: mean, SD: sd, Samples: len(v), Limit: mean + sigma*sd})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].TargetID != out[j].TargetID {
+			return out[i].TargetID < out[j].TargetID
+		}
+		return out[i].Filter < out[j].Filter
+	})
+	return out, nil
 }
 
 func finite(f quality.Float) *float64 {
@@ -300,7 +402,7 @@ type subKey struct {
 }
 
 func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, since time.Time) (TonightSubs, error) {
-	out := TonightSubs{Since: since, Subs: []TonightSub{}}
+	out := TonightSubs{Since: since, Subs: []TonightSub{}, HFRLimits: []HFRLimit{}}
 	if sched == nil || !sched.Migrator().HasTable(tableAcquired) {
 		return out, nil
 	}
@@ -353,6 +455,14 @@ func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, since time.Time
 	if n := len(out.Subs); n > 0 {
 		l := out.Subs[n-1]
 		out.Latest = &l
+	}
+	if sigma := graderHFRSigma(ctx, sched); sigma != nil {
+		out.HFRSigma = sigma
+		limits, err := loadHFRLimits(ctx, sched, out.Subs, *sigma)
+		if err != nil {
+			return out, err
+		}
+		out.HFRLimits = limits
 	}
 	return out, nil
 }

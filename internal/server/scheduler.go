@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
@@ -25,13 +26,14 @@ type unconfiguredStatus struct{}
 func (unconfiguredStatus) Status() any { return gin.H{"reachable": "unconfigured"} }
 
 type Extras struct {
-	Commands  *schedcmd.Service
-	Scheduler SchedulerStatusSource
-	Mosaics   *mosaicplan.Service
-	Discover  *discover.Service
-	Collabs   *starfront.Poller
-	Previews  PreviewSource
-	Now       func() time.Time
+	Commands   *schedcmd.Service
+	Scheduler  SchedulerStatusSource
+	Mosaics    *mosaicplan.Service
+	Discover   *discover.Service
+	Collabs    *starfront.Poller
+	Previews   PreviewSource
+	Now        func() time.Time
+	Conditions *conditions.Service
 }
 
 func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer) {
@@ -41,6 +43,7 @@ func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer
 	}
 	applyPreviewRoutes(g, x.Previews, now)
 	applySchedDataRoutes(g, signer, now)
+	applyConditionsRoutes(g, x, now)
 	status := x.Scheduler
 	if status == nil {
 		status = unconfiguredStatus{}
