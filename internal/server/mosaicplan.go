@@ -37,6 +37,14 @@ func applyMosaicPlanRoutes(g *gin.RouterGroup, svc *mosaicplan.Service) {
 		}
 		c.JSON(http.StatusOK, out)
 	})
+	g.GET("/mosaics/projects/:key/history", func(c *gin.Context) {
+		out, err := svc.History(c.Request.Context(), c.Param("key"))
+		if err != nil {
+			mosaicError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, out)
+	})
 	g.GET("/mosaics/adoption", func(c *gin.Context) {
 		out, err := svc.Adoptions(c.Request.Context())
 		if err != nil {

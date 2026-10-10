@@ -343,3 +343,26 @@ func TestFrameOffersLayoutsAndAChosenGrid(t *testing.T) {
 		t.Error("bad dec accepted")
 	}
 }
+
+func TestHistoryIsCumulativePerPanel(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := mosaicplan.New(appFixture(t), schedFixture(t))
+	h, err := svc.History(ctx, markarian)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(h.Nights, ",") != "2025-12-01,2026-03-01" || len(h.Panels) != 2 {
+		t.Fatalf("history %+v", h)
+	}
+	if fmt.Sprint(h.Panels[0].Hours) != "[2 2]" || fmt.Sprint(h.Panels[1].Hours) != "[0 1]" {
+		t.Errorf("hours %v %v", h.Panels[0].Hours, h.Panels[1].Hours)
+	}
+	d, err := svc.Detail(ctx, markarian)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Panels[0].TargetID != 1 || d.Panels[1].TargetID != 2 {
+		t.Errorf("target ids %d %d", d.Panels[0].TargetID, d.Panels[1].TargetID)
+	}
+}

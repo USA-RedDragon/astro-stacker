@@ -45,6 +45,7 @@ type PanelFilter struct {
 
 type Panel struct {
 	Number     int               `json:"number"`
+	TargetID   int               `json:"targetId"`
 	TargetGUID string            `json:"targetGuid"`
 	Target     string            `json:"target"`
 	Objects    []string          `json:"objects"`
@@ -215,8 +216,12 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 		d.Rotation = g.Panels[0].Rotation
 	}
 	rows, cols := mosaics.GridCells(centres, d.Rotation, s.Rig)
+	ids, err := s.targetIDs(ctx, g)
+	if err != nil {
+		return d, err
+	}
 	for i, pn := range g.Panels {
-		p := Panel{Number: pn.Number, TargetGUID: pn.TargetGUID, Target: pn.Object, Objects: pn.Objects, Row: rows[i], Col: cols[i],
+		p := Panel{Number: pn.Number, TargetID: ids[pn.TargetGUID], TargetGUID: pn.TargetGUID, Target: pn.Object, Objects: pn.Objects, Row: rows[i], Col: cols[i],
 			RA: pn.RA, Dec: pn.Dec, Rotation: pn.Rotation, Progress: 1}
 		if pn.Planned != nil {
 			p.Footprint = *pn.Planned
@@ -486,6 +491,30 @@ func deref[T any](p *T) T {
 		return zero
 	}
 	return *p
+}
+
+func (s *Service) targetIDs(ctx context.Context, g stacking.MosaicGroup) (map[string]int, error) {
+	var guids []string
+	for _, pn := range g.Panels {
+		if pn.TargetGUID != "" {
+			guids = append(guids, pn.TargetGUID)
+		}
+	}
+	out := map[string]int{}
+	if len(guids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID   int
+		GUID string
+	}
+	if err := s.Sched.WithContext(ctx).Table("target").Select(`"Id" AS id, guid`).Where("guid IN ?", guids).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load target ids: %w", err)
+	}
+	for _, r := range rows {
+		out[r.GUID] = r.ID
+	}
+	return out, nil
 }
 
 func (s *Service) plans(ctx context.Context, g stacking.MosaicGroup) ([]planRow, error) {
