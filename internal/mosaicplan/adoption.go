@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	KindFrames   = "frames"
-	LinkReview   = "review"
-	framesMaxSep = 0.5
+	KindFrames    = "frames"
+	LinkReview    = "review"
+	framesMaxSep  = 0.5
+	framesHighSep = 0.2
 )
 
 var (
@@ -69,6 +70,7 @@ type Adoption struct {
 	Project     string                 `json:"project"`
 	Kind        string                 `json:"kind"`
 	Confidence  string                 `json:"confidence"`
+	Rule        string                 `json:"rule"`
 	Issue       string                 `json:"issue"`
 	Suggestion  string                 `json:"suggestion"`
 	Status      string                 `json:"status"`
@@ -76,11 +78,32 @@ type Adoption struct {
 	Action      string                 `json:"action,omitempty"`
 	DecidedBy   string                 `json:"decidedBy,omitempty"`
 	DecidedAt   *time.Time             `json:"decidedAt,omitempty"`
+	FoundAt     *time.Time             `json:"foundAt,omitempty"`
+	WordedAt    *time.Time             `json:"wordedAt,omitempty"`
 	Panels      []mosaics.AdoptedPanel `json:"panels,omitempty"`
 	Frames      *FramesProposal        `json:"frames,omitempty"`
 }
 
-type FramesProposal = mosaicstore.FramesProposal
+type FramesProposal struct {
+	Object      string   `json:"object"`
+	Count       int      `json:"count"`
+	TargetGUID  string   `json:"targetGuid,omitempty"`
+	Target      string   `json:"target,omitempty"`
+	ProjectGUID string   `json:"projectGuid,omitempty"`
+	Separation  *float64 `json:"separationDeg"`
+	Nearest     string   `json:"nearest,omitempty"`
+	Coords      bool     `json:"coords"`
+	NameMatch   bool     `json:"nameMatch"`
+	ProjectName string   `json:"projectNamed,omitempty"`
+}
+
+func (fp FramesProposal) store() mosaicstore.FramesProposal {
+	out := mosaicstore.FramesProposal{Object: fp.Object, Count: fp.Count, TargetGUID: fp.TargetGUID, Target: fp.Target, ProjectGUID: fp.ProjectGUID}
+	if fp.Separation != nil {
+		out.Separation = *fp.Separation
+	}
+	return out
+}
 
 type Report struct {
 	DryRun    bool       `json:"dryRun"`
@@ -136,7 +159,7 @@ func (s *Service) candidates(ctx context.Context) ([]candidate, error) {
 		}
 		out = append(out, candidate{
 			row: app.MosaicAdoption{Subject: "project:" + p.ProjectGUID, ProjectGUID: p.ProjectGUID, Project: p.Project, Kind: p.Kind,
-				Confidence: p.Confidence, Issue: p.Issue, Suggestion: p.Suggestion, Proposal: string(body), Fingerprint: p.Fingerprint},
+				Confidence: p.Confidence, Rule: p.Rule, Issue: p.Issue, Suggestion: p.Suggestion, Proposal: string(body), Fingerprint: p.Fingerprint},
 			auto: p.Auto, panels: p.Panels,
 		})
 	}
@@ -162,8 +185,10 @@ func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target) 
 		return nil, fmt.Errorf("load unlinked lights: %w", err)
 	}
 	named := map[string]bool{}
+	projects := map[string]bool{}
 	for _, t := range targets {
 		named[t.Name] = true
+		projects[t.Project] = true
 	}
 	var linked []string
 	if err := s.App.WithContext(ctx).Model(&app.FrameTarget{}).Distinct("object").Pluck("object", &linked).Error; err != nil {
@@ -177,36 +202,18 @@ func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target) 
 		if named[r.Object] {
 			continue
 		}
-		fp := &FramesProposal{Object: r.Object, Count: r.N, Separation: math.Inf(1)}
-		if r.MountRA != nil && r.MountDec != nil {
-			for _, t := range targets {
-				if t.GUID == "" {
-					continue
-				}
-				if d := separation(*r.MountRA, *r.MountDec, t.RA, t.Dec); d < fp.Separation {
-					fp.Separation, fp.TargetGUID, fp.Target, fp.ProjectGUID = d, t.GUID, t.Name, t.ProjectGUID
-				}
-			}
+		fp := &FramesProposal{Object: r.Object, Count: r.N, Coords: r.MountRA != nil && r.MountDec != nil}
+		if projects[r.Object] {
+			fp.ProjectName = r.Object
 		}
 		row := app.MosaicAdoption{Subject: "frames:" + r.Object, Project: r.Object, Kind: KindFrames}
-		row.Issue = fmt.Sprintf("%d subs of %s have no Target Scheduler record.", r.N, r.Object)
-		if r.N == 1 {
-			row.Issue = fmt.Sprintf("1 sub of %s has no Target Scheduler record.", r.Object)
+		row.Issue = framesIssue(r.Object, r.N, fp.ProjectName != "")
+		if fp.Coords {
+			nearestFrames(fp, *r.MountRA, *r.MountDec, targets)
 		}
-		switch {
-		case fp.TargetGUID != "" && fp.Separation <= framesMaxSep:
-			row.Confidence = mosaics.ConfidenceMedium
-			if fp.Separation <= 0.2 && sameName(r.Object, fp.Target) {
-				row.Confidence = mosaics.ConfidenceHigh
-			}
-			row.Suggestion = fmt.Sprintf("Attach them to %s by object name and coordinates, %.2f° apart.", fp.Target, fp.Separation)
-		default:
+		row.Confidence, row.Rule, row.Suggestion = framesVerdict(fp)
+		if row.Confidence == mosaics.ConfidenceLow {
 			fp.TargetGUID, fp.Target, fp.ProjectGUID = "", "", ""
-			row.Confidence = mosaics.ConfidenceLow
-			row.Suggestion = "No Target Scheduler target is within 0.5°. Keep them separate and count their hours on their own."
-		}
-		if math.IsInf(fp.Separation, 1) {
-			fp.Separation = 0
 		}
 		row.Fingerprint = fingerprint(r.Object, fp.TargetGUID)
 		body, err := json.Marshal(fp)
@@ -217,6 +224,55 @@ func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target) 
 		out = append(out, candidate{row: row, frames: fp})
 	}
 	return out, nil
+}
+
+func nearestFrames(fp *FramesProposal, ra, dec float64, targets []tslink.Target) {
+	for _, t := range targets {
+		if t.GUID == "" {
+			continue
+		}
+		if d := separation(ra, dec, t.RA, t.Dec); fp.Separation == nil || d < *fp.Separation {
+			fp.Separation, fp.TargetGUID, fp.Target, fp.ProjectGUID, fp.Nearest = &d, t.GUID, t.Name, t.ProjectGUID, t.Name
+			fp.NameMatch = sameName(fp.Object, t.Name) || sameName(fp.Object, t.Project)
+		}
+	}
+}
+
+func framesIssue(object string, n int, projectNamed bool) string {
+	subs := fmt.Sprintf("%d subs are", n)
+	if n == 1 {
+		subs = "1 sub is"
+	}
+	if projectNamed {
+		return fmt.Sprintf("%s named %q, which is a Target Scheduler project, but none of its targets has that name and the subs aren't linked to one.", subs, object)
+	}
+	return fmt.Sprintf("%s named %q, and no Target Scheduler target has that name or is linked to them.", subs, object)
+}
+
+func framesVerdict(fp *FramesProposal) (confidence, rule, suggestion string) {
+	keep := "Keep them separate and count their hours on their own."
+	switch {
+	case !fp.Coords:
+		return mosaics.ConfidenceLow, "Low: the subs have no mount coordinates, so they can't be matched to a target by position.",
+			"The subs have no mount coordinates, so no target can be matched by position. " + keep
+	case fp.Separation == nil:
+		return mosaics.ConfidenceLow, "Low: Target Scheduler has no targets to compare against.", "Target Scheduler has no targets. " + keep
+	case *fp.Separation > framesMaxSep:
+		return mosaics.ConfidenceLow, fmt.Sprintf("Low: no target within %.1f° of the subs' mount position.", framesMaxSep),
+			fmt.Sprintf("The nearest Target Scheduler target, %s, is %.2f° from the subs' mount position, beyond the %.1f° limit. %s", fp.Nearest, *fp.Separation, framesMaxSep, keep)
+	}
+	names := "the names don't match, so check it is the same object"
+	if fp.NameMatch {
+		names = "the names match"
+	}
+	suggestion = fmt.Sprintf("Attach them to %s: its coordinates are %.2f° from the subs' mount position, and %s.", fp.Target, *fp.Separation, names)
+	switch {
+	case *fp.Separation <= framesHighSep && fp.NameMatch:
+		return mosaics.ConfidenceHigh, fmt.Sprintf("High: a target within %.1f° of the subs' mount position, and the names match.", framesHighSep), suggestion
+	case fp.NameMatch:
+		return mosaics.ConfidenceMedium, fmt.Sprintf("Medium: a target within %.1f° of the subs' mount position and the names match, but it is more than %.1f° away.", framesMaxSep, framesHighSep), suggestion
+	}
+	return mosaics.ConfidenceMedium, fmt.Sprintf("Medium: a target within %.1f° of the subs' mount position, but the names don't match.", framesMaxSep), suggestion
 }
 
 func sameName(a, b string) bool {
@@ -261,7 +317,13 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 			switch {
 			case seen && old.Fingerprint == row.Fingerprint:
 				rep.Unchanged++
+				fresh := row
 				row = old
+				if reworded(&row, fresh) && !dryRun {
+					if err := tx.Model(&row).Select("confidence", "rule", "issue", "suggestion", "proposal", "updated_at").Updates(&row).Error; err != nil {
+						return err
+					}
+				}
 				if row.Status == app.AdoptionProposed {
 					rep.Review++
 					if row.Clean {
@@ -269,7 +331,7 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 					}
 				}
 				if c.frames != nil && row.Status == app.AdoptionAccepted && !dryRun {
-					if err := mosaicstore.LinkFrames(tx, *c.frames, now); err != nil {
+					if err := mosaicstore.LinkFrames(tx, c.frames.store(), now); err != nil {
 						return err
 					}
 				}
@@ -302,9 +364,28 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 	return rep, err
 }
 
+func reworded(row *app.MosaicAdoption, fresh app.MosaicAdoption) bool {
+	same := row.Confidence == fresh.Confidence && row.Rule == fresh.Rule && row.Issue == fresh.Issue && row.Suggestion == fresh.Suggestion
+	if row.Kind == KindFrames {
+		same = same && row.Proposal == fresh.Proposal
+	}
+	if same {
+		return false
+	}
+	row.Confidence, row.Rule, row.Issue, row.Suggestion = fresh.Confidence, fresh.Rule, fresh.Issue, fresh.Suggestion
+	if row.Kind == KindFrames {
+		row.Proposal = fresh.Proposal
+	}
+	return true
+}
+
 func toAdoption(r app.MosaicAdoption) Adoption {
-	a := Adoption{ID: r.ID, Subject: r.Subject, ProjectGUID: r.ProjectGUID, Project: r.Project, Kind: r.Kind, Confidence: r.Confidence,
+	a := Adoption{ID: r.ID, Subject: r.Subject, ProjectGUID: r.ProjectGUID, Project: r.Project, Kind: r.Kind, Confidence: r.Confidence, Rule: r.Rule,
 		Issue: r.Issue, Suggestion: r.Suggestion, Status: r.Status, Clean: r.Clean, DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt}
+	if !r.CreatedAt.IsZero() {
+		found, worded := r.CreatedAt, r.UpdatedAt
+		a.FoundAt, a.WordedAt = &found, &worded
+	}
 	if r.Kind == KindFrames {
 		var fp FramesProposal
 		if json.Unmarshal([]byte(r.Proposal), &fp) == nil {

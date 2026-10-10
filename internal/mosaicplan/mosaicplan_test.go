@@ -169,15 +169,16 @@ func TestRunAdoptionThenDecide(t *testing.T) {
 		t.Errorf("rosette %+v", a)
 	}
 	dol := byKind["Dolphin Head"]
-	if dol.Kind != mosaicplan.KindFrames || dol.Frames == nil || dol.Frames.Count != 1 || dol.Confidence != mosaics.ConfidenceLow {
-		t.Errorf("dolphin %+v %+v", dol, dol.Frames)
-	}
+	checkAdoptionRules(t, byKind)
 	var panels []app.MosaicPanel
 	appDB.Order("panel").Find(&panels)
 	if len(panels) != 2 || panels[0].ProjectGUID != "pm" || panels[0].Source != app.MosaicSourceAdopted || panels[1].Neighbours != `["m1"]` {
 		t.Fatalf("panels %+v", panels)
 	}
 
+	if err := appDB.Model(&app.MosaicAdoption{}).Where("id = ?", dol.ID).Updates(map[string]any{"issue": "stale", "rule": ""}).Error; err != nil {
+		t.Fatal(err)
+	}
 	again, err := svc.RunAdoption(ctx, false)
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +187,27 @@ func TestRunAdoptionThenDecide(t *testing.T) {
 		t.Errorf("second run %+v", again)
 	}
 
+	var refreshed app.MosaicAdoption
+	appDB.First(&refreshed, dol.ID)
+	if refreshed.Issue != dol.Issue || refreshed.Rule != dol.Rule || refreshed.Status != dol.Status {
+		t.Errorf("stale wording kept: %+v", refreshed)
+	}
+
 	checkDecisions(ctx, t, svc, appDB, byKind["Rho"].ID)
+}
+
+func checkAdoptionRules(t *testing.T, byKind map[string]mosaicplan.Adoption) {
+	t.Helper()
+	dol := byKind["Dolphin Head"]
+	if dol.Kind != mosaicplan.KindFrames || dol.Frames == nil || dol.Frames.Count != 1 || dol.Confidence != mosaics.ConfidenceLow {
+		t.Fatalf("dolphin %+v %+v", dol, dol.Frames)
+	}
+	if !strings.HasPrefix(dol.Rule, "Low: no target within") || !dol.Frames.Coords || dol.Frames.Separation == nil || dol.Frames.Nearest == "" || dol.Frames.Target != "" {
+		t.Errorf("dolphin rule %q frames %+v", dol.Rule, dol.Frames)
+	}
+	if !strings.HasPrefix(byKind["Rho"].Rule, "High: ") || byKind["Rho"].FoundAt == nil {
+		t.Errorf("rho %+v", byKind["Rho"])
+	}
 }
 
 func checkDecisions(ctx context.Context, t *testing.T, svc *mosaicplan.Service, appDB *gorm.DB, rhoID int) {
