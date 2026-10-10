@@ -117,7 +117,7 @@ func TestRunAdoptionDryRunWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rep.DryRun || rep.Auto != 1 || rep.Review != 3 {
+	if !rep.DryRun || rep.Clean != 1 || rep.Review != 4 || rep.New != 4 {
 		t.Errorf("report %+v", rep)
 	}
 	var n int64
@@ -140,15 +140,23 @@ func TestRunAdoptionThenDecide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Auto != 1 || rep.Review != 3 || rep.Changed != 0 {
+	if rep.Clean != 1 || rep.Review != 4 || rep.Changed != 0 {
 		t.Fatalf("report %+v", rep)
 	}
 	byKind := map[string]mosaicplan.Adoption{}
 	for _, it := range rep.Items {
 		byKind[it.Project] = it
 	}
-	if a := byKind[markarian]; a.Status != app.AdoptionAuto || a.Action != "adopt" || len(a.Panels) != 2 {
+	if a := byKind[markarian]; a.Status != app.AdoptionProposed || !a.Clean || len(a.Panels) != 2 {
 		t.Errorf("markarian %+v", a)
+	}
+	var none int64
+	appDB.Model(&app.MosaicPanel{}).Count(&none)
+	if none != 0 {
+		t.Fatalf("adoption wrote %d panels before any decision", none)
+	}
+	if _, err := svc.Decide(ctx, byKind[markarian].ID, "accept", "test"); err != nil {
+		t.Fatal(err)
 	}
 	if a := byKind["Rho"]; a.Status != app.AdoptionProposed || a.Confidence != mosaics.ConfidenceHigh {
 		t.Errorf("rho %+v", a)
@@ -170,7 +178,7 @@ func TestRunAdoptionThenDecide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Unchanged != 4 || again.Auto != 0 || again.Review != 3 {
+	if again.Unchanged != 4 || again.New != 0 || again.Review != 3 {
 		t.Errorf("second run %+v", again)
 	}
 
@@ -183,7 +191,7 @@ func checkDecisions(ctx context.Context, t *testing.T, svc *mosaicplan.Service, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 4 || list[0].Status != app.AdoptionProposed || list[3].Status != app.AdoptionAuto {
+	if len(list) != 4 || list[0].Status != app.AdoptionProposed || list[3].Status != app.AdoptionAccepted {
 		t.Errorf("order %+v", list)
 	}
 	rho, err := svc.Decide(ctx, rhoID, "accept", "test")
@@ -217,8 +225,16 @@ func TestDetailUsesWeakestPanelAndFallsBackToScheduler(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc := mosaicplan.New(appFixture(t), schedFixture(t))
-	if _, err := svc.RunAdoption(ctx, false); err != nil {
+	rep, err := svc.RunAdoption(ctx, false)
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, it := range rep.Items {
+		if it.Clean {
+			if _, err := svc.Decide(ctx, it.ID, "accept", "test"); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	d, err := svc.Detail(ctx, "pm")
 	if err != nil {

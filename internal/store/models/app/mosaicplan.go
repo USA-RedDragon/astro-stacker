@@ -47,6 +47,7 @@ type MosaicAdoption struct {
 	Proposal    string     `gorm:"type:text" json:"proposal"`
 	Fingerprint string     `json:"fingerprint"`
 	Status      string     `gorm:"not null;index" json:"status"`
+	Clean       bool       `json:"clean"`
 	DecidedBy   string     `json:"decidedBy"`
 	DecidedAt   *time.Time `json:"decidedAt"`
 	CreatedAt   time.Time  `json:"createdAt"`

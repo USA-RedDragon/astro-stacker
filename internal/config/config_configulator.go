@@ -88,6 +88,7 @@ type stackingShadow struct {
 	Workers                *int      `json:"workers"                    toml:"workers"                    yaml:"workers"`
 	MosaicMinutes          *int      `json:"mosaic-minutes"             toml:"mosaic-minutes"             yaml:"mosaic-minutes"`
 	MosaicQuiet            *int      `json:"mosaic-quiet-minutes"       toml:"mosaic-quiet-minutes"       yaml:"mosaic-quiet-minutes"`
+	MosaicSeams            *bool     `json:"mosaic-seams"               toml:"mosaic-seams"               yaml:"mosaic-seams"`
 	Pedestal               *float64  `json:"pedestal"                   toml:"pedestal"                   yaml:"pedestal"`
 	CalibrationSettle      *int      `json:"calibration-settle-minutes" toml:"calibration-settle-minutes" yaml:"calibration-settle-minutes"`
 	RecalibrateLimit       *int      `json:"recalibrate-limit"          toml:"recalibrate-limit"          yaml:"recalibrate-limit"`
@@ -219,6 +220,8 @@ func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) er
 	set("stacking.mosaic-minutes", configulator.LayerDefault, "default tag")
 	cfg.Stacking.MosaicQuiet = 30
 	set("stacking.mosaic-quiet-minutes", configulator.LayerDefault, "default tag")
+	cfg.Stacking.MosaicSeams = true
+	set("stacking.mosaic-seams", configulator.LayerDefault, "default tag")
 	cfg.Stacking.Pedestal = 506.0
 	set("stacking.pedestal", configulator.LayerDefault, "default tag")
 	cfg.Stacking.CalibrationSettle = 180
@@ -467,6 +470,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Stacking.MosaicQuiet != nil {
 			cfg.Stacking.MosaicQuiet = *s.Stacking.MosaicQuiet
 			set("stacking.mosaic-quiet-minutes", configulator.LayerFile, file)
+		}
+		if s.Stacking.MosaicSeams != nil {
+			cfg.Stacking.MosaicSeams = *s.Stacking.MosaicSeams
+			set("stacking.mosaic-seams", configulator.LayerFile, file)
 		}
 		if s.Stacking.Pedestal != nil {
 			cfg.Stacking.Pedestal = *s.Stacking.Pedestal
@@ -999,6 +1006,19 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Stacking.MosaicQuiet = int(p)
 		set("stacking.mosaic-quiet-minutes", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "mosaic-seams"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.mosaic-seams",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Stacking.MosaicSeams = p
+		set("stacking.mosaic-seams", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "pedestal"); ok {
 		p, err := strconv.ParseFloat(v, 64)
 		if err != nil {
@@ -1407,6 +1427,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"stacking" + o.Separator + "workers",
 		"stacking" + o.Separator + "mosaic-minutes",
 		"stacking" + o.Separator + "mosaic-quiet-minutes",
+		"stacking" + o.Separator + "mosaic-seams",
 		"stacking" + o.Separator + "pedestal",
 		"stacking" + o.Separator + "calibration-settle-minutes",
 		"stacking" + o.Separator + "recalibrate-limit",
@@ -1496,38 +1517,39 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(1), names[40], "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
 	fs.Var(impl.NewInt(10), names[41], "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
 	fs.Var(impl.NewInt(30), names[42], "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
-	fs.Float64(names[43], 506.0, "Camera pedestal in ADU, for scoring subs")
-	fs.Var(impl.NewInt(180), names[44], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
-	fs.Var(impl.NewInt(300), names[45], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
-	fs.Var(impl.NewInt(1200), names[46], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
-	fs.String(names[47], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
-	fs.String(names[48], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
-	fs.StringSlice(names[49], nil, "Only subs of these targets; empty for all")
-	fs.Var(impl.NewInt(200), names[50], "Most new verdicts sent per hourly sweep")
-	fs.Var(impl.NewInt(24), names[51], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
-	fs.Var(impl.NewInt(200), names[52], "Milliseconds between deletions of unreferenced registered subs")
-	fs.Float64(names[53], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
-	fs.Bool(names[54], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
-	fs.Var(impl.NewInt(60), names[55], "Seconds between checks for newly accepted lights")
-	fs.Var(impl.NewInt(14), names[56], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
-	fs.Float64(names[57], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
-	fs.Float64(names[58], 0.0, "Observatory east longitude in degrees")
-	fs.Float64(names[59], 0.0, "Observatory elevation in metres")
-	fs.Float64(names[60], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
-	fs.Float64(names[61], 21.4, "Dark-sky brightness at the site in mag/arcsec², for brightness scores")
-	fs.Float64(names[62], 405.0, "Telescope focal length in mm")
-	fs.Float64(names[63], 3.76, "Camera pixel size in µm")
-	fs.Var(impl.NewInt(6248), names[64], "Camera width in pixels")
-	fs.Var(impl.NewInt(4176), names[65], "Camera height in pixels")
-	fs.Bool(names[66], false, "The camera is one-shot colour")
-	fs.StringSlice(names[67], nil, "Filters on the wheel as L, R, G, B, H, O or S, each optionally =bandpass in nm (H=3)")
-	fs.Lookup(names[67]).DefValue = "[L,R,G,B,H,O,S]"
-	fs.Float64(names[68], 0.0, "Typical star HFR in arcseconds, for collaboration limits; 0 if unknown")
-	fs.Float64(names[69], 0.0, "Typical guiding RMS in arcseconds, for collaboration limits; 0 if unknown")
-	fs.StringSlice(names[70], nil, "Sub lengths in seconds per filter (H=600), for collaboration limits")
-	fs.Bool(names[71], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
-	fs.String(names[72], "https://collab.starfront.space", "Starfront collaboration server")
-	fs.Var(impl.NewInt(30), names[73], "Minutes between fetches of the collaboration list")
+	fs.Bool(names[43], true, "Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way")
+	fs.Float64(names[44], 506.0, "Camera pedestal in ADU, for scoring subs")
+	fs.Var(impl.NewInt(180), names[45], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
+	fs.Var(impl.NewInt(300), names[46], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
+	fs.Var(impl.NewInt(1200), names[47], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
+	fs.String(names[48], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
+	fs.String(names[49], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
+	fs.StringSlice(names[50], nil, "Only subs of these targets; empty for all")
+	fs.Var(impl.NewInt(200), names[51], "Most new verdicts sent per hourly sweep")
+	fs.Var(impl.NewInt(24), names[52], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
+	fs.Var(impl.NewInt(200), names[53], "Milliseconds between deletions of unreferenced registered subs")
+	fs.Float64(names[54], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
+	fs.Bool(names[55], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
+	fs.Var(impl.NewInt(60), names[56], "Seconds between checks for newly accepted lights")
+	fs.Var(impl.NewInt(14), names[57], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
+	fs.Float64(names[58], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
+	fs.Float64(names[59], 0.0, "Observatory east longitude in degrees")
+	fs.Float64(names[60], 0.0, "Observatory elevation in metres")
+	fs.Float64(names[61], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
+	fs.Float64(names[62], 21.4, "Dark-sky brightness at the site in mag/arcsec², for brightness scores")
+	fs.Float64(names[63], 405.0, "Telescope focal length in mm")
+	fs.Float64(names[64], 3.76, "Camera pixel size in µm")
+	fs.Var(impl.NewInt(6248), names[65], "Camera width in pixels")
+	fs.Var(impl.NewInt(4176), names[66], "Camera height in pixels")
+	fs.Bool(names[67], false, "The camera is one-shot colour")
+	fs.StringSlice(names[68], nil, "Filters on the wheel as L, R, G, B, H, O or S, each optionally =bandpass in nm (H=3)")
+	fs.Lookup(names[68]).DefValue = "[L,R,G,B,H,O,S]"
+	fs.Float64(names[69], 0.0, "Typical star HFR in arcseconds, for collaboration limits; 0 if unknown")
+	fs.Float64(names[70], 0.0, "Typical guiding RMS in arcseconds, for collaboration limits; 0 if unknown")
+	fs.StringSlice(names[71], nil, "Sub lengths in seconds per filter (H=600), for collaboration limits")
+	fs.Bool(names[72], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
+	fs.String(names[73], "https://collab.starfront.space", "Starfront collaboration server")
+	fs.Var(impl.NewInt(30), names[74], "Minutes between fetches of the collaboration list")
 	return nil
 }
 
@@ -2047,6 +2069,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Stacking.MosaicQuiet = v
 		set("stacking.mosaic-quiet-minutes", configulator.LayerCLI, "--"+n)
+	}
+	if n := "stacking" + o.Separator + "mosaic-seams"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.mosaic-seams",
+				Source: "--" + n,
+			}
+		}
+		cfg.Stacking.MosaicSeams = v
+		set("stacking.mosaic-seams", configulator.LayerCLI, "--"+n)
 	}
 	if n := "stacking" + o.Separator + "pedestal"; fs.Changed(n) {
 		v, err := fs.GetFloat64(n)
@@ -3552,6 +3586,19 @@ func (s *stackingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".mosaic-quiet-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "mosaic-seams":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.MosaicSeams = &b
+			default:
+				return configJSONError(path+".mosaic-seams", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
 		case "pedestal":
 			v, err := dec.ReadToken()
 			if err != nil {
@@ -4230,6 +4277,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "stacking.workers = %v\n", c.Stacking.Workers)
 	fmt.Fprintf(&b, "stacking.mosaic-minutes = %v\n", c.Stacking.MosaicMinutes)
 	fmt.Fprintf(&b, "stacking.mosaic-quiet-minutes = %v\n", c.Stacking.MosaicQuiet)
+	fmt.Fprintf(&b, "stacking.mosaic-seams = %v\n", c.Stacking.MosaicSeams)
 	fmt.Fprintf(&b, "stacking.pedestal = %v\n", c.Stacking.Pedestal)
 	fmt.Fprintf(&b, "stacking.calibration-settle-minutes = %v\n", c.Stacking.CalibrationSettle)
 	fmt.Fprintf(&b, "stacking.recalibrate-limit = %v\n", c.Stacking.RecalibrateLimit)

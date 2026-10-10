@@ -72,6 +72,7 @@ type Stacking struct {
 	Workers           int     `name:"workers" description:"Targets stacked at once; each holds up to about 1.5 GB besides Siril" default:"1"`
 	MosaicMinutes     int     `name:"mosaic-minutes" description:"Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off" default:"10"`
 	MosaicQuiet       int     `name:"mosaic-quiet-minutes" description:"Minutes a mosaic's panel masters must be unchanged before it is rebuilt" default:"30"`
+	MosaicSeams       bool    `name:"mosaic-seams" description:"Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way" default:"true"`
 	Pedestal          float64 `name:"pedestal" description:"Camera pedestal in ADU, for scoring subs" default:"506"`
 	CalibrationSettle int     `name:"calibration-settle-minutes" description:"Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile" default:"180"`
 	RecalibrateLimit  int     `name:"recalibrate-limit" description:"Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear" default:"300"`
