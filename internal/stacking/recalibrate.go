@@ -23,7 +23,8 @@ const (
 	recalGrown = "dark_grew"
 	// recalCloser: a dark set now matches whose setpoint is at least
 	// CloserDarkC closer to the light's than its dark's was.
-	recalCloser = "closer_dark"
+	recalCloser  = "closer_dark"
+	recalChanged = "dark_changed"
 )
 
 func recalOrder(why string) int {
@@ -54,6 +55,7 @@ type darkHistory struct {
 	// matched the light among the sets complete when it was stacked
 	// (inferDark). nil when none was.
 	likely *calmatch.Set
+	gone   bool
 }
 
 // recalReason says why a light calibrated with h should be calibrated
@@ -78,6 +80,9 @@ func recalReason(g calmatch.Group, h darkHistory, now calmatch.Match) string {
 	}
 	if h.used != nil && h.used.Master == "" && sameSetup(*h.used, *now.Set) && now.Set.Count > h.used.Count {
 		return recalGrown
+	}
+	if h.used != nil && h.used.Master == "" && h.gone {
+		return recalChanged
 	}
 	return ""
 }
@@ -132,6 +137,21 @@ func (p *Pipeline) darkMasters(ctx context.Context) (map[string]calmatch.Set, er
 	return out, nil
 }
 
+func (p *Pipeline) darkSetKeys(ctx context.Context, sets []calmatch.Set) (map[string]bool, error) {
+	keys := map[string]bool{}
+	for _, s := range sets {
+		if s.Type != frameTypeDark || s.Master != "" {
+			continue
+		}
+		frames, err := coverage.SetFrames(ctx, p.db, s)
+		if err != nil {
+			return nil, err
+		}
+		keys[setKey(s.Type, frames)] = true
+	}
+	return keys, nil
+}
+
 // darkDue is a stacked light to calibrate again, and why.
 type darkDue struct {
 	id, stack int
@@ -168,6 +188,10 @@ func (p *Pipeline) dueForDarks(ctx context.Context, now time.Time) ([]darkDue, e
 	if err != nil {
 		return nil, err
 	}
+	current, err := p.darkSetKeys(ctx, sets)
+	if err != nil {
+		return nil, err
+	}
 	var found []darkDue
 	for _, r := range rows {
 		f := r.Frame
@@ -187,6 +211,7 @@ func (p *Pipeline) dueForDarks(ctx context.Context, now time.Time) ([]darkDue, e
 		case r.DarkMaster != nil:
 			if s, ok := masters[*r.DarkMaster]; ok {
 				h.used = &s
+				h.gone = !current[*r.DarkMaster]
 			}
 		case !r.NoDark:
 			h.likely = inferDark(g, sets, r.ProcessedAt)
@@ -235,7 +260,7 @@ func (p *Pipeline) recalibrateDarks(ctx context.Context) error {
 	if len(take) == 0 {
 		slog.Info("Lights due a better dark wait for those being calibrated again", "due", len(found),
 			"no_dark", byReason[recalNoDark], "closer_dark", byReason[recalCloser], "dark_grew", byReason[recalGrown],
-			"waiting", waiting)
+			"dark_changed", byReason[recalChanged], "waiting", waiting)
 		return nil
 	}
 	ids := make([]int, len(take))
@@ -259,6 +284,6 @@ func (p *Pipeline) recalibrateDarks(ctx context.Context) error {
 	}
 	slog.Info("Calibrating stacked lights again with a better dark", "lights", len(take), "masters", len(stackIDs),
 		"due", len(found), "no_dark", byReason[recalNoDark], "closer_dark", byReason[recalCloser],
-		"dark_grew", byReason[recalGrown], "left_for_later", len(found)-len(take))
+		"dark_grew", byReason[recalGrown], "dark_changed", byReason[recalChanged], "left_for_later", len(found)-len(take))
 	return nil
 }
