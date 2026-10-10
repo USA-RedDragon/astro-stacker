@@ -55,6 +55,6 @@ select.input option{background:var(--background);color:var(--foreground)}
 table.grid{width:100%;border-collapse:collapse;font-size:0.8125rem}
 table.grid th{text-align:left;font-weight:500;font-size:0.75rem;color:var(--muted-foreground);padding:0.5rem 0.625rem;border-bottom:1px solid var(--border);white-space:nowrap}
 table.grid td{padding:0.5rem 0.625rem;border-bottom:1px solid var(--border);vertical-align:top}
-.scroll-x{overflow-x:auto}
+.scroll-x{overflow-x:auto;position:relative}
 .empty{margin:0;padding:1rem 0;color:var(--muted-foreground);font-size:0.875rem}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
