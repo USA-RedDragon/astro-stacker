@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,15 +14,26 @@ import (
 )
 
 const (
+	PaceMeasured  = "measured"
 	PaceLast      = "last"
-	PaceGood      = "good"
-	PacePoor      = "poor"
-	goodSeason    = 60.0
-	poorSeason    = 20.0
-	minPace       = 20.0
+	PaceBest      = "best"
+	PaceWorst     = "worst"
 	maxSeasons    = 8
 	usableMonthly = 2.0
 )
+
+type SeasonBasis struct {
+	HoursPerClearNight   *float64      `json:"hoursPerClearNight"`
+	ClearNightsPerSeason *float64      `json:"clearNightsPerSeason"`
+	ClearNightsPerMonth  []MonthNights `json:"clearNightsPerMonth"`
+	UsableMonths         []int         `json:"usableMonths"`
+	HistoryFrom          *time.Time    `json:"historyFrom"`
+	HistoryTo            *time.Time    `json:"historyTo"`
+	HistoryNights        int           `json:"historyNights"`
+	ProjectNights        int           `json:"projectNights"`
+	InsufficientHistory  bool          `json:"insufficientHistory"`
+	Reason               *string       `json:"reason"`
+}
 
 type SiteSource func(ctx context.Context) (mosaics.Site, bool)
 
@@ -53,7 +65,8 @@ type SeasonPlan struct {
 	Project         string                `json:"project"`
 	Strategy        string                `json:"strategy"`
 	Pace            string                `json:"pace"`
-	HoursPerSeason  float64               `json:"hoursPerSeason"`
+	HoursPerSeason  *float64              `json:"hoursPerSeason"`
+	Basis           SeasonBasis           `json:"basis"`
 	Last            *SeasonPace           `json:"lastSeason,omitempty"`
 	Current         *SeasonPace           `json:"currentSeason,omitempty"`
 	InSeason        bool                  `json:"inSeason"`
@@ -141,20 +154,6 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 	if plan.Current == nil {
 		plan.Current = &SeasonPace{Start: start, End: end}
 	}
-	switch pace {
-	case PaceGood:
-		plan.HoursPerSeason = goodSeason
-	case PacePoor:
-		plan.HoursPerSeason = poorSeason
-	default:
-		plan.Pace = PaceLast
-		plan.HoursPerSeason = minPace
-		if plan.Last != nil {
-			plan.HoursPerSeason = math.Max(minPace, plan.Last.Hours)
-		} else if plan.Current.Hours > 0 {
-			plan.HoursPerSeason = math.Max(minPace, plan.Current.Hours)
-		}
-	}
 	var months [12]float64
 	if s.Site != nil {
 		if site, ok := s.Site(ctx); ok {
@@ -167,18 +166,124 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 			plan.NightsLeft = nightsLeft(now, months)
 		}
 	}
-	rows, finish := mosaics.Simulate(plan.Items, mosaics.Strategy(strategy), plan.HoursPerSeason, maxSeasons)
+	hist, err := s.clearNights(ctx)
+	if err != nil {
+		return plan, err
+	}
+	plan.Basis = seasonBasis(hist, seasons, months, plan.SiteKnown)
+	plan.Pace, plan.HoursPerSeason = choosePace(pace, plan.Basis, seasons, now)
+	plan.PanelPriority = s.panelPriorities(ctx, d, now)
+	if plan.HoursPerSeason == nil {
+		if plan.Basis.Reason == nil {
+			plan.Basis.Reason = reason("this project has no completed season yet")
+		}
+		return plan, nil
+	}
+	rows, finish := mosaics.Simulate(plan.Items, mosaics.Strategy(strategy), *plan.HoursPerSeason, maxSeasons)
 	for _, r := range rows {
 		plan.Rows = append(plan.Rows, SeasonRow{Index: r.Index, Name: seasonName(start.AddDate(r.Index-1, 0, 0)), Weakest: r.WeakestProgress,
 			Average: r.AverageProgress, Done: r.Done, Strategy: strategy})
 	}
 	plan.FinishSeason = finish
 	for _, st := range []mosaics.Strategy{mosaics.StrategyWeakest, mosaics.StrategyEven, mosaics.StrategyOff} {
-		_, f := mosaics.Simulate(plan.Items, st, plan.HoursPerSeason, maxSeasons)
+		_, f := mosaics.Simulate(plan.Items, st, *plan.HoursPerSeason, maxSeasons)
 		plan.Compare[string(st)] = f
 	}
-	plan.PanelPriority = s.panelPriorities(ctx, d, now)
 	return plan, nil
+}
+
+func reason(s string) *string { return &s }
+
+func seasonBasis(hist nightHistory, seasons []SeasonPace, months [12]float64, siteKnown bool) SeasonBasis {
+	b := SeasonBasis{ClearNightsPerMonth: hist.perMonth(), UsableMonths: []int{}, HistoryNights: len(hist.hours)}
+	b.HistoryFrom, b.HistoryTo = hist.span()
+	var first, last time.Time
+	var projectHours float64
+	for _, sp := range seasons {
+		b.ProjectNights += sp.Nights
+		projectHours += sp.Hours
+		if sp.From != nil && (first.IsZero() || sp.From.Before(first)) {
+			first = dayOf(*sp.From)
+		}
+	}
+	last = hist.last
+	if siteKnown {
+		b.UsableMonths = usableMonths(months)
+	}
+	switch {
+	case !siteKnown:
+		b.Reason = reason("the observatory site is not known, so the target's dark hours per month can't be worked out")
+	case len(b.UsableMonths) == 0:
+		b.Reason = reason("the target never has enough dark hours in a month at this site")
+	case len(hist.hours) < minHistoryNights:
+		b.Reason = reason(fmt.Sprintf("only %d clear nights of history; at least %d are needed", len(hist.hours), minHistoryNights))
+	case b.ProjectNights < minProjectNights:
+		b.Reason = reason(fmt.Sprintf("only %d nights of this project's lights; at least %d are needed", b.ProjectNights, minProjectNights))
+	}
+	if b.Reason != nil {
+		b.InsufficientHistory = true
+		return b
+	}
+	clearCount := 0
+	for d := range hist.hours {
+		if !d.Before(first) && !d.After(last) && slices.Contains(b.UsableMonths, int(d.Month())) {
+			clearCount++
+		}
+	}
+	b.ClearNightsPerSeason = clearNightsIn(b.ClearNightsPerMonth, b.UsableMonths)
+	if missing := monthsWithoutHistory(b.ClearNightsPerMonth, b.UsableMonths); len(missing) > 0 {
+		b.InsufficientHistory = true
+		b.Reason = reason("no clear-night history yet for " + strings.Join(missing, ", ") + ", when the target is up")
+		return b
+	}
+	if clearCount == 0 || b.ClearNightsPerSeason == nil {
+		b.InsufficientHistory = true
+		b.Reason = reason("no clear nights recorded in the target's usable months")
+		return b
+	}
+	v := math.Round(projectHours/float64(clearCount)*100) / 100
+	b.HoursPerClearNight = &v
+	return b
+}
+
+func choosePace(pace string, b SeasonBasis, seasons []SeasonPace, now time.Time) (string, *float64) {
+	var done []float64
+	for _, sp := range seasons {
+		if !sp.End.After(now) {
+			done = append(done, sp.Hours)
+		}
+	}
+	round := func(v float64) *float64 {
+		r := math.Round(v*10) / 10
+		return &r
+	}
+	switch pace {
+	case PaceLast:
+		var last *SeasonPace
+		for i := range seasons {
+			if !seasons[i].End.After(now) && (last == nil || seasons[i].Start.After(last.Start)) {
+				last = &seasons[i]
+			}
+		}
+		if last == nil {
+			return PaceLast, nil
+		}
+		return PaceLast, round(last.Hours)
+	case PaceBest, "good":
+		if len(done) == 0 {
+			return PaceBest, nil
+		}
+		return PaceBest, round(slices.Max(done))
+	case PaceWorst, "poor":
+		if len(done) == 0 {
+			return PaceWorst, nil
+		}
+		return PaceWorst, round(slices.Min(done))
+	}
+	if b.HoursPerClearNight == nil || b.ClearNightsPerSeason == nil {
+		return PaceMeasured, nil
+	}
+	return PaceMeasured, round(*b.HoursPerClearNight * *b.ClearNightsPerSeason)
 }
 
 func nightsLeft(now time.Time, months [12]float64) int {

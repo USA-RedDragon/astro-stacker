@@ -8,7 +8,6 @@ import (
 )
 
 const (
-	DefaultPixelScale   = 1.915
 	MinZeroPointStars   = 10
 	CatalogBrightG      = 9.0
 	CatalogFaintG       = 14.0

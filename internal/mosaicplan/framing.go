@@ -12,13 +12,21 @@ import (
 )
 
 const (
-	defaultHoursPerPanel = 9.0
-	defaultNightHours    = 7.0
-	shutterEfficiency    = 0.4
-	clearNightsPerSeason = 25.0
-	defaultOverlap       = 15.0
-	defaultMinAltitude   = 30.0
+	defaultOverlap     = 15.0
+	defaultMinAltitude = 30.0
+	sourceRequest      = "request"
+	sourceTargets      = "median effective hours of your targets"
 )
+
+type FramingBasis struct {
+	HoursPerPanel        *float64 `json:"hoursPerPanel"`
+	HoursPerPanelSource  *string  `json:"hoursPerPanelSource"`
+	Targets              int      `json:"targets"`
+	HoursPerClearNight   *float64 `json:"hoursPerClearNight"`
+	ClearNightsPerSeason *float64 `json:"clearNightsPerSeason"`
+	HistoryNights        int      `json:"historyNights"`
+	Reason               *string  `json:"reason"`
+}
 
 type FramingRequest struct {
 	RA            float64  `json:"ra"`
@@ -37,11 +45,11 @@ type FramingRequest struct {
 
 type FramingOption struct {
 	mosaics.Layout
-	Hours       float64 `json:"hours"`
-	Nights      int     `json:"nights"`
-	Seasons     int     `json:"seasons"`
-	Cost        string  `json:"cost"`
-	Recommended bool    `json:"recommended"`
+	Hours       *float64 `json:"hours"`
+	Nights      *int     `json:"nights"`
+	Seasons     *int     `json:"seasons"`
+	Cost        string   `json:"cost"`
+	Recommended bool     `json:"recommended"`
 }
 
 type Framing struct {
@@ -50,7 +58,8 @@ type Framing struct {
 	Rotation          float64         `json:"rotation"`
 	SuggestedRotation float64         `json:"suggestedRotation"`
 	Overlap           float64         `json:"overlap"`
-	NightHours        float64         `json:"nightHours"`
+	NightHours        *float64        `json:"nightHours"`
+	Basis             FramingBasis    `json:"basis"`
 	BestMonths        []string        `json:"bestMonths"`
 	SiteKnown         bool            `json:"siteKnown"`
 	Options           []FramingOption `json:"options"`
@@ -70,7 +79,7 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 	if err != nil {
 		return Framing{}, err
 	}
-	out := Framing{Rig: rig, RigInfo: info, Overlap: defaultOverlap, NightHours: defaultNightHours, BestMonths: []string{}}
+	out := Framing{Rig: rig, RigInfo: info, Overlap: defaultOverlap, BestMonths: []string{}}
 	if req.Overlap != nil {
 		out.Overlap = math.Max(0, math.Min(50, *req.Overlap))
 	}
@@ -83,10 +92,11 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 	if minAlt <= 0 {
 		minAlt = defaultMinAltitude
 	}
+	var months [12]float64
 	if s.Site != nil {
 		if site, ok := s.Site(ctx); ok {
 			out.SiteKnown = true
-			months := mosaics.MonthlyDarkHours(now.Year(), site, []mosaics.Point{o.Centre}, minAlt)
+			months = mosaics.MonthlyDarkHours(now.Year(), site, []mosaics.Point{o.Centre}, minAlt)
 			idx := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 			slices.SortFunc(idx, func(a, b int) int {
 				switch {
@@ -105,25 +115,40 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 				}
 			}
 			if sum > 0 {
-				out.NightHours = sum / 3
+				nh := math.Round(sum/3*10) / 10
+				out.NightHours = &nh
 			}
 		}
 	}
-	hpp := req.HoursPerPanel
-	if hpp <= 0 {
-		hpp = defaultHoursPerPanel
+	if err := s.framingBasis(ctx, req, months, out.SiteKnown, &out.Basis); err != nil {
+		return out, err
 	}
+	b := out.Basis
 	cost := func(l mosaics.Layout) FramingOption {
-		opt := FramingOption{Layout: l, Hours: hpp * float64(len(l.Panels))}
-		if out.NightHours > 0 {
-			opt.Nights = int(math.Ceil(opt.Hours / (shutterEfficiency * out.NightHours)))
+		opt := FramingOption{Layout: l}
+		if b.HoursPerPanel == nil {
+			opt.Cost = "hours per panel unknown: no target has an hour of effective exposure yet"
+			return opt
 		}
-		opt.Seasons = max(1, int(math.Ceil(float64(opt.Nights)/clearNightsPerSeason)))
+		h := *b.HoursPerPanel * float64(len(l.Panels))
+		opt.Hours = &h
+		if b.HoursPerClearNight == nil {
+			opt.Cost = fmt.Sprintf("%.0f h effective · nights unknown: %s", h, *b.Reason)
+			return opt
+		}
+		n := int(math.Ceil(h / *b.HoursPerClearNight))
+		opt.Nights = &n
+		if b.ClearNightsPerSeason == nil || *b.ClearNightsPerSeason <= 0 {
+			opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d clear nights at your %.1f h per clear night", h, n, *b.HoursPerClearNight)
+			return opt
+		}
+		se := max(1, int(math.Ceil(float64(n) / *b.ClearNightsPerSeason)))
+		opt.Seasons = &se
 		season := "1 season"
-		if opt.Seasons > 1 {
-			season = fmt.Sprintf("%d seasons", opt.Seasons)
+		if se > 1 {
+			season = fmt.Sprintf("%d seasons", se)
 		}
-		opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d nights · %s", opt.Hours, opt.Nights, season)
+		opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d clear nights at your %.1f h per clear night · %s", h, n, *b.HoursPerClearNight, season)
 		return opt
 	}
 	for i, l := range mosaics.Alternatives(o, out.Rotation, out.Overlap, rig) {
@@ -148,4 +173,37 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 		out.Options = []FramingOption{}
 	}
 	return out, nil
+}
+
+func (s *Service) framingBasis(ctx context.Context, req FramingRequest, months [12]float64, siteKnown bool, b *FramingBasis) error {
+	if req.HoursPerPanel > 0 {
+		v, src := req.HoursPerPanel, sourceRequest
+		b.HoursPerPanel, b.HoursPerPanelSource = &v, &src
+	} else {
+		med, n, err := s.medianTargetHours(ctx)
+		if err != nil {
+			return err
+		}
+		if med != nil {
+			src := sourceTargets
+			b.HoursPerPanel, b.HoursPerPanelSource, b.Targets = med, &src, n
+		}
+	}
+	hist, err := s.clearNights(ctx)
+	if err != nil {
+		return err
+	}
+	b.HistoryNights = len(hist.hours)
+	if v := hist.hoursPerClearNight(); v != nil {
+		r := math.Round(*v*100) / 100
+		b.HoursPerClearNight = &r
+	} else {
+		b.Reason = reason(fmt.Sprintf("only %d clear nights of history; at least %d are needed", len(hist.hours), minHistoryNights))
+	}
+	if siteKnown {
+		b.ClearNightsPerSeason = clearNightsIn(hist.perMonth(), usableMonths(months))
+	} else if b.Reason == nil {
+		b.Reason = reason("the observatory site is not known, so the target's season can't be worked out")
+	}
+	return nil
 }

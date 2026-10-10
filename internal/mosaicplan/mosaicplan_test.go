@@ -293,18 +293,36 @@ func checkList(ctx context.Context, t *testing.T, svc *mosaicplan.Service) {
 	}
 }
 
+func addNights(t *testing.T, db *gorm.DB, object string, first time.Time, n int, seconds float64) {
+	t.Helper()
+	for i := range n {
+		night := first.AddDate(0, 0, 2*i)
+		f := app.Frame{Key: fmt.Sprintf("%s-%d", object, i), ETag: "e", Type: light, Object: object, Night: &night}
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&app.StackFrame{FrameID: f.ID, Status: app.StackStatusAdded, Score: 1, Exposure: seconds}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestSeasonsPlanWithSite(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	svc := mosaicplan.New(appFixture(t), schedFixture(t))
+	appDB := appFixture(t)
+	svc := mosaicplan.New(appDB, schedFixture(t))
 	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	svc.Site = func(context.Context) (mosaics.Site, bool) { return mosaics.Site{Lat: 32, Lon: -97}, true }
 	now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
-	plan, err := svc.Seasons(ctx, markarian, "weakest", "good", now)
+	plan, err := svc.Seasons(ctx, markarian, "weakest", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.HoursPerSeason != 60 || plan.Strategy != "weakest" || !plan.SiteKnown || len(plan.Months) != 12 {
+	if plan.HoursPerSeason != nil || !plan.Basis.InsufficientHistory || plan.Basis.Reason == nil || len(plan.Rows) != 0 || plan.Pace != mosaicplan.PaceMeasured {
+		t.Fatalf("a rate was invented from two nights: %+v", plan)
+	}
+	if !plan.SiteKnown || len(plan.Months) != 12 || len(plan.PanelPriority) != 2 || len(plan.Basis.ClearNightsPerMonth) != 12 {
 		t.Fatalf("plan %+v", plan)
 	}
 	if plan.Months[3].Hours < 3 || plan.Months[8].Hours > 1 {
@@ -313,35 +331,74 @@ func TestSeasonsPlanWithSite(t *testing.T) {
 	if plan.Last == nil || plan.Last.Nights != 2 || math.Abs(plan.Last.Hours-3) > 1e-9 {
 		t.Errorf("last season %+v", plan.Last)
 	}
-	if plan.FinishSeason != 1 || len(plan.Rows) != 1 || !plan.Rows[0].Done {
-		t.Errorf("rows %+v finish %d", plan.Rows, plan.FinishSeason)
-	}
-	if plan.Compare["weakest"] == 0 || len(plan.PanelPriority) != 2 {
-		t.Errorf("compare %+v priority %+v", plan.Compare, plan.PanelPriority)
-	}
-	last, err := svc.Seasons(ctx, markarian, "bogus", "", now)
+	best, err := svc.Seasons(ctx, markarian, "bogus", "good", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last.Strategy != "weakest" || last.Pace != mosaicplan.PaceLast || last.HoursPerSeason != 20 {
-		t.Errorf("defaults %+v", last)
+	if best.Strategy != "weakest" || best.Pace != mosaicplan.PaceBest || best.HoursPerSeason == nil || *best.HoursPerSeason != 3 || len(best.Rows) == 0 {
+		t.Errorf("best season %+v", best)
+	}
+
+	checkMeasuredSeasons(t, svc, appDB, now)
+}
+
+func checkMeasuredSeasons(t *testing.T, svc *mosaicplan.Service, appDB *gorm.DB, now time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	addNights(t, appDB, panel1, time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC), 8, 3*3600)
+	if partial, err := svc.Seasons(ctx, markarian, "weakest", "", now); err != nil || partial.HoursPerSeason != nil || !strings.Contains(*partial.Basis.Reason, "Apr") {
+		t.Fatalf("usable months without history were projected: %+v %v", partial.Basis, err)
+	}
+	for m := range 13 {
+		addNights(t, appDB, fmt.Sprintf("Elsewhere %d", m), time.Date(2025, 9, 5, 0, 0, 0, 0, time.UTC).AddDate(0, m, 0), 2, 4*3600)
+	}
+	measured, err := svc.Seasons(ctx, markarian, "weakest", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := measured.Basis
+	if b.InsufficientHistory || b.HoursPerClearNight == nil || b.ClearNightsPerSeason == nil || measured.HoursPerSeason == nil {
+		t.Fatalf("measured basis %+v", b)
+	}
+	if b.ProjectNights != 10 || b.HistoryNights != 36 || len(b.UsableMonths) == 0 {
+		t.Errorf("basis counts %+v", b)
+	}
+	if want := math.Round(*b.HoursPerClearNight**b.ClearNightsPerSeason*10) / 10; *measured.HoursPerSeason != want {
+		t.Errorf("hours per season %v, want %v", *measured.HoursPerSeason, want)
+	}
+	if measured.FinishSeason == 0 || measured.Compare["weakest"] == 0 {
+		t.Errorf("simulation %+v", measured)
 	}
 }
 
 func TestFrameOffersLayoutsAndAChosenGrid(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	svc := mosaicplan.New(appFixture(t), schedFixture(t))
+	appDB := appFixture(t)
+	svc := mosaicplan.New(appDB, schedFixture(t))
 	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	rot := 0.0
-	f, err := svc.Frame(ctx, mosaicplan.FramingRequest{RA: 313, Dec: 44, MajorArcmin: 240, MinorArcmin: 120, PA: 90, Rotation: &rot, Rows: 2, Cols: 3, HoursPerPanel: 10}, time.Now())
+	req := mosaicplan.FramingRequest{RA: 313, Dec: 44, MajorArcmin: 240, MinorArcmin: 120, PA: 90, Rotation: &rot, Rows: 2, Cols: 3, HoursPerPanel: 10}
+	f, err := svc.Frame(ctx, req, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Options) == 0 || !f.Options[0].Recommended || f.Overlap != 15 || f.Rig.WidthDeg != 3.32 {
+	if len(f.Options) == 0 || !f.Options[0].Recommended || f.Overlap != 15 || f.Rig.WidthDeg != 3.32 || f.NightHours != nil {
 		t.Fatalf("framing %+v", f)
 	}
-	if f.Chosen == nil || len(f.Chosen.Panels) != 6 || f.Chosen.Hours != 60 || f.Chosen.Nights != 22 || f.Chosen.Seasons != 1 {
+	if f.Chosen == nil || len(f.Chosen.Panels) != 6 || f.Chosen.Hours == nil || *f.Chosen.Hours != 60 || f.Chosen.Nights != nil || f.Basis.Reason == nil {
+		t.Errorf("chosen without history %+v basis %+v", f.Chosen, f.Basis)
+	}
+	addNights(t, appDB, "Elsewhere", time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC), 10, 4*3600)
+	req.HoursPerPanel = 0
+	f, err = svc.Frame(ctx, req, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Basis.HoursPerPanel == nil || *f.Basis.HoursPerPanelSource == "request" || f.Basis.HoursPerClearNight == nil || *f.Basis.HoursPerClearNight != math.Round(43.0/12*100)/100 {
+		t.Fatalf("basis %+v", f.Basis)
+	}
+	if c := f.Chosen; c == nil || c.Nights == nil || *c.Nights != int(math.Ceil(*c.Hours / *f.Basis.HoursPerClearNight)) || c.Seasons != nil {
 		t.Errorf("chosen %+v", f.Chosen)
 	}
 	if _, err := svc.Frame(ctx, mosaicplan.FramingRequest{Dec: 91}, time.Now()); err == nil {
