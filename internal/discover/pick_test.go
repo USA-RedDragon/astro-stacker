@@ -333,7 +333,7 @@ func TestPickGalaxyDepthHours(t *testing.T) {
 		"hours to the 25.8 mag/arcsec² Gaia G depth goal at SNR 3, the depth goal a new target gets for L",
 		"22.8 mag/arcsec² B (OpenNGC)",
 		fmt.Sprintf("is %.1f in Gaia G", sbG),
-		fmt.Sprintf("%.1f mag brighter than the goal, so the galaxy's mean brightness is above the goal depth", 25.8-sbG),
+		fmt.Sprintf("%.1f mag brighter than the goal, so its mean brightness is above the goal depth", 25.8-sbG),
 	} {
 		if !strings.Contains(l.Hours.Basis, part) {
 			t.Errorf("basis %q lacks %q", l.Hours.Basis, part)
@@ -420,10 +420,15 @@ func TestPickClusterAndUnknownType(t *testing.T) {
 	if p.Class != discover.ClassCluster || p.Palette != discover.PaletteLRGB {
 		t.Fatalf("pick %+v", p)
 	}
-	for _, f := range p.Filters {
-		if f.Hours.Hours != nil {
-			t.Errorf("cluster hours %+v", f)
-		}
+	l := filterOf(p, "L")
+	d1 := 25 - 1.25*math.Log10(4) + 0.5*(20.6-20.5)
+	want := math.Pow(10, (25.8-d1)/1.25)
+	if l.Hours.Hours == nil || math.Abs(*l.Hours.Hours-want) > 1e-9 || l.Hours.Points != 1 || l.Hours.Goal != "25.8 mag/arcsec² at SNR 3" ||
+		!strings.Contains(l.Hours.Basis, "no OpenNGC mean surface brightness is catalogued to compare with the goal") {
+		t.Errorf("cluster L hours %+v want %v", l.Hours, want)
+	}
+	if g := filterOf(p, "G"); g.Hours.Hours != nil || !strings.HasPrefix(g.Hours.Unknown, "unknown: the sky brightness in G is not measured") {
+		t.Errorf("cluster G hours %+v", g.Hours)
 	}
 	if _, err := s.Pick(context.Background(), "no-such-object", nil); err == nil {
 		t.Error("unknown object picked")

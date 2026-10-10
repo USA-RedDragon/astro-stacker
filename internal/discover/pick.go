@@ -579,9 +579,9 @@ func meanSBContext(o catalog.Object, goal float64) string {
 	if !ok {
 		return fmt.Sprintf("the catalogued mean surface brightness is %.1f mag/arcsec² in B (OpenNGC), and its B−V %.2f is outside the %g to %g range of the Gaia B-to-G relation, so it is not compared with the goal", sbB, bv, gaiaBVMin, gaiaBVMax)
 	}
-	verdict := fmt.Sprintf("%.1f mag brighter than the goal, so the galaxy's mean brightness is above the goal depth", goal-sbG)
+	verdict := fmt.Sprintf("%.1f mag brighter than the goal, so its mean brightness is above the goal depth", goal-sbG)
 	if sbG > goal {
-		verdict = fmt.Sprintf("%.1f mag fainter than the goal, so the galaxy's mean brightness is below the goal depth", sbG-goal)
+		verdict = fmt.Sprintf("%.1f mag fainter than the goal, so its mean brightness is below the goal depth", sbG-goal)
 	}
 	return fmt.Sprintf("the catalogued mean surface brightness %.1f mag/arcsec² B (OpenNGC) is %.1f in Gaia G with B−V %.2f (%s), %s",
 		sbB, sbG, bv, gaiaRelation, verdict)
@@ -696,10 +696,8 @@ func (s *Service) filterHours(ctx context.Context, in hoursInputs) PickHours {
 		return PickHours{Unknown: "unknown: the H-α map has no value here"}
 	case in.canon == "H":
 		return in.fit.hours(in.ha.Rayleigh, in.snr)
-	case in.fam == FamilyBroadband && in.class == ClassGalaxy:
-		return s.depthHours(in.o, in.canon, in.goalFilter, in.ms, s.filterSky(ctx, in.canon), in.skies, in.scale)
 	case in.fam == FamilyBroadband:
-		return PickHours{Unknown: "unknown: no surface brightness is catalogued for clusters"}
+		return s.depthHours(in.o, in.canon, in.goalFilter, in.ms, s.filterSky(ctx, in.canon), in.skies, in.scale)
 	default:
 		return PickHours{Unknown: "unknown, the goal model will measure it"}
 	}
