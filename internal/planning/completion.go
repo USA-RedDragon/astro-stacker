@@ -50,6 +50,7 @@ type Measurement struct {
 	Depth          *float64          `json:"depth"`
 	DepthBand      string            `json:"depthBand,omitempty"`
 	DepthApprox    bool              `json:"depthApprox"`
+	DepthReason    string            `json:"depthReason,omitempty"`
 	ZeroPointStars int               `json:"zeroPointStars"`
 	LowConfidence  bool              `json:"lowConfidence"`
 	LowReason      string            `json:"lowReason,omitempty"`
@@ -66,7 +67,9 @@ func measurementOf(m app.GoalMeasurement) *Measurement {
 		ZeroPointStars: m.ZeroPointStars, LowConfidence: m.LowConfidence, LowReason: m.LowReason,
 		Region: m.RegionHash != "", MeasuredAt: m.MeasuredAt, Points: []goals.DrawPoint{},
 	}
-	if m.Depth != nil {
+	if m.Depth == nil {
+		out.DepthReason = goals.NoDepthReason(m)
+	} else {
 		out.DepthBand = m.DepthBand
 		if out.DepthBand == "" {
 			out.DepthBand = goals.BandGaiaG

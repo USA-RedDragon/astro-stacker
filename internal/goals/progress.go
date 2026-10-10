@@ -72,7 +72,7 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 	case g.Kind == KindDepth:
 		p.Goal = g.Depth
 		p.HoursNeeded = -1
-		p.Unmeasured = noDepthReason(m)
+		p.Unmeasured = NoDepthReason(m)
 	default:
 		p.Kind = KindSNR
 		p.Goal = g.SNR
@@ -93,7 +93,7 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 	return p
 }
 
-func noDepthReason(m app.GoalMeasurement) string {
+func NoDepthReason(m app.GoalMeasurement) string {
 	switch {
 	case m.PixelScale <= 0:
 		return "no depth: the master has no plate solution to calibrate against"

@@ -563,13 +563,15 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 		default:
 			g.Status = StatusNoMaster
 		}
-		if t.Driven && g.Measured {
+		if set || (t.Driven && g.Measured) {
 			if !set {
 				goal = g.DefaultGoal
 			}
 			goal.TargetGUID, goal.Filter = t.GUID, f
 			g.Goal = &goal
-			ev := goals.Evaluate(m, goal)
+		}
+		if g.Goal != nil && g.Measured {
+			ev := goals.Evaluate(m, *g.Goal)
 			g.Progress = &ev
 		}
 	}
