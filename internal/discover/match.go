@@ -104,7 +104,29 @@ func (s *Service) nameCandidates(ctx context.Context, subj Subject, add func(cat
 	}
 }
 
-func (s *Service) matchSubject(ctx context.Context, subj Subject) []Link {
+func (s *Service) notCatalogue(subj Subject) (string, bool) {
+	check := func(n string) (string, bool) {
+		n = catalog.StripPanel(n)
+		if _, ok := s.Catalog.Lookup(n); ok {
+			return "", false
+		}
+		return catalog.NotCatalogue(n)
+	}
+	if r, c := check(subj.Name); r != "" || len(subj.Targets) == 0 {
+		return r, c
+	}
+	reason, certain := "", true
+	for _, t := range subj.Targets {
+		r, c := check(t)
+		if r == "" {
+			return "", false
+		}
+		reason, certain = r, certain && c
+	}
+	return reason, certain
+}
+
+func (s *Service) matchSubject(ctx context.Context, subj Subject) ([]Link, string) {
 	cands := map[string]*candidate{}
 	var order []string
 	get := func(o catalog.Object) *candidate {
@@ -116,13 +138,17 @@ func (s *Service) matchSubject(ctx context.Context, subj Subject) []Link {
 		}
 		return c
 	}
-	s.nameCandidates(ctx, subj, func(o catalog.Object, method string, sim float64) {
-		c := get(o)
-		rank := map[string]int{MethodDesignation: 3, MethodName: 2, MethodSimilar: 1, "": 0}
-		if rank[method] > rank[c.nameMethod] || method == c.nameMethod && sim > c.nameSim {
-			c.nameMethod, c.nameSim = method, sim
-		}
-	})
+	reason, certain := s.notCatalogue(subj)
+	if !certain {
+		s.nameCandidates(ctx, subj, func(o catalog.Object, method string, sim float64) {
+			c := get(o)
+			rank := map[string]int{MethodDesignation: 3, MethodName: 2, MethodSimilar: 1, "": 0}
+			if rank[method] > rank[c.nameMethod] || method == c.nameMethod && sim > c.nameSim {
+				c.nameMethod, c.nameSim = method, sim
+			}
+		})
+	}
+	named := len(order) > 0
 	footprint := subj.Radius + halfFrameDiagonal/2
 	if subj.HasPos {
 		near, _ := s.Catalog.Cone(ctx, subj.RA, subj.Dec, subj.Radius+halfFrameDiagonal)
@@ -141,11 +167,14 @@ func (s *Service) matchSubject(ctx context.Context, subj Subject) []Link {
 			c.sep = catalog.Separation(subj.RA, subj.Dec, c.obj.RA, c.obj.Dec)
 		}
 	}
+	if reason != "" && !certain && (named || slices.ContainsFunc(order, func(id string) bool { return cands[id].coord })) {
+		reason = ""
+	}
 	links := make([]Link, 0, len(order))
 	for _, id := range order {
 		c := cands[id]
 		l := score(subj, c, footprint)
-		if l.Confidence <= 0 {
+		if l.Confidence <= 0 || reason != "" && l.Status != StatusInFrame {
 			continue
 		}
 		links = append(links, l)
@@ -159,7 +188,7 @@ func (s *Service) matchSubject(ctx context.Context, subj Subject) []Link {
 		}
 		return strings.Compare(a.Object.ID, b.Object.ID)
 	})
-	return links
+	return links, reason
 }
 
 func score(subj Subject, c *candidate, footprint float64) Link {

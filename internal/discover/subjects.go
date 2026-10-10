@@ -50,6 +50,8 @@ type Subject struct {
 	Done      bool               `json:"done"`
 	Measured  bool               `json:"measured"`
 	LastNight *time.Time         `json:"lastNight,omitempty"`
+
+	NotCatalogue string `json:"notCatalogue,omitempty"`
 }
 
 func (s Subject) TotalHours() float64 {

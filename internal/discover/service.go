@@ -170,9 +170,11 @@ func (s *Service) snapshot(ctx context.Context) (*snapshot, error) {
 	}
 	snap = &snapshot{at: s.now(), subjects: subjects, bySubj: map[string][]Link{}, byObject: map[string][]Link{}}
 	known := map[string]bool{}
-	for _, subj := range subjects {
+	for i, subj := range subjects {
 		known[subj.Key] = true
-		snap.links = append(snap.links, trimSuggestions(applyDecisions(s.matchSubject(ctx, subj), decisions))...)
+		links, reason := s.matchSubject(ctx, subj)
+		subjects[i].NotCatalogue = reason
+		snap.links = append(snap.links, trimSuggestions(applyDecisions(links, decisions))...)
 	}
 	seen := map[string]bool{}
 	for _, l := range snap.links {
@@ -266,7 +268,8 @@ func (s *Service) Resolve(ctx context.Context, name string, pos *Position, mosai
 	if name == "" && !subj.HasPos {
 		return nil, fmt.Errorf("%w: give a name or coordinates", ErrBadQuery)
 	}
-	return s.matchSubject(ctx, subj), nil
+	links, _ := s.matchSubject(ctx, subj)
+	return links, nil
 }
 
 var ErrBadQuery = errors.New("bad query")
