@@ -12,6 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/goalmeasure"
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
@@ -124,7 +125,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			slog.Info("Public frame renderer started", "bucket", cfg.S3.ProcessedBucket, "max_age_days", cfg.PublicFrames.MaxAgeDays)
 		}
 		if cfg.Goals.Enabled {
-			drainGoals = startGoals(cfg, s3, appStore, schedulerDBStore)
+			drainGoals = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts)
 		}
 		// Presigned URLs, for previews and masters, are signed for the public
 		// host browsers use.
@@ -208,12 +209,13 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store) func() {
+func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource) func() {
 	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
 		goalmeasure.VizierFetcher(nil, ""), goalmeasure.Options{
-			Interval: time.Duration(cfg.Goals.IntervalMinutes) * time.Minute,
-			MaxSubs:  cfg.Goals.MaxSubs,
-			Publish:  cfg.Goals.Publish,
+			Interval:     time.Duration(cfg.Goals.IntervalMinutes) * time.Minute,
+			MaxSubs:      cfg.Goals.MaxSubs,
+			Publish:      cfg.Goals.Publish,
+			SeasonBoosts: boosts,
 		})
 	r.XP = goalmeasure.VizierXPFetcher(nil, "")
 	done := make(chan struct{})

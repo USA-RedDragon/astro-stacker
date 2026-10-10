@@ -50,10 +50,11 @@ func (m MinioGetter) Get(ctx context.Context, key string) ([]byte, error) {
 }
 
 type Options struct {
-	Interval   time.Duration
-	MaxSubs    int
-	Publish    string
-	Saturation float32
+	Interval     time.Duration
+	MaxSubs      int
+	Publish      string
+	Saturation   float32
+	SeasonBoosts goals.SeasonBoostSource
 }
 
 type Runner struct {
@@ -79,7 +80,7 @@ func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Optio
 		opts.Saturation = goals.DefaultSaturation
 	}
 	return &Runner{db: db, sched: sched, objects: objects, stars: stars, opts: opts,
-		pub:   &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish},
+		pub:   &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts},
 		now:   func() time.Time { return time.Now().UTC() },
 		drain: make(chan struct{}), failed: map[int]time.Time{}}
 }

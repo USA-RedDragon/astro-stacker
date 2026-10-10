@@ -247,6 +247,9 @@ type progressRow struct {
 	LowConfidence  int
 	Done           int
 	MeasuredAt     *time.Time
+	NightQuality   *float64
+	NightQualityAt *time.Time
+	SeasonBoost    *float64
 }
 
 func ptr(v float64) *float64 {
@@ -291,7 +294,10 @@ func sameFloat(a, b *float64) bool {
 	return math.Abs(*a-*b) <= 1e-9*math.Max(1, math.Max(math.Abs(*a), math.Abs(*b)))
 }
 
-func (r progressRow) same(o progressRow) bool {
+func (r progressRow) same(o progressRow, signals bool) bool {
+	if signals && (!sameFloat(r.NightQuality, o.NightQuality) || !sameTime(r.NightQualityAt, o.NightQualityAt) || !sameFloat(r.SeasonBoost, o.SeasonBoost)) {
+		return false
+	}
 	return r.Kind == o.Kind && r.Plateau == o.Plateau && r.LowConfidence == o.LowConfidence && r.Done == o.Done &&
 		sameFloat(r.GoalValue, o.GoalValue) && sameFloat(r.AchievedValue, o.AchievedValue) && sameFloat(r.Progress, o.Progress) &&
 		sameFloat(r.SNR, o.SNR) && sameFloat(r.Depth, o.Depth) && sameFloat(r.EffectiveHours, o.EffectiveHours) &&
@@ -299,9 +305,11 @@ func (r progressRow) same(o progressRow) bool {
 }
 
 type Publisher struct {
-	App   *gorm.DB
-	Sched *gorm.DB
-	Mode  string
+	App          *gorm.DB
+	Sched        *gorm.DB
+	Mode         string
+	SeasonBoosts SeasonBoostSource
+	Now          func() time.Time
 
 	mu     sync.Mutex
 	warned map[string]bool
@@ -361,9 +369,19 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	if err != nil {
 		return sum, err
 	}
+	withSignals := HasSignalColumns(p.Sched)
+	var sig Signals
+	if withSignals {
+		if sig, err = p.signals(ctx); err != nil {
+			return sum, err
+		}
+	}
 	for _, w := range want {
 		sum.Rows++
-		if old, ok := have[progressKey{w.row.TargetGUID, w.row.Filter}]; ok && old.same(w.row) {
+		if withSignals {
+			sig.apply(&w.row)
+		}
+		if old, ok := have[progressKey{w.row.TargetGUID, w.row.Filter}]; ok && old.same(w.row, withSignals) {
 			continue
 		}
 		sum.Changed++
@@ -373,7 +391,7 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 				"hours_needed", w.prog.HoursNeeded, "gain_per_hour_pct", w.prog.GainPerHourPct, "done", w.prog.Done)
 			continue
 		}
-		if err := p.upsert(ctx, w.row); err != nil {
+		if err := p.upsert(ctx, w.row, withSignals); err != nil {
 			return sum, err
 		}
 	}
@@ -454,12 +472,17 @@ func (p *Publisher) existing(ctx context.Context) (map[progressKey]progressRow, 
 	return out, nil
 }
 
-func (p *Publisher) upsert(ctx context.Context, r progressRow) error {
+func (p *Publisher) upsert(ctx context.Context, r progressRow, signals bool) error {
 	values := map[string]any{
 		"kind": r.Kind, "goal_value": r.GoalValue, "achieved_value": r.AchievedValue, "progress": r.Progress,
 		"snr": r.SNR, "depth": r.Depth, "effective_hours": r.EffectiveHours, "hours_needed": r.HoursNeeded,
 		"gain_per_hour_pct": r.GainPerHourPct, "plateau": r.Plateau, "low_confidence": r.LowConfidence,
 		"done": r.Done, "measured_at": r.MeasuredAt,
+	}
+	if signals {
+		values[ColumnNightQuality] = r.NightQuality
+		values[ColumnNightQualityAt] = r.NightQualityAt
+		values[ColumnSeasonBoost] = r.SeasonBoost
 	}
 	row := map[string]any{"target_guid": r.TargetGUID, "filter": r.Filter}
 	for k, v := range values {

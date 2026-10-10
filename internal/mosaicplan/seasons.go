@@ -415,3 +415,52 @@ func (s *Service) panelPriorities(ctx context.Context, d Detail, now time.Time) 
 	})
 	return out
 }
+
+func (s *Service) SeasonBoosts(ctx context.Context, now time.Time) (map[string]float64, error) {
+	groups, err := s.groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]float64{}
+	for _, g := range groups {
+		d, err := s.build(ctx, g)
+		if err != nil {
+			return nil, err
+		}
+		if !d.Balancing.On {
+			continue
+		}
+		for guid, b := range seasonBoosts(d, s.panelPriorities(ctx, d, now)) {
+			out[guid] = b
+		}
+	}
+	return out, nil
+}
+
+func seasonBoosts(d Detail, priorities []PanelSeasonPriority) map[string]float64 {
+	out := map[string]float64{}
+	guids := make(map[int]string, len(d.Panels))
+	for _, p := range d.Panels {
+		if p.TargetGUID != "" {
+			guids[p.Number] = p.TargetGUID
+		}
+	}
+	top := 0.0
+	for _, p := range priorities {
+		if p.ThisSeason {
+			top = math.Max(top, p.Priority)
+		}
+	}
+	for _, p := range priorities {
+		guid := guids[p.Panel]
+		if guid == "" {
+			continue
+		}
+		b := 0.0
+		if p.ThisSeason && top > 0 {
+			b = p.Priority / top
+		}
+		out[guid] = b
+	}
+	return out
+}

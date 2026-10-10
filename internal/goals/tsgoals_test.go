@@ -2,6 +2,7 @@ package goals
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -258,5 +259,120 @@ func TestRegionHash(t *testing.T) {
 	r := []Point{{0, 0}, {1, 0}, {1, 1}}
 	if RegionHash(nil) != "" || RegionHash(r) == "" || RegionHash(r) == RegionHash([]Point{{0, 0}, {1, 0}, {0, 1}}) {
 		t.Fatal("region hash")
+	}
+}
+
+func TestMedianQuality(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 9, 5, 0, 30, 0, time.UTC)
+	if q, when := medianQuality([]scoredSub{{Score: 0.9, DateObs: at}, {Score: 0.5, DateObs: at}}); q != nil || when != nil {
+		t.Fatalf("too few subs gave %v %v", q, when)
+	}
+	q, when := medianQuality([]scoredSub{
+		{Score: 0.62, DateObs: at.Add(-time.Hour)},
+		{Score: 0.81, DateObs: at},
+		{Score: 1.4, DateObs: at.Add(-2 * time.Hour)},
+		{Score: math.NaN(), DateObs: at.Add(time.Hour)},
+		{Score: 0.2, DateObs: at.Add(-30 * time.Minute)},
+	})
+	if q == nil || math.Abs(*q-0.7) > 1e-9 || when == nil || !when.Equal(at.Truncate(time.Minute)) {
+		t.Fatalf("median %v at %v", q, when)
+	}
+}
+
+func signalDBs(t *testing.T) (*gorm.DB, *gorm.DB) {
+	t.Helper()
+	sched := schedDB(t, true)
+	for _, c := range []string{"night_quality REAL", "night_quality_at TIMESTAMP", "season_boost REAL"} {
+		if err := sched.Exec("ALTER TABLE ts_goal_progress ADD COLUMN " + c).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	db := appDB(t)
+	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}); err != nil {
+		t.Fatal(err)
+	}
+	return sched, db
+}
+
+type signalOut struct {
+	TargetGUID     string
+	Filter         string
+	NightQuality   *float64
+	NightQualityAt *time.Time
+	SeasonBoost    *float64
+}
+
+func TestPublishSignals(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sched, db := signalDBs(t)
+	now := time.Date(2026, 10, 9, 6, 0, 0, 0, time.UTC)
+	ms := []app.GoalMeasurement{
+		{Object: objGarlic, Filter: filterHa, Subs: 64, SNR: 5, EffectiveHours: 8, GainPerHourPct: 5, MeasuredAt: now},
+		{Object: objGarlic, Filter: filterO3, Subs: 47, SNR: 4.4, EffectiveHours: 7.8, GainPerHourPct: 5.8, MeasuredAt: now},
+	}
+	if err := db.Create(&ms).Error; err != nil {
+		t.Fatal(err)
+	}
+	scores := []float64{0.9, 0.8, 0.4, 0.75, 0.1}
+	for i, sc := range scores {
+		obs := now.Add(-time.Duration(i*20) * time.Minute)
+		if i == 4 {
+			obs = now.Add(-5 * time.Hour)
+		}
+		f := app.Frame{Key: fmt.Sprintf("light-%d", i), ETag: "e", Type: "LIGHT", Object: objGarlic, DateObs: &obs, LastModified: now, IndexedAt: now}
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&app.StackFrame{FrameID: f.ID, Status: app.StackStatusAdded, Score: sc, ProcessedAt: now}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	boost := 0.5
+	p := &Publisher{App: db, Sched: sched, Mode: PublishOn, Now: func() time.Time { return now },
+		SeasonBoosts: func(context.Context, time.Time) (map[string]float64, error) {
+			return map[string]float64{guidGar: boost, "g-other": 1}, nil
+		}}
+	if sum, err := p.Publish(ctx); err != nil || sum.Changed != 2 {
+		t.Fatalf("publish %+v %v", sum, err)
+	}
+	var rows []signalOut
+	if err := sched.Table(ProgressTable).Order("filter").Scan(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.NightQuality == nil || math.Abs(*r.NightQuality-0.8) > 1e-9 || r.NightQualityAt == nil || !r.NightQualityAt.Equal(now) ||
+			r.SeasonBoost == nil || *r.SeasonBoost != 0.5 {
+			t.Errorf("row %+v", r)
+		}
+	}
+	if sum, err := p.Publish(ctx); err != nil || sum.Changed != 0 {
+		t.Fatalf("unchanged publish %+v %v", sum, err)
+	}
+	boost = 0.25
+	if sum, err := p.Publish(ctx); err != nil || sum.Changed != 2 {
+		t.Fatalf("boost change %+v %v", sum, err)
+	}
+	p.SeasonBoosts = nil
+	if sum, err := p.Publish(ctx); err != nil || sum.Changed != 2 {
+		t.Fatalf("boost cleared %+v %v", sum, err)
+	}
+	var cleared signalOut
+	sched.Table(ProgressTable).Where("filter = ?", tsHa).Scan(&cleared)
+	if cleared.SeasonBoost != nil || cleared.NightQuality == nil {
+		t.Errorf("cleared row %+v", cleared)
+	}
+}
+
+func TestPublishWithoutSignalColumnsLeavesThemAlone(t *testing.T) {
+	t.Parallel()
+	sched := schedDB(t, true)
+	if HasSignalColumns(sched) {
+		t.Fatal("old table has signal columns")
+	}
+	sched2, _ := signalDBs(t)
+	if !HasSignalColumns(sched2) {
+		t.Fatal("signal columns not found")
 	}
 }
