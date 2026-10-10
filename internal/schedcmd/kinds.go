@@ -19,6 +19,7 @@ const (
 const (
 	entityProject = "project"
 	entityTarget  = "target"
+	labelProject  = "Project"
 	fieldState    = "State"
 	mountTrack    = "track"
 	mountPark     = "park"
@@ -38,7 +39,7 @@ func ProjectEdit() EditSpec {
 	return EditSpec{
 		KindName:     KindProjectEdit,
 		Entity:       entityProject,
-		EntityLabel:  "Project",
+		EntityLabel:  labelProject,
 		CategoryName: CategoryPriority,
 		Fields: map[string]FieldSpec{
 			"state":           {Label: fieldState, Format: EnumFormat(ProjectStates())},
