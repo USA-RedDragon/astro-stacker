@@ -3,6 +3,7 @@ package discover_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
@@ -174,5 +175,44 @@ func TestNotCatalogueInACrowdedField(t *testing.T) {
 	links, reason = s.MatchSubject(context.Background(), at("Gamma Cygni"))
 	if reason != "" || len(links) == 0 {
 		t.Errorf("a star name with objects at its position was dropped: %q %+v", reason, links)
+	}
+}
+
+func linkedIDs(links []discover.Link) map[string]discover.Link {
+	out := map[string]discover.Link{}
+	for _, l := range links {
+		if l.Linked() && l.Method != discover.MethodFootprint {
+			out[l.Object.Designation] = l
+		}
+	}
+	return out
+}
+
+func TestCombinedNames(t *testing.T) {
+	t.Parallel()
+	res := matchRealistic(t)
+	for key, want := range map[string][]string{
+		"project:" + heartAndSoul:      {"IC 1805", "IC 1848"},
+		"project:Heart and Soul SHO":   {"IC 1805", "IC 1848"},
+		"object:Omega & Eagle Nebulae": {"M 16", "M 17"},
+		"object:M 8 and M 20":          {"M 8", "M 20"},
+	} {
+		got := linkedIDs(res[key].links)
+		if len(got) != len(want) {
+			t.Errorf("%s links %v, want %v", key, got, want)
+		}
+		for _, w := range want {
+			if l, ok := got[w]; !ok || !strings.Contains(l.Why, "names more than one object") {
+				t.Errorf("%s: %s not linked as a part: %+v", key, w, l)
+			}
+		}
+	}
+	s := catalogService(t)
+	for _, name := range []string{"War and Peace", "War and Peace Nebula"} {
+		links, _ := s.MatchSubject(context.Background(), discover.Subject{Key: "project:" + name, Name: name, Kind: discover.SubjectProject,
+			Targets: []string{name}, Hours: map[string]float64{}})
+		if len(links) == 0 || links[0].Object.Designation != "NGC 6357" || strings.Contains(links[0].Why, "more than one") {
+			t.Errorf("%q was split: %+v", name, links)
+		}
 	}
 }

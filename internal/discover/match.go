@@ -60,45 +60,117 @@ type candidate struct {
 	obj        catalog.Object
 	nameMethod string
 	nameSim    float64
+	whole      string
+	part       string
 	coord      bool
 	footprint  bool
 	sep        float64
 }
 
-func (s *Service) nameCandidates(ctx context.Context, subj Subject, add func(catalog.Object, string, float64)) {
-	names := []string{subj.Name}
-	for _, t := range subj.Targets {
-		if st := catalog.StripPanel(t); !slices.Contains(names, st) {
-			names = append(names, st)
+type nameAdd func(o catalog.Object, method string, sim float64, whole, part string)
+
+func singular(word string) (string, bool) {
+	switch strings.ToLower(word) {
+	case "nebulae", "nebulas":
+		return "Nebula", true
+	case "galaxies":
+		return "Galaxy", true
+	case "clusters":
+		return "Cluster", true
+	}
+	return "", false
+}
+
+func compositeParts(name string) []string {
+	var out []string
+	for _, p := range nameSplit.Split(name, -1) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
 		}
 	}
-	for _, n := range slices.Clone(names) {
-		for _, part := range nameSplit.Split(n, -1) {
-			if part = strings.TrimSpace(part); part != "" && !slices.Contains(names, part) {
-				names = append(names, part)
+	if len(out) < 2 {
+		return nil
+	}
+	last := strings.Fields(out[len(out)-1])
+	if one, ok := singular(last[len(last)-1]); ok {
+		last[len(last)-1] = one
+		out[len(out)-1] = strings.Join(last, " ")
+		for i := range out[:len(out)-1] {
+			if len(strings.Fields(out[i])) == 1 {
+				out[i] += " " + one
 			}
 		}
 	}
-	for _, n := range names {
-		if o, ok := s.Catalog.Lookup(n); ok {
-			add(o, MethodDesignation, 1)
+	return out
+}
+
+func andKey(name string) string {
+	parts := strings.Split(" "+catalog.NormalizeName(name)+" ", " and ")
+	for i := range parts {
+		parts[i] = catalog.CoreName(parts[i])
+	}
+	return strings.Join(parts, "+")
+}
+
+func (s *Service) wholeName(ctx context.Context, name string) bool {
+	if _, ok := s.Catalog.Lookup(name); ok {
+		return true
+	}
+	key := andKey(name)
+	for _, m := range s.Catalog.Find(ctx, name, 5) {
+		if m.How == MethodDesignation {
+			return true
+		}
+		if m.How != MethodName {
 			continue
 		}
-		core := catalog.CoreName(n)
-		for _, m := range s.Catalog.Find(ctx, n, 5) {
-			switch m.How {
-			case MethodDesignation:
-				add(m.Object, MethodDesignation, 1)
-			case MethodName:
-				add(m.Object, MethodName, 1)
-			case MethodSimilar:
-				best := 0.0
-				for _, alias := range append([]string{m.Object.Name}, m.Object.Aliases...) {
-					best = math.Max(best, catalog.Similarity(catalog.CoreName(alias), core))
-				}
-				if best >= 0.5 {
-					add(m.Object, MethodSimilar, best)
-				}
+		for _, alias := range append([]string{m.Object.Name}, m.Object.Aliases...) {
+			if alias != "" && andKey(alias) == key {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Service) nameCandidates(ctx context.Context, subj Subject, add nameAdd) {
+	var names []string
+	for _, n := range append([]string{subj.Name}, subj.Targets...) {
+		if n = catalog.StripPanel(n); n != "" && !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	for _, n := range names {
+		parts := compositeParts(n)
+		if parts == nil || s.wholeName(ctx, n) {
+			s.matchName(ctx, n, "", add)
+			continue
+		}
+		for _, p := range parts {
+			s.matchName(ctx, p, n, add)
+		}
+	}
+}
+
+func (s *Service) matchName(ctx context.Context, n, whole string, add nameAdd) {
+	if o, ok := s.Catalog.Lookup(n); ok {
+		add(o, MethodDesignation, 1, whole, n)
+		return
+	}
+	core := catalog.CoreName(n)
+	for _, m := range s.Catalog.Find(ctx, n, 5) {
+		switch m.How {
+		case MethodDesignation:
+			add(m.Object, MethodDesignation, 1, whole, n)
+		case MethodName:
+			add(m.Object, MethodName, 1, whole, n)
+		case MethodSimilar:
+			best := 0.0
+			for _, alias := range append([]string{m.Object.Name}, m.Object.Aliases...) {
+				best = math.Max(best, catalog.Similarity(catalog.CoreName(alias), core))
+			}
+			if best >= 0.5 {
+				add(m.Object, MethodSimilar, best, whole, n)
 			}
 		}
 	}
@@ -140,11 +212,11 @@ func (s *Service) matchSubject(ctx context.Context, subj Subject) ([]Link, strin
 	}
 	reason, certain := s.notCatalogue(subj)
 	if !certain {
-		s.nameCandidates(ctx, subj, func(o catalog.Object, method string, sim float64) {
+		s.nameCandidates(ctx, subj, func(o catalog.Object, method string, sim float64, whole, part string) {
 			c := get(o)
 			rank := map[string]int{MethodDesignation: 3, MethodName: 2, MethodSimilar: 1, "": 0}
 			if rank[method] > rank[c.nameMethod] || method == c.nameMethod && sim > c.nameSim {
-				c.nameMethod, c.nameSim = method, sim
+				c.nameMethod, c.nameSim, c.whole, c.part = method, sim, whole, part
 			}
 		})
 	}
@@ -194,7 +266,11 @@ func (s *Service) matchSubject(ctx context.Context, subj Subject) ([]Link, strin
 func score(subj Subject, c *candidate, footprint float64) Link {
 	l := Link{Subject: subj.Key, SubjectName: subj.Name, Object: c.obj, Separation: math.Round(c.sep*1000) / 1000}
 	r := objectRadius(c.obj)
-	agrees := !subj.HasPos || c.sep >= 0 && c.sep <= math.Max(math.Max(r, nameAgreeRadius), footprint)
+	agreeRadius := math.Max(math.Max(r, nameAgreeRadius), footprint)
+	if c.whole != "" {
+		agreeRadius = math.Max(agreeRadius, subj.Radius+halfFrameDiagonal)
+	}
+	agrees := !subj.HasPos || c.sep >= 0 && c.sep <= agreeRadius
 	where := ""
 	if subj.HasPos && c.sep >= 0 {
 		where = fmt.Sprintf("Centres %s apart.", angle(c.sep))
@@ -226,6 +302,9 @@ func score(subj Subject, c *candidate, footprint float64) Link {
 		l.Why = "No name in common. " + where
 	case c.footprint:
 		l.Method, l.Confidence, l.Why = MethodFootprint, 0.5, "Inside your frame. "+where
+	}
+	if c.whole != "" && c.nameMethod != "" && l.Method == c.nameMethod {
+		l.Why += fmt.Sprintf(" “%s” names more than one object; this is “%s”.", c.whole, c.part)
 	}
 	l.Confidence = math.Round(l.Confidence*100) / 100
 	l.Why = strings.TrimSpace(l.Why)
