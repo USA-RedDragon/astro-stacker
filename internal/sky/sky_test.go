@@ -47,7 +47,7 @@ func TestNightOf(t *testing.T) {
 		t.Errorf("dusk %v dawn %v start %v", n.Dusk, n.Dawn, n.Start)
 	}
 	m31 := n.Window(10.68, 41.27, 30)
-	if m31.Hours < 6 || m31.PeakAlt < 75 || m31.PeakAlt > 82 {
+	if m31.Hours < 6 || m31.PeakAlt == nil || *m31.PeakAlt < 75 || *m31.PeakAlt > 82 {
 		t.Errorf("M31 window %+v", m31)
 	}
 	if n.HoursAbove(10.68, -80, 30) != 0 {
@@ -56,7 +56,7 @@ func TestNightOf(t *testing.T) {
 	if f := n.MoonIllumination(); f < 0 || f > 1 {
 		t.Errorf("moon illumination %v", f)
 	}
-	if d := n.MoonSeparation(10.68, 41.27); d < 0 || d > 180 {
+	if d := n.MoonSeparation(10.68, 41.27); d == nil || *d < 0 || *d > 180 {
 		t.Errorf("moon separation %v", d)
 	}
 }
@@ -132,5 +132,22 @@ func TestFitRotationLaysTheLongSideAlongTheMajorAxis(t *testing.T) {
 	}
 	if r := f.Fit(10, 5, sky.DefaultOverlap).Rotation(170); r != 80 {
 		t.Errorf("got %v", r)
+	}
+}
+
+func TestNightWithoutDarknessHasNoPeakOrMoonSeparation(t *testing.T) {
+	t.Parallel()
+	n := sky.Site{Latitude: 65, Longitude: 25}.NightOf(time.Date(2026, 6, 21, 18, 0, 0, 0, time.UTC), 0)
+	if len(n.Dark) != 0 {
+		t.Fatalf("astronomical darkness at 65° N in June: %d samples", len(n.Dark))
+	}
+	if w := n.Window(10.68, 41.27, 30); w.PeakAlt != nil || w.Hours != 0 {
+		t.Errorf("window %+v", w)
+	}
+	if d := n.MoonSeparation(10.68, 41.27); d != nil {
+		t.Errorf("moon separation %v", *d)
+	}
+	if f := n.MoonIllumination(); f < 0 || f > 1 {
+		t.Errorf("moon illumination %v", f)
 	}
 }
