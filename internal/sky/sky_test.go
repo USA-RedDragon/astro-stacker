@@ -53,6 +53,9 @@ func TestNightOf(t *testing.T) {
 	if m31.Hours < 6 || m31.PeakAlt == nil || *m31.PeakAlt < 75 || *m31.PeakAlt > 82 {
 		t.Errorf("M31 window %+v", m31)
 	}
+	if polar := n.Window(37.95, 89.26, 20); polar.End == nil || polar.End.After(*n.Dawn) {
+		t.Errorf("circumpolar window ends %v after dawn %v", polar.End, n.Dawn)
+	}
 	if n.HoursAbove(10.68, -80, 30) != 0 {
 		t.Error("a far-south object rose above 30°")
 	}
