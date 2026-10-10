@@ -27,7 +27,7 @@ func TestGainPerHourPure(t *testing.T) {
 
 func TestEvaluateSNR(t *testing.T) {
 	t.Parallel()
-	m := app.GoalMeasurement{Object: "Garlic", Filter: "O-III", Subs: 47, SNR: 4.4, EffectiveHours: 7.8, GainPerHourPct: 5.8}
+	m := app.GoalMeasurement{Object: "Garlic", Filter: "O-III", Subs: 47, Levels: 4, SNR: 4.4, EffectiveHours: 7.8, GainPerHourPct: 5.8}
 	p := Evaluate(m, DefaultGoal("O-III"))
 	if p.Done || math.Abs(p.HoursNeeded-7.8*((10/4.4)*(10/4.4)-1)) > 1e-9 || math.Abs(p.Progress-0.1936) > 1e-3 {
 		t.Fatalf("%+v", p)
@@ -60,5 +60,56 @@ func TestEvaluateDepthWithoutZeroPointStaysADepthGoal(t *testing.T) {
 	p := Evaluate(m, Goal{Kind: KindDepth, Depth: 25.5})
 	if p.Kind != KindDepth || p.Progress != 0 || p.Done || p.HoursNeeded != -1 || p.Unmeasured != "no depth: 4 Gaia stars matched, 10 needed" || p.LowReason != "faint band too small" {
 		t.Fatalf("%+v", p)
+	}
+}
+
+func pelicanP3Blue() app.GoalMeasurement {
+	return app.GoalMeasurement{Object: "Pelican Nebula Panel 3", Filter: "Blue", Subs: 9, Levels: 1, EffectiveHours: 0.6364448280832384,
+		Signal: 4.150851964368485e-7, NoiseA: 2.591412588243134e-9, NoiseB: 7.731075059249109e-8, NoiseNow: 7.737896104594509e-8,
+		SNR: 5.36, GainPerHourPct: 0.05385824306729514,
+		Points: `[{"n":4,"t":0.2783315944633578,"sigma":7.73107505937816e-8},{"n":4,"t":0.2795662755549598,"sigma":7.753653950533588e-8},{"n":4,"t":0.2862299851603613,"sigma":7.755059968964953e-8}]`}
+}
+
+func TestEvaluateNeverPlateausWithoutANoiseFloor(t *testing.T) {
+	t.Parallel()
+	m := pelicanP3Blue()
+	for levels := range MinFloorLevels {
+		m.Levels = levels
+		if p := Evaluate(m, DefaultGoal("Blue")); p.Plateau || p.Done {
+			t.Errorf("%d levels: %+v", levels, p)
+		}
+	}
+	m.Levels = MinFloorLevels
+	if p := Evaluate(m, DefaultGoal("Blue")); !p.Plateau || !p.Done {
+		t.Errorf("%d levels should plateau: %+v", m.Levels, p)
+	}
+}
+
+func TestRefitWithoutFloor(t *testing.T) {
+	t.Parallel()
+	m := pelicanP3Blue()
+	zp, d := 21.0, 0.0
+	m.ZeroPoint, m.Depth, m.PixelScale = &zp, &d, 1.5
+	m.LowReason = "frame-filling nebula"
+	if !RefitWithoutFloor(&m) {
+		t.Fatal("no change")
+	}
+	wantGain := 100 * (1 - math.Sqrt(m.EffectiveHours/(m.EffectiveHours+1)))
+	if m.NoiseB != 0 || math.Abs(m.GainPerHourPct-wantGain) > 1e-9 || math.Abs(m.NoiseNow-m.NoiseA/math.Sqrt(m.EffectiveHours)) > 1e-18 {
+		t.Fatalf("%+v", m)
+	}
+	if math.Abs(m.SNR-8.06) > 0.05 || !m.LowConfidence || m.LowReason != "frame-filling nebula; noise floor not measurable from 1 draw levels" {
+		t.Fatalf("snr %v reason %q", m.SNR, m.LowReason)
+	}
+	if want, _ := Depth(zp, m.NoiseNow, 1.5); m.Depth == nil || *m.Depth != want {
+		t.Fatalf("depth %v want %v", m.Depth, want)
+	}
+	if RefitWithoutFloor(&m) {
+		t.Fatal("second refit changed the row")
+	}
+	m3 := pelicanP3Blue()
+	m3.Levels = MinFloorLevels
+	if RefitWithoutFloor(&m3) {
+		t.Fatal("refit a measurement with a measurable floor")
 	}
 }

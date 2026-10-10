@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -293,6 +294,32 @@ func TestFitNoise(t *testing.T) {
 		if !ok || math.Abs(a-tc.a) > 0.05*tc.a || math.Abs(b-tc.b) > 0.1*tc.b+0.15*NoiseAt(tc.a, tc.b, 12.8) {
 			t.Errorf("fit (%g, %g) gave (%g, %g)", tc.a, tc.b, a, b)
 		}
+	}
+}
+
+func TestOneLevelHasNoNoiseFloor(t *testing.T) {
+	t.Parallel()
+	res, _ := runScene(t, defaultScene(rand.New(rand.NewPCG(7, 7))), 9, Options{Seed: 3})
+	hours := 9 * synthExposure / 3600
+	want := 100 * (1 - math.Sqrt(hours/(hours+1)))
+	if res.Levels != 1 || res.NoiseB != 0 || math.Abs(res.GainPerHourPct-want) > 1e-9 {
+		t.Fatalf("levels %d b %v gain %v want %v", res.Levels, res.NoiseB, res.GainPerHourPct, want)
+	}
+	if !res.LowConfidence || !strings.Contains(res.LowReason, "noise floor not measurable from 1 draw levels") {
+		t.Fatalf("reason %q", res.LowReason)
+	}
+}
+
+func TestFitLevelsIgnoresFloorBelowThreeLevels(t *testing.T) {
+	t.Parallel()
+	pts := []DrawPoint{{N: 4, Hours: 0.2783315944633578, Sigma: 7.73107505937816e-8},
+		{N: 4, Hours: 0.2795662755549598, Sigma: 7.753653950533588e-8}, {N: 4, Hours: 0.2862299851603613, Sigma: 7.755059968964953e-8}}
+	if a, b, _ := FitNoise(pts); !(b > a) {
+		t.Fatalf("full fit on one level gave a %v b %v", a, b)
+	}
+	a, b, ok := FitLevels(pts, 1)
+	if !ok || b != 0 || math.Abs(a-7.75e-8*math.Sqrt(0.2814)) > 0.01*a {
+		t.Fatalf("a %v b %v ok %v", a, b, ok)
 	}
 }
 

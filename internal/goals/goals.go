@@ -17,6 +17,7 @@ const (
 	BandHighPercent   = 40.0
 	NoiseBin          = 4
 	MinLevelSubs      = 4
+	MinFloorLevels    = 3
 )
 
 type Point struct {
