@@ -332,7 +332,7 @@ func TestSeasonsPlanWithSite(t *testing.T) {
 	if plan.HoursPerSeason != nil || !plan.Basis.InsufficientHistory || plan.Basis.Reason == nil || len(plan.Rows) != 0 || plan.Pace != nil || plan.Projection != nil {
 		t.Fatalf("a rate was invented from two nights: %+v", plan)
 	}
-	if !plan.SiteKnown || len(plan.Months) != 12 || len(plan.PanelPriority) != 2 || len(plan.Basis.ClearNightsPerMonth) != 12 {
+	if !plan.SiteKnown || len(plan.Months) != 12 || len(plan.PanelPriority) != 2 || len(plan.Basis.ImagingNightsPerMonth) != 12 {
 		t.Fatalf("plan %+v", plan)
 	}
 	if plan.Months[3].Hours < 3 || plan.Months[8].Hours > 1 {
@@ -379,13 +379,13 @@ func checkMeasuredSeasons(t *testing.T, svc *mosaicplan.Service, appDB *gorm.DB,
 		t.Fatal(err)
 	}
 	b := measured.Basis
-	if b.InsufficientHistory || b.HoursPerClearNight == nil || b.ClearNightsPerSeason == nil || measured.HoursPerSeason == nil {
+	if b.InsufficientHistory || b.HoursPerImagingNight == nil || b.ImagingNightsPerSeason == nil || measured.HoursPerSeason == nil {
 		t.Fatalf("measured basis %+v", b)
 	}
 	if b.ProjectNights != 10 || b.HistoryNights != 36 || len(b.UsableMonths) == 0 {
 		t.Errorf("basis counts %+v", b)
 	}
-	if want := math.Round(*b.HoursPerClearNight**b.ClearNightsPerSeason*10) / 10; *measured.HoursPerSeason != want {
+	if want := math.Round(*b.HoursPerImagingNight**b.ImagingNightsPerSeason*10) / 10; *measured.HoursPerSeason != want {
 		t.Errorf("hours per season %v, want %v", *measured.HoursPerSeason, want)
 	}
 	if measured.FinishSeason == 0 || measured.Compare["weakest"] == 0 {

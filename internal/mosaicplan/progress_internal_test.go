@@ -46,3 +46,16 @@ func TestNightsLeftCountsNightsAboveTheThreshold(t *testing.T) {
 		t.Error("an autumn night counted for a spring target")
 	}
 }
+
+func TestImagingNightsCountOnlyYearsWithData(t *testing.T) {
+	t.Parallel()
+	jan, mar := time.Date(2020, 1, 5, 0, 0, 0, 0, time.UTC), time.Date(2023, 3, 7, 0, 0, 0, 0, time.UTC)
+	h := nightHistory{hours: map[time.Time]float64{jan: 1, mar: 2}, first: jan, last: mar}
+	m := h.perMonth()
+	if m[0].SpanYears != 4 || m[0].Years != 2 || m[0].Nights == nil || *m[0].Nights != 0.5 {
+		t.Errorf("january %+v", m[0])
+	}
+	if m[5].SpanYears != 3 || m[5].Years != 1 || m[5].Nights == nil || *m[5].Nights != 0 {
+		t.Errorf("june %+v", m[5])
+	}
+}

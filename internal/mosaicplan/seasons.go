@@ -23,9 +23,9 @@ const (
 )
 
 type SeasonBasis struct {
-	HoursPerClearNight   *float64      `json:"hoursPerClearNight"`
-	ClearNightsPerSeason *float64      `json:"clearNightsPerSeason"`
-	ClearNightsPerMonth  []MonthNights `json:"clearNightsPerMonth"`
+	HoursPerImagingNight   *float64      `json:"hoursPerImagingNight"`
+	ImagingNightsPerSeason *float64      `json:"imagingNightsPerSeason"`
+	ImagingNightsPerMonth  []MonthNights `json:"imagingNightsPerMonth"`
 	UsableMonths         []int         `json:"usableMonths"`
 	HistoryFrom          *time.Time    `json:"historyFrom"`
 	HistoryTo            *time.Time    `json:"historyTo"`
@@ -250,7 +250,7 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 func reason(s string) *string { return &s }
 
 func seasonBasis(hist nightHistory, seasons []SeasonPace, months [12]float64, siteKnown bool) SeasonBasis {
-	b := SeasonBasis{ClearNightsPerMonth: hist.perMonth(), UsableMonths: []int{}, HistoryNights: len(hist.hours)}
+	b := SeasonBasis{ImagingNightsPerMonth: hist.perMonth(), UsableMonths: []int{}, HistoryNights: len(hist.hours)}
 	b.HistoryFrom, b.HistoryTo = hist.span()
 	var first, last time.Time
 	var projectHours float64
@@ -271,7 +271,7 @@ func seasonBasis(hist nightHistory, seasons []SeasonPace, months [12]float64, si
 	case len(b.UsableMonths) == 0:
 		b.Reason = reason("the target never has enough dark hours in a month at this site")
 	case len(hist.hours) < minHistoryNights:
-		b.Reason = reason(fmt.Sprintf("only %d clear nights of history; at least %d are needed", len(hist.hours), minHistoryNights))
+		b.Reason = reason(fmt.Sprintf("only %d imaging nights of history; at least %d are needed", len(hist.hours), minHistoryNights))
 	case b.ProjectNights < minProjectNights:
 		b.Reason = reason(fmt.Sprintf("only %d nights of this project's lights; at least %d are needed", b.ProjectNights, minProjectNights))
 	}
@@ -285,19 +285,19 @@ func seasonBasis(hist nightHistory, seasons []SeasonPace, months [12]float64, si
 			clearCount++
 		}
 	}
-	b.ClearNightsPerSeason = clearNightsIn(b.ClearNightsPerMonth, b.UsableMonths)
-	if missing := monthsWithoutHistory(b.ClearNightsPerMonth, b.UsableMonths); len(missing) > 0 {
+	b.ImagingNightsPerSeason = clearNightsIn(b.ImagingNightsPerMonth, b.UsableMonths)
+	if missing := monthsWithoutHistory(b.ImagingNightsPerMonth, b.UsableMonths); len(missing) > 0 {
 		b.InsufficientHistory = true
-		b.Reason = reason("no clear-night history yet for " + strings.Join(missing, ", ") + ", when the target is up")
+		b.Reason = reason("no imaging nights on record yet in " + strings.Join(missing, ", ") + ", when the target is up")
 		return b
 	}
-	if clearCount == 0 || b.ClearNightsPerSeason == nil {
+	if clearCount == 0 || b.ImagingNightsPerSeason == nil {
 		b.InsufficientHistory = true
-		b.Reason = reason("no clear nights recorded in the target's usable months")
+		b.Reason = reason("no imaging nights on record in the target's usable months since this project started")
 		return b
 	}
 	v := math.Round(projectHours/float64(clearCount)*100) / 100
-	b.HoursPerClearNight = &v
+	b.HoursPerImagingNight = &v
 	return b
 }
 
@@ -335,10 +335,10 @@ func choosePace(pace string, b SeasonBasis, seasons []SeasonPace, now time.Time)
 		}
 		return PaceWorst, round(slices.Min(done))
 	}
-	if b.HoursPerClearNight == nil || b.ClearNightsPerSeason == nil {
+	if b.HoursPerImagingNight == nil || b.ImagingNightsPerSeason == nil {
 		return PaceMeasured, nil
 	}
-	return PaceMeasured, round(*b.HoursPerClearNight * *b.ClearNightsPerSeason)
+	return PaceMeasured, round(*b.HoursPerImagingNight * *b.ImagingNightsPerSeason)
 }
 
 func nightsLeft(now time.Time, site mosaics.Site, points []mosaics.Point, minAlt float64) int {
