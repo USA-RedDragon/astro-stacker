@@ -59,7 +59,10 @@ linters:
       - path: internal/(stacking/.*|server/(covers|public|subs|webui|discover)|publicframe/render(er)?|events/events|indexer/(indexer|runloop)|siril/maincommand)_test\.go$
         linters:
           - testpackage
-      - path: internal/(goals|goalmeasure)/.*_test\.go$
+      - path: internal/(goals|goalmeasure|planning)/.*_test\.go$
+        linters:
+          - testpackage
+      - path: internal/server/planning_test\.go$
         linters:
           - testpackage
       - path: internal/goals/measure\.go$

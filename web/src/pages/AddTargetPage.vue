@@ -28,28 +28,40 @@ interface Fit {
   category: string
 }
 
-interface ExistingMatch {
+interface Link {
   subject: string
-  existing: { kind: string; id: string; name: string }
+  subjectName: string
+  object: CatalogObject
+  method: string
   confidence: number
-  evidence: string[] | null
-  decision?: string
+  why: string
+  separation: number
+  status: string
+}
+
+interface SubjectRef {
+  key: string
+  name: string
+  projectId?: number
+  state?: string
+  status: string
+  method: string
+  done: boolean
+  hours: number
+}
+
+interface ObjectDetail {
+  object: CatalogObject
+  status: string
+  subjects: SubjectRef[] | null
+  links: Link[] | null
+  fit: Fit
 }
 
 interface Hit {
   object: CatalogObject
   how?: string
-  catalogues: string[] | null
-  fit: Fit
-  inData?: ExistingMatch
-}
-
-interface ObjectDetail {
-  object: CatalogObject
-  fit: Fit
-  frameWidthDeg: number
-  frameHeightDeg: number
-  existing: ExistingMatch[]
+  detail?: ObjectDetail
 }
 
 const route = useRoute()
@@ -113,31 +125,79 @@ watch(q, () => {
   timer = setTimeout(search, 250)
 })
 
+function parseCoords(s: string): { ra: number; dec: number } | null {
+  const t = s.trim().replace(/[,]/g, ' ')
+  const dec2 = /^(\d+(?:\.\d+)?)\s+([+-−]?\d+(?:\.\d+)?)$/.exec(t)
+  if (dec2) return { ra: Number(dec2[1]), dec: Number(dec2[2].replace('−', '-')) }
+  const hms = /^(\d{1,2})[h:\s](\d{1,2}(?:\.\d+)?)m?(?:[:\s]?(\d{1,2}(?:\.\d+)?)s?)?\s+([+-−])?(\d{1,2}(?:\.\d+)?)(?:[°d:\s](\d{1,2}(?:\.\d+)?))?/.exec(t)
+  if (!hms) return null
+  const ra = (Number(hms[1]) + Number(hms[2]) / 60 + Number(hms[3] ?? 0) / 3600) * 15
+  const sign = hms[4] === '-' || hms[4] === '−' ? -1 : 1
+  const dec = sign * (Number(hms[5]) + Number(hms[6] ?? 0) / 60)
+  return { ra, dec }
+}
+
+let searchSeq = 0
+
 async function search() {
   const term = q.value.trim()
   if (!term) {
     hits.value = []
     return
   }
+  const seq = ++searchSeq
   searching.value = true
   try {
-    const r = await api.get<{ results: Hit[] }>('/planning/catalog/search' + query({ q: term, limit: 40 }))
-    hits.value = r.results
+    const c = parseCoords(term)
+    let found: Hit[]
+    if (c) {
+      const objs = await api.get<CatalogObject[]>('/catalog/cone' + query({ ra: c.ra, dec: c.dec, radius: 1 }))
+      found = objs.slice(0, 40).map((o) => ({ object: o, how: 'coordinates' }))
+    } else {
+      const ms = await api.get<{ object: CatalogObject; how: string }[]>('/catalog/search' + query({ q: term, limit: 40 }))
+      found = ms.map((m) => ({ object: m.object, how: m.how }))
+    }
+    if (seq !== searchSeq) return
+    hits.value = found
     searchError.value = ''
+    await Promise.all(
+      found.slice(0, 15).map(async (h) => {
+        try {
+          h.detail = await api.get<ObjectDetail>('/catalog/objects/' + encodeURIComponent(h.object.id))
+        } catch {
+          h.detail = undefined
+        }
+      }),
+    )
+    if (seq === searchSeq) hits.value = [...found]
   } catch (e) {
     searchError.value = e instanceof Error ? e.message : String(e)
   } finally {
-    searching.value = false
+    if (seq === searchSeq) searching.value = false
   }
+}
+
+function cataloguesOf(o: CatalogObject): string[] {
+  const out = new Set<string>()
+  for (const d of [o.designation, ...(o.aliases ?? [])]) {
+    const m = /^([A-Za-z]+(?:2)?)[\s-]?\d/.exec(d)
+    if (m) out.add(m[1] === 'SH' ? 'Sh2' : m[1])
+  }
+  return [...out]
 }
 
 const allCats = computed(() => {
   const s = new Set<string>()
-  hits.value.forEach((h) => (h.catalogues ?? []).forEach((c) => s.add(c)))
+  hits.value.forEach((h) => cataloguesOf(h.object).forEach((c) => s.add(c)))
   return [...s].sort()
 })
 
-const shownHits = computed(() => hits.value.filter((h) => !(h.catalogues ?? []).length || (h.catalogues ?? []).some((c) => !catsOff[c])))
+const shownHits = computed(() =>
+  hits.value.filter((h) => {
+    const cats = cataloguesOf(h.object)
+    return !cats.length || cats.some((c) => !catsOff[c])
+  }),
+)
 
 function sizeText(o: CatalogObject): string {
   if (!o.majorArcmin) return '—'
@@ -145,17 +205,24 @@ function sizeText(o: CatalogObject): string {
   return o.minorArcmin && o.minorArcmin !== o.majorArcmin ? `${Math.round(o.majorArcmin)}′ × ${Math.round(o.minorArcmin)}′` : `≈ ${Math.round(o.majorArcmin)}′`
 }
 
-function fitText(f: Fit): string {
+function fitText(f?: Fit): string {
+  if (!f) return '…'
   if (f.panels > 1) return `Mosaic · ${f.columns} × ${f.rows}`
   if (f.fill < 0.15) return `Small · ${Math.max(1, Math.round(f.fill * 100))}% of frame`
   return 'Fits one frame'
 }
 
 function inDataText(h: Hit): { text: string; tone: string } {
-  const m = h.inData
-  if (!m || m.decision === 'rejected') return { text: 'Not imaged', tone: 'var(--muted-foreground)' }
-  const kind = m.existing.kind === 'stack' ? 'stacker object' : m.existing.kind
-  return { text: `${m.existing.name} (${kind}, ${Math.round(m.confidence * 100)}%)`, tone: m.confidence >= 0.9 ? 'var(--ok)' : 'var(--warn)' }
+  const d = h.detail
+  if (!d) return { text: '…', tone: 'var(--muted-foreground)' }
+  const subs = (d.subjects ?? []).filter((x) => x.status !== 'rejected')
+  if (!subs.length) {
+    const sug = (d.links ?? []).find((l) => l.status === 'suggested')
+    return sug ? { text: `Maybe ${sug.subjectName}`, tone: 'var(--warn)' } : { text: 'Not imaged', tone: 'var(--muted-foreground)' }
+  }
+  const s0 = subs[0]
+  const more = subs.length > 1 ? ` +${subs.length - 1}` : ''
+  return { text: `${s0.name}${more} · ${s0.done ? 'done' : s0.hours ? s0.hours.toFixed(1) + ' h' : 'in progress'}`, tone: s0.done ? 'var(--ok)' : 'var(--info)' }
 }
 
 function label(o: CatalogObject): string {
@@ -164,7 +231,7 @@ function label(o: CatalogObject): string {
 
 async function choose(id: string) {
   try {
-    pick.value = await api.get<ObjectDetail>('/planning/catalog/objects/' + encodeURIComponent(id))
+    pick.value = await api.get<ObjectDetail>('/catalog/objects/' + encodeURIComponent(id))
   } catch (e) {
     errorToast(e, 'Could not open that object')
     return
@@ -178,45 +245,50 @@ async function choose(id: string) {
   plan.rotation = o.pa && f.panels > 1 ? Math.round(((o.pa % 180) + 180) % 180) : 0
   const t = o.type
   form.setId = t === 'galaxy' || t === 'galaxy-group' || t === 'globular' || t === 'open-cluster' || t === 'dark' || t === 'reflection' ? 'lrgb' : t === 'pn' || t === 'snr' ? 'hoo' : 'hargb'
-  const subject = String(route.query.subject ?? '')
-  if (subject && pick.value.existing.every((m) => m.subject !== subject)) matchChoice.value = ''
 }
 
-const topMatch = computed<ExistingMatch | null>(() => {
-  const ms = pick.value?.existing ?? []
+const topMatch = computed<Link | null>(() => {
+  const ls = (pick.value?.links ?? []).filter((l) => l.status !== 'rejected')
   const want = String(route.query.subject ?? '')
-  const m = (want && ms.find((x) => x.subject === want)) || ms.find((x) => x.decision !== 'rejected' && x.confidence >= 0.5)
+  const m = (want && ls.find((x) => x.subject === want)) || [...ls].sort((a, b) => b.confidence - a.confidence)[0]
   return m ?? null
+})
+
+const topProject = computed(() => {
+  const m = topMatch.value
+  if (!m) return null
+  const ref = (pick.value?.subjects ?? []).find((s) => s.key === m.subject)
+  return ref?.projectId ?? null
 })
 
 const matchOpts = computed(() => {
   const m = topMatch.value
   if (!m) return []
-  if (m.existing.kind === 'stack') {
+  if (!topProject.value) {
     return [
       ['link', 'Same object · link the stacker’s data to the new project'],
       ['different', 'Different object'],
     ]
   }
   return [
-    ['open', `Same object · open ${m.existing.name} instead`],
+    ['open', `Same object · open ${m.subjectName} instead`],
     ['separate', 'Same object · keep a separate project'],
     ['different', 'Different object'],
   ]
 })
 
-const matchNeeds = computed(() => !!topMatch.value && topMatch.value.decision !== 'confirmed' && !matchChoice.value)
+const matchNeeds = computed(() => !!topMatch.value && topMatch.value.status !== 'confirmed' && !matchChoice.value)
 
 async function recordMatch(after: 'confirmed' | 'rejected') {
   const m = topMatch.value
   const o = pick.value?.object
   if (!m || !o) return
-  const before = m.decision ?? ''
+  const before = m.status === 'confirmed' || m.status === 'rejected' ? m.status : ''
   if (before === after) return
   try {
     const r = await submitCommand('catalog.match', {
       subject: m.subject,
-      subject_name: m.existing.name,
+      subject_name: m.subjectName,
       object_id: o.id,
       object_name: label(o),
       method: 'add-target review',
@@ -225,7 +297,7 @@ async function recordMatch(after: 'confirmed' | 'rejected') {
       after,
     })
     notifyCommand(r)
-    m.decision = after
+    m.status = after
   } catch (e) {
     errorToast(e)
   }
@@ -234,10 +306,9 @@ async function recordMatch(after: 'confirmed' | 'rejected') {
 async function next() {
   if (step.value === 1) {
     if (!pick.value || matchNeeds.value) return
-    if (matchChoice.value === 'open' && topMatch.value) {
+    if (matchChoice.value === 'open' && topMatch.value && topProject.value) {
       await recordMatch('confirmed')
-      const proj = snap.value?.projects.find((p) => p.name === topMatch.value!.existing.name || p.targets.some((t) => t.name === topMatch.value!.existing.name))
-      if (proj) router.push({ name: 'target', params: { projectId: String(proj.id) } })
+      router.push({ name: 'target', params: { projectId: String(topProject.value) } })
       return
     }
     if (matchChoice.value === 'separate' || matchChoice.value === 'link') await recordMatch('confirmed')
@@ -251,8 +322,8 @@ function back() {
   step.value = Math.max(1, step.value - 1)
 }
 
-const frameW = computed(() => pick.value?.frameWidthDeg || 3.32)
-const frameH = computed(() => pick.value?.frameHeightDeg || 2.22)
+const frameW = computed(() => snap.value?.frame?.widthDeg || 3.32)
+const frameH = computed(() => snap.value?.frame?.heightDeg || 2.22)
 
 const panels = computed<PanelDraft[]>(() => {
   const o = pick.value?.object
@@ -321,7 +392,7 @@ async function makeDraft() {
       name: form.name,
       catalog: o.designation,
       match: matchChoice.value || undefined,
-      matchWith: topMatch.value?.existing.name,
+      matchWith: topMatch.value?.subjectName,
       priority: form.priority,
       minimumAltitude: form.minAlt,
       minimumTime: form.minTime,
@@ -345,7 +416,7 @@ const review = computed(() => {
     { k: 'Framing', v: panelCount.value > 1 ? `${plan.cols} × ${plan.rows} mosaic, ${panelCount.value} panels at ${plan.rotation}°, ${plan.overlap}% overlap` : `One frame at ${plan.rotation}°` },
     { k: 'Exposures', v: set ? set.name + ' · ' + set.items.map((i) => i.template + ' ' + i.exposure + ' s').join(', ') : '—' },
     { k: 'Goal', v: form.goalKind === 'snr' ? `Faint-signal SNR ${form.snr} per filter${form.plateauStop ? ', or the plateau' : ''}` : `${form.depth} mag/arcsec² at SNR 3 per filter` },
-    { k: 'Name match', v: !topMatch.value ? 'No project, target or stacker object of yours matches.' : matchChoice.value === 'different' ? `Not the same as ${topMatch.value.existing.name}` : `Same object as ${topMatch.value.existing.name}, kept separate` },
+    { k: 'Name match', v: !topMatch.value ? 'No project, target or stacker object of yours matches.' : matchChoice.value === 'different' ? `Not the same as ${topMatch.value.subjectName}` : `Same object as ${topMatch.value.subjectName}, kept separate` },
     { k: 'Scheduler rows', v: draft.value ? `1 project, ${draft.value.targets.length} ${draft.value.targets.length === 1 ? 'target' : 'targets'}, ${draft.value.targets.reduce((a, t) => a + t.plans.length, 0)} plans, ${draft.value.goals.length} goals` : '…' },
   ]
 })
@@ -448,7 +519,7 @@ function goStep(i: number) {
               <td style="white-space: nowrap">{{ h.object.type }}</td>
               <td class="num" style="white-space: nowrap">{{ sizeText(h.object) }}</td>
               <td style="white-space: nowrap" :style="{ color: inDataText(h).tone }">{{ inDataText(h).text }}</td>
-              <td style="white-space: nowrap">{{ fitText(h.fit) }}</td>
+              <td style="white-space: nowrap">{{ fitText(h.detail?.fit) }}</td>
               <td style="text-align: right">
                 <button type="button" class="btn sm" :aria-label="'Choose ' + h.object.designation" @click="choose(h.object.id)">{{ pick?.object.id === h.object.id ? 'Chosen' : 'Choose' }}</button>
               </td>
@@ -461,13 +532,14 @@ function goStep(i: number) {
 
       <div v-if="pick && topMatch" role="group" aria-labelledby="match-h" class="match" :style="{ borderColor: topMatch.confidence < 0.9 ? 'var(--warn)' : 'var(--ok)' }">
         <div class="spread">
-          <h3 id="match-h" style="margin: 0; font-size: 0.9375rem; font-weight: 600">Name match: is {{ label(pick.object) }} your “{{ topMatch.existing.name }}”?</h3>
+          <h3 id="match-h" style="margin: 0; font-size: 0.9375rem; font-weight: 600">Name match: is {{ label(pick.object) }} your “{{ topMatch.subjectName }}”?</h3>
           <span class="small num" style="font-weight: 600" :style="{ color: topMatch.confidence < 0.9 ? 'var(--warn)' : 'var(--ok)' }">{{ Math.round(topMatch.confidence * 100) }}% confident</span>
         </div>
         <ul class="small muted" style="margin: 0; padding-left: 1.25rem">
-          <li v-for="(ev, i) in topMatch.evidence ?? []" :key="i">{{ ev }}</li>
+          <li>{{ topMatch.why }}</li>
+          <li v-if="topMatch.separation">{{ topMatch.separation.toFixed(2) }}° between your coordinates and the catalogue's</li>
         </ul>
-        <p v-if="topMatch.decision === 'confirmed'" class="small" style="margin: 0">You confirmed this match before.</p>
+        <p v-if="topMatch.status === 'confirmed'" class="small" style="margin: 0">You confirmed this match before.</p>
         <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.375rem">
           <legend class="small" style="font-weight: 500; margin-bottom: 0.375rem">Decide before you go on</legend>
           <label v-for="[id, text] in matchOpts" :key="id" class="row" style="font-size: 0.875rem"><input v-model="matchChoice" type="radio" name="match" :value="id" /> {{ text }}</label>

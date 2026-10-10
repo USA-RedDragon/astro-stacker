@@ -24,6 +24,8 @@ const (
 	KindProjectDelete     Kind = "project.delete"
 )
 
+const entityTemplate = "exposuretemplate"
+
 const (
 	GoalKindSNR   = 0
 	GoalKindDepth = 1
@@ -154,7 +156,7 @@ type ProjectCreatePayload struct {
 func ExposureTemplateEdit() EditSpec {
 	return EditSpec{
 		KindName:     "exposuretemplate.edit",
-		Entity:       "exposuretemplate",
+		Entity:       entityTemplate,
 		EntityLabel:  "Exposure template",
 		CategoryName: CategoryTemplates,
 		Fields: map[string]FieldSpec{
@@ -506,10 +508,10 @@ func TemplateCloneSpec() Spec {
 			if err != nil {
 				return Description{}, err
 			}
-			o := ObjectRef{Entity: "exposuretemplate", GUID: v.GUID, Name: v.Name}
+			o := ObjectRef{Entity: entityTemplate, GUID: v.GUID, Name: v.Name}
 			return Description{
 				Title:   v.Name + " · copied from " + v.SourceName,
-				Objects: []ObjectRef{o, {Entity: "exposuretemplate", ID: v.SourceID, Name: v.SourceName}},
+				Objects: []ObjectRef{o, {Entity: entityTemplate, ID: v.SourceID, Name: v.SourceName}},
 				Diffs:   []Diff{{Object: o, Field: "Template", Before: quote("none"), After: quote("copy of " + v.SourceName)}},
 			}, nil
 		},
@@ -543,7 +545,7 @@ func TemplateDeleteSpec() Spec {
 			if err != nil {
 				return Description{}, err
 			}
-			o := ObjectRef{Entity: "exposuretemplate", GUID: v.GUID, Name: v.Name}
+			o := ObjectRef{Entity: entityTemplate, GUID: v.GUID, Name: v.Name}
 			return Description{
 				Title:   "Remove template " + v.Name,
 				Objects: []ObjectRef{o},
@@ -575,7 +577,7 @@ func decodeApplySet(p json.RawMessage) (ApplySetPayload, error) {
 	if len(v.Targets) == 0 {
 		return v, fmt.Errorf("%w: no targets", ErrInvalid)
 	}
-	any := false
+	changed := false
 	for _, t := range v.Targets {
 		if t.TargetID <= 0 {
 			return v, fmt.Errorf("%w: missing target_id", ErrInvalid)
@@ -586,10 +588,10 @@ func decodeApplySet(p json.RawMessage) (ApplySetPayload, error) {
 			}
 		}
 		if len(t.Create)+len(t.Disable)+len(t.Enable) > 0 {
-			any = true
+			changed = true
 		}
 	}
-	if !any {
+	if !changed {
 		return v, fmt.Errorf("%w: nothing to change", ErrInvalid)
 	}
 	return v, nil
@@ -768,12 +770,12 @@ func projectCreateDescription(v ProjectCreatePayload, deleting bool) Description
 	d := Description{Objects: []ObjectRef{o}}
 	if deleting {
 		d.Title = v.Project.Name + " · project removed"
-		d.Diffs = []Diff{{Object: o, Field: "Project", Before: quote(summary), After: quote("none")}}
+		d.Diffs = []Diff{{Object: o, Field: labelProject, Before: quote(summary), After: quote("none")}}
 		d.Note = "Refused if any of its targets already has subs."
 		return d
 	}
 	d.Title = v.Project.Name + " · project created"
-	d.Diffs = []Diff{{Object: o, Field: "Project", Before: quote("none"), After: quote(summary)}}
+	d.Diffs = []Diff{{Object: o, Field: labelProject, Before: quote("none"), After: quote(summary)}}
 	notes := []string{}
 	if v.Match == "separate" && v.MatchWith != "" {
 		notes = append(notes, "Kept separate from "+v.MatchWith+" after the name-match review.")
