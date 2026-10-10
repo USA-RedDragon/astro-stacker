@@ -14,6 +14,7 @@ func applyConditionsRoutes(g *gin.RouterGroup, x Extras, now func() time.Time) {
 			none := conditions.Source{Source: conditions.SourceNone}
 			r := conditions.Report{At: now()}
 			r.Weather.Source, r.Safety.Source, r.Mount.Source, r.Power.Source, r.Sync.Source = none, none, none, none, none
+			r.Camera.Source, r.Rotator.Source = none, none
 			c.JSON(http.StatusOK, r)
 			return
 		}
