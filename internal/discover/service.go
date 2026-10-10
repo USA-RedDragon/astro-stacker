@@ -337,11 +337,16 @@ func (s *Service) Review(ctx context.Context, includeDecided bool) ([]ReviewItem
 		return nil, err
 	}
 	states := map[string]string{}
+	adding := map[string]bool{}
 	for _, subj := range snap.subjects {
 		states[subj.Key] = subj.StateName
+		adding[subj.Key] = subj.Kind == SubjectAdding
 	}
 	out := []ReviewItem{}
 	for _, l := range snap.links {
+		if adding[l.Subject] {
+			continue
+		}
 		decided := (l.Status == StatusConfirmed || l.Status == StatusRejected) && l.Method != "manual"
 		if l.Status == StatusSuggested || includeDecided && decided {
 			out = append(out, ReviewItem{Link: l, Decided: decided, State: states[l.Subject]})

@@ -59,11 +59,13 @@ type Subject struct {
 	LastNight   *time.Time         `json:"lastNight,omitempty"`
 	Footprint   string             `json:"footprint"`
 
-	NotCatalogue string `json:"notCatalogue,omitempty"`
+	NotCatalogue string  `json:"notCatalogue,omitempty"`
+	Adding       *Adding `json:"adding,omitempty"`
 
-	imaged  []field
-	planned []field
-	judged  map[string]planning.Judgement
+	imaged     []field
+	planned    []field
+	judged     map[string]planning.Judgement
+	extraNames []string
 }
 
 func (s Subject) TotalHours() float64 {
@@ -88,6 +90,7 @@ type tsRow struct {
 	Dec      *float64
 	Rotation *float64
 	MinAlt   *float64
+	GUID     *string
 }
 
 type stackRow struct {
@@ -157,15 +160,19 @@ func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject,
 	var ts []tsRow
 	judged := map[int]map[string]planning.Judgement{}
 	if s.SchedDB != nil {
-		rotation, minAlt := "NULL", "NULL"
+		const null = "NULL"
+		rotation, minAlt, guid := null, null, null
 		if s.SchedDB.Migrator().HasColumn("target", "rotation") {
 			rotation = "target.rotation"
 		}
 		if s.SchedDB.Migrator().HasColumn("project", "minimumaltitude") {
 			minAlt = "project.minimumaltitude"
 		}
+		if s.SchedDB.Migrator().HasColumn("project", "guid") {
+			guid = "project.guid"
+		}
 		if err := s.SchedDB.WithContext(ctx).Table("project").
-			Select(`project."Id" AS id, project.name AS name, project.state AS state, project."isMosaic" AS mosaic, target.name AS target, target.ra AS ra, target.dec AS dec, ` + rotation + ` AS rotation, ` + minAlt + ` AS min_alt`).
+			Select(`project."Id" AS id, project.name AS name, project.state AS state, project."isMosaic" AS mosaic, target.name AS target, target.ra AS ra, target.dec AS dec, ` + rotation + ` AS rotation, ` + minAlt + ` AS min_alt, ` + guid + ` AS guid`).
 			Joins(`LEFT JOIN target ON target.projectid = project."Id"`).
 			Order(`project."Id"`).Scan(&ts).Error; err != nil {
 			return nil, nil, fmt.Errorf("load scheduler projects: %w", err)
@@ -201,7 +208,17 @@ func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject,
 		return nil, nil, err
 	}
 	objects := indexObjects(stacks, frames, refs, measured, short)
-	return buildSubjects(ts, objects, judged, frame), objects, nil
+	existing := map[string]bool{}
+	for _, r := range ts {
+		if r.GUID != nil {
+			existing[*r.GUID] = true
+		}
+	}
+	adding, err := s.addingSubjects(ctx, frame, existing)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(buildSubjects(ts, objects, judged, frame), adding...), objects, nil
 }
 
 func (s *Service) measuredKeys(ctx context.Context) (map[goals.Key]bool, map[goals.Key]bool, error) {

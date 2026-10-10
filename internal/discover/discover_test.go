@@ -17,6 +17,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
@@ -647,5 +648,64 @@ func TestFinderUsesTheHAlphaMap(t *testing.T) {
 	}
 	if withMap.Rows[0].Score <= res.Rows[0].Score {
 		t.Errorf("H-α did not raise the emission score: %v <= %v", withMap.Rows[0].Score, res.Rows[0].Score)
+	}
+}
+
+func TestProjectBeingAdded(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	ctx := context.Background()
+	if err := s.AppDB.AutoMigrate(&schedcmd.Record{}); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 10, 5, 28, 0, 0, time.UTC)
+	payload := `{"project":{"guid":"p34","name":"M 34","state":1},"targets":[{"guid":"t34","name":"M 34","ra_hours":2.702055,"dec":42.74614,"rotation":0}],"catalog":"M 34"}`
+	rec := schedcmd.Record{ID: "c34", Kind: schedcmd.KindProjectCreate, Payload: json.RawMessage(payload), Author: "a", Title: "M 34 · project created",
+		Category: schedcmd.CategoryCreated, Destination: "scheduler", Status: schedcmd.StatusPending, AppliesAt: &at, CreatedAt: at.Add(-5 * time.Minute)}
+	if err := s.AppDB.Create(&rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	m34 := func() discover.CatalogueEntry {
+		s.Invalidate()
+		entries, err := s.Catalogue(ctx, "messier")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return entries[33]
+	}
+	if e := m34(); e.Status != discover.CompletionAdding || e.Adding == nil || e.Adding.AppliesAt == nil || !e.Adding.AppliesAt.Equal(at) {
+		t.Fatalf("pending create %+v", e)
+	}
+	if review, _ := s.Review(ctx, true); slices.ContainsFunc(review, func(r discover.ReviewItem) bool { return r.Subject == "adding:c34" }) {
+		t.Error("a pending create is in the review queue")
+	}
+	ov, _ := s.Overview(ctx)
+	for _, c := range ov.Catalogues {
+		if c.Key == "messier" && c.Adding != 1 {
+			t.Errorf("messier being added %d", c.Adding)
+		}
+	}
+	s.AppDB.Model(&rec).Update("status", schedcmd.StatusApplied)
+	if e := m34(); e.Status != discover.CompletionAdding || !strings.Contains(e.Judged, "not synced") {
+		t.Errorf("applied but not synced %+v", e)
+	}
+	for _, q := range []string{
+		`INSERT INTO project ("Id", "profileId", name, state, minimumaltitude, "isMosaic", enablegrader, guid) VALUES (7, 'p', 'M 34', 1, 30, 0, 1, 'p34')`,
+		`INSERT INTO target ("Id", name, active, ra, dec, rotation, projectid, guid) VALUES (8, 'M 34', 1, 2.702055, 42.74614, 0, 7, 't34')`,
+	} {
+		if err := s.SchedDB.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := m34()
+	if e.Status != discover.CompletionNotStarted || !e.Scheduled || e.Adding != nil ||
+		!slices.ContainsFunc(e.Subjects, func(r discover.SubjectRef) bool { return r.Name == "M 34" && r.ProjectID == 7 }) {
+		t.Errorf("synced project %+v", e)
+	}
+	s.SchedDB.Exec(`DELETE FROM target WHERE "Id" = 8`)
+	s.SchedDB.Exec(`DELETE FROM project WHERE "Id" = 7`)
+	s.AppDB.Model(&rec).Update("status", schedcmd.StatusCancelled)
+	if e := m34(); e.Status != discover.CompletionNotStarted || e.Scheduled || e.Adding != nil {
+		t.Errorf("cancelled create %+v", e)
 	}
 }

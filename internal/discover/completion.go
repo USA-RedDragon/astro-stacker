@@ -22,6 +22,7 @@ const (
 	CompletionDone       = "done"
 	CompletionInProgress = "in-progress"
 	CompletionMeasuring  = "measuring"
+	CompletionAdding     = "being-added"
 	CompletionNotStarted = "not-started"
 
 	upTonightHours = 1.0
@@ -68,6 +69,7 @@ type CatalogueEntry struct {
 	Object    catalog.Object     `json:"object"`
 	Status    string             `json:"status"`
 	Judged    string             `json:"completionBasis"`
+	Adding    *Adding            `json:"adding,omitempty"`
 	ByGoal    bool               `json:"doneByGoal"`
 	Scheduled bool               `json:"scheduled"`
 	Tally     Tally              `json:"tally"`
@@ -86,6 +88,7 @@ type CatalogueSummary struct {
 	DoneCounts int    `json:"doneByCounts"`
 	InProgress int    `json:"inProgress"`
 	Measuring  int    `json:"measuring"`
+	Adding     int    `json:"beingAdded"`
 	NotStarted int    `json:"notStarted"`
 	Scheduled  int    `json:"scheduled"`
 	UpTonight  int    `json:"upTonight"`
@@ -189,10 +192,12 @@ func (snap *snapshot) linkTally(subj Subject, l Link) Tally {
 func completionRank(status string) int {
 	switch status {
 	case CompletionDone:
-		return 3
+		return 4
 	case CompletionMeasuring:
-		return 2
+		return 3
 	case CompletionInProgress:
+		return 2
+	case CompletionAdding:
 		return 1
 	}
 	return 0
@@ -214,6 +219,9 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 			targets = subj.Targets
 		}
 		completion, basis, byGoal := judge(t, subj.judged, targets)
+		if subj.Adding != nil {
+			completion, basis, byGoal = CompletionAdding, subj.Basis, false
+		}
 		ref := SubjectRef{Key: subj.Key, Name: subj.Name, ProjectID: subj.ProjectID, State: subj.StateName, Status: l.Status, Method: l.Method,
 			Basis: l.Basis, Coverage: l.Coverage, Why: l.Why, Tally: t, Completion: completion, Judged: basis,
 			Hours: math.Round(t.Hours*100) / 100}
@@ -237,7 +245,11 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 		}
 		if completionRank(ref.Completion) > completionRank(e.Status) {
 			e.Status, e.Judged, e.ByGoal = ref.Completion, ref.Judged, ref.DoneByGoal
+			e.Adding = subj.Adding
 		}
+	}
+	if e.Status != CompletionAdding {
+		e.Adding = nil
 	}
 	for f, h := range e.Hours {
 		e.Hours[f] = math.Round(h*100) / 100
@@ -324,6 +336,8 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 				sum.InProgress++
 			case CompletionMeasuring:
 				sum.Measuring++
+			case CompletionAdding:
+				sum.Adding++
 			default:
 				sum.NotStarted++
 				if e.Scheduled {
