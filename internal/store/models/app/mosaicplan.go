@@ -89,6 +89,12 @@ type MosaicSeam struct {
 	NoiseB      float64   `json:"noiseB"`
 	NoiseRatio  float64   `json:"noiseRatio"`
 	Samples     int       `json:"samples"`
+	StarMatches int       `gorm:"default:0" json:"starMatches"`
+	RegMedian   *float64  `json:"registrationMedianPx"`
+	RegP90      *float64  `json:"registrationP90Px"`
+	FluxRatio   *float64  `json:"starFluxRatio"`
+	Colour      *float64  `json:"colourMismatch"`
+	ColourRef   string    `json:"colourReference"`
 	OK          bool      `json:"ok"`
 	Problems    string    `gorm:"type:text" json:"problems"`
 	Signature   string    `json:"signature"`
@@ -104,6 +110,7 @@ type MosaicPanelHealth struct {
 	TargetGUID  string    `json:"targetGuid"`
 	Object      string    `json:"object"`
 	Noise       float64   `json:"noise"`
+	FluxScale   *float64  `json:"fluxScale"`
 	GapFraction float64   `json:"gapFraction"`
 	GapDeg2     float64   `json:"gapDeg2"`
 	GapWhere    string    `json:"gapWhere"`
