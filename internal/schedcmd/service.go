@@ -18,6 +18,17 @@ var (
 	ErrNotUndoable = errors.New("command cannot be undone")
 )
 
+type authorKey struct{}
+
+func WithAuthor(ctx context.Context, author string) context.Context {
+	return context.WithValue(ctx, authorKey{}, author)
+}
+
+func AuthorFrom(ctx context.Context) string {
+	a, _ := ctx.Value(authorKey{}).(string)
+	return a
+}
+
 type Transport interface {
 	Name() string
 	Send(ctx context.Context, e Envelope) (Result, error)
@@ -74,6 +85,7 @@ func (s *Service) Submit(ctx context.Context, kind Kind, payload json.RawMessage
 }
 
 func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage, author, undoOf string) (Record, error) {
+	ctx = WithAuthor(ctx, author)
 	spec, err := s.registry().Get(kind)
 	if err != nil {
 		return Record{}, err
