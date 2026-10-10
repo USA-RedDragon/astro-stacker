@@ -107,7 +107,7 @@ stacking:
   mosaic-quiet-minutes: 30
   # Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way
   mosaic-seams: true
-  # Camera pedestal in ADU, for scoring subs
+  # Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset
   pedestal: 506
   # Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile
   calibration-settle-minutes: 180
@@ -201,5 +201,7 @@ goals:
   interval-minutes: 30
   # Most registered subs read per measurement; a master with more uses a fixed random subset of this many
   max-subs: 200
+  # Masters measured at once, each using about one core; measurement waits while the stacker is working
+  workers: 3
   # Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on
   publish: "off"
