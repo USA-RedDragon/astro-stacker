@@ -41,6 +41,7 @@ type Service struct {
 	AppDB      *gorm.DB
 	Transports []Transport
 	Notify     func(Record)
+	Snapshot   Snapshot
 	Now        func() time.Time
 	NewID      func() string
 }
@@ -100,6 +101,7 @@ func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage
 	if err != nil {
 		return Record{}, err
 	}
+	desc.Diffs = s.fillBefore(ctx, kind, payload, desc.Diffs)
 	if fx, ok := spec.(AppSideEffect); ok && spec.Destination() != DestinationApp {
 		if err := fx.ApplyAppSide(ctx, s.AppDB, payload); err != nil {
 			return Record{}, err

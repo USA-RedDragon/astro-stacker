@@ -21,6 +21,7 @@ const (
 	entityTarget  = "target"
 	labelProject  = "Project"
 	fieldState    = "State"
+	fieldSkipped  = "Skipped"
 	mountTrack    = "track"
 	mountPark     = "park"
 	scopeTarget   = "target"
@@ -167,7 +168,7 @@ func SkipSpec() Spec {
 			return Description{
 				Title:   "Skip " + o.Name + " · " + skipFor(s),
 				Objects: []ObjectRef{o},
-				Diffs:   []Diff{{Object: o, Field: "Skipped", Before: quote("No"), After: quote(skipFor(s))}},
+				Diffs:   []Diff{{Object: o, Field: fieldSkipped, After: quote(skipFor(s))}},
 			}, nil
 		},
 		inverse: func(p json.RawMessage) (Kind, json.RawMessage, error) {
@@ -192,7 +193,7 @@ func UnskipSpec() Spec {
 			return Description{
 				Title:   "Stop skipping " + o.Name,
 				Objects: []ObjectRef{o},
-				Diffs:   []Diff{{Object: o, Field: "Skipped", Before: quote(skipFor(s)), After: quote("No")}},
+				Diffs:   []Diff{{Object: o, Field: fieldSkipped, After: quote("No")}},
 			}, nil
 		},
 		inverse: func(p json.RawMessage) (Kind, json.RawMessage, error) {
@@ -252,7 +253,7 @@ func PauseSpec() Spec {
 			return Description{
 				Title:   "Pause the scheduler",
 				Objects: []ObjectRef{schedulerObject()},
-				Diffs:   []Diff{{Object: schedulerObject(), Field: fieldState, Before: quote("Running"), After: quote(pauseLabel(s))}},
+				Diffs:   []Diff{{Object: schedulerObject(), Field: fieldState, After: quote(pauseLabel(s))}},
 			}, nil
 		},
 		inverse: func(json.RawMessage) (Kind, json.RawMessage, error) {
@@ -269,7 +270,7 @@ func ResumeSpec() Spec {
 			return Description{
 				Title:   "Resume the scheduler",
 				Objects: []ObjectRef{schedulerObject()},
-				Diffs:   []Diff{{Object: schedulerObject(), Field: fieldState, Before: quote("Paused"), After: quote("Running")}},
+				Diffs:   []Diff{{Object: schedulerObject(), Field: fieldState, After: quote("Running")}},
 			}, nil
 		},
 		inverse: func(json.RawMessage) (Kind, json.RawMessage, error) {
