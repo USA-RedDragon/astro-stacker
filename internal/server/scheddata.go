@@ -75,39 +75,64 @@ type tsTemplateRow struct {
 func (tsTemplateRow) TableName() string { return "exposuretemplate" }
 
 type SchedPlan struct {
-	ID              int     `json:"id"`
-	GUID            string  `json:"guid"`
-	Filter          string  `json:"filter"`
-	Template        string  `json:"template"`
-	Exposure        float64 `json:"exposure"`
-	DefaultExposure float64 `json:"defaultExposure"`
-	Desired         int     `json:"desired"`
-	Acquired        int     `json:"acquired"`
-	Accepted        int     `json:"accepted"`
-	Enabled         bool    `json:"enabled"`
+	ID              int      `json:"id"`
+	GUID            *string  `json:"guid"`
+	Filter          *string  `json:"filter"`
+	Template        *string  `json:"template"`
+	Exposure        *float64 `json:"exposure"`
+	ExposureSource  string   `json:"exposureSource,omitempty"`
+	PlanExposure    *float64 `json:"planExposure"`
+	DefaultExposure *float64 `json:"defaultExposure"`
+	Desired         *int     `json:"desired"`
+	Acquired        *int     `json:"acquired"`
+	Accepted        *int     `json:"accepted"`
+	Enabled         *bool    `json:"enabled"`
 }
 
 type SchedTarget struct {
 	ID       int         `json:"id"`
-	GUID     string      `json:"guid"`
+	GUID     *string     `json:"guid"`
 	Name     string      `json:"name"`
 	Active   bool        `json:"active"`
 	RA       *float64    `json:"ra"`
 	Dec      *float64    `json:"dec"`
-	Rotation float64     `json:"rotation"`
+	Rotation *float64    `json:"rotation"`
 	Plans    []SchedPlan `json:"plans"`
 }
 
 type SchedProject struct {
 	ID          int           `json:"id"`
-	GUID        string        `json:"guid"`
+	GUID        *string       `json:"guid"`
 	Name        string        `json:"name"`
-	State       int           `json:"state"`
-	Priority    int           `json:"priority"`
-	MinimumTime int           `json:"minimumtime"`
+	State       *int          `json:"state"`
+	Priority    *int          `json:"priority"`
+	MinimumTime *int          `json:"minimumtime"`
 	IsMosaic    bool          `json:"isMosaic"`
 	Targets     []SchedTarget `json:"targets"`
 	LastImage   *time.Time    `json:"lastImage,omitempty"`
+}
+
+const (
+	exposureFromPlan     = "plan"
+	exposureFromTemplate = "template"
+)
+
+func effectiveExposure(plan, template *float64) (*float64, string) {
+	if plan != nil && *plan > 0 {
+		return plan, exposureFromPlan
+	}
+	if template != nil {
+		return template, exposureFromTemplate
+	}
+	return nil, ""
+}
+
+func intBool(v *int) *bool {
+	if v == nil {
+		return nil
+	}
+	b := *v != 0
+	return &b
 }
 
 func deref[T any](p *T) T {
@@ -171,18 +196,17 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, error)
 		if p.TargetID == nil {
 			continue
 		}
-		t := tmpl[deref(p.TemplateID)]
-		exp := p.Exposure
-		if exp == nil {
-			v := -1.0
-			exp = &v
+		sp := SchedPlan{
+			ID: p.ID, GUID: p.GUID, PlanExposure: p.Exposure,
+			Desired: p.Desired, Acquired: p.Acquired, Accepted: p.Accepted, Enabled: intBool(p.Enabled),
 		}
-		plansBy[*p.TargetID] = append(plansBy[*p.TargetID], SchedPlan{
-			ID: p.ID, GUID: deref(p.GUID), Filter: t.FilterName, Template: t.Name,
-			Exposure: *exp, DefaultExposure: deref(t.DefaultExposure),
-			Desired: deref(p.Desired), Acquired: deref(p.Acquired), Accepted: deref(p.Accepted),
-			Enabled: p.Enabled == nil || *p.Enabled != 0,
-		})
+		if p.TemplateID != nil {
+			if t, ok := tmpl[*p.TemplateID]; ok {
+				sp.Filter, sp.Template, sp.DefaultExposure = &t.FilterName, &t.Name, t.DefaultExposure
+			}
+		}
+		sp.Exposure, sp.ExposureSource = effectiveExposure(p.Exposure, sp.DefaultExposure)
+		plansBy[*p.TargetID] = append(plansBy[*p.TargetID], sp)
 	}
 	targetsBy := map[int][]SchedTarget{}
 	for _, t := range targets {
@@ -194,8 +218,8 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, error)
 			ps = []SchedPlan{}
 		}
 		targetsBy[*t.ProjectID] = append(targetsBy[*t.ProjectID], SchedTarget{
-			ID: t.ID, GUID: deref(t.GUID), Name: t.Name, Active: t.Active != 0,
-			RA: t.RA, Dec: t.Dec, Rotation: deref(t.Rotation), Plans: ps,
+			ID: t.ID, GUID: t.GUID, Name: t.Name, Active: t.Active != 0,
+			RA: t.RA, Dec: t.Dec, Rotation: t.Rotation, Plans: ps,
 		})
 	}
 	lastBy := map[int]time.Time{}
@@ -222,8 +246,8 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, error)
 			ts = []SchedTarget{}
 		}
 		sp := SchedProject{
-			ID: p.ID, GUID: deref(p.GUID), Name: p.Name, State: deref(p.State), Priority: deref(p.Priority),
-			MinimumTime: deref(p.MinimumTime), IsMosaic: p.IsMosaic != 0, Targets: ts,
+			ID: p.ID, GUID: p.GUID, Name: p.Name, State: p.State, Priority: p.Priority,
+			MinimumTime: p.MinimumTime, IsMosaic: p.IsMosaic != 0, Targets: ts,
 		}
 		if l, ok := lastBy[p.ID]; ok {
 			sp.LastImage = &l
@@ -234,14 +258,14 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, error)
 }
 
 type tonightMeta struct {
-	FileName            string        `json:"FileName"`
-	ExposureDuration    quality.Float `json:"ExposureDuration"`
-	HFR                 quality.Float `json:"HFR"`
-	GuidingRMS          quality.Float `json:"GuidingRMS"`
-	GuidingRMSArcSec    quality.Float `json:"GuidingRMSArcSec"`
-	GuidingRMSRAArcSec  quality.Float `json:"GuidingRMSRAArcSec"`
-	GuidingRMSDECArcSec quality.Float `json:"GuidingRMSDECArcSec"`
-	DetectedStars       quality.Float `json:"DetectedStars"`
+	FileName            string         `json:"FileName"`
+	ExposureDuration    quality.Float  `json:"ExposureDuration"`
+	HFR                 quality.Float  `json:"HFR"`
+	GuidingRMS          quality.Float  `json:"GuidingRMS"`
+	GuidingRMSArcSec    quality.Float  `json:"GuidingRMSArcSec"`
+	GuidingRMSRAArcSec  quality.Float  `json:"GuidingRMSRAArcSec"`
+	GuidingRMSDECArcSec quality.Float  `json:"GuidingRMSDECArcSec"`
+	DetectedStars       *quality.Float `json:"DetectedStars"`
 }
 
 type TonightSub struct {
@@ -388,6 +412,17 @@ func finite(f quality.Float) *float64 {
 	return &v
 }
 
+func number(f *quality.Float) *float64 {
+	if f == nil {
+		return nil
+	}
+	v := float64(*f)
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return nil
+	}
+	return &v
+}
+
 func gradingName(s int) string {
 	switch s {
 	case quality.GradingAccepted:
@@ -438,7 +473,7 @@ func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, since time.Time
 			s.File = m.FileName[strings.LastIndexAny(m.FileName, `\/`)+1:]
 			s.Exposure = finite(m.ExposureDuration)
 			s.HFR = finite(m.HFR)
-			s.Stars = finite(m.DetectedStars)
+			s.Stars = number(m.DetectedStars)
 			s.GuidingRMS = finite(m.GuidingRMSArcSec)
 			s.GuidingRMSRA = finite(m.GuidingRMSRAArcSec)
 			s.GuidingRMSDec = finite(m.GuidingRMSDECArcSec)

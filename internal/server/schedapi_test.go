@@ -202,18 +202,22 @@ func schedulerTables(t *testing.T, db *gorm.DB) {
 
 func checkSadr(t *testing.T, p server.SchedProject, last time.Time) {
 	t.Helper()
-	if p.Name != sadr || !p.IsMosaic || p.Priority != 2 || p.State != 1 || p.MinimumTime != 30 || len(p.Targets) != 2 || p.LastImage == nil || !p.LastImage.Equal(last) {
+	if p.Name != sadr || !p.IsMosaic || *p.Priority != 2 || *p.State != 1 || *p.MinimumTime != 30 || len(p.Targets) != 2 || p.LastImage == nil || !p.LastImage.Equal(last) {
 		t.Fatalf("project %+v", p)
 	}
 	tg := p.Targets[0]
 	if tg.Name != targetP15 || !tg.Active || tg.RA == nil || *tg.RA != 20.04 || len(tg.Plans) != 2 {
 		t.Fatalf("target %+v", tg)
 	}
-	if pl := tg.Plans[0]; pl.Filter != "R" || pl.Exposure != -1 || pl.DefaultExposure != 600 || pl.Desired != 20 || pl.Accepted != 4 || !pl.Enabled {
+	if pl := tg.Plans[0]; *pl.Filter != "R" || *pl.Exposure != 600 || pl.ExposureSource != "template" || *pl.PlanExposure != -1 ||
+		*pl.DefaultExposure != 600 || *pl.Desired != 20 || *pl.Accepted != 4 || !*pl.Enabled {
 		t.Fatalf("plan %+v", pl)
 	}
-	if pl := tg.Plans[1]; pl.Filter != "Ha" || pl.Exposure != 120 || pl.Enabled {
+	if pl := tg.Plans[1]; *pl.Filter != "Ha" || *pl.Exposure != 120 || pl.ExposureSource != "plan" || *pl.Enabled {
 		t.Fatalf("plan %+v", pl)
+	}
+	if tg.Rotation == nil || *tg.Rotation != 0 {
+		t.Fatalf("rotation %v", tg.Rotation)
 	}
 	if p.Targets[1].Active || len(p.Targets[1].Plans) != 0 {
 		t.Fatalf("panel 12 %+v", p.Targets[1])
