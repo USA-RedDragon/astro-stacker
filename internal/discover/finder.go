@@ -226,7 +226,7 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) 
 		rows = append(rows, FinderRow{
 			Object: o, Group: g, Fit: fit, Brightness: label, BrightScore: bright, Narrowband: halpha.Label(ha), HAlpha: ha,
 			Months: months, BestMonths: best, Tonight: n.HoursAbove(o.RA, o.Dec, minAlt), Score: math.Round(score*1000) / 1000,
-			Rotation: o.PA, CatalogGap: gap,
+			Rotation: fit.Rotation(o.PA), CatalogGap: gap,
 		})
 	}
 	s.mu.Lock()
