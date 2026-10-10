@@ -273,3 +273,15 @@ func TestGoalDrivenPlansIgnoreDesired(t *testing.T) {
 		t.Fatalf("at the stacker's minimum the plan waits for the measurement: %+v %+v", pl, p2.Goals[0].Readiness)
 	}
 }
+
+func TestTwilightNameKeepsUnsetUnset(t *testing.T) {
+	t.Parallel()
+	if twilightName(nil) != nil {
+		t.Error("an unset twilight level got a name")
+	}
+	for v, want := range map[int]string{0: "Nighttime", 1: "Astronomical", 2: "Nautical", 3: "Civil", 7: "Unknown level 7"} {
+		if got := twilightName(&v); got == nil || *got != want {
+			t.Errorf("%d: %v, want %s", v, got, want)
+		}
+	}
+}

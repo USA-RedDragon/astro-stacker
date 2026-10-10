@@ -3,6 +3,7 @@ package planning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"sort"
@@ -14,8 +15,6 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
-
-const nighttime = "Nighttime"
 
 func Priorities() []string { return []string{"Low", "Normal", "High"} }
 
@@ -169,7 +168,7 @@ type Template struct {
 	Gain            *int    `json:"gain"`
 	Offset          *int    `json:"offset"`
 	Bin             *int    `json:"bin"`
-	TwilightLevel   string  `json:"twilight"`
+	TwilightLevel   *string `json:"twilight"`
 	MoonEnabled     bool    `json:"moonEnabled"`
 	MoonSeparation  float64 `json:"moonSeparation"`
 	MoonWidth       int     `json:"moonWidth"`
@@ -208,21 +207,22 @@ type Snapshot struct {
 	Defaults  Defaults        `json:"defaults"`
 }
 
-func twilightName(v *int) string {
+func twilightName(v *int) *string {
 	if v == nil {
-		return nighttime
+		return nil
 	}
+	name := fmt.Sprintf("Unknown level %d", *v)
 	switch *v {
 	case 0:
-		return nighttime
+		name = "Nighttime"
 	case 1:
-		return "Astronomical"
+		name = "Astronomical"
 	case 2:
-		return "Nautical"
+		name = "Nautical"
 	case 3:
-		return "Civil"
+		name = "Civil"
 	}
-	return nighttime
+	return &name
 }
 
 func label(list []string, i int) string {
