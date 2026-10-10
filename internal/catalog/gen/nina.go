@@ -7,6 +7,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/glebarez/sqlite"
@@ -61,10 +63,26 @@ func compact(s string) string {
 	return strings.Join(strings.Fields(s), "")
 }
 
+func splitDesignation(cat, d string) (string, bool) {
+	r, _ := utf8.DecodeRuneInString(d)
+	if !unicode.IsLower(r) {
+		return "", false
+	}
+	word, rest, _ := strings.Cut(d, " ")
+	rest = strings.Join(strings.Fields(rest), " ")
+	if strings.HasSuffix(cat, word) {
+		return strings.TrimSpace(cat + " " + rest), true
+	}
+	return strings.TrimSpace(cat + word + " " + rest), true
+}
+
 func ninaDesignationName(cat, d, typ string) string {
 	d = strings.TrimSpace(d)
 	if d == "" {
 		return ""
+	}
+	if joined, ok := splitDesignation(cat, d); ok {
+		return joined
 	}
 	prefix := map[string]string{
 		"NGC": "NGC ", "IC": "IC ", "UGC": pUGC, "Caldwell": "C ", "Sh2": pSh2, "Barnard": "B ", "LDN": pLDN, "LBN": pLBN,
@@ -91,7 +109,7 @@ func ninaDesignationName(cat, d, typ string) string {
 		return "M " + d
 	case "Abell":
 		if typ == "GALCL" {
-			return "ACO " + d
+			return pACO + d
 		}
 		return "Abell " + d
 	}
@@ -107,7 +125,7 @@ func ninaDesignationName(cat, d, typ string) string {
 }
 
 func designationRank(d string) int {
-	for i, p := range []string{"M ", "NGC ", "IC ", pSh2, "C ", "B ", pLBN, pLDN, pVdB, pArp, pHCG, "Abell ", "ACO ", pCr, pMel, pPK, pUGC} {
+	for i, p := range []string{"M ", "Mkn ", "NGC ", "IC ", pSh2, "C ", "B ", pLBN, pLDN, pVdB, pArp, pHCG, "Abell ", pACO, pCr, pMel, pPK, pUGC} {
 		if strings.HasPrefix(d, p) && (p != "M " || !strings.Contains(d, "-")) {
 			return i
 		}
@@ -164,6 +182,9 @@ func (b *builder) ninaOverlay(path, out string) error {
 			ov.Objects = append(ov.Objects, *o)
 			added++
 		}
+	}
+	if err := fixOverlayNames(&ov); err != nil {
+		return err
 	}
 	data, err := json.Marshal(ov)
 	if err != nil {

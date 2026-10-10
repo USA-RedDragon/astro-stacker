@@ -48,6 +48,7 @@ const (
 	pCed   = "Ced "
 	pGum   = "Gum "
 	pVdB   = "vdB "
+	pACO   = "ACO "
 	catNGC = "NGC"
 )
 
@@ -58,6 +59,7 @@ func main() {
 	nina := flag.String("nina", "", "NINA.sqlite from a N.I.N.A. install, for the atlas overlay")
 	ninaOut := flag.String("nina-out", "internal/catalog/data/nina.json.zst", "atlas overlay output file")
 	cache := flag.String("cache", "", "directory to cache downloads in")
+	audit := flag.Bool("audit", false, "check every nickname against SIMBAD and fail on unreviewed mismatches")
 	flag.Parse()
 	b := newBuilder(*cache)
 	if err := b.build(context.Background()); err != nil {
@@ -68,6 +70,21 @@ func main() {
 	}
 	if *nina != "" {
 		if err := b.ninaOverlay(*nina, *ninaOut); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if *audit {
+		overlay := *ninaOut
+		if *nina == "" && overlay != "" {
+			if _, err := os.Stat(overlay); err != nil {
+				overlay = ""
+			}
+		}
+		objs, err := loadBuilt(*out, overlay)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := b.auditNames(context.Background(), objs); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -277,6 +294,9 @@ func (b *builder) build(ctx context.Context) error {
 		}
 	}
 	if err := b.curated(); err != nil {
+		return err
+	}
+	if err := b.fixNames(); err != nil {
 		return err
 	}
 	b.finalize()
@@ -779,7 +799,7 @@ func (b *builder) green(ctx context.Context) error {
 			o.MinorArcmin = o.MajorArcmin
 		}
 		for nm := range strings.SplitSeq(t.get(r, "Names"), ",") {
-			nm = strings.Trim(strings.TrimSpace(nm), "()")
+			nm = greenName(nm)
 			if nm == "" {
 				continue
 			}
@@ -1052,4 +1072,15 @@ func fromUnit(x, y, z float64) (float64, float64) {
 
 func sep(ra1, dec1, ra2, dec2 float64) float64 {
 	return catalog.Separation(ra1, dec1, ra2, dec2)
+}
+
+func greenName(nm string) string {
+	nm = strings.TrimSpace(nm)
+	if strings.HasPrefix(nm, "(") && strings.HasSuffix(nm, ")") {
+		nm = strings.TrimSpace(nm[1 : len(nm)-1])
+	}
+	if i := strings.Index(nm, "("); i > 0 && strings.HasSuffix(nm, ")") {
+		nm = strings.TrimSpace(nm[:i])
+	}
+	return strings.Trim(nm, "() ")
 }
