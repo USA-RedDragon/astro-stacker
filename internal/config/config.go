@@ -158,6 +158,7 @@ type HTTP struct {
 	Bind           string   `name:"bind" description:"Address to listen on" default:"[::]"`
 	Port           int      `name:"port" description:"Port to listen on" default:"8080"`
 	TrustedProxies []string `name:"trusted-proxies" description:"Trusted proxies for the HTTP server"`
+	WebURL         string   `name:"web-url" description:"The web app that the old web UI paths redirect to" default:"https://astro-processing.jackal-stargazer.ts.net"`
 }
 
 type Metrics struct {
