@@ -41,9 +41,9 @@ type Tonight struct {
 	Hours        float64    `json:"hours"`
 	Start        *time.Time `json:"start,omitempty"`
 	End          *time.Time `json:"end,omitempty"`
-	PeakAlt      float64    `json:"peakAlt"`
+	PeakAlt      *float64   `json:"peakAlt"`
 	PeakAt       *time.Time `json:"peakAt,omitempty"`
-	MoonSep      float64    `json:"moonSeparation"`
+	MoonSep      *float64   `json:"moonSeparation"`
 	MoonIllum    float64    `json:"moonIllumination"`
 	SiteResolved bool       `json:"siteResolved"`
 }
@@ -97,14 +97,22 @@ func (s *Service) minAlt() float64 {
 	return 30
 }
 
+func round1(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	r := math.Round(*v*10) / 10
+	return &r
+}
+
 func (s *Service) tonightFor(n *sky.Night, o catalog.Object) *Tonight {
 	if n == nil {
 		return nil
 	}
 	w := n.Window(o.RA, o.Dec, s.minAlt())
 	return &Tonight{
-		Up: w.Hours >= upTonightHours, Hours: w.Hours, Start: w.Start, End: w.End, PeakAlt: math.Round(w.PeakAlt*10) / 10, PeakAt: w.PeakAt,
-		MoonSep: math.Round(n.MoonSeparation(o.RA, o.Dec)*10) / 10, MoonIllum: math.Round(n.MoonIllumination()*100) / 100, SiteResolved: true,
+		Up: w.Hours >= upTonightHours, Hours: w.Hours, Start: w.Start, End: w.End, PeakAlt: round1(w.PeakAlt), PeakAt: w.PeakAt,
+		MoonSep: round1(n.MoonSeparation(o.RA, o.Dec)), MoonIllum: math.Round(n.MoonIllumination()*100) / 100, SiteResolved: true,
 	}
 }
 

@@ -94,11 +94,12 @@ func (s Site) NightOf(t time.Time, step time.Duration) Night {
 			n.lsts = append(n.lsts, LST(a, s.Longitude))
 		}
 	}
+	mid := start.Add(12 * time.Hour)
 	if len(n.Dark) > 0 {
-		mid := n.Dark[len(n.Dark)/2]
-		n.moonMid = moon.At(mid)
-		n.moonFrac = Illumination(n.moonMid.Age)
+		mid = n.Dark[len(n.Dark)/2]
 	}
+	n.moonMid = moon.At(mid)
+	n.moonFrac = Illumination(n.moonMid.Age)
 	return n
 }
 
@@ -112,29 +113,29 @@ func (n Night) DarkHours() float64 {
 
 func (n Night) MoonIllumination() float64 { return n.moonFrac }
 
-func (n Night) MoonSeparation(ra, dec float64) float64 {
+func (n Night) MoonSeparation(ra, dec float64) *float64 {
 	if len(n.Dark) == 0 {
-		return 180
+		return nil
 	}
-	return n.moonMid.Separation(ra, dec)
+	d := n.moonMid.Separation(ra, dec)
+	return &d
 }
 
 type Window struct {
 	Hours   float64    `json:"hours"`
 	Start   *time.Time `json:"start,omitempty"`
 	End     *time.Time `json:"end,omitempty"`
-	PeakAlt float64    `json:"peakAlt"`
+	PeakAlt *float64   `json:"peakAlt"`
 	PeakAt  *time.Time `json:"peakAt,omitempty"`
 }
 
 func (n Night) Window(ra, dec, minAlt float64) Window {
 	var w Window
-	w.PeakAlt = -90
 	count := 0
 	for i, lst := range n.lsts {
 		alt := AltitudeAtLST(ra, dec, n.site.Latitude, lst)
-		if alt > w.PeakAlt {
-			w.PeakAlt = alt
+		if w.PeakAlt == nil || alt > *w.PeakAlt {
+			w.PeakAlt = &alt
 			at := n.Dark[i]
 			w.PeakAt = &at
 		}
