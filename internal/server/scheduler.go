@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +24,7 @@ func (unconfiguredStatus) Status() any { return gin.H{"reachable": "unconfigured
 type Extras struct {
 	Commands  *schedcmd.Service
 	Scheduler SchedulerStatusSource
+	Mosaics   *mosaicplan.Service
 }
 
 func applySchedulerRoutes(g *gin.RouterGroup, x Extras) {
