@@ -15,6 +15,7 @@ const (
 	defaultOverlap     = 15.0
 	defaultMinAltitude = 30.0
 	sourceRequest      = "request"
+	sourceDefault      = "default"
 	sourceTargets      = "median effective hours of your targets"
 )
 
@@ -40,7 +41,7 @@ type FramingRequest struct {
 	Cols          int      `json:"cols,omitempty"`
 	Brick         bool     `json:"brick,omitempty"`
 	HoursPerPanel float64  `json:"hoursPerPanel,omitempty"`
-	MinAltitude   float64  `json:"minAltitude,omitempty"`
+	MinAltitude   *float64 `json:"minAltitude,omitempty"`
 }
 
 type FramingOption struct {
@@ -58,6 +59,10 @@ type Framing struct {
 	Rotation          float64         `json:"rotation"`
 	SuggestedRotation float64         `json:"suggestedRotation"`
 	Overlap           float64         `json:"overlap"`
+	OverlapDefault    float64         `json:"overlapDefault"`
+	OverlapSource     string          `json:"overlapSource"`
+	MinAltitude       float64         `json:"minAltitude"`
+	MinAltitudeSource string          `json:"minAltitudeSource"`
 	NightHours        *float64        `json:"nightHours"`
 	Basis             FramingBasis    `json:"basis"`
 	BestMonths        []string        `json:"bestMonths"`
@@ -79,19 +84,20 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 	if err != nil {
 		return Framing{}, err
 	}
-	out := Framing{Rig: rig, RigInfo: info, Overlap: defaultOverlap, BestMonths: []string{}}
+	out := Framing{Rig: rig, RigInfo: info, Overlap: defaultOverlap, OverlapDefault: defaultOverlap, OverlapSource: sourceDefault,
+		MinAltitude: defaultMinAltitude, MinAltitudeSource: sourceDefault, BestMonths: []string{}}
 	if req.Overlap != nil {
-		out.Overlap = math.Max(0, math.Min(50, *req.Overlap))
+		out.Overlap, out.OverlapSource = math.Max(0, math.Min(50, *req.Overlap)), sourceRequest
 	}
 	out.SuggestedRotation = mosaics.SuggestRotation(o, out.Overlap, rig)
 	out.Rotation = out.SuggestedRotation
 	if req.Rotation != nil {
 		out.Rotation = math.Mod(math.Mod(*req.Rotation, 180)+180, 180)
 	}
-	minAlt := req.MinAltitude
-	if minAlt <= 0 {
-		minAlt = defaultMinAltitude
+	if req.MinAltitude != nil {
+		out.MinAltitude, out.MinAltitudeSource = math.Max(0, math.Min(89, *req.MinAltitude)), sourceRequest
 	}
+	minAlt := out.MinAltitude
 	var months [12]float64
 	if s.Site != nil {
 		if site, ok := s.Site(ctx); ok {
@@ -109,13 +115,13 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 			})
 			var sum float64
 			for _, m := range idx[:3] {
-				sum += months[m]
 				if months[m] >= usableMonthly {
+					sum += months[m]
 					out.BestMonths = append(out.BestMonths, time.Month(m + 1).String()[:3])
 				}
 			}
-			if sum > 0 {
-				nh := math.Round(sum/3*10) / 10
+			if len(out.BestMonths) > 0 {
+				nh := math.Round(sum/float64(len(out.BestMonths))*10) / 10
 				out.NightHours = &nh
 			}
 		}
