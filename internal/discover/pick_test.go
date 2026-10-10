@@ -419,3 +419,24 @@ func TestPickGalaxyAddsHAlphaWithoutForegroundHours(t *testing.T) {
 		t.Errorf("H-α hours %+v", h)
 	}
 }
+
+func TestPickClassFromCatalogueCrossMatch(t *testing.T) {
+	t.Parallel()
+	s, _ := pickFixture(t)
+	p, err := s.Pick(context.Background(), "NGC 7023", pickPlans())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Class != discover.ClassReflection || p.Palette != discover.PaletteLRGB || p.NoPick != "" ||
+		p.ClassBasis != "reflection nebula: listed as vdB 139 (van den Bergh 1966, a catalogue of reflection nebulae), 0.4′ from its centre" {
+		t.Fatalf("pick %+v", p)
+	}
+	p, err = s.Pick(context.Background(), "IC 4628", pickPlans())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Class != "" || p.Palette != "" || len(p.Filters) != 0 || !strings.Contains(p.NoPick, "emission or a reflection nebula") ||
+		!strings.HasPrefix(p.Reason, "nebula: emission or reflection is not known: OpenNGC") {
+		t.Fatalf("pick %+v", p)
+	}
+}

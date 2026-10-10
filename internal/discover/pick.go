@@ -101,6 +101,7 @@ type ExposurePick struct {
 	Object     catalog.Object `json:"object"`
 	Class      string         `json:"class"`
 	ClassLabel string         `json:"classLabel"`
+	ClassBasis string         `json:"classBasis"`
 	Palette    string         `json:"palette"`
 	Reason     string         `json:"reason"`
 	NoPick     string         `json:"noPick,omitempty"`
@@ -116,7 +117,7 @@ type ExposurePick struct {
 
 func PickClass(t string) (class, label string) {
 	switch t {
-	case catalog.TypeEmission, catalog.TypeNebula:
+	case catalog.TypeEmission:
 		return ClassEmission, "emission nebula"
 	case catalog.TypeClusterNebula:
 		return ClassEmission, "cluster with nebula"
@@ -698,10 +699,18 @@ func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot)
 	_, info := s.rig(ctx)
 	out := ExposurePick{Object: o, HAlphaMap: hst, Rules: []PickRule{}, Filters: []PickFilter{}, Missing: []string{}, GoalSNR: goals.DefaultSNRGoal, Value: s.skyValue(ctx)}
 	out.Class, out.ClassLabel = PickClass(o.Type)
+	if o.TypeBasis != "" {
+		out.ClassBasis = out.ClassLabel + ": " + o.TypeBasis
+	}
 	if smp, ok := hmap.Sample(o.RA, o.Dec, o.MajorArcmin/120); ok {
 		out.HAlpha = &smp
 	}
 	fam := Family(out.Class)
+	if o.Type == catalog.TypeNebula {
+		out.Reason = out.ClassBasis
+		out.NoPick = "the catalogue does not say whether it is an emission or a reflection nebula; choose a set"
+		return out, nil
+	}
 	if fam == "" {
 		out.NoPick = fmt.Sprintf("no filter rule for %s objects; choose a set", o.Type)
 		return out, nil

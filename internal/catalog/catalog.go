@@ -10,6 +10,7 @@ type Object struct {
 	Designation string   `json:"designation"`
 	Name        string   `json:"name"`
 	Type        string   `json:"type"`
+	TypeBasis   string   `json:"typeBasis,omitempty"`
 	Aliases     []string `json:"aliases"`
 	RA          float64  `json:"ra"`
 	Dec         float64  `json:"dec"`
