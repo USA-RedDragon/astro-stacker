@@ -4,6 +4,22 @@ export type Reachability = 'unknown' | 'online' | 'offline' | 'unconfigured'
 
 export type SchedulerState = 'imaging' | 'waiting' | 'paused' | 'idle' | 'stopped'
 
+export type SchedulerActivity =
+  | 'preparing'
+  | 'slewing'
+  | 'centering'
+  | 'focusing'
+  | 'guiding'
+  | 'dithering'
+  | 'meridian_flip'
+  | 'switching_filter'
+  | 'waiting'
+  | 'starting_exposure'
+  | 'exposing'
+  | 'downloading'
+  | 'saving'
+  | 'busy'
+
 export interface RuleScore {
   rule: string
   weight: number
@@ -61,6 +77,9 @@ export interface SchedulerStatus {
   target?: SchedulerTarget | null
   exposure?: SchedulerExposure | null
   wait?: { until?: string; target_name?: string } | null
+  activity?: SchedulerActivity | string | null
+  activity_detail?: string | null
+  activity_since?: string | null
   scores?: RuleScore[] | null
   score_total?: number | null
   skips?: SchedulerSkip[] | null

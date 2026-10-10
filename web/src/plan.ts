@@ -629,12 +629,10 @@ export function pausePayload(mount: 'track' | 'park', resume: ResumeMode, at: st
   return p
 }
 
-export function historyBadge(r: Pick<CommandRecord, 'status' | 'applies_at' | 'applied_at'>, exposureEnd: string): { label: string; tone: Tone } {
+export function historyBadge(r: Pick<CommandRecord, 'status' | 'applied_at'>, applies: string): { label: string; tone: Tone } {
   switch (r.status) {
-    case 'pending': {
-      const at = r.applies_at ? hm(r.applies_at) : exposureEnd
-      return { label: at ? 'Applies at ' + at : 'Applies at the next plan', tone: 'info' }
-    }
+    case 'pending':
+      return { label: 'Applies ' + (applies || 'at the next plan'), tone: 'info' }
     case 'queued':
       return { label: 'Queued · PC unreachable', tone: 'warn' }
     case 'applied':

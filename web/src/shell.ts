@@ -9,6 +9,7 @@ import {
   type CommandRecord,
 } from './api/commands'
 import { getSchedulerStatus, type SchedulerStatus } from './api/scheduler'
+import { applyPhrase, liveExposureEnd } from './activity'
 import { hm } from './format'
 
 export interface Toast {
@@ -40,13 +41,15 @@ export function closeToast() {
 }
 
 export function exposureEnd(): string {
-  const e = shell.scheduler.exposure
-  return e?.ends_at ? hm(e.ends_at) : ''
+  return hm(liveExposureEnd(shell.scheduler, shell.now))
 }
 
-export function whenApplies(r: Pick<CommandRecord, 'applies_at'>): string {
-  if (r.applies_at) return hm(r.applies_at)
-  return exposureEnd() || 'the next plan'
+export function whenApplies(r?: Pick<CommandRecord, 'applies_at'>): string {
+  return applyPhrase(shell.scheduler, r?.applies_at, shell.now)
+}
+
+function pendingSub(when: string): string {
+  return when.startsWith('at ') && exposureEnd() ? `Applies ${when}, when the current exposure ends.` : `Applies ${when}.`
 }
 
 export function queuedText(): string {
@@ -73,7 +76,7 @@ export function describeOutcome(r: CommandRecord): { sub: string; tone?: Toast['
     case 'queued':
       return { sub: queuedText(), tone: shell.scheduler.reachable === 'offline' ? 'warn' : undefined }
     case 'pending':
-      return { sub: `Applies at ${whenApplies(r)}, when the current exposure ends.` }
+      return { sub: pendingSub(whenApplies(r)) }
     case 'applied':
       return { sub: 'Applied by the scheduler.', tone: 'ok' }
     case 'cancelled':
@@ -188,9 +191,9 @@ export function indicator() {
   }
   if (pending.length || queued.length) {
     const n = pending.length + queued.length
-    const at = exposureEnd()
+    const at = whenApplies(pending.length === 1 ? pending[0] : undefined)
     return {
-      label: `${n} ${n === 1 ? 'change applies' : 'changes apply'}${at ? ' at ' + at : ' at the next plan'}`,
+      label: `${n} ${n === 1 ? 'change applies' : 'changes apply'} ${at}`,
       dot: 'var(--warn)',
       tone: 'var(--warn)',
       bg: 'var(--warn-bg)',

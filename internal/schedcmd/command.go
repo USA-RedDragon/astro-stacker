@@ -72,6 +72,7 @@ type Result struct {
 	Detail    json.RawMessage `json:"detail,omitempty"`
 	AppliesAt *time.Time      `json:"applies_at,omitempty"`
 	UpdatedAt time.Time       `json:"updated_at"`
+	Untimed   bool            `json:"-"`
 }
 
 type ObjectRef struct {

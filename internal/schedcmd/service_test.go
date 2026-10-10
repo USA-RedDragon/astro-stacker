@@ -320,3 +320,31 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		}
 	}
 }
+
+func TestPendingResultsCarryTheLatestApplyTime(t *testing.T) {
+	t.Parallel()
+	api := &fakeTransport{name: apiName, up: true, status: schedcmd.StatusPending}
+	s := newService(t, api)
+	ctx := context.Background()
+	r, _ := s.Submit(ctx, schedcmd.KindReplan, nil, author)
+	if r.AppliesAt != nil {
+		t.Fatalf("applies_at %v before any exposure", r.AppliesAt)
+	}
+	end := time.Date(2026, 10, 10, 2, 49, 21, 0, time.UTC)
+	got, _ := s.ApplyResult(ctx, schedcmd.Result{ID: r.ID, Status: schedcmd.StatusPending, AppliesAt: &end})
+	if got.AppliesAt == nil || !got.AppliesAt.Equal(end) {
+		t.Fatalf("applies_at %v, want %v", got.AppliesAt, end)
+	}
+	got, _ = s.ApplyResult(ctx, schedcmd.Result{ID: r.ID, Status: schedcmd.StatusPending, Untimed: true})
+	if got.AppliesAt == nil || !got.AppliesAt.Equal(end) {
+		t.Fatalf("an untimed queue result cleared applies_at: %v", got.AppliesAt)
+	}
+	got, _ = s.ApplyResult(ctx, schedcmd.Result{ID: r.ID, Status: schedcmd.StatusPending, Message: "Applies once the current exposure is downloaded and saved."})
+	if got.AppliesAt != nil {
+		t.Fatalf("applies_at %v kept after the exposure ended", got.AppliesAt)
+	}
+	got, _ = s.ApplyResult(ctx, schedcmd.Result{ID: r.ID, Status: schedcmd.StatusApplied})
+	if got.Status != schedcmd.StatusApplied {
+		t.Fatalf("got %s", got.Status)
+	}
+}

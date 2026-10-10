@@ -436,7 +436,7 @@ const canNext = computed(() => {
 
 const applyLine = computed(() => {
   const r = created.value?.record
-  if (r) return r.status === 'queued' ? queuedText() : `It reaches the scheduler at ${whenApplies(r)}.`
+  if (r) return r.status === 'queued' ? queuedText() : `It reaches the scheduler ${whenApplies(r)}.`
   return 'It is created through the scheduler, which allocates the ids, and applies when the current exposure ends.'
 })
 

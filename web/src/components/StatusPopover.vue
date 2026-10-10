@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { shell, cancel, exposureEnd } from '../shell'
+import { shell, cancel, whenApplies } from '../shell'
+import { activityLine, liveExposureEnd } from '../activity'
 import { ago, hm, mmss } from '../format'
 
 const router = useRouter()
@@ -25,14 +26,18 @@ const connLabel = computed(() => {
 const exposureLine = computed(() => {
   const e = s.value.exposure
   if (s.value.paused) return 'Paused · no exposure running'
-  if (!e || !e.ends_at) return s.value.state ? s.value.state : 'No exposure running'
+  if (!e || !e.ends_at || !liveExposureEnd(s.value, shell.now)) {
+    const line = activityLine(s.value, shell.now)
+    if (line) return line + ' · no exposure running'
+    return s.value.state ? s.value.state : 'No exposure running'
+  }
   const left = (new Date(e.ends_at).getTime() - shell.now) / 1000
   const n = e.number ? 'Exposure ' + e.number + ' · ' : ''
   return `${n}${e.filter} ${Math.round(e.seconds)} s · ends ${hm(e.ends_at)} (${mmss(left)} left)`
 })
 
 const when = (r: { status: string; created_at: string; applies_at?: string }) =>
-  r.status === 'queued' ? 'queued ' + hm(r.created_at) : 'applies ' + (r.applies_at ? hm(r.applies_at) : exposureEnd() || 'at the next plan')
+  r.status === 'queued' ? 'queued ' + hm(r.created_at) : 'applies ' + whenApplies(r)
 
 function openHistory() {
   shell.statusOpen = false
@@ -60,7 +65,7 @@ function openHistory() {
       answer, they wait here in order and go out when it does.
     </p>
     <div v-if="pending.length" class="list">
-      <span class="list-title">Waiting for the end of this exposure</span>
+      <span class="list-title">Waiting for the end of an exposure</span>
       <div v-for="c in pending" :key="c.id" class="list-row">
         <span>{{ c.title }} <span class="muted">· {{ when(c) }}</span></span>
         <button type="button" class="btn sm" @click="cancel(c.id)">Cancel</button>

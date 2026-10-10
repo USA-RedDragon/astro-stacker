@@ -245,7 +245,12 @@ func (s *Service) record(ctx context.Context, res Result, transport string) (Rec
 		if len(res.Detail) > 0 {
 			r.Detail = res.Detail
 		}
-		if res.AppliesAt != nil {
+		if res.Status == StatusPending && !res.Untimed {
+			if !sameTime(r.AppliesAt, res.AppliesAt) {
+				changed = true
+			}
+			r.AppliesAt = res.AppliesAt
+		} else if res.AppliesAt != nil {
 			r.AppliesAt = res.AppliesAt
 		}
 		if transport != "" && r.Transport == "" {
@@ -294,6 +299,13 @@ func (s *Service) revertSideEffect(ctx context.Context, r Record) {
 			slog.Warn("Reverting a command's app-side change failed", "id", r.ID, "error", err)
 		}
 	}
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 func acceptResult(current, next Status) bool {

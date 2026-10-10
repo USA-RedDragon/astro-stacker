@@ -218,7 +218,9 @@ describe('commands', () => {
       ...p,
     })
     expect(historyBadge(rec({ status: 'queued' }), '').tone).toBe('warn')
-    expect(historyBadge(rec({ status: 'pending' }), '01:52').label).toBe('Applies at 01:52')
+    expect(historyBadge(rec({ status: 'pending' }), 'at 01:52').label).toBe('Applies at 01:52')
+    expect(historyBadge(rec({ status: 'pending' }), 'after the next exposure ends').label).toBe('Applies after the next exposure ends')
+    expect(historyBadge(rec({ status: 'pending' }), '').label).toBe('Applies at the next plan')
     expect(undoState(rec({ status: 'pending' }))).toMatchObject({ label: 'Cancel', cancel: true, enabled: true })
     expect(undoState(rec({ undone_by: 'ffff00001111' }))).toMatchObject({ label: 'Undone', enabled: false, note: 'Undone by change #ffff0000' })
     expect(undoState(rec({ status: 'conflict' })).enabled).toBe(false)
