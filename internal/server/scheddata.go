@@ -412,7 +412,7 @@ func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, since time.Time
 			`coalesce(a."gradingStatus", 0), coalesce(a.metadata, ''), coalesce(t.name, ''), coalesce(p.name, '')`).
 		Joins(`LEFT JOIN target t ON t."Id" = a."targetId"`).
 		Joins(`LEFT JOIN project p ON p."Id" = a."projectId"`).
-		Where(`a.acquireddate >= ? AND (a.acquireddate < ? OR a.acquireddate >= ?)`, since.Unix(), int64(ticksThreshold), sinceTicks).
+		Where(`CAST(a.acquireddate AS BIGINT) >= ? AND (CAST(a.acquireddate AS BIGINT) < ? OR CAST(a.acquireddate AS BIGINT) >= ?)`, since.Unix(), int64(ticksThreshold), sinceTicks).
 		Order("a.acquireddate").Rows()
 	if err != nil {
 		return out, err
