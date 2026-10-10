@@ -79,41 +79,38 @@ func goalMaskInfoRoute(c *gin.Context) {
 	}
 	object, filter := c.Query("object"), c.Query("filter")
 	di, _ := depInjection(c)
-	reason, exists, err := noMaskReason(c, di, object, filter)
-	switch {
-	case err != nil:
+	reason, err := noMaskReason(c, di, object, filter)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
-	case !exists:
-		c.JSON(http.StatusNotFound, gin.H{errorKey: "no master for this object and filter"})
-	default:
-		c.JSON(http.StatusOK, GoalMaskInfo{Object: object, Filter: filter, Reason: reason})
+		return
 	}
+	c.JSON(http.StatusOK, GoalMaskInfo{Object: object, Filter: filter, Reason: reason})
 }
 
-func noMaskReason(c *gin.Context, di *middleware.DepInjection, object, filter string) (string, bool, error) {
+func noMaskReason(c *gin.Context, di *middleware.DepInjection, object, filter string) (string, error) {
 	db := di.AppStore.DB().WithContext(c.Request.Context())
 	var stacks int64
 	if err := db.Model(&app.Stack{}).Where("object = ? AND filter = ? AND subs > 0", object, filter).Count(&stacks).Error; err != nil {
-		return "", false, err
+		return "", err
 	}
 	if stacks == 0 {
-		return "", false, nil
+		return "there is no master for this object and filter yet", nil
 	}
 	var ms []app.GoalMeasurement
 	if err := db.Select("error", "measured_at").Where("object = ? AND filter = ?", object, filter).Limit(1).Find(&ms).Error; err != nil {
-		return "", false, err
+		return "", err
 	}
 	switch {
 	case len(ms) == 0 && di.Config != nil && !di.Config.Goals.Enabled:
-		return "goal measurement is off in the stacker", true, nil
+		return "goal measurement is off in the stacker", nil
 	case len(ms) == 0:
-		return "this master has had no goal pass yet", true, nil
+		return "this master has had no goal pass yet", nil
 	}
 	m := ms[0]
 	if m.Error != nil {
-		return "the last goal pass failed: " + *m.Error, true, nil
+		return "the last goal pass failed: " + *m.Error, nil
 	}
-	return "measured " + m.MeasuredAt.UTC().Format(time.RFC3339) + ", before masks were stored; the mask is stored on this master's next goal pass", true, nil
+	return "measured " + m.MeasuredAt.UTC().Format(time.RFC3339) + ", before masks were stored; the mask is stored on this master's next goal pass", nil
 }
 
 func findGoalMask(c *gin.Context, columns ...string) (app.GoalMask, bool, bool) {
