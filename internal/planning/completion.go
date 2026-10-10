@@ -100,7 +100,7 @@ func loadPrefs(ctx context.Context, db *gorm.DB) map[string]Prefs {
 		Throttle  *float64 `gorm:"column:throttle"`
 	}
 	if err := db.WithContext(ctx).Table("profilepreference").
-		Select(`"profileId" AS profile_id, "delayGrading" AS delay, "exposureThrottle" AS throttle`).Scan(&rows).Error; err != nil {
+		Select(`"profileId" AS profile_id, "delayGrading" AS delay, exposurethrottle AS throttle`).Scan(&rows).Error; err != nil {
 		return out
 	}
 	for _, r := range rows {
