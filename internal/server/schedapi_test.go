@@ -367,10 +367,12 @@ func TestTonightSubs(t *testing.T) {
 func TestSchedulerStatusFromMonitor(t *testing.T) {
 	t.Parallel()
 	m := observatory.NewMonitor(observatory.NewClient("http://127.0.0.1:1", "x"), nil, nil)
-	m.SetStatus(observatory.Status{State: "paused", Paused: true}, true)
+	paused := true
+	m.SetStatus(observatory.Status{State: "paused", Paused: &paused}, true)
 	h := newHandler(t, memDB(t, "s"), memDB(t, "a"), server.Extras{Scheduler: m})
 	code, body := do(t, h, http.MethodGet, "/api/v1/scheduler/status", "")
-	if code != http.StatusOK || !strings.Contains(string(body), `"reachable":"online"`) || !strings.Contains(string(body), `"state":"paused"`) {
+	if code != http.StatusOK || !strings.Contains(string(body), `"reachable":"online"`) || !strings.Contains(string(body), `"state":"paused"`) ||
+		!strings.Contains(string(body), `"paused":true`) || strings.Contains(string(body), `"pause_requested"`) {
 		t.Fatalf("%d %s", code, body)
 	}
 }
