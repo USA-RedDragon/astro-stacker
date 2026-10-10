@@ -9,8 +9,10 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 )
 
+const testPixelScale = 1.915
+
 func testWCS(w, h int) WCS {
-	s := DefaultPixelScale / 3600
+	s := testPixelScale / 3600
 	return WCS{RA0: 180, Dec0: 45, PX0: float64(w+1) / 2, PY0: float64(h+1) / 2, CD: [2][2]float64{{-s, 0}, {0, s}}}
 }
 

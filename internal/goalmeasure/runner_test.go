@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	testW, testH = 480, 360
-	testExposure = 300.0
-	testObject   = "Synth"
-	testFilter   = "H-a"
-	testZP       = 6.0
+	testW, testH   = 480, 360
+	testExposure   = 300.0
+	testObject     = "Synth"
+	testFilter     = "H-a"
+	testZP         = 6.0
+	testPixelScale = 1.915
 )
 
 type memObjects struct {
@@ -62,7 +63,7 @@ func openDB(t *testing.T) *gorm.DB {
 }
 
 func testWCS() goals.WCS {
-	s := goals.DefaultPixelScale / 3600
+	s := testPixelScale / 3600
 	return goals.WCS{RA0: 83.8, Dec0: -5.4, PX0: float64(testW+1) / 2, PY0: float64(testH+1) / 2, CD: [2][2]float64{{-s, 0}, {0, s}}}
 }
 
@@ -230,7 +231,7 @@ func TestPassMeasuresStacks(t *testing.T) {
 	if m.ZeroPoint == nil || math.Abs(*m.ZeroPoint-testZP) > 0.05 || m.Depth == nil || m.ZeroPointStars < goals.MinZeroPointStars {
 		t.Errorf("zero point %v from %d stars, depth %v", m.ZeroPoint, m.ZeroPointStars, m.Depth)
 	}
-	if math.Abs(m.PixelScale-goals.DefaultPixelScale) > 1e-6 {
+	if math.Abs(m.PixelScale-testPixelScale) > 1e-6 {
 		t.Errorf("pixel scale %v", m.PixelScale)
 	}
 	twin := e.measurement(t, "Twin", "L")

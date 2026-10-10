@@ -403,7 +403,7 @@ func (r *Runner) load(ctx context.Context, stack app.Stack, key string, exposure
 }
 
 func (r *Runner) depth(ctx context.Context, stack app.Stack, res goals.Result, m *app.GoalMeasurement) {
-	m.PixelScale = goals.DefaultPixelScale
+	m.PixelScale = 0
 	var tr app.TargetReference
 	if err := r.db.WithContext(ctx).Where(columnObject+" = ?", stack.Object).First(&tr).Error; err != nil || tr.WCS == nil {
 		return
