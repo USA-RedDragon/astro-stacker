@@ -9,6 +9,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -299,5 +300,23 @@ func TestLoadKeepsAnUnsetRotationUnset(t *testing.T) {
 	}
 	if garlic, _ := s.Project(7); garlic.Targets[0].Rotation != nil {
 		t.Errorf("an unset rotation came back as %v", *garlic.Targets[0].Rotation)
+	}
+}
+
+func TestLoadShowsHowEachObjectIsLinked(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	const alias = "NGC 7635x"
+	header := tslink.ObjectLink{Object: alias, TargetGUID: "g20", Frames: 3, Methods: []tslink.MethodCount{{Method: app.LinkHeader, Frames: 3}}}
+	in := Inputs{ObjectsByGUID: map[string][]string{"g20": {alias}}, Links: map[string]tslink.ObjectLink{alias: header, garlicNebula: {Object: garlicNebula, TargetGUID: "other", Frames: 9}}}
+	s, err := Load(context.Background(), sched, appDB, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	garlic, _ := s.Project(7)
+	got := garlic.Targets[0].Links
+	if len(got) != 2 || got[0].Object != garlicNebula || got[0].Frames != 0 || got[0].Methods[0].Method != tslink.LinkTargetName ||
+		got[1].Object != alias || got[1].Frames != 3 || got[1].Methods[0].Method != app.LinkHeader {
+		t.Errorf("links %+v", got)
 	}
 }

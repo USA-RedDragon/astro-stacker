@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"gorm.io/gorm"
 )
 
@@ -25,7 +26,7 @@ type Judgement struct {
 }
 
 func AppInputs(ctx context.Context, appDB, sched *gorm.DB) (Inputs, error) {
-	in := Inputs{Goals: map[goals.Key]goals.Goal{}, ObjectsByGUID: map[string][]string{}}
+	in := Inputs{Goals: map[goals.Key]goals.Goal{}, ObjectsByGUID: map[string][]string{}, Links: map[string]tslink.ObjectLink{}}
 	if appDB == nil {
 		return in, nil
 	}
@@ -34,10 +35,11 @@ func AppInputs(ctx context.Context, appDB, sched *gorm.DB) (Inputs, error) {
 		return in, err
 	}
 	in.Goals = gs
-	if byObject, err := goals.ObjectGUIDs(ctx, appDB, sched); err == nil {
-		for obj, guid := range byObject {
-			in.ObjectsByGUID[guid] = append(in.ObjectsByGUID[guid], obj)
+	if byObject, err := goals.ObjectLinks(ctx, appDB, sched); err == nil {
+		for obj, l := range byObject {
+			in.ObjectsByGUID[l.TargetGUID] = append(in.ObjectsByGUID[l.TargetGUID], obj)
 		}
+		in.Links = byObject
 	}
 	return in, nil
 }

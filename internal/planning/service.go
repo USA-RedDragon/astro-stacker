@@ -13,6 +13,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"gorm.io/gorm"
 )
 
@@ -109,28 +110,29 @@ type Season struct {
 }
 
 type Target struct {
-	ID       int          `json:"id"`
-	GUID     string       `json:"guid"`
-	Name     string       `json:"name"`
-	Active   bool         `json:"active"`
-	RAHours  *float64     `json:"raHours"`
-	Dec      *float64     `json:"dec"`
-	Rotation *float64     `json:"rotation"`
-	Panel    int          `json:"panel,omitempty"`
-	Plans    []Plan       `json:"plans"`
-	Goals    []FilterGoal `json:"goals"`
-	Weakest  *FilterGoal  `json:"weakest,omitempty"`
-	Progress float64      `json:"progress"`
-	Percent  float64      `json:"percentComplete"`
-	EffHours float64      `json:"effectiveHours"`
-	HoursSrc string       `json:"effectiveHoursBasis"`
-	Driven   bool         `json:"goalDriven"`
-	Season   *Season      `json:"season,omitempty"`
-	Novelty  float64      `json:"novelty"`
-	Rarity   float64      `json:"rarity"`
-	LastSub  *time.Time   `json:"lastSub,omitempty"`
-	SetName  string       `json:"exposureSet"`
-	GoalMode goals.Kind   `json:"goalMode"`
+	ID       int                 `json:"id"`
+	GUID     string              `json:"guid"`
+	Name     string              `json:"name"`
+	Active   bool                `json:"active"`
+	RAHours  *float64            `json:"raHours"`
+	Dec      *float64            `json:"dec"`
+	Rotation *float64            `json:"rotation"`
+	Panel    int                 `json:"panel,omitempty"`
+	Plans    []Plan              `json:"plans"`
+	Goals    []FilterGoal        `json:"goals"`
+	Weakest  *FilterGoal         `json:"weakest,omitempty"`
+	Progress float64             `json:"progress"`
+	Percent  float64             `json:"percentComplete"`
+	EffHours float64             `json:"effectiveHours"`
+	HoursSrc string              `json:"effectiveHoursBasis"`
+	Driven   bool                `json:"goalDriven"`
+	Season   *Season             `json:"season,omitempty"`
+	Novelty  float64             `json:"novelty"`
+	Rarity   float64             `json:"rarity"`
+	LastSub  *time.Time          `json:"lastSub,omitempty"`
+	SetName  string              `json:"exposureSet"`
+	GoalMode goals.Kind          `json:"goalMode"`
+	Links    []tslink.ObjectLink `json:"objectLinks"`
 }
 
 type Project struct {
@@ -182,7 +184,22 @@ type Inputs struct {
 	Goals         map[goals.Key]goals.Goal
 	GoalFilters   map[goals.Key]string
 	ObjectsByGUID map[string][]string
+	Links         map[string]tslink.ObjectLink
 	Now           time.Time
+}
+
+func (in Inputs) linksFor(tr targetRow) []tslink.ObjectLink {
+	guid := deref(tr.GUID)
+	objs := in.objectsFor(tr)
+	out := make([]tslink.ObjectLink, 0, len(objs))
+	for _, obj := range objs {
+		if l, ok := in.Links[obj]; ok && l.TargetGUID == guid {
+			out = append(out, l)
+			continue
+		}
+		out = append(out, tslink.NameLink(obj, guid))
+	}
+	return out
 }
 
 func (in Inputs) objectsFor(t targetRow) []string {
@@ -569,7 +586,7 @@ func (in Inputs) resolveGoal(tr targetRow, g *FilterGoal, env targetEnv, guid st
 }
 
 func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env targetEnv, in Inputs) Target {
-	t := Target{ID: tr.ID, GUID: deref(tr.GUID), Name: tr.Name, Active: tr.Active != 0, RAHours: tr.RA, Dec: tr.Dec, Rotation: tr.Rotation, Panel: panelNumber(tr.Name), GoalMode: goals.KindSNR}
+	t := Target{ID: tr.ID, GUID: deref(tr.GUID), Name: tr.Name, Active: tr.Active != 0, RAHours: tr.RA, Dec: tr.Dec, Rotation: tr.Rotation, Panel: panelNumber(tr.Name), GoalMode: goals.KindSNR, Links: in.linksFor(tr)}
 	t.Driven = in.targetGoalDriven(tr)
 	byFilter := map[string]*FilterGoal{}
 	var order []string

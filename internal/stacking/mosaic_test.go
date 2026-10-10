@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -101,6 +102,10 @@ func TestMosaicGroupsUseAdoptedPanelsAndLinkedObjects(t *testing.T) {
 	}
 	if got := rho.Panels[0].Objects; len(got) != 2 || got[1] != "IC4604 East" {
 		t.Errorf("panel 1 objects %v", got)
+	}
+	if got := rho.Panels[0].Links; len(got) != 2 || got[0].Methods[0].Method != tslink.LinkTargetName || got[0].Frames != 0 ||
+		got[1].Methods[0] != (tslink.MethodCount{Method: app.LinkHeader, Frames: 1}) {
+		t.Errorf("panel 1 links %+v", got)
 	}
 	if rho.Panels[1].Planned == nil || rho.Panels[0].Planned != nil {
 		t.Errorf("planned footprints %+v %+v", rho.Panels[0].Planned, rho.Panels[1].Planned)

@@ -13,6 +13,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 )
 
 const (
@@ -50,21 +51,22 @@ type PanelFilter struct {
 }
 
 type Panel struct {
-	Number     int                `json:"number"`
-	TargetID   int                `json:"targetId"`
-	TargetGUID string             `json:"targetGuid"`
-	Target     string             `json:"target"`
-	Objects    []string           `json:"objects"`
-	Row        *int               `json:"row"`
-	Col        *int               `json:"col"`
-	RA         float64            `json:"ra"`
-	Dec        float64            `json:"dec"`
-	Rotation   float64            `json:"rotation"`
-	Footprint  *mosaics.Footprint `json:"footprint"`
-	Filters    []PanelFilter      `json:"filters"`
-	Progress   float64            `json:"progress"`
-	Weakest    string             `json:"weakest"`
-	PastGoal   bool               `json:"pastGoal"`
+	Number     int                 `json:"number"`
+	TargetID   int                 `json:"targetId"`
+	TargetGUID string              `json:"targetGuid"`
+	Target     string              `json:"target"`
+	Objects    []string            `json:"objects"`
+	Links      []tslink.ObjectLink `json:"objectLinks"`
+	Row        *int                `json:"row"`
+	Col        *int                `json:"col"`
+	RA         float64             `json:"ra"`
+	Dec        float64             `json:"dec"`
+	Rotation   float64             `json:"rotation"`
+	Footprint  *mosaics.Footprint  `json:"footprint"`
+	Filters    []PanelFilter       `json:"filters"`
+	Progress   float64             `json:"progress"`
+	Weakest    string              `json:"weakest"`
+	PastGoal   bool                `json:"pastGoal"`
 }
 
 type Balancing struct {
@@ -305,7 +307,7 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 		return d, err
 	}
 	for i, pn := range g.Panels {
-		p := Panel{Number: pn.Number, TargetID: ids[pn.TargetGUID], TargetGUID: pn.TargetGUID, Target: pn.Object, Objects: pn.Objects,
+		p := Panel{Number: pn.Number, TargetID: ids[pn.TargetGUID], TargetGUID: pn.TargetGUID, Target: pn.Object, Objects: pn.Objects, Links: pn.Links,
 			RA: pn.RA, Dec: pn.Dec, Rotation: pn.Rotation, Progress: 1}
 		p.Footprint = footprints[i]
 		if rigKnown {

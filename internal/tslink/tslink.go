@@ -286,25 +286,60 @@ func FileBase(metadata string) string {
 	return md.FileName[strings.LastIndexAny(md.FileName, `\/`)+1:]
 }
 
-func ObjectTargets(ctx context.Context, appDB *gorm.DB, targets []Target) (map[string]string, error) {
+const LinkTargetName = "target-name"
+
+type MethodCount struct {
+	Method string `json:"method"`
+	Frames int    `json:"frames"`
+}
+
+type ObjectLink struct {
+	Object     string        `json:"object"`
+	TargetGUID string        `json:"-"`
+	Frames     int           `json:"frames"`
+	Methods    []MethodCount `json:"methods"`
+}
+
+func NameLink(object, guid string) ObjectLink {
+	return ObjectLink{Object: object, TargetGUID: guid, Methods: []MethodCount{{Method: LinkTargetName}}}
+}
+
+func ObjectLinks(ctx context.Context, appDB *gorm.DB, targets []Target) (map[string]ObjectLink, error) {
 	var rows []struct {
 		Object     string
 		TargetGUID string
+		Method     string
 		N          int
 	}
 	if err := appDB.WithContext(ctx).Model(&app.FrameTarget{}).
-		Select("object, target_guid, count(*) AS n").Group("object, target_guid").Scan(&rows).Error; err != nil {
+		Select("object, target_guid, method, count(*) AS n").Group("object, target_guid, method").Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load frame links: %w", err)
 	}
-	best := map[string]int{}
-	out := map[string]string{}
+	type pair struct{ object, guid string }
+	frames := map[pair]int{}
+	methods := map[pair][]MethodCount{}
 	for _, r := range rows {
 		if r.Object == "" {
 			continue
 		}
-		if r.N > best[r.Object] || (r.N == best[r.Object] && r.TargetGUID < out[r.Object]) {
-			best[r.Object], out[r.Object] = r.N, r.TargetGUID
+		k := pair{r.Object, r.TargetGUID}
+		frames[k] += r.N
+		methods[k] = append(methods[k], MethodCount{Method: r.Method, Frames: r.N})
+	}
+	out := map[string]ObjectLink{}
+	for k, n := range frames {
+		cur, ok := out[k.object]
+		if ok && (n < cur.Frames || (n == cur.Frames && k.guid > cur.TargetGUID)) {
+			continue
 		}
+		ms := methods[k]
+		slices.SortFunc(ms, func(a, b MethodCount) int {
+			if a.Frames != b.Frames {
+				return b.Frames - a.Frames
+			}
+			return strings.Compare(a.Method, b.Method)
+		})
+		out[k.object] = ObjectLink{Object: k.object, TargetGUID: k.guid, Frames: n, Methods: ms}
 	}
 	nameCount := map[string]int{}
 	for _, t := range targets {
@@ -312,10 +347,33 @@ func ObjectTargets(ctx context.Context, appDB *gorm.DB, targets []Target) (map[s
 	}
 	for _, t := range targets {
 		if _, ok := out[t.Name]; !ok && t.GUID != "" && nameCount[t.Name] == 1 {
-			out[t.Name] = t.GUID
+			out[t.Name] = NameLink(t.Name, t.GUID)
 		}
 	}
 	return out, nil
+}
+
+func ObjectTargets(ctx context.Context, appDB *gorm.DB, targets []Target) (map[string]string, error) {
+	links, err := ObjectLinks(ctx, appDB, targets)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(links))
+	for obj, l := range links {
+		out[obj] = l.TargetGUID
+	}
+	return out, nil
+}
+
+func TargetLinks(links map[string]ObjectLink) map[string][]ObjectLink {
+	out := map[string][]ObjectLink{}
+	for _, l := range links {
+		out[l.TargetGUID] = append(out[l.TargetGUID], l)
+	}
+	for _, ls := range out {
+		slices.SortFunc(ls, func(a, b ObjectLink) int { return strings.Compare(a.Object, b.Object) })
+	}
+	return out
 }
 
 func TargetObjects(objectTargets map[string]string) map[string][]string {
