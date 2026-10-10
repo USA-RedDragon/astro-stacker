@@ -7,12 +7,15 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 type GoalMaskInfo struct {
+	Measured      bool      `json:"measured"`
+	Reason        string    `json:"reason,omitempty"`
 	Object        string    `json:"object"`
 	Filter        string    `json:"filter"`
 	Width         int       `json:"width"`
@@ -39,7 +42,7 @@ type GoalMaskInfo struct {
 }
 
 func goalMaskInfo(gm app.GoalMask) GoalMaskInfo {
-	info := GoalMaskInfo{Object: gm.Object, Filter: gm.Filter, Width: gm.Width, Height: gm.Height, Bin: gm.Bin,
+	info := GoalMaskInfo{Measured: true, Object: gm.Object, Filter: gm.Filter, Width: gm.Width, Height: gm.Height, Bin: gm.Bin,
 		FrameWidth: gm.FrameWidth, FrameHeight: gm.FrameHeight, Source: gm.Source, NoiseMask: gm.NoiseMask,
 		Sky: gm.Sky, BandLo: gm.BandLo, BandHi: gm.BandHi, TotalPixels: gm.Width * gm.Height,
 		CoveredPixels: gm.Covered, BandPixels: gm.Band, StarPixels: gm.Stars, SkyPixels: gm.SkyPixels,
@@ -55,14 +58,73 @@ func goalMaskInfo(gm app.GoalMask) GoalMaskInfo {
 }
 
 func loadGoalMask(c *gin.Context, columns ...string) (app.GoalMask, bool) {
+	gm, found, ok := findGoalMask(c, columns...)
+	if ok && !found {
+		c.JSON(http.StatusNotFound, gin.H{errorKey: "not measured yet"})
+		return gm, false
+	}
+	return gm, ok && found
+}
+
+func goalMaskInfoRoute(c *gin.Context) {
+	gm, found, ok := findGoalMask(c, "object", "filter", "width", "height", "bin", "frame_width", "frame_height", "source",
+		"noise_mask", "sky", "band_lo", "band_hi", "covered", "band", "stars", "sky_pixels", "subs", "measured_at")
+	if !ok {
+		return
+	}
+	c.Header(cacheControl, noCache)
+	if found {
+		c.JSON(http.StatusOK, goalMaskInfo(gm))
+		return
+	}
+	object, filter := c.Query("object"), c.Query("filter")
+	di, _ := depInjection(c)
+	reason, exists, err := noMaskReason(c, di, object, filter)
+	switch {
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+	case !exists:
+		c.JSON(http.StatusNotFound, gin.H{errorKey: "no master for this object and filter"})
+	default:
+		c.JSON(http.StatusOK, GoalMaskInfo{Object: object, Filter: filter, Reason: reason})
+	}
+}
+
+func noMaskReason(c *gin.Context, di *middleware.DepInjection, object, filter string) (string, bool, error) {
+	db := di.AppStore.DB().WithContext(c.Request.Context())
+	var stacks int64
+	if err := db.Model(&app.Stack{}).Where("object = ? AND filter = ? AND subs > 0", object, filter).Count(&stacks).Error; err != nil {
+		return "", false, err
+	}
+	if stacks == 0 {
+		return "", false, nil
+	}
+	var ms []app.GoalMeasurement
+	if err := db.Select("error", "measured_at").Where("object = ? AND filter = ?", object, filter).Limit(1).Find(&ms).Error; err != nil {
+		return "", false, err
+	}
+	switch {
+	case len(ms) == 0 && di.Config != nil && !di.Config.Goals.Enabled:
+		return "goal measurement is off in the stacker", true, nil
+	case len(ms) == 0:
+		return "this master has had no goal pass yet", true, nil
+	}
+	m := ms[0]
+	if m.Error != nil {
+		return "the last goal pass failed: " + *m.Error, true, nil
+	}
+	return "measured " + m.MeasuredAt.UTC().Format(time.RFC3339) + ", before masks were stored; the mask is stored on this master's next goal pass", true, nil
+}
+
+func findGoalMask(c *gin.Context, columns ...string) (app.GoalMask, bool, bool) {
 	object, filter := c.Query("object"), c.Query("filter")
 	if object == "" || filter == "" {
 		c.JSON(http.StatusBadRequest, gin.H{errorKey: "object and filter are required"})
-		return app.GoalMask{}, false
+		return app.GoalMask{}, false, false
 	}
 	di, ok := depInjection(c)
 	if !ok {
-		return app.GoalMask{}, false
+		return app.GoalMask{}, false, false
 	}
 	var gm app.GoalMask
 	q := di.AppStore.DB().WithContext(c.Request.Context())
@@ -71,24 +133,13 @@ func loadGoalMask(c *gin.Context, columns ...string) (app.GoalMask, bool) {
 	}
 	err := q.Where("object = ? AND filter = ?", object, filter).Take(&gm).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		c.JSON(http.StatusNotFound, gin.H{errorKey: "not measured yet"})
-		return app.GoalMask{}, false
+		return app.GoalMask{}, false, true
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
-		return app.GoalMask{}, false
+		return app.GoalMask{}, false, false
 	}
-	return gm, true
-}
-
-func goalMaskInfoRoute(c *gin.Context) {
-	gm, ok := loadGoalMask(c, "object", "filter", "width", "height", "bin", "frame_width", "frame_height", "source",
-		"noise_mask", "sky", "band_lo", "band_hi", "covered", "band", "stars", "sky_pixels", "subs", "measured_at")
-	if !ok {
-		return
-	}
-	c.Header(cacheControl, noCache)
-	c.JSON(http.StatusOK, goalMaskInfo(gm))
+	return gm, true, true
 }
 
 func goalMaskRoute(c *gin.Context) {
