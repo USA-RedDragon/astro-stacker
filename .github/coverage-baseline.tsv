@@ -80,7 +80,7 @@ internal/schedcmd/planning.go	398	323
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	177	153
+internal/schedcmd/service.go	184	159
 internal/server/conditions.go	22	16
 internal/server/discover.go	116	100
 internal/server/middleware/di.go	5	5
