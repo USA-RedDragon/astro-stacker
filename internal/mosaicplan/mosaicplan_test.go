@@ -383,7 +383,7 @@ func TestFrameOffersLayoutsAndAChosenGrid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Options) == 0 || !f.Options[0].Recommended || f.Overlap != 15 || f.Rig.WidthDeg != 3.32 || f.NightHours != nil {
+	if len(f.Options) == 0 || !f.Options[0].Recommended || f.Overlap != 15 || f.OverlapSource != "default" || f.MinAltitudeSource != "default" || f.MinAltitude != 30 || f.Rig.WidthDeg != 3.32 || f.NightHours != nil {
 		t.Fatalf("framing %+v", f)
 	}
 	if f.Chosen == nil || len(f.Chosen.Panels) != 6 || f.Chosen.Hours == nil || *f.Chosen.Hours != 60 || f.Chosen.Nights != nil || f.Basis.Reason == nil {
