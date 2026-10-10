@@ -48,6 +48,7 @@ var panelName = regexp.MustCompile(`(?i)\bpanel\s*(\d+)\s*$`)
 type panel struct {
 	Object     string
 	Objects    []string
+	Links      []tslink.ObjectLink
 	TargetGUID string
 	Number     int
 	RA         float64
@@ -71,14 +72,14 @@ func mosaicGroups(ctx context.Context, db, sched *gorm.DB) ([]mosaicGroup, error
 	if err := db.WithContext(ctx).Order("panel").Find(&adopted).Error; err != nil {
 		return nil, fmt.Errorf("load mosaic panels: %w", err)
 	}
-	objectTargets, err := tslink.ObjectTargets(ctx, db, targets)
+	links, err := tslink.ObjectLinks(ctx, db, targets)
 	if err != nil {
 		return nil, err
 	}
-	return groupPanels(tslink.GroupProjects(targets), adopted, tslink.TargetObjects(objectTargets)), nil
+	return groupPanels(tslink.GroupProjects(targets), adopted, tslink.TargetLinks(links)), nil
 }
 
-func groupPanels(projects []tslink.Project, adopted []app.MosaicPanel, targetObjects map[string][]string) []mosaicGroup {
+func groupPanels(projects []tslink.Project, adopted []app.MosaicPanel, targetLinks map[string][]tslink.ObjectLink) []mosaicGroup {
 	byProject := map[string][]app.MosaicPanel{}
 	for _, a := range adopted {
 		byProject[a.ProjectGUID] = append(byProject[a.ProjectGUID], a)
@@ -118,13 +119,20 @@ func groupPanels(projects []tslink.Project, adopted []app.MosaicPanel, targetObj
 			continue
 		}
 		for i := range panels {
-			objs := []string{panels[i].Object}
-			for _, o := range targetObjects[panels[i].TargetGUID] {
-				if o != panels[i].Object {
-					objs = append(objs, o)
+			pn := &panels[i]
+			own := tslink.NameLink(pn.Object, pn.TargetGUID)
+			var rest []tslink.ObjectLink
+			for _, l := range targetLinks[pn.TargetGUID] {
+				if l.Object == pn.Object {
+					own = l
+				} else {
+					rest = append(rest, l)
 				}
 			}
-			panels[i].Objects = objs
+			pn.Objects, pn.Links = []string{pn.Object}, []tslink.ObjectLink{own}
+			for _, l := range rest {
+				pn.Objects, pn.Links = append(pn.Objects, l.Object), append(pn.Links, l)
+			}
 		}
 		slices.SortFunc(panels, func(a, b panel) int { return a.Number - b.Number })
 		out = append(out, mosaicGroup{Project: pr.Name, ProjectGUID: pr.GUID, Panels: panels})

@@ -12,10 +12,12 @@ import (
 )
 
 const (
-	t2    = "t-2"
-	t1    = "t-1"
-	pRho  = "p-rho"
-	light = "LIGHT"
+	t2     = "t-2"
+	t1     = "t-1"
+	pRho   = "p-rho"
+	light  = "LIGHT"
+	panel1 = "IC 4604 Panel 1"
+	panel2 = "IC 4604 Panel 2"
 )
 
 func open(t *testing.T) *gorm.DB {
@@ -60,11 +62,11 @@ func appDB(t *testing.T) *gorm.DB {
 	hdr := t2
 	proj := pRho
 	frames := []app.Frame{
-		{ID: 1, Key: "a/IC 4604 Panel 2_0001.fits", ETag: "e", Type: light, Object: "IC 4604 Panel 2"},
+		{ID: 1, Key: "a/IC 4604 Panel 2_0001.fits", ETag: "e", Type: light, Object: panel2},
 		{ID: 2, Key: "a/typo.fits", ETag: "e", Type: light, Object: "IC4604 Panel 2", TSTarget: &hdr, TSProject: &proj},
-		{ID: 3, Key: "a/p1.fits", ETag: "e", Type: light, Object: "IC 4604 Panel 1"},
+		{ID: 3, Key: "a/p1.fits", ETag: "e", Type: light, Object: panel1},
 		{ID: 4, Key: "a/ros.fits", ETag: "e", Type: light, Object: "Rosette Nebula"},
-		{ID: 5, Key: "a/flat.fits", ETag: "e", Type: "FLAT", Object: "IC 4604 Panel 1"},
+		{ID: 5, Key: "a/flat.fits", ETag: "e", Type: "FLAT", Object: panel1},
 		{ID: 6, Key: "a/dolphin.fits", ETag: "e", Type: light, Object: "Dolphin Head"},
 	}
 	if err := db.Create(&frames).Error; err != nil {
@@ -133,14 +135,32 @@ func TestLinkPrefersHeaderThenAcquiredImageThenUniqueName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if objs["IC4604 Panel 2"] != t2 || objs["IC 4604 Panel 2"] != t2 || objs["IC 4604 Panel 1"] != t1 {
+	if objs["IC4604 Panel 2"] != t2 || objs[panel2] != t2 || objs[panel1] != t1 {
 		t.Errorf("object targets %v", objs)
 	}
 	if _, ok := objs["Rosette Nebula"]; ok {
 		t.Error("an ambiguous name was linked")
 	}
-	if got := tslink.TargetObjects(objs)[t2]; len(got) != 2 || got[0] != "IC 4604 Panel 2" {
+	if got := tslink.TargetObjects(objs)[t2]; len(got) != 2 || got[0] != panel2 {
 		t.Errorf("t-2 objects %v", got)
+	}
+	byObject, err := tslink.ObjectLinks(ctx, db, append(targets, tslink.Target{GUID: "t-9", Name: "Lonely"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for obj, want := range map[string]tslink.MethodCount{
+		"IC4604 Panel 2": {Method: app.LinkHeader, Frames: 1},
+		panel2:           {Method: app.LinkAcquiredImage, Frames: 1},
+		panel1:           {Method: app.LinkName, Frames: 1},
+		"Lonely":         {Method: tslink.LinkTargetName},
+	} {
+		l := byObject[obj]
+		if len(l.Methods) != 1 || l.Methods[0] != want || l.Frames != want.Frames {
+			t.Errorf("%s linked %+v, want %+v", obj, l, want)
+		}
+	}
+	if got := tslink.TargetLinks(byObject)[t2]; len(got) != 2 || got[0].Object != panel2 {
+		t.Errorf("t-2 links %+v", got)
 	}
 }
 

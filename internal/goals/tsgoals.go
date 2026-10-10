@@ -87,6 +87,7 @@ func (s *rowTime) Scan(v any) error {
 type targetMap struct {
 	objects map[string][]string
 	guids   map[string]string
+	links   map[string]tslink.ObjectLink
 	known   map[string]bool
 }
 
@@ -95,9 +96,13 @@ func loadTargetMap(ctx context.Context, appDB, sched *gorm.DB) (targetMap, error
 	if err != nil {
 		return targetMap{}, err
 	}
-	guids, err := tslink.ObjectTargets(ctx, appDB, targets)
+	links, err := tslink.ObjectLinks(ctx, appDB, targets)
 	if err != nil {
 		return targetMap{}, err
+	}
+	guids := make(map[string]string, len(links))
+	for obj, l := range links {
+		guids[obj] = l.TargetGUID
 	}
 	known := make(map[string]bool, len(targets))
 	for _, t := range targets {
@@ -105,12 +110,17 @@ func loadTargetMap(ctx context.Context, appDB, sched *gorm.DB) (targetMap, error
 			known[t.GUID] = true
 		}
 	}
-	return targetMap{objects: tslink.TargetObjects(guids), guids: guids, known: known}, nil
+	return targetMap{objects: tslink.TargetObjects(guids), guids: guids, links: links, known: known}, nil
 }
 
 func ObjectGUIDs(ctx context.Context, appDB, sched *gorm.DB) (map[string]string, error) {
 	m, err := loadTargetMap(ctx, appDB, sched)
 	return m.guids, err
+}
+
+func ObjectLinks(ctx context.Context, appDB, sched *gorm.DB) (map[string]tslink.ObjectLink, error) {
+	m, err := loadTargetMap(ctx, appDB, sched)
+	return m.links, err
 }
 
 func loadGoalRows(ctx context.Context, sched *gorm.DB) ([]goalRow, bool, error) {
