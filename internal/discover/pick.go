@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
@@ -71,6 +72,7 @@ type PickHours struct {
 	Low     *float64 `json:"low"`
 	High    *float64 `json:"high"`
 	Points  int      `json:"points"`
+	Goal    string   `json:"goal"`
 	Basis   string   `json:"basis"`
 	Unknown string   `json:"unknown,omitempty"`
 }
@@ -454,7 +456,7 @@ func (s *Service) fitHAlpha(past []pastTarget, ms []app.GoalMeasurement, scale f
 }
 
 func (f hAlphaFit) hours(r float64, snr float64) PickHours {
-	out := PickHours{Points: f.n}
+	out := PickHours{Points: f.n, Goal: fmt.Sprintf("SNR %g", snr)}
 	if f.why != "" {
 		out.Unknown = "unknown: " + f.why
 		return out
@@ -523,23 +525,31 @@ func (s *Service) filterSky(ctx context.Context, canon string) skybright.Value {
 	return v
 }
 
-func (s *Service) depthHours(o catalog.Object, canon string, ms []app.GoalMeasurement, sky skybright.Value, skies map[skyKey]float64, scale, snr float64) PickHours {
-	out := PickHours{}
+func meanSBContext(o catalog.Object, goal float64) string {
 	if o.SurfaceBrightness == nil || o.SurfaceBrightnessSource != sbSourceNGC {
-		out.Unknown = "unknown: no OpenNGC surface brightness catalogued"
-		return out
+		return "no OpenNGC mean surface brightness is catalogued to compare with the goal"
 	}
 	sbB := *o.SurfaceBrightness
 	if o.BMinusV == nil {
-		out.Unknown = fmt.Sprintf("unknown: surface brightness %.1f mag/arcsec² is in B (OpenNGC) and the sky is in Gaia G; no B−V is catalogued to convert it", sbB)
-		return out
+		return fmt.Sprintf("the catalogued mean surface brightness is %.1f mag/arcsec² in B (OpenNGC), and no B−V is catalogued to put it in Gaia G beside the goal", sbB)
 	}
 	bv := *o.BMinusV
 	sbG, ok := BandToGaiaG(sbB, bv)
 	if !ok {
-		out.Unknown = fmt.Sprintf("unknown: B−V %.2f is outside the %g to %g range of the Gaia B-to-G relation", bv, gaiaBVMin, gaiaBVMax)
-		return out
+		return fmt.Sprintf("the catalogued mean surface brightness is %.1f mag/arcsec² in B (OpenNGC), and its B−V %.2f is outside the %g to %g range of the Gaia B-to-G relation, so it is not compared with the goal", sbB, bv, gaiaBVMin, gaiaBVMax)
 	}
+	verdict := fmt.Sprintf("%.1f mag brighter than the goal, so the galaxy's mean brightness is above the goal depth", goal-sbG)
+	if sbG > goal {
+		verdict = fmt.Sprintf("%.1f mag fainter than the goal, so the galaxy's mean brightness is below the goal depth", sbG-goal)
+	}
+	return fmt.Sprintf("the catalogued mean surface brightness %.1f mag/arcsec² B (OpenNGC) is %.1f in Gaia G with B−V %.2f (%s), %s",
+		sbB, sbG, bv, gaiaRelation, verdict)
+}
+
+func (s *Service) depthHours(o catalog.Object, canon, goalFilter string, ms []app.GoalMeasurement, sky skybright.Value, skies map[skyKey]float64, scale float64) PickHours {
+	goal := goals.DefaultDepth(frameheader.NormalizeFilter(goalFilter))
+	out := PickHours{Goal: fmt.Sprintf("%.1f mag/arcsec² at SNR %g", goal, goals.DepthSNR)}
+	sbNote := meanSBContext(o, goal)
 	if sky.Mag == nil || sky.Basis.Source != skybright.SourceMeasured {
 		why := "not measured"
 		if sky.Basis.Reason != nil {
@@ -566,14 +576,18 @@ func (s *Service) depthHours(o catalog.Object, canon string, ms []app.GoalMeasur
 		out.Unknown = fmt.Sprintf("unknown: no %s master at this pixel scale has a Gaia G depth and a measured sky yet", filterLabel(canon))
 		return out
 	}
-	need := sbG + 2.5*math.Log10(snr/goals.DepthSNR)
-	hoursAt := func(d float64) float64 { return math.Pow(10, (need-d)/1.25) }
+	hoursAt := func(d float64) float64 { return math.Pow(10, (goal-d)/1.25) }
+	masters := "masters"
+	if len(d1) == 1 {
+		masters = "master"
+	}
 	med, lo, hi := medianOf(d1), slices.Min(d1), slices.Max(d1)
-	h := hoursAt(med)
-	out.Hours, out.Low, out.High = ptrf(h), ptrf(hoursAt(hi)), ptrf(hoursAt(lo))
-	out.Basis = fmt.Sprintf("SNR %g at the catalogued mean surface brightness %.1f mag/arcsec² B (OpenNGC), %.1f in Gaia G with B−V %.2f (%s); "+
-		"your %s depth at SNR %g after 1 h, scaled to the %.2f mag/arcsec² Gaia G sky measured in %s over %d nights, is %.2f (%.2f to %.2f) from %d masters; depth grows 1.25 mag per decade of hours, so %s to %s",
-		snr, sbB, sbG, bv, gaiaRelation, filterLabel(canon), goals.DepthSNR, now, filterLabel(canon), sky.Basis.Nights, med, lo, hi, len(d1), hText(hoursAt(hi)), hText(hoursAt(lo)))
+	out.Hours, out.Low, out.High = ptrf(hoursAt(med)), ptrf(hoursAt(hi)), ptrf(hoursAt(lo))
+	out.Basis = fmt.Sprintf("hours to the %.1f mag/arcsec² Gaia G depth goal at SNR %g, the depth goal a new target gets for %s when its goal is depth and no depth is typed (the stacker's default, the same value a project's Goal tab sets when you switch it to depth; a set value, not fitted to your data); "+
+		"your %s depth at SNR %g after 1 h, scaled to the %.2f mag/arcsec² Gaia G sky measured in %s over %d nights, is %.2f (%.2f to %.2f) from %d %s; depth grows 1.25 mag per decade of hours, so %s to %s; "+
+		"with the plateau stop on, the goal also ends when a master gains under %g%% per hour, which this does not predict; %s",
+		goal, goals.DepthSNR, filterLabel(canon), filterLabel(canon), goals.DepthSNR, now, filterLabel(canon), sky.Basis.Nights, med, lo, hi, len(d1), masters,
+		hText(hoursAt(hi)), hText(hoursAt(lo)), goals.PlateauGainPct, sbNote)
 	return out
 }
 
@@ -625,6 +639,7 @@ type hoursInputs struct {
 	o          catalog.Object
 	class, fam string
 	canon      string
+	goalFilter string
 	ha         *halpha.Sample
 	fit        hAlphaFit
 	ms         []app.GoalMeasurement
@@ -641,7 +656,7 @@ func (s *Service) filterHours(ctx context.Context, in hoursInputs) PickHours {
 	case in.canon == "H":
 		return in.fit.hours(in.ha.Rayleigh, in.snr)
 	case in.fam == FamilyBroadband && in.class == ClassGalaxy:
-		return s.depthHours(in.o, in.canon, in.ms, s.filterSky(ctx, in.canon), in.skies, in.scale, in.snr)
+		return s.depthHours(in.o, in.canon, in.goalFilter, in.ms, s.filterSky(ctx, in.canon), in.skies, in.scale)
 	case in.fam == FamilyBroadband:
 		return PickHours{Unknown: "unknown: no surface brightness is catalogued for clusters"}
 	default:
@@ -785,7 +800,11 @@ func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot)
 			out.Missing = append(out.Missing, pf.Filter)
 		}
 		pf.Exposure, pf.Subs, pf.ExposureBasis = s.subLength(c, rows, dustObjects, fam == FamilyDust)
-		pf.Hours = s.filterHours(ctx, hoursInputs{o: o, class: out.Class, fam: fam, canon: c, ha: out.HAlpha, fit: fit, ms: ms, skies: skies, scale: scale, snr: out.GoalSNR})
+		goalFilter := c
+		if pf.Template != nil {
+			goalFilter = pf.Template.Filter
+		}
+		pf.Hours = s.filterHours(ctx, hoursInputs{o: o, class: out.Class, fam: fam, canon: c, goalFilter: goalFilter, ha: out.HAlpha, fit: fit, ms: ms, skies: skies, scale: scale, snr: out.GoalSNR})
 		out.Filters = append(out.Filters, pf)
 	}
 	return out, nil
