@@ -124,7 +124,7 @@ func (s *Service) skyValue(ctx context.Context) skybright.Value {
 	if s.Rig.SkyBright > 0 {
 		return skybright.Configured(s.Rig.SkyBright)
 	}
-	return skybright.Value{Basis: skybright.Basis{Source: skybright.SourceNone, PerNight: []skybright.Night{}}}
+	return skybright.None("no sky brightness source is wired into the Discover service")
 }
 
 func (s *Service) rig(ctx context.Context) (Rig, rigsource.Rig) {
