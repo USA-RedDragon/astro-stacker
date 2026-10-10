@@ -16,13 +16,14 @@ type CalibrationMaster struct {
 	// The setup of the set it was built from, so a light's master can be
 	// compared with the set that matches it now (recalibrateDarks). Masters
 	// built before these existed have them filled in when next used.
-	Night    *time.Time `gorm:"type:date"`
-	Filter   string
-	Exposure *float64
-	Gain     *float64
-	Offset   *float64
-	SetTemp  *float64
-	BinX     *float64
+	Night     *time.Time `gorm:"type:date"`
+	Filter    string
+	Exposure  *float64
+	Gain      *float64
+	Offset    *float64
+	SetTemp   *float64
+	BinX      *float64
+	MedianADU *float64
 }
 
 // TargetReference is the frame every sub of a target is registered to, so

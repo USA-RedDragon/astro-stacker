@@ -56,6 +56,8 @@ type SubScore struct {
 	Stars        int
 	Eccentricity float64
 	Missing      string
+	Pedestal     Pedestal
+	Sky          float64
 }
 
 type group struct {
@@ -88,6 +90,7 @@ type Measured struct {
 	Filter   string
 	Exposure float64
 	SkyADU   float64
+	Gain     float64
 	Offset   float64 // camera offset, 0 when unknown
 	// Calibrated subs came calibrated (Telescope.live), their pedestal
 	// already taken off.
@@ -108,7 +111,7 @@ type Measured struct {
 //
 // It reads and parses every image's metadata; a Scorer keeps the parsed
 // metadata between calls.
-func LoadScores(ctx context.Context, db *gorm.DB, pedestal float64, measured []Measured) (map[string]SubScore, error) {
+func LoadScores(ctx context.Context, db *gorm.DB, pedestal Pedestals, measured []Measured) (map[string]SubScore, error) {
 	return new(Scorer).Load(ctx, db, pedestal, measured)
 }
 
@@ -158,7 +161,7 @@ func sumExpr(db *gorm.DB) string {
 }
 
 // Load scores every acquired image in db, and measured subs, as LoadScores.
-func (s *Scorer) Load(ctx context.Context, db *gorm.DB, pedestal float64, measured []Measured) (map[string]SubScore, error) {
+func (s *Scorer) Load(ctx context.Context, db *gorm.DB, pedestal Pedestals, measured []Measured) (map[string]SubScore, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -245,7 +248,7 @@ func (s *Scorer) listImages(db *gorm.DB) ([]imageState, error) {
 }
 
 // score scores acquired images, in Id order, and measured subs.
-func score(rows []row, pedestal float64, measured []Measured) map[string]SubScore {
+func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubScore {
 	type item struct {
 		s      SubScore
 		raw    float64
@@ -271,7 +274,8 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 	for _, r := range rows {
 		m := r.meta
 		g := group{filter: m.FilterName, exposure: math.Round(float64(m.ExposureDuration))}
-		ped := PedestalAt(pedestal, float64(m.Offset))
+		pd := pedestal.At(float64(m.Gain), float64(m.Offset))
+		ped := pd.ADU
 		raw := RawWeight(Sky(float64(m.ADUMedian), ped), float64(m.HFR))
 		field := fieldGroup{target: r.Target, g: g, gain: float64(m.Gain), framing: Framing(float64(m.RotatorPosition))}
 		it := item{
@@ -285,6 +289,8 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 				Stars:           int(m.DetectedStars),
 				Eccentricity:    float64(m.Eccentricity),
 				Missing:         Missing(float64(m.ADUMedian), ped, float64(m.HFR)),
+				Pedestal:        pd,
+				Sky:             Sky(float64(m.ADUMedian), ped),
 			},
 			raw:    raw,
 			g:      g,
@@ -310,14 +316,15 @@ func score(rows []row, pedestal float64, measured []Measured) map[string]SubScor
 			continue
 		}
 		g := group{filter: m.Filter, exposure: math.Round(m.Exposure)}
-		ped := PedestalAt(pedestal, m.Offset)
+		pd := pedestal.At(m.Gain, m.Offset)
 		if m.Calibrated {
-			ped = 0
+			pd = Pedestal{Source: PedestalCalibrated, Basis: "the sub came calibrated, its pedestal already taken off"}
 		}
+		ped := pd.ADU
 		raw := RawWeight(Sky(m.SkyADU, ped), m.HFR)
 		items = append(items, item{
 			s: SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars,
-				Missing: Missing(m.SkyADU, ped, m.HFR)},
+				Missing: Missing(m.SkyADU, ped, m.HFR), Pedestal: pd, Sky: Sky(m.SkyADU, ped)},
 			raw:    raw,
 			g:      g,
 			target: m.Target,

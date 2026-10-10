@@ -213,6 +213,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	var wg sync.WaitGroup
 	wg.Go(func() { p.reportStatus(ctx) })
 	wg.Go(func() {
+		p.measureBiasMasters(ctx)
 		p.reregisterPrecalibrated(ctx)
 		p.requeueWeightless(ctx)
 		p.requeueLeakFailures(ctx)
@@ -314,7 +315,7 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	if err != nil {
 		return 0, err
 	}
-	scores, err := p.scorer.Load(ctx, p.sched, p.opts.Pedestal, measured)
+	scores, err := p.loadScores(ctx, measured)
 	if err != nil {
 		return 0, err
 	}
@@ -694,7 +695,7 @@ func precalibrated(f app.Frame) bool {
 // stars when Target Scheduler has no record of them, and their photometry.
 func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error) {
 	var frames []app.Frame
-	if err := p.db.WithContext(ctx).Select("id", "key", "object", "filter", "exposure", "offset", "sky_adu", "star_hfr", "star_count", "photometry_rev").
+	if err := p.db.WithContext(ctx).Select("id", "key", "object", "filter", "exposure", "gain", "offset", "sky_adu", "star_hfr", "star_count", "photometry_rev").
 		Where("(measured_at IS NOT NULL AND star_hfr > 0) OR photometry_rev IS NOT NULL").Find(&frames).Error; err != nil {
 		return nil, fmt.Errorf("load measured lights: %w", err)
 	}
@@ -705,7 +706,7 @@ func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error)
 	out := make([]quality.Measured, 0, len(frames))
 	for _, f := range frames {
 		m := quality.Measured{File: path.Base(f.Key), Target: f.Object, Filter: f.Filter, Exposure: val(f.Exposure),
-			Offset: val(f.Offset), Calibrated: precalibrated(f), Photometry: phots[f.ID]}
+			Gain: val(f.Gain), Offset: val(f.Offset), Calibrated: precalibrated(f), Photometry: phots[f.ID]}
 		if f.StarHFR != nil && *f.StarHFR > 0 {
 			m.SkyADU, m.HFR, m.Stars = val(f.SkyADU), val(f.StarHFR), intVal(f.StarCount)
 		}
@@ -858,4 +859,12 @@ func (p *Pipeline) upload(ctx context.Context, src, key, contentType string) err
 		return fmt.Errorf("upload %s: %w", key, err)
 	}
 	return nil
+}
+
+func (p *Pipeline) loadScores(ctx context.Context, measured []quality.Measured) (map[string]quality.SubScore, error) {
+	peds, err := quality.LoadPedestals(ctx, p.db, p.opts.Pedestal)
+	if err != nil {
+		return nil, err
+	}
+	return p.scorer.Load(ctx, p.sched, peds, measured)
 }

@@ -547,7 +547,7 @@ func (p *Pipeline) requeueStackerRejected(ctx context.Context) {
 		}
 		return
 	}
-	scores, err := p.scorer.Load(ctx, p.sched, p.opts.Pedestal, measured)
+	scores, err := p.loadScores(ctx, measured)
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Error("Requeueing the stacker's rejects failed", "error", err)

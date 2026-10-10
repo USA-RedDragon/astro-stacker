@@ -1762,7 +1762,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(10), names[42], "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
 	fs.Var(impl.NewInt(30), names[43], "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
 	fs.Bool(names[44], true, "Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way")
-	fs.Float64(names[45], 506.0, "Camera pedestal in ADU, for scoring subs")
+	fs.Float64(names[45], 506.0, "Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset")
 	fs.Var(impl.NewInt(180), names[46], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
 	fs.Var(impl.NewInt(300), names[47], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
 	fs.Var(impl.NewInt(1200), names[48], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
