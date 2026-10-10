@@ -223,15 +223,11 @@ func ninaObject(r ninaRow, desigs []ninaDesignation, source string) (*catalog.Ob
 	if r.SizeMax != nil {
 		o.MajorArcmin = *r.SizeMax / 60
 	}
-	if r.SizeMin != nil {
-		o.MinorArcmin = *r.SizeMin / 60
+	if r.SizeMin != nil && *r.SizeMin > 0 {
+		v := *r.SizeMin / 60
+		o.MinorArcmin = &v
 	}
-	if o.MinorArcmin == 0 {
-		o.MinorArcmin = o.MajorArcmin
-	}
-	if r.PositionAngle != nil {
-		o.PA = *r.PositionAngle
-	}
+	o.PA = r.PositionAngle
 	if r.Magnitude != nil && *r.Magnitude < 90 {
 		o.Magnitude = r.Magnitude
 	}
@@ -361,7 +357,7 @@ func (b *builder) patch(existing, o *catalog.Object, ids, names []string) (catal
 		p.SurfaceBrightness = o.SurfaceBrightness
 	}
 	if existing.MajorArcmin == 0 && o.MajorArcmin > 0 {
-		p.MajorArcmin, p.MinorArcmin = o.MajorArcmin, o.MinorArcmin
+		p.MajorArcmin, p.MinorArcmin, p.PA = o.MajorArcmin, o.MinorArcmin, o.PA
 	}
 	ok := p.Name != "" || len(p.Aliases) > 0 || p.SurfaceBrightness != nil || p.MajorArcmin > 0
 	return p, ok

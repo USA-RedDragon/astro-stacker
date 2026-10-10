@@ -1,6 +1,9 @@
 package catalog
 
-import "context"
+import (
+	"context"
+	"math"
+)
 
 type Object struct {
 	ID          string   `json:"id"`
@@ -11,8 +14,8 @@ type Object struct {
 	RA          float64  `json:"ra"`
 	Dec         float64  `json:"dec"`
 	MajorArcmin float64  `json:"majorArcmin"`
-	MinorArcmin float64  `json:"minorArcmin"`
-	PA          float64  `json:"pa"`
+	MinorArcmin *float64 `json:"minorArcmin"`
+	PA          *float64 `json:"pa"`
 	Source      string   `json:"source"`
 
 	Magnitude         *float64 `json:"magnitude,omitempty"`
@@ -42,3 +45,17 @@ const (
 	TypeStar          = "star"
 	TypeOther         = "other"
 )
+
+func (o Object) Minor() float64 {
+	if o.MinorArcmin == nil {
+		return 0
+	}
+	return *o.MinorArcmin
+}
+
+func (o Object) PAOr(fallback float64) float64 {
+	if o.PA == nil || math.IsNaN(*o.PA) {
+		return fallback
+	}
+	return *o.PA
+}

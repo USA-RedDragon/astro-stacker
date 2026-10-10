@@ -271,3 +271,18 @@ const (
 	b33         = "B 33"
 	comaCluster = "Coma Cluster"
 )
+
+func TestMissingShapeStaysNull(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m31, _ := ix.Get("M31")
+	if m31.PA == nil || *m31.PA != 35 || m31.MinorArcmin == nil {
+		t.Errorf("M 31 lost its catalogued shape: %+v", m31)
+	}
+	if o, _ := ix.Get("NGC6995"); o.PA != nil {
+		t.Errorf("NGC 6995 has no OpenNGC position angle but got %v", *o.PA)
+	}
+}

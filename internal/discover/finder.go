@@ -83,7 +83,7 @@ type FinderRow struct {
 	Score       float64        `json:"score"`
 	Imaged      bool           `json:"imaged"`
 	Subjects    []SubjectRef   `json:"subjects"`
-	Rotation    float64        `json:"rotation"`
+	Rotation    *float64       `json:"rotation"`
 	CatalogGap  bool           `json:"catalogueGap"`
 }
 
@@ -131,7 +131,7 @@ func brightness(o catalog.Object, skyMag float64) (string, *float64) {
 	}
 	sb := o.SurfaceBrightness
 	if sb == nil && o.Magnitude != nil && o.MajorArcmin > 0 {
-		minor := o.MinorArcmin
+		minor := o.Minor()
 		if minor == 0 {
 			minor = o.MajorArcmin
 		}
@@ -196,7 +196,7 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) 
 		if g == "" || o.MajorArcmin <= 0 || o.Dec < maxDec {
 			continue
 		}
-		fit := rig.Frame.Fit(o.MajorArcmin, o.MinorArcmin, sky.DefaultOverlap)
+		fit := rig.Frame.Fit(o.MajorArcmin, o.Minor(), sky.DefaultOverlap)
 		if fit.Fill < minFinderFill {
 			continue
 		}
@@ -226,7 +226,7 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, error) 
 		rows = append(rows, FinderRow{
 			Object: o, Group: g, Fit: fit, Brightness: label, BrightScore: bright, Narrowband: halpha.Label(ha), HAlpha: ha,
 			Months: months, BestMonths: best, Tonight: n.HoursAbove(o.RA, o.Dec, minAlt), Score: math.Round(score*1000) / 1000,
-			Rotation: fit.Rotation(o.PA), CatalogGap: gap,
+			Rotation: rotationFor(fit, o.PA), CatalogGap: gap,
 		})
 	}
 	s.mu.Lock()
@@ -325,4 +325,12 @@ func sortRows(rows []FinderRow, by string) {
 		}
 		return strings.Compare(a.Object.ID, b.Object.ID)
 	})
+}
+
+func rotationFor(fit sky.Fit, pa *float64) *float64 {
+	if pa == nil {
+		return nil
+	}
+	r := fit.Rotation(*pa)
+	return &r
 }

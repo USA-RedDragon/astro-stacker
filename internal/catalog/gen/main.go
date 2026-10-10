@@ -34,6 +34,8 @@ const openNGCRef = "v20260501"
 
 const listGreen = "green"
 
+const srcOpenNGC = "openngc"
+
 const (
 	pArp   = "Arp "
 	pLBN   = "LBN "
@@ -224,7 +226,7 @@ func (b *builder) merge(into, from *catalog.Object) {
 	}
 	b.indexName(into, from.Name)
 	if into.MajorArcmin == 0 && from.MajorArcmin > 0 {
-		into.MajorArcmin, into.MinorArcmin = from.MajorArcmin, from.MinorArcmin
+		into.MajorArcmin, into.MinorArcmin, into.PA = from.MajorArcmin, from.MinorArcmin, from.PA
 	}
 	if into.Brightness == "" {
 		into.Brightness = from.Brightness
@@ -350,6 +352,14 @@ func ptr(f float64, ok bool) *float64 {
 	return &f
 }
 
+func axis(s string) *float64 {
+	f, ok := num(s)
+	if !ok || f <= 0 {
+		return nil
+	}
+	return &f
+}
+
 func openNGCType(t string) string {
 	switch t {
 	case "G":
@@ -393,7 +403,7 @@ type ngcDup struct{ name, target string }
 
 func (b *builder) openNGC(ctx context.Context) error {
 	b.sources = append(b.sources, catalog.Source{
-		ID: "openngc", Name: "OpenNGC " + openNGCRef, Citation: "Mattia Verga, OpenNGC, https://github.com/mattiaverga/OpenNGC",
+		ID: srcOpenNGC, Name: "OpenNGC " + openNGCRef, Citation: "Mattia Verga, OpenNGC, https://github.com/mattiaverga/OpenNGC",
 		URL: "https://github.com/mattiaverga/OpenNGC/tree/" + openNGCRef, Licence: "CC-BY-SA-4.0",
 	})
 	var dups []ngcDup
@@ -455,13 +465,10 @@ func openNGCRow(t table, row []string) (*catalog.Object, []ngcDup) {
 	if c, ok := catalog.Canonical(name); ok {
 		desig = c
 	}
-	o := &catalog.Object{Designation: desig, Type: openNGCType(typ), RA: ra, Dec: dec, Source: "openngc"}
+	o := &catalog.Object{Designation: desig, Type: openNGCType(typ), RA: ra, Dec: dec, Source: srcOpenNGC}
 	o.MajorArcmin, _ = num(t.get(row, "MajAx"))
-	o.MinorArcmin, _ = num(t.get(row, "MinAx"))
-	if o.MinorArcmin == 0 {
-		o.MinorArcmin = o.MajorArcmin
-	}
-	o.PA, _ = num(t.get(row, "PosAng"))
+	o.MinorArcmin = axis(t.get(row, "MinAx"))
+	o.PA = ptr(num(t.get(row, "PosAng")))
 	if v, ok := num(t.get(row, "V-Mag")); ok {
 		o.Magnitude = &v
 	} else {
@@ -576,7 +583,6 @@ func (b *builder) sharpless(ctx context.Context) error {
 		}
 		o := &catalog.Object{Designation: pSh2 + n, Type: catalog.TypeEmission, RA: ra, Dec: dec, Source: "vii-20-catalog"}
 		o.MajorArcmin, _ = num(t.get(r, "Diam"))
-		o.MinorArcmin = o.MajorArcmin
 		if br, ok := num(t.get(r, "Bright")); ok {
 			o.Brightness = fmt.Sprintf("Sharpless brightness %d of 3 (3 brightest)", int(br))
 			o.BrightScore = classScore(br, 3, 1)
@@ -599,7 +605,7 @@ func (b *builder) lbn(ctx context.Context) error {
 		}
 		o := &catalog.Object{Designation: pLBN + n, Type: catalog.TypeNebula, RA: ra, Dec: dec, Source: "vii-9-catalog"}
 		o.MajorArcmin, _ = num(t.get(r, "Diam1"))
-		o.MinorArcmin, _ = num(t.get(r, "Diam2"))
+		o.MinorArcmin = axis(t.get(r, "Diam2"))
 		if br, ok := num(t.get(r, "Bright")); ok {
 			o.Brightness = fmt.Sprintf("LBN brightness %d of 6 (1 brightest)", int(br))
 			o.BrightScore = classScore(br, 1, 6)
@@ -630,7 +636,6 @@ func (b *builder) ldn(ctx context.Context) error {
 		o := &catalog.Object{Designation: pLDN + n, Type: catalog.TypeDark, RA: ra, Dec: dec, Source: "vii-7a-ldn"}
 		if area, ok := num(t.get(r, "Area")); ok && area > 0 {
 			o.MajorArcmin = 2 * math.Sqrt(area/math.Pi) * 60
-			o.MinorArcmin = o.MajorArcmin
 		}
 		if op, ok := num(t.get(r, "Opacity")); ok {
 			o.Brightness = fmt.Sprintf("LDN opacity %d of 6 (6 darkest)", int(op))
@@ -661,7 +666,6 @@ func (b *builder) barnard(ctx context.Context) error {
 			o.Designation = c
 		}
 		o.MajorArcmin, _ = num(t.get(r, "Diam"))
-		o.MinorArcmin = o.MajorArcmin
 		b.addOrMerge(o, nil)
 	}
 	return nil
@@ -684,7 +688,7 @@ func (b *builder) vdb(ctx context.Context) error {
 			rad, ok = rr, true
 		}
 		if ok {
-			o.MajorArcmin, o.MinorArcmin = 2*rad, 2*rad
+			o.MajorArcmin = 2 * rad
 		}
 		switch t.get(r, "SurfBr") {
 		case "VBr":
@@ -738,7 +742,7 @@ func (b *builder) arp(ctx context.Context) error {
 			size = math.Max(size, 2*sep(ra, dec, m.ra, m.dec)*60+m.dim)
 			names = append(names, m.name)
 		}
-		o := &catalog.Object{Designation: pArp + n, Type: catalog.TypeGalaxy, RA: ra, Dec: dec, MajorArcmin: size, MinorArcmin: size, Source: "vii-192-arplist"}
+		o := &catalog.Object{Designation: pArp + n, Type: catalog.TypeGalaxy, RA: ra, Dec: dec, MajorArcmin: size, Source: "vii-192-arplist"}
 		if len(ms) > 1 {
 			o.Type = catalog.TypeGalaxyGroup
 		}
@@ -770,7 +774,6 @@ func (b *builder) hickson(ctx context.Context) error {
 		}
 		o := &catalog.Object{Designation: pHCG + n, Type: catalog.TypeGalaxyGroup, RA: ra, Dec: dec, Source: "vii-213-groups"}
 		o.MajorArcmin, _ = num(t.get(r, "AngSize"))
-		o.MinorArcmin = o.MajorArcmin
 		o.Magnitude = ptr(num(t.get(r, "Totmag")))
 		b.addOrMerge(o, nil)
 	}
@@ -794,10 +797,7 @@ func (b *builder) green(ctx context.Context) error {
 		}
 		o := &catalog.Object{Designation: c, Type: catalog.TypeSNR, RA: ra, Dec: dec, Source: "vii-297-snrs"}
 		o.MajorArcmin, _ = num(t.get(r, "MajDiam"))
-		o.MinorArcmin, _ = num(t.get(r, "MinDiam"))
-		if o.MinorArcmin == 0 {
-			o.MinorArcmin = o.MajorArcmin
-		}
+		o.MinorArcmin = axis(t.get(r, "MinDiam"))
 		for nm := range strings.SplitSeq(t.get(r, "Names"), ",") {
 			nm = greenName(nm)
 			if nm == "" {
@@ -856,7 +856,6 @@ func (b *builder) planetaries(ctx context.Context) error {
 			}
 		}
 		o := &catalog.Object{Designation: desig, Type: catalog.TypePN, RA: ra, Dec: dec, Source: "v-84-main", MajorArcmin: diam[png]}
-		o.MinorArcmin = o.MajorArcmin
 		if desig != "PN G"+png {
 			addAlias(o, "PN G"+png)
 		}
@@ -878,7 +877,7 @@ func (b *builder) rcw(ctx context.Context) error {
 		}
 		o := &catalog.Object{Designation: pRCW + n, Type: catalog.TypeEmission, RA: ra, Dec: dec, Source: "vii-216-rcw"}
 		o.MajorArcmin, _ = num(t.get(r, "MajAxis"))
-		o.MinorArcmin, _ = num(t.get(r, "MinAxis"))
+		o.MinorArcmin = axis(t.get(r, "MinAxis"))
 		switch t.get(r, "Br") {
 		case "v":
 			o.Brightness, o.BrightScore = "RCW: very bright", classScore(4, 4, 1)
@@ -921,10 +920,7 @@ func (b *builder) cederblad(ctx context.Context) error {
 		}
 		o := &catalog.Object{Designation: pCed + n + t.get(r, "m_Ced"), Type: catalog.TypeNebula, RA: ra, Dec: dec, Source: "vii-231-catalog"}
 		o.MajorArcmin, _ = num(t.get(r, "Dim1"))
-		o.MinorArcmin, _ = num(t.get(r, "Dim2"))
-		if o.MinorArcmin == 0 {
-			o.MinorArcmin = o.MajorArcmin
-		}
+		o.MinorArcmin = axis(t.get(r, "Dim2"))
 		var cross []string
 		if nm := t.get(r, "Name"); nm != "" {
 			cross = append(cross, nm)

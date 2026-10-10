@@ -377,8 +377,8 @@ func TestFrameOffersLayoutsAndAChosenGrid(t *testing.T) {
 	appDB := appFixture(t)
 	svc := mosaicplan.New(appDB, schedFixture(t))
 	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
-	rot := 0.0
-	req := mosaicplan.FramingRequest{RA: 313, Dec: 44, MajorArcmin: 240, MinorArcmin: 120, PA: 90, Rotation: &rot, Rows: 2, Cols: 3, HoursPerPanel: 10}
+	rot, minor, pa := 0.0, 120.0, 90.0
+	req := mosaicplan.FramingRequest{RA: 313, Dec: 44, MajorArcmin: 240, MinorArcmin: &minor, PA: &pa, Rotation: &rot, Rows: 2, Cols: 3, HoursPerPanel: 10}
 	f, err := svc.Frame(ctx, req, time.Now())
 	if err != nil {
 		t.Fatal(err)

@@ -24,7 +24,8 @@ type Patch struct {
 	Aliases           []string `json:"aliases,omitempty"`
 	SurfaceBrightness *float64 `json:"surfaceBrightness,omitempty"`
 	MajorArcmin       float64  `json:"majorArcmin,omitempty"`
-	MinorArcmin       float64  `json:"minorArcmin,omitempty"`
+	MinorArcmin       *float64 `json:"minorArcmin,omitempty"`
+	PA                *float64 `json:"pa,omitempty"`
 }
 
 type Overlay struct {
@@ -58,7 +59,7 @@ func (ds *Dataset) Apply(ov Overlay) {
 			o.SurfaceBrightness = p.SurfaceBrightness
 		}
 		if o.MajorArcmin == 0 && p.MajorArcmin > 0 {
-			o.MajorArcmin, o.MinorArcmin = p.MajorArcmin, p.MinorArcmin
+			o.MajorArcmin, o.MinorArcmin, o.PA = p.MajorArcmin, p.MinorArcmin, p.PA
 		}
 	}
 	for _, o := range ov.Objects {
