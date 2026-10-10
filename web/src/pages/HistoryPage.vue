@@ -4,7 +4,7 @@ import { listCommands, type CommandRecord } from '../api/commands'
 import { onEvent } from '../api/events'
 import { hm, shortDate, show } from '../format'
 import { historyBadge, undoState } from '../plan'
-import { cancel, exposureEnd, shell, undo } from '../shell'
+import { cancel, shell, undo, whenApplies } from '../shell'
 
 type Who = 'all' | 'web' | 'app' | 'observatory'
 
@@ -109,7 +109,7 @@ function whoLine(r: CommandRecord): string {
 }
 
 function badgeOf(r: CommandRecord) {
-  return historyBadge(r, exposureEnd())
+  return historyBadge(r, r.status === 'pending' ? whenApplies(r) : '')
 }
 
 const entries = computed(() =>
@@ -144,8 +144,7 @@ const queuedN = computed(() => shell.waiting.filter((c) => c.status === 'queued'
 const waitingLabel = computed(() => {
   const parts: string[] = []
   if (pendingN.value) {
-    const end = exposureEnd()
-    parts.push(`${pendingN.value} ${pendingN.value === 1 ? 'change waits' : 'changes wait'} for the end of this exposure${end ? ' (' + end + ')' : ''}`)
+    parts.push(`${pendingN.value} ${pendingN.value === 1 ? 'change applies' : 'changes apply'} ${whenApplies()}`)
   }
   if (queuedN.value) parts.push(shell.scheduler.reachable === 'offline' ? `${queuedN.value} queued until the PC answers` : `${queuedN.value} sent via the backup queue`)
   return parts.join(' · ')

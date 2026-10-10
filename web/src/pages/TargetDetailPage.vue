@@ -22,7 +22,7 @@ import {
   type Target,
 } from '../api/planning'
 import { submitCommand } from '../api/commands'
-import { errorToast, exposureEnd, notifyCommand, shell } from '../shell'
+import { errorToast, exposureEnd, notifyCommand, shell, whenApplies } from '../shell'
 import { onEvent } from '../api/events'
 
 const props = defineProps<{ projectId: string }>()
@@ -68,7 +68,8 @@ const applyNote = computed(() => {
   if (s.paused) return { text: 'The scheduler is paused, so edits apply at once.', bad: false }
   const at = exposureEnd()
   if (at) return { text: `Edits apply at ${at}, when the current exposure ends. Nothing waits for a minimum-time window.`, bad: false }
-  return { text: 'Edits apply at the next plan, when the current exposure ends.', bad: false }
+  if (s.state === 'imaging') return { text: `No exposure is running, so edits apply ${whenApplies()}. Nothing waits for a minimum-time window.`, bad: false }
+  return { text: 'Edits apply at once while nothing is imaging.', bad: false }
 })
 
 const mode = computed<GoalKind>(() => {

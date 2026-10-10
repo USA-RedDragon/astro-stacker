@@ -110,7 +110,7 @@ func (q *QueueResults) Once(ctx context.Context) (int, error) {
 	}
 	n := 0
 	for _, row := range rows {
-		res := schedcmd.Result{ID: row.CommandID, Status: schedcmd.Status(row.Status), UpdatedAt: row.UpdatedAt}
+		res := schedcmd.Result{ID: row.CommandID, Status: schedcmd.Status(row.Status), UpdatedAt: row.UpdatedAt, Untimed: true}
 		if row.Message != nil {
 			res.Message = *row.Message
 		}

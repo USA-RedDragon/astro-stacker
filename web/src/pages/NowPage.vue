@@ -25,7 +25,8 @@ import {
   verdictBadge,
   type ResumeMode,
 } from '../plan'
-import { errorToast, exposureEnd, notifyCommand, queuedShort, shell } from '../shell'
+import { errorToast, notifyCommand, queuedShort, shell, whenApplies } from '../shell'
+import { activityLine } from '../activity'
 import { conditionPills, hasData, hfrLimitFor, moonLine, noSourceText, powerView, safetyBadge, weatherNote, weatherRows } from '../nowtonight'
 
 const st = computed(() => shell.scheduler)
@@ -171,7 +172,7 @@ const pausedChip = computed(() => {
   }
   if (s.pause_requested) return 'Pauses after this exposure'
   const w = pauseWaiting.value
-  if (w) return w.status === 'queued' ? 'Pause ' + queuedShort() : 'Pause applies about ' + (exposureEnd() || 'the next plan')
+  if (w) return w.status === 'queued' ? 'Pause ' + queuedShort() : 'Pause applies ' + whenApplies(w)
   return ''
 })
 
@@ -179,7 +180,7 @@ const skipChips = computed(() => {
   const out: { label: string; tone: string }[] = []
   for (const c of waitingOf('scheduler.skip')) {
     out.push({
-      label: c.status === 'queued' ? (shell.scheduler.reachable === 'offline' ? 'Skip queued offline · sends when the PC answers' : 'Skip ' + queuedShort()) : 'Skip queued · applies about ' + (exposureEnd() || 'the next plan'),
+      label: c.status === 'queued' ? (shell.scheduler.reachable === 'offline' ? 'Skip queued offline · sends when the PC answers' : 'Skip ' + queuedShort()) : 'Skip queued · applies ' + whenApplies(c),
       tone: 'warn',
     })
   }
@@ -354,7 +355,8 @@ const resumeMode = ref<ResumeMode>('manual')
 const resumeAt = ref('03:00')
 const busy = ref(false)
 
-const endHm = computed(() => exposureEnd() || 'the end of this exposure')
+const applyWhen = computed(() => whenApplies())
+const activityNow = computed(() => (state.value === 'imaging' && !exposure.value ? activityLine(st.value, shell.now) : ''))
 const nextTarget = computed(() => {
   const t = target.value
   return t ? upcoming.value.find((x) => !x.wait && x.target_id !== t.target_id) : undefined
@@ -539,6 +541,9 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
             </div>
           </div>
           <p v-else-if="state === 'paused'" class="muted small" style="margin: 0">Paused · no exposure running. Resume to start the next one.</p>
+          <p v-else-if="activityNow" class="small num" style="margin: 0">
+            {{ activityNow }}<span class="muted"> · no exposure running, the countdown starts when the shutter opens</span>
+          </p>
 
           <div class="why">
             <div class="spread">
@@ -791,10 +796,10 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--destructive-foreground)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4l10 8-10 8V4zM19 5v14" /></svg>
           <h2 id="skip-h">Skip {{ target.target_name }}?</h2>
         </div>
-        <p id="skip-d" style="font-size: 0.9375rem; font-weight: 500">This finishes the current exposure, then re-plans. Applies about {{ endHm }}.</p>
+        <p id="skip-d" style="font-size: 0.9375rem; font-weight: 500">This finishes the current exposure, then re-plans. Applies {{ applyWhen }}.</p>
         <p class="small muted">
           <template v-if="exposure">The {{ filterName(exposure.filter) }} sub in progress is kept. </template>
-          At about {{ endHm }} the scheduler drops the {{ target.is_mosaic ? 'panel' : 'target' }} and picks again.
+          Then the scheduler drops the {{ target.is_mosaic ? 'panel' : 'target' }} and picks again.
           <template v-if="nextTarget">
             If tonight's plan holds, that is <strong class="fg">{{ nextTarget.target_name }}</strong><template v-if="nextTargetScore"> (score {{ nextTargetScore }})</template>.
           </template>
@@ -822,7 +827,7 @@ const cross = (x: number, y: number, r: number) => `M${x - r} ${y - r} L${x + r}
           <h2 id="pause-h">Pause the scheduler?</h2>
         </div>
         <p id="pause-d" style="font-size: 0.9375rem; font-weight: 500">This finishes the current exposure, then stops picking targets.</p>
-        <p v-if="exposure && target" class="small muted">The {{ filterName(exposure.filter) }} sub on {{ target.target_name }} is kept, about {{ endHm }}. Guiding then stops.</p>
+        <p v-if="exposure && target" class="small muted">The {{ filterName(exposure.filter) }} sub on {{ target.target_name }} is kept. The pause applies {{ applyWhen }}, then guiding stops.</p>
         <fieldset class="plain">
           <legend>While paused, the mount</legend>
           <label class="opt"><input v-model="pauseMount" type="radio" name="pause-mount" value="track" /> Keeps tracking</label>

@@ -73,6 +73,9 @@ type Status struct {
 	Target         *Target          `json:"target,omitempty"`
 	Exposure       *Exposure        `json:"exposure,omitempty"`
 	Wait           *Wait            `json:"wait,omitempty"`
+	Activity       string           `json:"activity,omitempty"`
+	ActivityDetail string           `json:"activity_detail,omitempty"`
+	ActivitySince  *time.Time       `json:"activity_since,omitempty"`
 	Scores         []Score          `json:"scores,omitempty"`
 	ScoreTotal     *float64         `json:"score_total,omitempty"`
 	Skips          []Skip           `json:"skips,omitempty"`
