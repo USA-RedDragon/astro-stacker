@@ -23,6 +23,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
@@ -141,6 +142,9 @@ type Pipeline struct {
 	// verdicts.
 	verdictMu    sync.Mutex
 	verdictFiles map[int]string
+
+	linker     tslink.Linker
+	seamBudget int
 
 	// drain is closed when the pipeline should stop taking on work, and
 	// finish what it has (Drain).

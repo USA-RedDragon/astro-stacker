@@ -31,6 +31,7 @@ type binnedPanel struct {
 	W, H         int // blocks
 	fullW, fullH int // canvas pixels
 	Data         []float32
+	Noise        []float32
 }
 
 // placement is where a registered panel lies on the canvas they share: its
@@ -83,23 +84,30 @@ func placements(headers []frameheader.Keywords, sizes [][2]int) ([]placement, er
 func binRegistered(data []float32, w, h int, at placement, sat float32) binnedPanel {
 	b := binnedPanel{W: at.CW / matchBin, H: at.CH / matchBin, fullW: at.CW, fullH: at.CH}
 	raw := make([]float32, b.W*b.H)
+	b.Noise = make([]float32, b.W*b.H)
 	for by := range b.H {
 		for bx := range b.W {
-			var s float32
+			var s, d float32
 			x0, y0 := bx*matchBin-at.X, by*matchBin-at.Y
 			ok := x0 >= 0 && y0 >= 0 && x0+matchBin <= w && y0+matchBin <= h
 			for y := y0; y < y0+matchBin && ok; y++ {
-				for _, v := range data[y*w+x0 : y*w+x0+matchBin] {
+				row := data[y*w+x0 : y*w+x0+matchBin]
+				for i, v := range row {
 					if v == 0 || v >= sat {
 						ok = false
 						break
 					}
 					s += v
+					if i > 0 {
+						d += float32(math.Abs(float64(v - row[i-1])))
+					}
 				}
 			}
 			raw[by*b.W+bx] = float32(math.NaN())
+			b.Noise[by*b.W+bx] = float32(math.NaN())
 			if ok {
 				raw[by*b.W+bx] = s / (matchBin * matchBin)
+				b.Noise[by*b.W+bx] = d / (matchBin * (matchBin - 1)) * float32(math.Sqrt(math.Pi)/2)
 			}
 		}
 	}
@@ -344,30 +352,35 @@ func panelCorrections(n int, pairs []panelPair) []plane {
 // shows as a feathered band. It returns the pairs as measured before and
 // after.
 func matchRegistered(files []string, sat float32) (before, after []panelPair, err error) {
+	before, after, _, err = matchRegisteredSeams(files, sat, true)
+	return before, after, err
+}
+
+func matchRegisteredSeams(files []string, sat float32, rewrite bool) (before, after []panelPair, seams []seamMeasure, err error) {
 	headers := make([]frameheader.Keywords, len(files))
 	sizes := make([][2]int, len(files))
 	for i, f := range files {
 		if headers[i], err = readKeywords(f); err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
 		sizes[i] = [2]int{int(headers[i].Float("NAXIS1")), int(headers[i].Float("NAXIS2"))}
 	}
 	at, err := placements(headers, sizes)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	binned := make([]binnedPanel, len(files))
 	for i, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		im, err := imagedata.Decode(b)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
 		if im.C != 1 || im.W != sizes[i][0] || im.H != sizes[i][1] {
-			return nil, nil, fmt.Errorf("%s: %dx%dx%d, header says %dx%d", filepath.Base(f), im.W, im.H, im.C, sizes[i][0], sizes[i][1])
+			return nil, nil, nil, fmt.Errorf("%s: %dx%dx%d, header says %dx%d", filepath.Base(f), im.W, im.H, im.C, sizes[i][0], sizes[i][1])
 		}
 		binned[i] = binRegistered(im.Plane(0), im.W, im.H, at[i], sat)
 	}
@@ -384,7 +397,7 @@ func matchRegistered(files []string, sat float32) (before, after []panelPair, er
 	}
 	before = measure()
 	if len(before) == 0 {
-		return before, nil, nil
+		return before, nil, nil, nil
 	}
 	corr := panelCorrections(len(files), before)
 	for k, b := range binned {
@@ -396,12 +409,16 @@ func matchRegistered(files []string, sat float32) (before, after []panelPair, er
 		}
 	}
 	after = measure()
+	seams = measureSeams(binned, after)
+	if !rewrite {
+		return before, after, seams, nil
+	}
 	for k, f := range files {
 		if err := addPlane(f, corr[k], at[k], sat); err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
 	}
-	return before, after, nil
+	return before, after, seams, nil
 }
 
 // readKeywords reads a FITS file's header.
@@ -466,12 +483,12 @@ func copiedCards(b []byte) ([]imagedata.Card, error) {
 	return cards, nil
 }
 
-// logPairs reports the panels' measured differences on their overlaps.
-func logPairs(msg, project, filter string, pairs []panelPair) {
-	for _, p := range pairs {
-		pl := p.Fit.Plane
-		slog.Info(msg, "project", project, "filter", filter, "panels", fmt.Sprintf("%d-%d", p.I+1, p.J+1),
-			"blocks", p.Fit.Samples, "difference", fmt.Sprintf("%.3g", p.Fit.Mean), "slope_x", fmt.Sprintf("%.3g", pl.Bx),
-			"slope_y", fmt.Sprintf("%.3g", pl.By), "scatter", fmt.Sprintf("%.3g", p.Fit.Sigma))
+func logSeams(project, filter string, seams []seamMeasure) {
+	for _, m := range seams {
+		pl := m.Fit.Plane
+		slog.Info("Mosaic overlap after matching", "project", project, "filter", filter, "panels", fmt.Sprintf("%d-%d", m.I+1, m.J+1),
+			"blocks", m.Fit.Samples, "difference", fmt.Sprintf("%.3g", m.Fit.Mean), "slope_x", fmt.Sprintf("%.3g", pl.Bx),
+			"slope_y", fmt.Sprintf("%.3g", pl.By), "scatter", fmt.Sprintf("%.3g", m.Fit.Sigma),
+			"noise_a", fmt.Sprintf("%.3g", m.NoiseA), "noise_b", fmt.Sprintf("%.3g", m.NoiseB))
 	}
 }

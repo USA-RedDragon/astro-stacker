@@ -604,7 +604,7 @@ func objectsRoute(c *gin.Context) {
 	}
 	// A mosaic's panels show in its mosaic, built from their files
 	// whatever Target Scheduler recorded.
-	panels, err := stacking.MosaicPanels(ctx, di.SchedulerDBStore.DB())
+	panels, err := stacking.MosaicPanels(ctx, di.AppStore.DB(), di.SchedulerDBStore.DB())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 		return
