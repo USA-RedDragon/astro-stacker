@@ -160,7 +160,7 @@ export interface MosaicDetail {
   effectiveHours: number
   hoursLeft: number
   hoursUnknown: boolean
-  balancing: { panelDeficit: number; mosaicCompletion: number; on: boolean }
+  balancing: { panelDeficit: number; panelDeficitSet: boolean; mosaicCompletion: number; on: boolean }
   seams: Seam[]
   health: PanelHealth[]
   needs: string[]
@@ -261,7 +261,7 @@ export const mosaicPreviews = (project: string) =>
   api.get<{ filter: string; preview_url?: string; panels: number; panels_total: number }[]>('/mosaics' + query({ project }))
 
 export function setBalancing(d: MosaicDetail, on: boolean) {
-  const before = d.balancing.panelDeficit
+  const before = d.balancing.panelDeficitSet ? d.balancing.panelDeficit : null
   return submitCommand('ruleweight.edit', {
     project_id: d.ts.id,
     project_guid: d.projectGuid,
