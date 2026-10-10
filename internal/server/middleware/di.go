@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/gin-gonic/gin"
 )
@@ -20,6 +21,7 @@ type DepInjection struct {
 // Restacker stacks a target again from scratch.
 type Restacker interface {
 	Restack(ctx context.Context, object string) error
+	Scores(ctx context.Context) (map[string]quality.SubScore, error)
 }
 
 const DepInjectionKey = "DepInjection"

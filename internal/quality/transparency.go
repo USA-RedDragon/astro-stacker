@@ -1,8 +1,10 @@
 package quality
 
 import (
+	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 )
@@ -220,4 +222,27 @@ func CoreTransparency(sub *measure.Photometry, ref []float64) float64 {
 		m = (ratios[len(ratios)/2-1] + m) / 2
 	}
 	return math.Min(1, m)
+}
+
+const (
+	TransparencyPhotometry = "photometry"
+	TransparencySkyExcess  = "sky_excess"
+)
+
+func transparencyMissing(hasPhot, fieldPhot, hasExcess bool) string {
+	var why []string
+	switch {
+	case !hasPhot:
+		why = append(why, "no star photometry of the sub")
+	case !fieldPhot:
+		why = append(why, fmt.Sprintf("fewer than %d subs of its field have star photometry", transparencyMinSubs))
+	default:
+		why = append(why, fmt.Sprintf("fewer than %d star ranks are bright and unclipped enough to compare", coreMinRanks))
+	}
+	if hasExcess {
+		why = append(why, fmt.Sprintf("its field has fewer than %d subs, or under %d ADU of light above the sky, to compare against", transparencyMinSubs, transparencyMinExcess))
+	} else {
+		why = append(why, "no ADU mean in Target Scheduler's record")
+	}
+	return strings.Join(why, "; ")
 }

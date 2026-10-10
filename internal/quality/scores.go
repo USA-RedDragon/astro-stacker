@@ -52,12 +52,16 @@ type SubScore struct {
 	TargetBest float64
 	// HFR and Stars are NINA's star measurements, used to pick a sharp
 	// registration reference.
-	HFR          float64
-	Stars        int
-	Eccentricity float64
-	Missing      string
-	Pedestal     Pedestal
-	Sky          float64
+	HFR                 float64
+	Stars               int
+	Eccentricity        float64
+	Missing             string
+	Pedestal            Pedestal
+	Sky                 float64
+	Reference           float64
+	ReferenceSubs       int
+	TransparencySource  string
+	TransparencyMissing string
 }
 
 type group struct {
@@ -334,8 +338,14 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 	}
 
 	refs := make(map[group]float64, len(byGroup))
+	counts := make(map[group]int, len(byGroup))
 	for g, ws := range byGroup {
 		refs[g] = Reference(ws)
+		for _, w := range ws {
+			if !math.IsNaN(w) {
+				counts[g]++
+			}
+		}
 	}
 	fieldRefs := make(map[fieldGroup]float64, len(byField))
 	for f, es := range byField {
@@ -358,6 +368,7 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 		it.s.Transparency = math.NaN()
 		if it.phot != nil {
 			it.s.Transparency = CoreTransparency(it.phot, coreRefs[it.field])
+			it.s.TransparencySource = TransparencyPhotometry
 		}
 		if math.IsNaN(it.s.Transparency) {
 			ref := math.NaN()
@@ -365,13 +376,19 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 				ref = fieldRefs[it.field]
 			}
 			it.s.Transparency = Transparency(it.excess, ref)
+			it.s.TransparencySource = TransparencySkyExcess
+			if math.IsNaN(it.excess) || !(ref > 0) {
+				it.s.TransparencySource = ""
+				it.s.TransparencyMissing = transparencyMissing(it.phot != nil, coreRefs[it.field] != nil, !math.IsNaN(it.excess))
+			}
+		}
+		it.s.Reference, it.s.ReferenceSubs = refs[it.g], counts[it.g]
+		if it.s.Missing == "" && !(refs[it.g] > 0) {
+			it.s.Missing = fmt.Sprintf("no %s %gs sub with a measurable sky and HFR to score against", it.g.filter, it.g.exposure)
 		}
 		// The stacker's own rejects count as they did before its verdict
 		// was applied: otherwise each verdict would move the references,
 		// and a rejected sub could never be judged again.
-		if it.s.Missing == "" && !(refs[it.g] > 0) {
-			it.s.Missing = fmt.Sprintf("no %s %gs sub with a measurable sky and HFR to score against", it.g.filter, it.g.exposure)
-		}
 		if it.s.GradingStatus != GradingRejected || it.s.StackerRejected {
 			t := it.s.Transparency
 			it.s.PlainScore = Score(it.raw, refs[it.g])
