@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const searchConeRadius = 1.0
+
 func floatQuery(c *gin.Context, name string) (float64, bool) {
 	v := c.Query(name)
 	if v == "" {
@@ -54,7 +56,12 @@ func applyDiscoverRoutes(g *gin.RouterGroup, x Extras) {
 	}
 	g.GET("/catalog/search", func(c *gin.Context) {
 		limit, _ := strconv.Atoi(c.Query("limit"))
-		out := d.Catalog.Find(c.Request.Context(), c.Query("q"), limit)
+		q := c.Query("q")
+		if ra, dec, ok := catalog.ParseCoordinates(q); ok {
+			c.JSON(http.StatusOK, d.Catalog.Near(c.Request.Context(), ra, dec, searchConeRadius, limit))
+			return
+		}
+		out := d.Catalog.Find(c.Request.Context(), q, limit)
 		if out == nil {
 			out = []catalog.Match{}
 		}
