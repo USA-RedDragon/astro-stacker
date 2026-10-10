@@ -64,11 +64,12 @@ func siteFunc(cfg *config.Config, appStore store.Store) discover.SiteFunc {
 		if math.IsNaN(lat) || math.IsNaN(lon) {
 			return sky.Site{}, fmt.Errorf("%w: %s", errNoSiteHeader, f.Key)
 		}
-		if math.IsNaN(elev) {
-			elev = 0
+		site := sky.Site{Latitude: lat, Longitude: lon, Elevation: d.SiteElevation}
+		if site.Elevation == nil && !math.IsNaN(elev) {
+			site.Elevation = &elev
 		}
 		slog.Info("Observatory site read from a light's header", "key", f.Key)
-		return sky.Site{Latitude: lat, Longitude: lon, Elevation: elev}, nil
+		return site, nil
 	}
 }
 

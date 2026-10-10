@@ -8,7 +8,10 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
 
-func testSite() sky.Site { return sky.Site{Latitude: 31.5, Longitude: -99.4, Elevation: 473} }
+func testSite() sky.Site {
+	elev := 473.0
+	return sky.Site{Latitude: 31.5, Longitude: -99.4, Elevation: &elev}
+}
 
 func TestSunPosition(t *testing.T) {
 	t.Parallel()

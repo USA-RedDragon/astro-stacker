@@ -47,7 +47,7 @@ type Scheduler struct {
 type Discover struct {
 	SiteLatitude     float64  `name:"site-latitude" description:"Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)"`
 	SiteLongitude    float64  `name:"site-longitude" description:"Observatory east longitude in degrees"`
-	SiteElevation    float64  `name:"site-elevation" description:"Observatory elevation in metres"`
+	SiteElevation    *float64 `name:"site-elevation" description:"Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise"`
 	MinAltitude      float64  `name:"min-altitude" description:"Altitude in degrees an object must clear in astronomical darkness to count as up" default:"30"`
 	SkyBrightness    float64  `name:"sky-brightness" description:"Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky"`
 	FocalLength      float64  `name:"focal-length" description:"Ignored: the focal length is read from lights' FOCALLEN"`

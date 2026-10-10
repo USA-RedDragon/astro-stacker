@@ -61,10 +61,11 @@ func TestDiscoverEnv(t *testing.T) {
 		"DISCOVER_STARFRONT_MINUTES": "60",
 	}
 	d := loadEnv(t, env).Discover
+	elev := 473.0
 	checks := map[string][2]any{
 		"DISCOVER_SITE_LATITUDE":     {d.SiteLatitude, 31.5},
 		"DISCOVER_SITE_LONGITUDE":    {d.SiteLongitude, -99.4},
-		"DISCOVER_SITE_ELEVATION":    {d.SiteElevation, 473.0},
+		"DISCOVER_SITE_ELEVATION":    {d.SiteElevation, &elev},
 		"DISCOVER_MIN_ALTITUDE":      {d.MinAltitude, 25.0},
 		"DISCOVER_SKY_BRIGHTNESS":    {d.SkyBrightness, 21.5},
 		"DISCOVER_FOCAL_LENGTH":      {d.FocalLength, 405.0},
