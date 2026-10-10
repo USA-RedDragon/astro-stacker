@@ -3,6 +3,7 @@ package goals
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -53,7 +54,7 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 	p := Progress{
 		Object: m.Object, Filter: m.Filter, TargetGUID: m.TargetGUID, Kind: g.Kind,
 		SNR: m.SNR, EffectiveHours: m.EffectiveHours, GainPerHourPct: m.GainPerHourPct,
-		LowConfidence: m.LowConfidence, Region: len(g.Region) > 0, MeasuredAt: m.MeasuredAt,
+		LowConfidence: m.LowConfidence, LowReason: m.LowReason, Region: len(g.Region) > 0, MeasuredAt: m.MeasuredAt,
 	}
 	if m.Depth != nil {
 		p.Depth = *m.Depth
@@ -62,12 +63,17 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 			p.DepthSystem, p.DepthBand, p.DepthApprox = SystemGaiaG, BandGaiaG, IsNarrowband(m.Filter)
 		}
 	}
-	if g.Kind == KindDepth && m.Depth != nil {
+	switch {
+	case g.Kind == KindDepth && m.Depth != nil:
 		p.Goal = g.Depth
 		p.Achieved = *m.Depth
 		p.HoursNeeded = HoursForDepth(m.EffectiveHours, *m.Depth, g.Depth)
 		p.Progress = math.Pow(10, (*m.Depth-g.Depth)/1.25)
-	} else {
+	case g.Kind == KindDepth:
+		p.Goal = g.Depth
+		p.HoursNeeded = -1
+		p.Unmeasured = noDepthReason(m)
+	default:
 		p.Kind = KindSNR
 		p.Goal = g.SNR
 		if p.Goal <= 0 {
@@ -85,6 +91,16 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 	p.Plateau = m.Subs > 0 && m.GainPerHourPct < PlateauGainPct
 	p.Done = p.Progress >= 1 || (g.PlateauStop && p.Plateau)
 	return p
+}
+
+func noDepthReason(m app.GoalMeasurement) string {
+	switch {
+	case m.PixelScale <= 0:
+		return "no depth: the master has no plate solution to calibrate against"
+	case m.ZeroPointStars < MinZeroPointStars:
+		return fmt.Sprintf("no depth: %d Gaia stars matched, %d needed", m.ZeroPointStars, MinZeroPointStars)
+	}
+	return "no depth: the zero point could not be measured"
 }
 
 func Lookup(ctx context.Context, appDB *gorm.DB, goalsByKey map[Key]Goal, keys []Key) (map[Key]Progress, error) {

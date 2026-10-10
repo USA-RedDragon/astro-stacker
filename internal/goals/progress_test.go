@@ -53,3 +53,12 @@ func TestEvaluateDepth(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 }
+
+func TestEvaluateDepthWithoutZeroPointStaysADepthGoal(t *testing.T) {
+	t.Parallel()
+	m := app.GoalMeasurement{Filter: "H-a", Subs: 50, SNR: 20, EffectiveHours: 4, GainPerHourPct: 10, PixelScale: 1.9, ZeroPointStars: 4, LowReason: "faint band too small"}
+	p := Evaluate(m, Goal{Kind: KindDepth, Depth: 25.5})
+	if p.Kind != KindDepth || p.Progress != 0 || p.Done || p.HoursNeeded != -1 || p.Unmeasured != "no depth: 4 Gaia stars matched, 10 needed" || p.LowReason != "faint band too small" {
+		t.Fatalf("%+v", p)
+	}
+}
