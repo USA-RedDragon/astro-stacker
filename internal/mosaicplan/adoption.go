@@ -298,11 +298,20 @@ func (s *Service) Adoptions(ctx context.Context) ([]Adoption, error) {
 		return nil, err
 	}
 	order := map[string]int{app.AdoptionProposed: 0, app.AdoptionAccepted: 1, app.AdoptionRejected: 1, app.AdoptionAuto: 1}
+	kinds := map[string]int{mosaics.KindMosaic: 0, mosaics.KindNotMosaic: 1, KindFrames: 2}
 	slices.SortFunc(rows, func(a, b app.MosaicAdoption) int {
-		if order[a.Status] != order[b.Status] {
+		switch {
+		case order[a.Status] != order[b.Status]:
 			return order[a.Status] - order[b.Status]
+		case a.Clean != b.Clean:
+			if a.Clean {
+				return 1
+			}
+			return -1
+		case kinds[a.Kind] != kinds[b.Kind]:
+			return kinds[a.Kind] - kinds[b.Kind]
 		}
-		return strings.Compare(a.Subject, b.Subject)
+		return strings.Compare(a.Project, b.Project)
 	})
 	out := make([]Adoption, 0, len(rows))
 	for _, r := range rows {
