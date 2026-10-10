@@ -213,6 +213,7 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 			MaxSubs:  cfg.Goals.MaxSubs,
 			Publish:  cfg.Goals.Publish,
 		})
+	r.XP = goalmeasure.VizierXPFetcher(nil, "")
 	done := make(chan struct{})
 	go func() {
 		r.Run(context.Background())

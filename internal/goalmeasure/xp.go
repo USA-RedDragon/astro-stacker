@@ -21,32 +21,28 @@ import (
 )
 
 const (
-	VizierURL      = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv"
-	gaiaCatalogue  = "I/355/gaiadr3"
-	gaiaMaxRows    = 20000
-	gaiaTimeout    = 90 * time.Second
-	gaiaFieldSlack = 1.05
-	UserAgent      = "astro-stacker/1 (+https://github.com/USA-RedDragon/astro-stacker)"
+	xpCatalogue = "I/360/syntphot"
+	xpBrightR   = 8.0
+	xpFaintR    = 15.0
 )
 
-type StarFetcher func(ctx context.Context, ra, dec, radius float64) ([]goals.CatalogStar, error)
+type XPFetcher func(ctx context.Context, ra, dec, radius float64) ([]goals.XPStar, error)
 
-func VizierFetcher(client *http.Client, endpoint string) StarFetcher {
+func VizierXPFetcher(client *http.Client, endpoint string) XPFetcher {
 	if client == nil {
 		client = &http.Client{Timeout: gaiaTimeout}
 	}
 	if endpoint == "" {
 		endpoint = VizierURL
 	}
-	return func(ctx context.Context, ra, dec, radius float64) ([]goals.CatalogStar, error) {
+	return func(ctx context.Context, ra, dec, radius float64) ([]goals.XPStar, error) {
 		q := url.Values{}
-		q.Set("-source", gaiaCatalogue)
+		q.Set("-source", xpCatalogue)
 		q.Set("-c", fmt.Sprintf("%.6f %+.6f", ra, dec))
 		q.Set("-c.rd", fmt.Sprintf("%.4f", radius))
-		q.Set("-out", "RA_ICRS,DE_ICRS,Gmag")
-		q.Set("Gmag", fmt.Sprintf("%g..%g", goals.CatalogBrightG, goals.CatalogFaintG))
+		q.Set("-out", "RA_ICRS,DE_ICRS,FB,FV,FR,FI")
+		q.Set("Rmag", fmt.Sprintf("%g..%g", xpBrightR, xpFaintR))
 		q.Set("-out.max", strconv.Itoa(gaiaMaxRows))
-		q.Set("-sort", "Gmag")
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+q.Encode(), nil)
 		if err != nil {
 			return nil, err
@@ -60,16 +56,16 @@ func VizierFetcher(client *http.Client, endpoint string) StarFetcher {
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("vizier: %s", resp.Status)
 		}
-		return ParseVizierTSV(resp.Body)
+		return ParseXPTSV(resp.Body)
 	}
 }
 
-func ParseVizierTSV(r io.Reader) ([]goals.CatalogStar, error) {
+func ParseXPTSV(r io.Reader) ([]goals.XPStar, error) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
 	cols := map[string]int{}
 	inData := false
-	var out []goals.CatalogStar
+	var out []goals.XPStar
 	for sc.Scan() {
 		line := sc.Text()
 		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
@@ -81,7 +77,7 @@ func ParseVizierTSV(r io.Reader) ([]goals.CatalogStar, error) {
 			for i, f := range fields {
 				cols[strings.TrimSpace(f)] = i
 			}
-			for _, need := range []string{"RA_ICRS", "DE_ICRS", "Gmag"} {
+			for _, need := range []string{"RA_ICRS", "DE_ICRS", "FB", "FV", "FR", "FI"} {
 				if _, ok := cols[need]; !ok {
 					return nil, fmt.Errorf("vizier: no %s column", need)
 				}
@@ -91,19 +87,20 @@ func ParseVizierTSV(r io.Reader) ([]goals.CatalogStar, error) {
 				inData = true
 			}
 		default:
-			get := func(name string) (float64, bool) {
+			get := func(name string) float64 {
 				i := cols[name]
 				if i >= len(fields) {
-					return 0, false
+					return math.NaN()
 				}
 				v, err := strconv.ParseFloat(strings.TrimSpace(fields[i]), 64)
-				return v, err == nil
+				if err != nil {
+					return math.NaN()
+				}
+				return v
 			}
-			ra, ok1 := get("RA_ICRS")
-			dec, ok2 := get("DE_ICRS")
-			g, ok3 := get("Gmag")
-			if ok1 && ok2 && ok3 {
-				out = append(out, goals.CatalogStar{RA: ra, Dec: dec, G: g})
+			s := goals.XPStar{RA: get("RA_ICRS"), Dec: get("DE_ICRS"), FB: get("FB"), FV: get("FV"), FR: get("FR"), FI: get("FI")}
+			if !math.IsNaN(s.RA) && !math.IsNaN(s.Dec) {
+				out = append(out, s)
 			}
 		}
 	}
@@ -116,20 +113,57 @@ func ParseVizierTSV(r io.Reader) ([]goals.CatalogStar, error) {
 	return out, nil
 }
 
-func angularDistance(ra1, dec1, ra2, dec2 float64) float64 {
-	const d = math.Pi / 180
-	c := math.Sin(dec1*d)*math.Sin(dec2*d) + math.Cos(dec1*d)*math.Cos(dec2*d)*math.Cos((ra1-ra2)*d)
-	return math.Acos(math.Max(-1, math.Min(1, c))) / d
+type storedXP struct {
+	RA  float64  `json:"ra"`
+	Dec float64  `json:"dec"`
+	FB  *float64 `json:"b"`
+	FV  *float64 `json:"v"`
+	FR  *float64 `json:"r"`
+	FI  *float64 `json:"i"`
 }
 
-func catalogStars(ctx context.Context, db *gorm.DB, fetch StarFetcher, object string, ra, dec, radius float64) ([]goals.CatalogStar, error) {
-	var cached app.GaiaField
+func finitePtr(v float64) *float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return nil
+	}
+	return &v
+}
+
+func orNaN(p *float64) float64 {
+	if p == nil {
+		return math.NaN()
+	}
+	return *p
+}
+
+func encodeXP(stars []goals.XPStar) (string, error) {
+	rows := make([]storedXP, len(stars))
+	for i, s := range stars {
+		rows[i] = storedXP{RA: s.RA, Dec: s.Dec, FB: finitePtr(s.FB), FV: finitePtr(s.FV), FR: finitePtr(s.FR), FI: finitePtr(s.FI)}
+	}
+	b, err := json.Marshal(rows)
+	return string(b), err
+}
+
+func decodeXP(s string) ([]goals.XPStar, error) {
+	var rows []storedXP
+	if err := json.Unmarshal([]byte(s), &rows); err != nil {
+		return nil, err
+	}
+	out := make([]goals.XPStar, len(rows))
+	for i, r := range rows {
+		out[i] = goals.XPStar{RA: r.RA, Dec: r.Dec, FB: orNaN(r.FB), FV: orNaN(r.FV), FR: orNaN(r.FR), FI: orNaN(r.FI)}
+	}
+	return out, nil
+}
+
+func xpStars(ctx context.Context, db *gorm.DB, fetch XPFetcher, object string, ra, dec, radius float64) ([]goals.XPStar, error) {
+	var cached app.XPField
 	err := db.WithContext(ctx).Where(columnObject+" = ?", object).First(&cached).Error
 	switch {
 	case err == nil:
 		if angularDistance(ra, dec, cached.RA, cached.Dec)+radius <= cached.Radius {
-			var stars []goals.CatalogStar
-			if err := json.Unmarshal([]byte(cached.Stars), &stars); err == nil {
+			if stars, err := decodeXP(cached.Stars); err == nil {
 				return stars, nil
 			}
 		}
@@ -137,18 +171,18 @@ func catalogStars(ctx context.Context, db *gorm.DB, fetch StarFetcher, object st
 		return nil, err
 	}
 	if fetch == nil {
-		return nil, errors.New("no star catalogue")
+		return nil, errors.New("no Gaia XP catalogue")
 	}
 	radius *= gaiaFieldSlack
 	stars, err := fetch(ctx, ra, dec, radius)
 	if err != nil {
 		return nil, err
 	}
-	b, err := json.Marshal(stars)
+	body, err := encodeXP(stars)
 	if err != nil {
 		return nil, err
 	}
-	row := app.GaiaField{Object: object, RA: ra, Dec: dec, Radius: radius, Stars: string(b), FetchedAt: time.Now().UTC()}
+	row := app.XPField{Object: object, RA: ra, Dec: dec, Radius: radius, Stars: body, FetchedAt: time.Now().UTC()}
 	if err := db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: columnObject}},
 		DoUpdates: clause.AssignmentColumns([]string{"ra", "dec", "radius", "stars", "fetched_at"}),

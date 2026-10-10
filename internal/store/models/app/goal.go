@@ -34,6 +34,33 @@ type GoalMeasurement struct {
 	PixelScale     float64
 	ZeroPointStars int
 	Seconds        float64
+	DepthSystem    string
+	DepthBand      string
+	DepthApprox    bool `gorm:"default:false"`
+}
+
+type XPField struct {
+	ID        int    `gorm:"primaryKey;autoIncrement"`
+	Object    string `gorm:"not null;uniqueIndex"`
+	RA        float64
+	Dec       float64
+	Radius    float64
+	Stars     string `gorm:"type:text"`
+	FetchedAt time.Time
+}
+
+type SkySample struct {
+	ID         int        `gorm:"primaryKey;autoIncrement"`
+	FrameID    int        `gorm:"not null;uniqueIndex"`
+	Object     string     `gorm:"index"`
+	Filter     string     `gorm:"index"`
+	Night      *time.Time `gorm:"type:date;index"`
+	DateObs    *time.Time
+	SkyRate    float64
+	ZeroPoint  float64
+	PixelScale float64
+	SkyMag     float64
+	MeasuredAt time.Time
 }
 
 type GaiaField struct {

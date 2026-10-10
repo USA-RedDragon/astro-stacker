@@ -16,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 	"golang.org/x/sync/errgroup"
@@ -27,6 +28,7 @@ const (
 	GrowthRemeasure = 1.2
 	failureBackoff  = 6 * time.Hour
 	columnObject    = "object"
+	columnFilter    = "filter"
 )
 
 type ObjectGetter interface {
@@ -59,6 +61,7 @@ type Runner struct {
 	sched   *gorm.DB
 	objects ObjectGetter
 	stars   StarFetcher
+	XP      XPFetcher
 	opts    Options
 	pub     *goals.Publisher
 	now     func() time.Time
@@ -226,6 +229,9 @@ type subRow struct {
 	Exposure      float64
 	RegisteredKey string
 	Gain          *float64
+	FrameID       int
+	DateObs       *time.Time
+	Night         *time.Time
 }
 
 func gainScales(s string) map[float64]float64 {
@@ -248,7 +254,7 @@ func gainScales(s string) map[float64]float64 {
 func (r *Runner) loadSubs(ctx context.Context, stack app.Stack) ([]subRow, error) {
 	var rows []subRow
 	if err := r.db.WithContext(ctx).Table("stack_frames sf").
-		Select("sf.id, sf.score, sf.weight, sf.exposure, sf.registered_key, f.gain").
+		Select("sf.id, sf.score, sf.weight, sf.exposure, sf.registered_key, f.gain, f.id AS frame_id, f.date_obs, f.night").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
 		Where("sf.stack_id = ? AND sf.status = ? AND sf.registered_key IS NOT NULL AND sf.weight > 0 AND sf.exposure > 0",
 			stack.ID, app.StackStatusAdded).
@@ -291,13 +297,14 @@ func (r *Runner) MeasureStack(ctx context.Context, stack app.Stack, region []goa
 		msg := goals.ErrInsufficientData.Error()
 		m.Error = &msg
 		m.Seconds = time.Since(start).Seconds()
-		slog.Info("Goal measurement", "object", stack.Object, "filter", stack.Filter, "subs", len(rows), "result", msg)
+		slog.Info("Goal measurement", "object", stack.Object, columnFilter, stack.Filter, "subs", len(rows), "result", msg)
 		return r.save(ctx, m)
 	}
 	if err != nil {
 		return err
 	}
-	if err := r.stream(ctx, stack, used, subs, meas); err != nil {
+	skyRates := make([]float64, len(used))
+	if err := r.stream(ctx, stack, used, subs, meas, skyRates); err != nil {
 		return err
 	}
 	res, err := meas.Finish(totalHours)
@@ -315,8 +322,11 @@ func (r *Runner) MeasureStack(ctx context.Context, stack app.Stack, region []goa
 	m.BandFraction, m.NebFraction, m.NoiseMask = res.BandFraction, res.NebFraction, res.NoiseMask
 	m.Points = string(pts)
 	r.depth(ctx, stack, res, &m)
+	if err := r.saveSkySamples(ctx, stack, m, used, skyRates); err != nil {
+		slog.Warn("Could not save sky samples", "object", stack.Object, columnFilter, stack.Filter, "error", err)
+	}
 	m.Seconds = time.Since(start).Seconds()
-	args := []any{"object", stack.Object, "filter", stack.Filter, "subs", m.Subs, "subs_total", m.SubsTotal,
+	args := []any{"object", stack.Object, columnFilter, stack.Filter, "subs", m.Subs, "subs_total", m.SubsTotal,
 		"hours", round(totalHours, 2), "snr", round(m.SNR, 2), "sigma_now", m.NoiseNow, "b", m.NoiseB,
 		"gain_per_hour_pct", round(m.GainPerHourPct, 2), "low_confidence", m.LowConfidence}
 	if m.Depth != nil {
@@ -335,7 +345,7 @@ func round(v float64, places int) float64 {
 	return math.Round(v*p) / p
 }
 
-func (r *Runner) stream(ctx context.Context, stack app.Stack, rows []subRow, subs []goals.Sub, meas *goals.Measurer) error {
+func (r *Runner) stream(ctx context.Context, stack app.Stack, rows []subRow, subs []goals.Sub, meas *goals.Measurer, skyRates []float64) error {
 	g, gctx := errgroup.WithContext(ctx)
 	ch := make(chan goals.Binned, 1)
 	g.Go(func() error {
@@ -348,6 +358,7 @@ func (r *Runner) stream(ctx context.Context, stack app.Stack, rows []subRow, sub
 			if err != nil {
 				return err
 			}
+			skyRates[i] = binned.SkyRate
 			select {
 			case ch <- binned:
 			case <-gctx.Done():
@@ -413,21 +424,60 @@ func (r *Runner) depth(ctx context.Context, stack app.Stack, res goals.Result, m
 	}
 	m.PixelScale = w.PixelScaleArcsec()
 	ra, dec, radius := w.Field(stack.Width, stack.Height)
+	if line, ok := goals.NarrowbandLine(stack.Filter); ok {
+		xp, err := xpStars(ctx, r.db, r.XP, stack.Object, ra, dec, radius)
+		if err == nil && r.applyZeroPoint(res, stack, w, goals.LineStars(xp, line.Lambda), m) {
+			m.DepthSystem, m.DepthBand, m.DepthApprox = goals.SystemXPAB, line.Label, false
+			return
+		}
+		if err != nil {
+			slog.Warn("No Gaia XP photometry for the narrowband zero point; using Gaia G", "object", stack.Object, columnFilter, stack.Filter, "error", err)
+		}
+	}
 	stars, err := catalogStars(ctx, r.db, r.stars, stack.Object, ra, dec, radius)
 	if err != nil {
 		slog.Warn("No Gaia stars for the zero point", "object", stack.Object, "error", err)
 		return
 	}
+	if r.applyZeroPoint(res, stack, w, stars, m) {
+		m.DepthSystem, m.DepthBand, m.DepthApprox = goals.SystemGaiaG, goals.BandGaiaG, goals.IsNarrowband(stack.Filter)
+	}
+}
+
+func (r *Runner) applyZeroPoint(res goals.Result, stack app.Stack, w goals.WCS, stars []goals.CatalogStar, m *app.GoalMeasurement) bool {
 	zp, n, ok := goals.ZeroPoint(res, stack.Height, w, stars)
 	m.ZeroPointStars = n
 	if !ok {
-		return
+		return false
 	}
 	d, ok := goals.Depth(zp, res.NoiseNow, m.PixelScale)
 	if !ok {
-		return
+		return false
 	}
 	m.ZeroPoint, m.Depth = &zp, &d
+	return true
+}
+
+func (r *Runner) saveSkySamples(ctx context.Context, stack app.Stack, m app.GoalMeasurement, rows []subRow, skyRates []float64) error {
+	if m.ZeroPoint == nil || m.DepthSystem != goals.SystemGaiaG || rigsource.CanonicalFilter(stack.Filter) != "L" {
+		return nil
+	}
+	var samples []app.SkySample
+	for i, row := range rows {
+		mag, ok := goals.SkyBrightness(*m.ZeroPoint, skyRates[i], m.PixelScale)
+		if !ok || row.FrameID == 0 {
+			continue
+		}
+		samples = append(samples, app.SkySample{FrameID: row.FrameID, Object: stack.Object, Filter: stack.Filter, Night: row.Night, DateObs: row.DateObs,
+			SkyRate: skyRates[i], ZeroPoint: *m.ZeroPoint, PixelScale: m.PixelScale, SkyMag: mag, MeasuredAt: m.MeasuredAt})
+	}
+	if len(samples) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "frame_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"object", "filter", "night", "date_obs", "sky_rate", "zero_point", "pixel_scale", "sky_mag", "measured_at"}),
+	}).Create(&samples).Error
 }
 
 func (r *Runner) save(ctx context.Context, m app.GoalMeasurement) error {

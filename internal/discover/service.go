@@ -12,6 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
+	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
@@ -33,6 +34,7 @@ type SiteFunc func(ctx context.Context) (sky.Site, error)
 
 type Service struct {
 	Measure func(ctx context.Context) rigsource.Rig
+	Sky     func(ctx context.Context) skybright.Value
 	Catalog *catalog.Index
 	AppDB   *gorm.DB
 	SchedDB *gorm.DB
@@ -106,12 +108,31 @@ func staticInfo(r Rig) rigsource.Rig {
 	return out
 }
 
+func (s *Service) skyValue(ctx context.Context) skybright.Value {
+	if s.Sky != nil {
+		return s.Sky(ctx)
+	}
+	if s.Rig.SkyBright > 0 {
+		return skybright.Configured(s.Rig.SkyBright)
+	}
+	return skybright.Value{Basis: skybright.Basis{Source: skybright.SourceNone, PerNight: []skybright.Night{}}}
+}
+
 func (s *Service) rig(ctx context.Context) (Rig, rigsource.Rig) {
+	sv := s.skyValue(ctx)
 	if s.Measure == nil {
-		return s.Rig, staticInfo(s.Rig)
+		r := s.Rig
+		r.SkyBright = 0
+		if sv.Mag != nil {
+			r.SkyBright = *sv.Mag
+		}
+		return r, staticInfo(s.Rig)
 	}
 	m := s.Measure(ctx)
-	r := Rig{MinAltitude: s.Rig.MinAltitude, SkyBright: s.Rig.SkyBright, Filters: map[string]float64{}, Exposures: map[string]float64{}}
+	r := Rig{MinAltitude: s.Rig.MinAltitude, Filters: map[string]float64{}, Exposures: map[string]float64{}}
+	if sv.Mag != nil {
+		r.SkyBright = *sv.Mag
+	}
 	if m.Known() {
 		r.Frame = sky.Frame{FocalLength: *m.FocalLength, PixelSize: *m.PixelSize, WidthPx: *m.WidthPx, HeightPx: *m.HeightPx}
 	}
