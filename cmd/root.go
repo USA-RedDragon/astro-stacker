@@ -97,6 +97,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	var restacker middleware.Restacker
 	drainStacker := func() {}
 	drainGoals := func() {}
+	var stackBusy func() bool
+	var backfill func() goals.BackfillLive
 	broker := events.NewBroker()
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
 		creds := credentials(cfg)
@@ -123,9 +125,6 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 				time.Duration(cfg.PublicFrames.MaxAgeDays)*24*time.Hour)
 			go pf.Run(indexCtx, time.Duration(cfg.PublicFrames.IntervalSeconds)*time.Second)
 			slog.Info("Public frame renderer started", "bucket", cfg.S3.ProcessedBucket, "max_age_days", cfg.PublicFrames.MaxAgeDays)
-		}
-		if cfg.Goals.Enabled {
-			drainGoals = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts)
 		}
 		// Presigned URLs, for previews and masters, are signed for the public
 		// host browsers use.
@@ -163,8 +162,12 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 				}
 				cancelStack()
 			}
+			stackBusy = p.Busy
 			go mosaicPlans.RunAdoptionEvery(indexCtx, time.Hour)
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir, "ts_verdicts", cfg.Stacking.TSVerdicts)
+		}
+		if cfg.Goals.Enabled {
+			drainGoals, backfill = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy)
 		}
 	}
 
@@ -174,7 +177,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			disc.Invalidate()
 		}
 	})
-	extras := server.Extras{Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs,
+	extras := server.Extras{Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {
@@ -209,13 +212,15 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource) func() {
+func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool) (func(), func() goals.BackfillLive) {
 	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
 		goalmeasure.VizierFetcher(nil, ""), goalmeasure.Options{
 			Interval:     time.Duration(cfg.Goals.IntervalMinutes) * time.Minute,
 			MaxSubs:      cfg.Goals.MaxSubs,
 			Publish:      cfg.Goals.Publish,
 			SeasonBoosts: boosts,
+			Workers:      cfg.Goals.Workers,
+			Busy:         busy,
 		})
 	r.XP = goalmeasure.VizierXPFetcher(nil, "")
 	done := make(chan struct{})
@@ -223,7 +228,8 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 		r.Run(context.Background())
 		close(done)
 	}()
-	slog.Info("Goal measurement started", "interval_minutes", cfg.Goals.IntervalMinutes, "max_subs", cfg.Goals.MaxSubs, "publish", cfg.Goals.Publish)
+	slog.Info("Goal measurement started", "interval_minutes", cfg.Goals.IntervalMinutes, "max_subs", cfg.Goals.MaxSubs, "publish", cfg.Goals.Publish,
+		"workers", cfg.Goals.Workers, "waits_for_stacking", busy != nil)
 	return func() {
 		r.Drain()
 		select {
@@ -231,7 +237,7 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 		case <-time.After(30 * time.Second):
 			slog.Warn("Goal measurement still busy at shutdown")
 		}
-	}
+	}, r.Live
 }
 
 func credentials(cfg *config.Config) *miniocreds.Credentials {

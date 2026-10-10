@@ -23,11 +23,23 @@ func loadGoalSettings(ctx context.Context, appDB, sched *gorm.DB) (map[goals.Key
 	return gs, err
 }
 
-func applyPlanningRoutes(g *gin.RouterGroup) {
+func backfillReport(ctx context.Context, appDB *gorm.DB, live func() goals.BackfillLive) *goals.Backfill {
+	var l goals.BackfillLive
+	if live != nil {
+		l = live()
+	}
+	b, err := goals.CountBackfill(ctx, appDB, l)
+	if err != nil {
+		return nil
+	}
+	return &b
+}
+
+func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive) {
 	g.GET("/goals/mask", goalMaskRoute)
 	g.GET("/goals/mask/info", goalMaskInfoRoute)
 	g.GET("/planning", func(c *gin.Context) {
-		s, ok := planningSnapshot(c)
+		s, ok := planningSnapshot(c, backfill)
 		if !ok {
 			return
 		}
@@ -39,7 +51,7 @@ func applyPlanningRoutes(g *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: "bad project id"})
 			return
 		}
-		s, ok := planningSnapshot(c)
+		s, ok := planningSnapshot(c, backfill)
 		if !ok {
 			return
 		}
@@ -61,7 +73,7 @@ func applyPlanningRoutes(g *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 			return
 		}
-		s, ok := planningSnapshot(c)
+		s, ok := planningSnapshot(c, backfill)
 		if !ok {
 			return
 		}
@@ -78,7 +90,7 @@ func applyPlanningRoutes(g *gin.RouterGroup) {
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 			return
 		}
-		s, ok := planningSnapshot(c)
+		s, ok := planningSnapshot(c, backfill)
 		if !ok {
 			return
 		}
@@ -91,7 +103,7 @@ func applyPlanningRoutes(g *gin.RouterGroup) {
 	})
 }
 
-func planningSnapshot(c *gin.Context) (*planning.Snapshot, bool) {
+func planningSnapshot(c *gin.Context, backfill func() goals.BackfillLive) (*planning.Snapshot, bool) {
 	di, ok := depInjection(c)
 	if !ok {
 		return nil, false
@@ -128,6 +140,7 @@ func planningSnapshot(c *gin.Context) (*planning.Snapshot, bool) {
 			s.Frame = planning.FrameFromRig(rigsource.Empty())
 			s.Frame.Reason = &msg
 		}
+		s.Backfill = backfillReport(ctx, appDB, backfill)
 	}
 	if err != nil {
 		status := http.StatusInternalServerError

@@ -194,12 +194,13 @@ func (in Inputs) objectsFor(t targetRow) []string {
 }
 
 type Snapshot struct {
-	Frame     Frame         `json:"frame"`
-	Projects  []Project     `json:"projects"`
-	Templates []Template    `json:"templates"`
-	Sets      []ExposureSet `json:"sets"`
-	Rules     []Rule        `json:"rules"`
-	Defaults  Defaults      `json:"defaults"`
+	Backfill  *goals.Backfill `json:"goalBackfill,omitempty"`
+	Frame     Frame           `json:"frame"`
+	Projects  []Project       `json:"projects"`
+	Templates []Template      `json:"templates"`
+	Sets      []ExposureSet   `json:"sets"`
+	Rules     []Rule          `json:"rules"`
+	Defaults  Defaults        `json:"defaults"`
 }
 
 func twilightName(v *int) string {

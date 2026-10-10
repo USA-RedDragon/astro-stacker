@@ -28,6 +28,9 @@ const (
 	GrowthRemeasure = 1.2
 	SkyRevision     = 1
 	failureBackoff  = 6 * time.Hour
+	idlePoll        = 15 * time.Second
+	publishEvery    = 10 * time.Minute
+	DefaultWorkers  = 3
 	columnObject    = "object"
 	columnFilter    = "filter"
 )
@@ -56,6 +59,8 @@ type Options struct {
 	Publish      string
 	Saturation   float32
 	SeasonBoosts goals.SeasonBoostSource
+	Workers      int
+	Busy         func() bool
 }
 
 type Runner struct {
@@ -67,10 +72,17 @@ type Runner struct {
 	opts    Options
 	pub     *goals.Publisher
 	now     func() time.Time
+	poll    time.Duration
 
 	drain     chan struct{}
 	drainOnce sync.Once
-	failed    map[int]time.Time
+
+	mu          sync.Mutex
+	failed      map[int]time.Time
+	live        goals.BackfillLive
+	finished    []time.Time
+	lastPublish time.Time
+	publishMu   sync.Mutex
 }
 
 func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Options) *Runner {
@@ -80,10 +92,66 @@ func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Optio
 	if opts.Saturation <= 0 {
 		opts.Saturation = goals.DefaultSaturation
 	}
+	if opts.Workers <= 0 {
+		opts.Workers = DefaultWorkers
+	}
 	return &Runner{db: db, sched: sched, objects: objects, stars: stars, opts: opts,
-		pub:   &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts},
-		now:   func() time.Time { return time.Now().UTC() },
-		drain: make(chan struct{}), failed: map[int]time.Time{}}
+		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts},
+		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll,
+		drain: make(chan struct{}), failed: map[int]time.Time{},
+		live: goals.BackfillLive{State: goals.BackfillIdle, Workers: opts.Workers}}
+}
+
+func (r *Runner) Live() goals.BackfillLive {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.live
+	cut := r.now().Add(-time.Hour)
+	n := 0
+	for _, t := range r.finished {
+		if t.After(cut) {
+			n++
+		}
+	}
+	out.LastHour = n
+	if out.PassStarted != nil && n > 0 {
+		span := math.Min(r.now().Sub(*out.PassStarted).Hours(), 1)
+		if span > 0 {
+			out.PerHour = float64(n) / math.Max(span, 5.0/60)
+		}
+	}
+	return out
+}
+
+func (r *Runner) setState(state string) {
+	r.mu.Lock()
+	r.live.State = state
+	r.mu.Unlock()
+}
+
+func (r *Runner) busy() bool {
+	return r.opts.Busy != nil && r.opts.Busy()
+}
+
+func (r *Runner) waitIdle(ctx context.Context) error {
+	if !r.busy() {
+		return nil
+	}
+	r.setState(goals.BackfillPaused)
+	defer r.setState(goals.BackfillRunning)
+	for r.busy() {
+		if r.stopping(ctx) {
+			return context.Canceled
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-r.drain:
+			return context.Canceled
+		case <-time.After(r.poll):
+		}
+	}
+	return nil
 }
 
 func (r *Runner) Drain() { r.drainOnce.Do(func() { close(r.drain) }) }
@@ -124,35 +192,95 @@ func (r *Runner) Run(ctx context.Context) {
 
 func (r *Runner) Pass(ctx context.Context) error {
 	goalsByKey, guids := r.loadGoals(ctx)
-	todo, err := r.due(ctx, goalsByKey)
+	todo, fresh, err := r.due(ctx, goalsByKey)
 	if err != nil {
 		return err
 	}
-	for _, s := range todo {
-		if r.stopping(ctx) {
-			return ctx.Err()
-		}
-		if until, ok := r.failed[s.ID]; ok && r.now().Before(until) {
-			continue
-		}
-		var region []goals.Point
-		if g, ok := goalsByKey[goals.Key{Object: s.Object, Filter: s.Filter}]; ok {
-			region = g.Region
-		}
-		if err := r.MeasureStack(ctx, s, region, guids[s.Object]); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
+	started := r.now()
+	r.mu.Lock()
+	r.live.State, r.live.Queued, r.live.QueuedNew, r.live.DoneInPass, r.live.PassStarted = goals.BackfillRunning, len(todo), fresh, 0, &started
+	r.mu.Unlock()
+	defer r.setState(goals.BackfillIdle)
+	if len(todo) > 0 {
+		slog.Info("Goal measurement pass", "due", len(todo), "never_measured", fresh, "workers", r.opts.Workers)
+	}
+	jobs := make(chan app.Stack)
+	var wg sync.WaitGroup
+	for range r.opts.Workers {
+		wg.Go(func() {
+			for s := range jobs {
+				r.measureOne(ctx, s, goalsByKey, guids)
 			}
-			r.failed[s.ID] = r.now().Add(failureBackoff)
-			slog.Warn("Could not measure goal progress", "object", s.Object, "filter", s.Filter, "error", err)
-			continue
+		})
+	}
+	for _, s := range todo {
+		if r.stopping(ctx) || r.waitIdle(ctx) != nil {
+			break
 		}
+		select {
+		case jobs <- s:
+		case <-ctx.Done():
+		case <-r.drain:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	if r.stopping(ctx) {
+		return ctx.Err()
+	}
+	r.publish(ctx, true)
+	return nil
+}
+
+func (r *Runner) measureOne(ctx context.Context, s app.Stack, goalsByKey map[goals.Key]goals.Goal, guids map[string]string) {
+	if r.stopping(ctx) {
+		return
+	}
+	r.mu.Lock()
+	until, failed := r.failed[s.ID]
+	r.mu.Unlock()
+	if failed && r.now().Before(until) {
+		return
+	}
+	var region []goals.Point
+	if g, ok := goalsByKey[goals.Key{Object: s.Object, Filter: s.Filter}]; ok {
+		region = g.Region
+	}
+	err := r.MeasureStack(ctx, s, region, guids[s.Object])
+	if err != nil && ctx.Err() != nil {
+		return
+	}
+	r.mu.Lock()
+	if err != nil {
+		r.failed[s.ID] = r.now().Add(failureBackoff)
+	} else {
 		delete(r.failed, s.ID)
 	}
+	r.live.DoneInPass++
+	r.finished = append(r.finished, r.now())
+	if cut := r.now().Add(-time.Hour); len(r.finished) > 0 && r.finished[0].Before(cut) {
+		i := sort.Search(len(r.finished), func(i int) bool { return !r.finished[i].Before(cut) })
+		r.finished = r.finished[i:]
+	}
+	r.mu.Unlock()
+	if err != nil {
+		slog.Warn("Could not measure goal progress", "object", s.Object, "filter", s.Filter, "error", err)
+	}
+	r.publish(ctx, false)
+}
+
+func (r *Runner) publish(ctx context.Context, force bool) {
+	if !r.publishMu.TryLock() {
+		return
+	}
+	defer r.publishMu.Unlock()
+	if !force && r.now().Sub(r.lastPublish) < publishEvery {
+		return
+	}
+	r.lastPublish = r.now()
 	if _, err := r.pub.Publish(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("Publishing goal progress failed", "error", err)
 	}
-	return nil
 }
 
 func (r *Runner) loadGoals(ctx context.Context) (map[goals.Key]goals.Goal, map[string]string) {
@@ -190,14 +318,24 @@ func needsMeasurement(s app.Stack, m *app.GoalMeasurement, regionHash string, ha
 	return s.EffectiveSeconds >= GrowthRemeasure*m.EffectiveHours*3600
 }
 
-func (r *Runner) due(ctx context.Context, goalsByKey map[goals.Key]goals.Goal) ([]app.Stack, error) {
+func remeasureTier(m *app.GoalMeasurement, regionHash string) int {
+	switch {
+	case m == nil:
+		return 0
+	case m.MethodRevision != goals.MethodRevision, m.RegionHash != regionHash:
+		return 1
+	}
+	return 2
+}
+
+func (r *Runner) due(ctx context.Context, goalsByKey map[goals.Key]goals.Goal) ([]app.Stack, int, error) {
 	var stacks []app.Stack
 	if err := r.db.WithContext(ctx).Where("subs > 0").Order("id").Find(&stacks).Error; err != nil {
-		return nil, fmt.Errorf("load stacks: %w", err)
+		return nil, 0, fmt.Errorf("load stacks: %w", err)
 	}
 	var ms []app.GoalMeasurement
 	if err := r.db.WithContext(ctx).Find(&ms).Error; err != nil {
-		return nil, fmt.Errorf("load goal measurements: %w", err)
+		return nil, 0, fmt.Errorf("load goal measurements: %w", err)
 	}
 	byKey := make(map[goals.Key]*app.GoalMeasurement, len(ms))
 	for i := range ms {
@@ -205,35 +343,45 @@ func (r *Runner) due(ctx context.Context, goalsByKey map[goals.Key]goals.Goal) (
 	}
 	var maskKeys []goals.Key
 	if err := r.db.WithContext(ctx).Model(&app.GoalMask{}).Select(columnObject, columnFilter).Scan(&maskKeys).Error; err != nil {
-		return nil, fmt.Errorf("load goal masks: %w", err)
+		return nil, 0, fmt.Errorf("load goal masks: %w", err)
 	}
 	masked := make(map[goals.Key]bool, len(maskKeys))
 	for _, k := range maskKeys {
 		masked[k] = true
 	}
 	type item struct {
-		s  app.Stack
-		at time.Time
+		s    app.Stack
+		tier int
+		at   time.Time
 	}
 	var todo []item
+	fresh := 0
 	for _, s := range stacks {
 		k := goals.Key{Object: s.Object, Filter: s.Filter}
 		m := byKey[k]
-		if !needsMeasurement(s, m, goals.RegionHash(goalsByKey[k].Region), masked[k]) {
+		hash := goals.RegionHash(goalsByKey[k].Region)
+		if !needsMeasurement(s, m, hash, masked[k]) {
 			continue
 		}
 		var at time.Time
 		if m != nil {
 			at = m.MeasuredAt
+		} else {
+			fresh++
 		}
-		todo = append(todo, item{s, at})
+		todo = append(todo, item{s, remeasureTier(m, hash), at})
 	}
-	sort.SliceStable(todo, func(i, j int) bool { return todo[i].at.Before(todo[j].at) })
+	sort.SliceStable(todo, func(i, j int) bool {
+		if todo[i].tier != todo[j].tier {
+			return todo[i].tier < todo[j].tier
+		}
+		return todo[i].at.Before(todo[j].at)
+	})
 	out := make([]app.Stack, len(todo))
 	for i, t := range todo {
 		out[i] = t.s
 	}
-	return out, nil
+	return out, fresh, nil
 }
 
 type subRow struct {
@@ -408,6 +556,9 @@ func (r *Runner) stream(ctx context.Context, stack app.Stack, rows []subRow, sub
 		for i, row := range rows {
 			if r.stopping(gctx) {
 				return context.Canceled
+			}
+			if err := r.waitIdle(gctx); err != nil {
+				return err
 			}
 			binned, err := r.load(gctx, stack, row.RegisteredKey, subs[i].Exposure)
 			if err != nil {

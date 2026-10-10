@@ -38,6 +38,14 @@ func (p *Pipeline) progress(object, filter, stage string, done, total int) {
 	metrics.WorkersBusy.Set(float64(len(p.working)))
 }
 
+// Busy reports whether any worker is stacking, assembling a mosaic or
+// measuring seams.
+func (p *Pipeline) Busy() bool {
+	p.statusMu.Lock()
+	defer p.statusMu.Unlock()
+	return len(p.working) > 0
+}
+
 func (p *Pipeline) finished(object string) {
 	p.statusMu.Lock()
 	delete(p.working, object)
