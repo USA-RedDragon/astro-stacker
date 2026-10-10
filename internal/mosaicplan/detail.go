@@ -63,6 +63,7 @@ type Panel struct {
 
 type Balancing struct {
 	PanelDeficit     float64 `json:"panelDeficit"`
+	PanelDeficitSet  bool    `json:"panelDeficitSet"`
 	MosaicCompletion float64 `json:"mosaicCompletion"`
 	On               bool    `json:"on"`
 }
@@ -476,7 +477,7 @@ func (s *Service) loadTS(ctx context.Context, d *Detail) error {
 	for _, w := range weights {
 		switch w.Name {
 		case RulePanelDeficit:
-			d.Balancing.PanelDeficit = w.Weight
+			d.Balancing.PanelDeficit, d.Balancing.PanelDeficitSet = w.Weight, true
 		case RuleMosaicCompletion:
 			d.Balancing.MosaicCompletion = w.Weight
 		}

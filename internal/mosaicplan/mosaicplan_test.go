@@ -240,7 +240,7 @@ func TestDetailUsesWeakestPanelAndFallsBackToScheduler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !d.Adopted || len(d.Panels) != 2 || d.Rows != 1 || d.Cols != 2 || !d.Balancing.On || d.Balancing.PanelDeficit != 75 {
+	if !d.Adopted || len(d.Panels) != 2 || d.Rows != 1 || d.Cols != 2 || !d.Balancing.On || d.Balancing.PanelDeficit != 75 || !d.Balancing.PanelDeficitSet {
 		t.Fatalf("detail %+v", d)
 	}
 	if strings.Join(d.Filters, ",") != "Red,H-a" {
