@@ -443,3 +443,32 @@ func TestNoiseAndSeamStatus(t *testing.T) {
 		t.Errorf("status %+v", status)
 	}
 }
+
+func TestSeasonBoostsOnlyForBalancedMosaics(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := mosaicplan.New(appFixture(t), schedFixture(t))
+	svc.Site = func(context.Context) (mosaics.Site, bool) { return mosaics.Site{Lat: 32, Lon: -97}, true }
+	boosts, err := svc.SeasonBoosts(ctx, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := svc.Detail(ctx, markarian)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(boosts) != len(d.Panels) {
+		t.Fatalf("boosts %v for panels %+v", boosts, d.Panels)
+	}
+	top := 0.0
+	for _, p := range d.Panels {
+		b, ok := boosts[p.TargetGUID]
+		if !ok || b < 0 || b > 1 {
+			t.Errorf("panel %d boost %v %v", p.Number, b, ok)
+		}
+		top = math.Max(top, b)
+	}
+	if top != 0 && top != 1 {
+		t.Errorf("boosts are not scaled to the top panel: %v", boosts)
+	}
+}

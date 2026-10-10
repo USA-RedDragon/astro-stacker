@@ -40,9 +40,19 @@ func Rules() []Rule {
 		{Name: "Meridian Flip Penalty", DefaultWeight: 0, Description: "Avoids targets about to need a flip."},
 		{Name: "Smart Exposure Order", DefaultWeight: 0, Description: "Favours filters that suit tonight's moon."},
 		{Name: "Novelty", DefaultWeight: 10, New: true, Description: "Favours targets with little data over deepening ones that already have plenty. 1.0 with no subs, falling to 0 as the weakest filter reaches its goal."},
-		{Name: "Rarity", DefaultWeight: 20, New: true, Description: "Favours targets with a short or closing season. 1.0 with 10 or fewer usable nights left, 0 with 120 or more."},
+		{Name: "Rarity", DefaultWeight: 20, New: true, Description: "Favours targets with a short or closing season. 1.0 with 10 or fewer usable nights left, 0 with 120 or more. Nights count only when the target clears the horizon, its maximum altitude, its meridian window and the moon avoidance of at least one filter."},
+		{Name: RuleConditionMatch, DefaultWeight: 0, New: true, Description: "Favours targets that suit tonight: high in the sky against their own peak, a filter the moon allows (narrowband shrugs off a bright moon, broadband doesn't), and the sky quality the stacker measured on the last three hours of subs (poor skies favour narrowband)."},
+		{Name: RuleSeasonalRunway, DefaultWeight: 0, New: true, Description: "Favours targets that will run out of season before they finish: the hours their goals still need against about 30% of the usable hours left in their season. 1.0 when they won't make it."},
+		{Name: RuleSeasonPriority, DefaultWeight: 0, New: true, Description: "Pushes the mosaic panels the season plan says to push now: those furthest behind with the fewest months of window left. Only for mosaics using the weakest-first plan (balancing on)."},
 	}
 }
+
+const (
+	RuleConditionMatch   = "Condition Match"
+	RuleSeasonalRunway   = "Seasonal Runway"
+	RuleSeasonPriority   = "Season Priority"
+	SwitchFilterSteering = "Filter Steering"
+)
 
 type RuleWeight struct {
 	Name    string  `json:"name"`
@@ -129,6 +139,7 @@ type Project struct {
 	Rarity          float64      `json:"rarity"`
 	LastSub         *time.Time   `json:"lastSub,omitempty"`
 	RuleWeights     []RuleWeight `json:"ruleWeights"`
+	FilterSteering  RuleWeight   `json:"filterSteering"`
 	GoalDriven      bool         `json:"goalDriven"`
 }
 
@@ -369,6 +380,8 @@ func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
 		w, ok := x.weightsBy[pr.ID][rule.Name]
 		p.RuleWeights = append(p.RuleWeights, RuleWeight{Name: rule.Name, Weight: w, Missing: !ok})
 	}
+	sw, ok := x.weightsBy[pr.ID][SwitchFilterSteering]
+	p.FilterSteering = RuleWeight{Name: SwitchFilterSteering, Weight: sw, Missing: !ok}
 	projSets := make([]string, 0, len(x.targetsBy[pr.ID]))
 	var bestSeason *Season
 	anySeason := false
