@@ -108,7 +108,8 @@ func planningSnapshot(c *gin.Context) (*planning.Snapshot, bool) {
 	}
 	gs, err := loadGoalSettings(ctx, appDB, sched)
 	if err != nil {
-		gs = map[goals.Key]goals.Goal{}
+		c.JSON(http.StatusInternalServerError, gin.H{errorKey: "load goal settings: " + err.Error()})
+		return nil, false
 	}
 	in := planning.Inputs{Goals: gs, ObjectsByGUID: map[string][]string{}}
 	if appDB != nil {

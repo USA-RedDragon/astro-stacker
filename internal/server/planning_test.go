@@ -39,7 +39,7 @@ func planningEngine(t *testing.T) *gin.Engine {
 	t.Helper()
 	sched := memStore(t)
 	appStore := memStore(t)
-	if err := appStore.DB().AutoMigrate(&app.Stack{}, &app.GoalMeasurement{}); err != nil {
+	if err := appStore.DB().AutoMigrate(&app.Stack{}, &app.GoalMeasurement{}, &app.FrameTarget{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []string{
