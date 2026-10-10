@@ -335,3 +335,23 @@ func TestMonitorRunReconnects(t *testing.T) {
 		t.Fatalf("view %+v", m.View())
 	}
 }
+
+func TestClientSendWaitsPastRequestTimeout(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		time.Sleep(observatory.RequestTimeout + 500*time.Millisecond)
+		_, _ = io.WriteString(w, `{"id":"c1","status":"pending"}`)
+	}))
+	defer srv.Close()
+
+	r, err := observatory.NewClient(srv.URL, token).Send(context.Background(), schedcmd.Envelope{ID: "c1", Kind: "scheduler.resume"})
+	if err != nil {
+		t.Fatalf("slow send: %v", err)
+	}
+	if r.Status != schedcmd.StatusPending {
+		t.Fatalf("status %q", r.Status)
+	}
+}

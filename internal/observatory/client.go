@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +19,8 @@ import (
 
 const (
 	RequestTimeout = 5 * time.Second
+	CommandTimeout = 20 * time.Second
+	DialTimeout    = 5 * time.Second
 	PreviewTimeout = 30 * time.Second
 	maxBody        = 8 << 20
 	pathCommands   = "/os/v1/commands"
@@ -41,8 +44,19 @@ func NewClient(baseURL, token string) *Client {
 	return &Client{
 		base:  strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		token: token,
-		http:  &http.Client{},
+		http:  &http.Client{Transport: dialLimited()},
 	}
+}
+
+func dialLimited() *http.Transport {
+	t, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t = &http.Transport{Proxy: http.ProxyFromEnvironment}
+	}
+	t = t.Clone()
+	t.DialContext = (&net.Dialer{Timeout: DialTimeout, KeepAlive: 30 * time.Second}).DialContext
+	t.TLSHandshakeTimeout = DialTimeout
+	return t
 }
 
 func (c *Client) Configured() bool {
@@ -125,7 +139,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 
 func (c *Client) Send(ctx context.Context, e schedcmd.Envelope) (schedcmd.Result, error) {
 	var r schedcmd.Result
-	err := c.do(ctx, http.MethodPost, pathCommands, e, &r)
+	err := c.doWithin(ctx, CommandTimeout, http.MethodPost, pathCommands, e, &r)
 	if errors.Is(err, ErrNotFound) {
 		return r, unreachable(err)
 	}
@@ -140,7 +154,7 @@ func (c *Client) Command(ctx context.Context, id string) (schedcmd.Result, error
 
 func (c *Client) Cancel(ctx context.Context, id string) (schedcmd.Result, error) {
 	var r schedcmd.Result
-	err := c.do(ctx, http.MethodDelete, pathCommands+"/"+url.PathEscape(id), nil, &r)
+	err := c.doWithin(ctx, CommandTimeout, http.MethodDelete, pathCommands+"/"+url.PathEscape(id), nil, &r)
 	return r, err
 }
 
