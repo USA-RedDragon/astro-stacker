@@ -83,6 +83,7 @@ type SeasonPlan struct {
 	Current         *SeasonPace           `json:"currentSeason,omitempty"`
 	InSeason        bool                  `json:"inSeason"`
 	NightsLeft      int                   `json:"nightsLeft"`
+	DarkThreshold   float64               `json:"darkHoursThreshold"`
 	Rows            []SeasonRow           `json:"rows"`
 	FinishSeason    int                   `json:"finishSeason"`
 	Compare         map[string]int        `json:"compare"`
@@ -162,7 +163,8 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 	default:
 		return SeasonPlan{}, fmt.Errorf("%w: unknown pace %q; use measured, last, best or worst", ErrBadRequest, pace)
 	}
-	plan := SeasonPlan{Project: d.Project, Strategy: strategy, StrategyInForce: inForce, Compare: map[string]int{}, Months: []Month{}, Rows: []SeasonRow{}}
+	plan := SeasonPlan{Project: d.Project, Strategy: strategy, StrategyInForce: inForce, Compare: map[string]int{}, Months: []Month{}, Rows: []SeasonRow{},
+		DarkThreshold: usableMonthly}
 	ratio, err := s.effectivePerRaw(ctx, d)
 	if err != nil {
 		return SeasonPlan{}, err
@@ -204,8 +206,8 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 			for m, h := range months {
 				plan.Months = append(plan.Months, Month{Month: m + 1, Name: time.Month(m + 1).String()[:3], Hours: math.Round(h*10) / 10})
 			}
-			plan.InSeason = months[int(now.Month())-1] >= usableMonthly
-			plan.NightsLeft = nightsLeft(now, months)
+			plan.NightsLeft = nightsLeft(now, site, centres, d.TS.MinAltitude)
+			plan.InSeason = plan.NightsLeft > 0
 		}
 	}
 	hist, err := s.clearNights(ctx)
@@ -339,18 +341,15 @@ func choosePace(pace string, b SeasonBasis, seasons []SeasonPace, now time.Time)
 	return PaceMeasured, round(*b.HoursPerClearNight * *b.ClearNightsPerSeason)
 }
 
-func nightsLeft(now time.Time, months [12]float64) int {
+func nightsLeft(now time.Time, site mosaics.Site, points []mosaics.Point, minAlt float64) int {
+	local := now.Add(time.Duration(site.Lon / 15 * float64(time.Hour))).Add(-12 * time.Hour)
+	first := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 	n := 0
-	for i := range 12 {
-		t := now.AddDate(0, i, 0)
-		if months[int(t.Month())-1] < usableMonthly {
+	for d := range 366 {
+		if mosaics.DarkHours(first.AddDate(0, 0, d), site, points, minAlt) < usableMonthly {
 			break
 		}
-		days := 30
-		if i == 0 {
-			days = 31 - now.Day()
-		}
-		n += days
+		n++
 	}
 	return n
 }
