@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
+	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	configulator "github.com/USA-RedDragon/configulator/v2"
@@ -135,7 +136,8 @@ func TestPreviewProxyAndCache(t *testing.T) {
 	t.Parallel()
 	f := &fakePreviews{}
 	now := time.Date(2026, 10, 10, 6, 52, 0, 0, time.UTC)
-	h := newHandler(t, memDB(t, "s"), memDB(t, "a"), server.Extras{Previews: f, Now: func() time.Time { return now }})
+	chicago := func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 41.88, Longitude: -87.63}, nil }
+	h := newHandler(t, memDB(t, "s"), memDB(t, "a"), server.Extras{Previews: f, Site: chicago, Now: func() time.Time { return now }})
 
 	code, body := do(t, h, http.MethodGet, pathPreview, "")
 	if code != http.StatusOK || string(body) != `{"call":1}` {
@@ -158,10 +160,15 @@ func TestPreviewProxyAndCache(t *testing.T) {
 		t.Fatalf("bad night: %d", code)
 	}
 	f.mu.Lock()
-	if f.starts[0] != nil || f.starts[3] == nil || f.starts[3].Format(time.RFC3339) != "2026-10-10T17:00:00Z" {
-		t.Errorf("starts %v %v", f.starts[0], f.starts[3])
+	sunset := time.Date(2026, 10, 10, 23, 17, 0, 0, time.UTC)
+	if f.starts[0] != nil || f.starts[3] == nil || f.starts[3].Sub(sunset).Abs() > 4*time.Minute {
+		t.Errorf("starts %v %v, want tomorrow's sunset near %v", f.starts[0], f.starts[3], sunset)
 	}
 	f.mu.Unlock()
+	noSite := newHandler(t, memDB(t, "s1"), memDB(t, "a1"), server.Extras{Previews: f, Now: func() time.Time { return now }})
+	if code, body = do(t, noSite, http.MethodGet, pathPreview+"?night=tomorrow", ""); code != http.StatusServiceUnavailable || !strings.Contains(string(body), "observatory site") {
+		t.Fatalf("tomorrow without a site: %d %s", code, body)
+	}
 
 	code, body = do(t, h, http.MethodPost, pathPreview, `{"overrides":[{"entity":"project","id":5,"field":"priority","value":2}]}`)
 	if code != http.StatusOK || string(body) != `{"what_if":true}` {
@@ -345,6 +352,9 @@ func TestTonightSubs(t *testing.T) {
 		t.Fatalf("got %d subs, want tonight's 3: %s", len(got.Subs), body)
 	}
 	checkTonight(t, got, at)
+	if !got.Since.Equal(at(9).Add(-24*time.Hour)) || !strings.Contains(got.SinceBasis, "previous sunset is unknown") {
+		t.Errorf("since without a site: %v %q", got.Since, got.SinceBasis)
+	}
 	if a := got.Subs[0]; a.Width == nil || *a.Width != 6248 || a.Height == nil || *a.Height != 4176 || got.Subs[1].Width != nil {
 		t.Errorf("geometry %+v %+v", a, got.Subs[1])
 	}
@@ -358,6 +368,16 @@ func TestTonightSubs(t *testing.T) {
 	}
 	if code, _ = do(t, h, http.MethodGet, pathSubs+"?since=yesterday", ""); code != http.StatusBadRequest {
 		t.Fatalf("bad since: %d", code)
+	}
+
+	london := func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 51.5, Longitude: 0}, nil }
+	sited := newHandler(t, sched, appDB, server.Extras{Site: london, Now: func() time.Time { return at(9) }})
+	code, body = do(t, sited, http.MethodGet, pathSubs, "")
+	if err := json.Unmarshal(body, &got); code != http.StatusOK || err != nil || len(got.Subs) != 3 {
+		t.Fatalf("sited: %d %s", code, body)
+	}
+	if sunset := time.Date(2026, 10, 9, 17, 19, 0, 0, time.UTC); got.Since.Sub(sunset).Abs() > 4*time.Minute || got.SinceBasis != "the previous sunset at the observatory site" {
+		t.Errorf("since %v %q, want the previous sunset near %v", got.Since, got.SinceBasis, sunset)
 	}
 
 	empty := newHandler(t, memDB(t, "s0"), memDB(t, "a0"), server.Extras{})

@@ -184,7 +184,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			disc.Invalidate()
 		}
 	})
-	extras := server.Extras{DarkNeed: darkNeed, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {
