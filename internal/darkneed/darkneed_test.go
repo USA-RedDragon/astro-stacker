@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,13 +138,14 @@ func checkComputed(t *testing.T, db *gorm.DB, fx *fixture) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Combos) != 2 {
+	if len(b.Combos) != 3 {
 		t.Fatalf("combos %+v", b.Combos)
 	}
-	first, second := b.Combos[0], b.Combos[1]
-	if first.SetTemp != -20 || first.LightsBlocked != 8 || first.Priority != 1 || len(first.SetTempsCovered) != 3 || first.FramesNeeded != 3 {
+	first, second, third := b.Combos[0], b.Combos[1], b.Combos[2]
+	if first.SetTemp != -20 || first.LightsBlocked != 8 || first.Priority != 1 || len(first.SetTempsCovered) != 3 || first.FramesNeeded != 25 {
 		t.Errorf("first %+v", first)
 	}
+	checkThin(t, b, third)
 	if second.SetTemp != -13 || second.LightsScaled != 4 || second.LightsBlocked != 0 || second.FramesHave != 1 ||
 		second.FramesRejected != 1 || second.NewestDarkAt == nil {
 		t.Errorf("second %+v", second)
@@ -159,6 +161,17 @@ func checkComputed(t *testing.T, db *gorm.DB, fx *fixture) {
 	}
 }
 
+func checkThin(t *testing.T, b coverage.DarkBacklog, third coverage.DarkCombo) {
+	t.Helper()
+	if third.SetTemp != -5 || third.LightsThin != 3 || third.LightsBlocked != 0 || third.LightsScaled != 0 || third.FramesHave != 0 ||
+		third.FramesNeeded != 25 || third.Priority != 3 {
+		t.Errorf("an exact set of 3 clean darks should stay on the backlog: %+v", third)
+	}
+	if b.FramesNeeded != 25 || !strings.Contains(b.FramesNeededBasis, "The 2 dark sets on record have a median of 3 clean darks") {
+		t.Errorf("frames needed %d: %s", b.FramesNeeded, b.FramesNeededBasis)
+	}
+}
+
 func checkPublished(t *testing.T, db, sched *gorm.DB, fx *fixture) {
 	t.Helper()
 	ctx := context.Background()
@@ -167,38 +180,57 @@ func checkPublished(t *testing.T, db, sched *gorm.DB, fx *fixture) {
 	}
 	p := &darkneed.Publisher{App: db, Sched: sched, Mode: darkneed.PublishOn, Now: func() time.Time { return fx.now }}
 	s, err := p.Publish(ctx)
-	if err != nil || s.Changed != 2 || s.PublishedAt == nil {
+	if err != nil || s.Changed != 3 || s.PublishedAt == nil {
 		t.Fatalf("publish %+v %v", s, err)
 	}
 	var rows []darkneed.Row
 	if err := sched.Table(darkneed.Table).Order("priority").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].ComboKey != "300|100|50|1|-20" || rows[0].CameraOffset != 50 || rows[1].NewestDarkAt == nil ||
+	if len(rows) != 3 || rows[0].ComboKey != "300|100|50|1|-20" || rows[0].CameraOffset != 50 || rows[1].NewestDarkAt == nil ||
 		!rows[1].NewestDarkAt.Equal(fx.now.Add(-2*time.Hour)) {
 		t.Fatalf("rows %+v", rows)
 	}
 	if s, err := p.Publish(ctx); err != nil || s.Skipped != darkneed.SkipUnchanged {
 		t.Fatalf("second publish %+v %v", s, err)
 	}
-	for i := range 2 {
-		at := fx.now.Add(time.Duration(-1+i) * time.Minute)
-		fx.add(t, db, app.Frame{Key: fmt.Sprintf("DARK/d13_more%d.fits", i), Type: darkcheck.TypeDark, Exposure: fp(300), Gain: fp(100), Offset: fp(50),
-			SetTemp: fp(-13), DateObs: &at}, pixels(uint64(40+i), 501, 0))
+	var seq uint64
+	at := fx.now.Add(-time.Hour)
+	more := func(n int) {
+		for range n {
+			seq++
+			at = at.Add(time.Minute)
+			d := at
+			fx.add(t, db, app.Frame{Key: fmt.Sprintf("DARK/d13_more%d.fits", seq), Type: darkcheck.TypeDark, Exposure: fp(300), Gain: fp(100), Offset: fp(50),
+				SetTemp: fp(-13), DateObs: &d}, pixels(40+seq, 501, 0))
+		}
+		if _, err := darkcheck.MeasurePending(ctx, db, fx.download, 2); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := darkcheck.JudgePending(ctx, db, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := darkcheck.MeasurePending(ctx, db, fx.download, 1); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := darkcheck.JudgePending(ctx, db, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatal(err)
-	}
+	more(2)
 	s, err = p.Publish(ctx)
-	if err != nil || s.Deleted != 1 || s.Rows != 1 {
-		t.Fatalf("publish after darks %+v %v", s, err)
+	if err != nil || s.Deleted != 0 || s.Rows != 3 {
+		t.Fatalf("publish after 3 darks %+v %v", s, err)
+	}
+	var thin darkneed.Row
+	if err := sched.Table(darkneed.Table).Where("combo_key = ?", "300|100|50|1|-13").First(&thin).Error; err != nil {
+		t.Fatal(err)
+	}
+	if thin.FramesHave != 3 || thin.FramesNeeded != 25 || thin.LightsScaled != 0 {
+		t.Errorf("a usable set short of the target %+v", thin)
+	}
+	more(22)
+	s, err = p.Publish(ctx)
+	if err != nil || s.Deleted != 1 || s.Rows != 2 {
+		t.Fatalf("publish after 25 darks %+v %v", s, err)
 	}
 	var left int64
 	sched.Table(darkneed.Table).Count(&left)
-	if left != 1 {
+	if left != 2 {
 		t.Errorf("%d rows left", left)
 	}
 }
@@ -294,6 +326,23 @@ func TestExistingDarksAreRecordedOnly(t *testing.T) {
 	}
 	if kept.LightLeak == nil || *kept.LightLeak != oldLeak {
 		t.Errorf("an earlier rejection was cleared: %v", kept.LightLeak)
+	}
+	b, err := coverage.BuildDarkBacklog(ctx, db, fx.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range b.Combos {
+		if c.SetTemp != -13 {
+			continue
+		}
+		found = true
+		if c.FramesHave != 1 || c.FramesRejected != 1 {
+			t.Errorf("a dark found lit but kept counted as had: have %d rejected %d", c.FramesHave, c.FramesRejected)
+		}
+	}
+	if !found {
+		t.Errorf("no -13 °C combo in %+v", b.Combos)
 	}
 	after, err := coverage.Sets(ctx, db)
 	if err != nil {

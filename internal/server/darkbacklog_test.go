@@ -53,7 +53,7 @@ func TestDarkBacklogRoute(t *testing.T) {
 	if c["combo_key"] != "300|0|50|1|-20" {
 		t.Errorf("combo %v", c)
 	}
-	if c["lights_blocked"] != 2.0 || c["offset"] != 50.0 || c["frames_needed"] != 3.0 || got["frames_needed_basis"] == "" {
+	if c["lights_blocked"] != 2.0 || c["offset"] != 50.0 || c["frames_needed"] != 25.0 || got["frames_needed_basis"] == "" {
 		t.Errorf("combo %v", c)
 	}
 	pub, _ := got["publish"].(map[string]any)
