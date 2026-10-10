@@ -77,24 +77,27 @@ type Plan struct {
 	MoonWidth      int     `json:"moonWidth"`
 	Percent        float64 `json:"percentComplete"`
 	Basis          string  `json:"completionBasis"`
+	GoalDriven     bool    `json:"goalDriven"`
+	Complete       bool    `json:"complete"`
 }
 
 type FilterGoal struct {
-	Filter      string          `json:"filter"`
-	StackKey    string          `json:"stackFilter"`
-	Goal        *goals.Goal     `json:"goal"`
-	GoalSet     bool            `json:"goalSet"`
-	DefaultGoal goals.Goal      `json:"defaultGoal"`
-	Measured    bool            `json:"measured"`
-	Status      string          `json:"status"`
-	Measurement *Measurement    `json:"measurement,omitempty"`
-	Progress    *goals.Progress `json:"progress,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	Percent     float64         `json:"percentComplete"`
-	Basis       string          `json:"completionBasis"`
-	Accepted    int             `json:"accepted"`
-	Desired     int             `json:"desired"`
-	ExposureHr  float64         `json:"acceptedHours"`
+	Filter      string           `json:"filter"`
+	StackKey    string           `json:"stackFilter"`
+	Goal        *goals.Goal      `json:"goal"`
+	GoalSet     bool             `json:"goalSet"`
+	DefaultGoal goals.Goal       `json:"defaultGoal"`
+	Measured    bool             `json:"measured"`
+	Status      string           `json:"status"`
+	Measurement *Measurement     `json:"measurement,omitempty"`
+	Progress    *goals.Progress  `json:"progress,omitempty"`
+	Readiness   *goals.Readiness `json:"readiness,omitempty"`
+	Error       string           `json:"error,omitempty"`
+	Percent     float64          `json:"percentComplete"`
+	Basis       string           `json:"completionBasis"`
+	Accepted    int              `json:"accepted"`
+	Desired     int              `json:"desired"`
+	ExposureHr  float64          `json:"acceptedHours"`
 }
 
 type Season struct {
@@ -256,6 +259,7 @@ type rows struct {
 	lastBy    map[int]time.Time
 	meas      map[goals.Key]app.GoalMeasurement
 	stacks    map[goals.Key]bool
+	subs      map[goals.Key]int
 	prefs     map[string]Prefs
 }
 
@@ -306,6 +310,11 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 				r.stacks[goals.Key{Object: x.Object, Filter: x.Filter}] = true
 			}
 		}
+		subs, err := goals.MeasurableSubs(ctx, appDB)
+		if err != nil {
+			return nil, err
+		}
+		r.subs = subs
 	}
 	r.prefs = loadPrefs(ctx, db)
 	return r, nil
@@ -389,7 +398,7 @@ func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
 		MinimumTime: pr.MinimumTime, MinimumAltitude: pr.MinimumAltitude, IsMosaic: pr.IsMosaic != 0,
 		Progress: 1, Grader: pr.EnableGrader != 0, Completion: prefsFor(r.prefs, pr.ProfileID),
 	}
-	env := targetEnv{meas: r.meas, stacks: r.stacks, grader: p.Grader, prefs: p.Completion}
+	env := targetEnv{meas: r.meas, stacks: r.stacks, subs: r.subs, grader: p.Grader, prefs: p.Completion}
 	for _, rule := range Rules() {
 		w, ok := x.weightsBy[pr.ID][rule.Name]
 		p.RuleWeights = append(p.RuleWeights, RuleWeight{Name: rule.Name, Weight: w, Missing: !ok})
@@ -477,6 +486,7 @@ func panelNumber(name string) int {
 type targetEnv struct {
 	meas   map[goals.Key]app.GoalMeasurement
 	stacks map[goals.Key]bool
+	subs   map[goals.Key]int
 	grader bool
 	prefs  Prefs
 }
@@ -490,23 +500,31 @@ func (in Inputs) targetGoalDriven(tr targetRow) bool {
 	return false
 }
 
-func (in Inputs) measurementFor(tr targetRow, filter string, env targetEnv) (app.GoalMeasurement, goals.Key, bool, bool) {
+func betterMeasurement(cand, cur app.GoalMeasurement) bool {
+	if (cand.Error == nil) != (cur.Error == nil) {
+		return cand.Error == nil
+	}
+	return cand.EffectiveHours > cur.EffectiveHours
+}
+
+func (in Inputs) measurementFor(tr targetRow, filter string, env targetEnv) (app.GoalMeasurement, goals.Key, bool, bool, int) {
 	key := goals.Key{Object: tr.Name, Filter: filter}
 	var m app.GoalMeasurement
-	found, stacked := false, false
+	found, stacked, subs := false, false, 0
 	for _, obj := range in.objectsFor(tr) {
 		k := goals.Key{Object: obj, Filter: filter}
 		stacked = stacked || env.stacks[k]
-		if cand, ok := env.meas[k]; ok && (!found || cand.EffectiveHours > m.EffectiveHours) {
+		subs = max(subs, env.subs[k])
+		if cand, ok := env.meas[k]; ok && (!found || betterMeasurement(cand, m)) {
 			m, found, key = cand, true, k
 		}
 	}
-	return m, key, found, stacked
+	return m, key, found, stacked, subs
 }
 
 func (in Inputs) resolveGoal(tr targetRow, g *FilterGoal, env targetEnv, guid string, driven bool) goals.Kind {
 	f := g.Filter
-	m, key, found, stacked := in.measurementFor(tr, g.StackKey, env)
+	m, key, found, stacked, subs := in.measurementFor(tr, g.StackKey, env)
 	g.DefaultGoal = goals.DefaultGoal(g.StackKey)
 	g.DefaultGoal.TargetGUID, g.DefaultGoal.Filter = guid, f
 	goal, set := in.Goals[key]
@@ -537,6 +555,12 @@ func (in Inputs) resolveGoal(tr targetRow, g *FilterGoal, env targetEnv, guid st
 		g.Progress = &ev
 	}
 	if set {
+		var mp *app.GoalMeasurement
+		if found {
+			mp = &m
+		}
+		rd := goals.Ready(mp, g.Progress, subs)
+		g.Readiness = &rd
 		return goal.Kind
 	}
 	return ""
@@ -588,20 +612,36 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 	for _, i := range enabledPlans {
 		pl := &t.Plans[i]
 		g := byFilter[pl.Filter]
-		pl.Percent, pl.Basis = planPercent(*pl, g.Progress, env.grader, env.prefs)
+		pl.GoalDriven = g.GoalSet
+		switch {
+		case g.GoalSet && g.Progress == nil:
+			pl.Percent, pl.Basis = 0, BasisCollecting
+		case g.GoalSet:
+			pl.Percent, pl.Basis = planPercent(*pl, g.Progress, env.grader, env.prefs)
+		default:
+			pl.Percent, pl.Basis = planPercent(*pl, nil, env.grader, env.prefs)
+		}
+		pl.Complete = pl.Percent >= 100
+		if g.Readiness != nil {
+			pl.Complete = !g.Readiness.Open
+		}
 		sum += pl.Percent
 		minPct = math.Min(minPct, pl.Percent)
 		if pl.Percent < g.Percent {
 			g.Percent, g.Basis = pl.Percent, pl.Basis
 		}
+		goalProg, goalHrs := 0.0, 0.0
 		if g.Progress != nil {
-			novProg = math.Min(novProg, clamp01(g.Progress.Progress))
+			goalProg, goalHrs = g.Progress.Progress, g.Progress.EffectiveHours
+		}
+		if g.GoalSet {
+			novProg = math.Min(novProg, clamp01(goalProg))
 		} else {
 			novProg = math.Min(novProg, clamp01(pl.Percent/100))
 		}
-		if g.Progress != nil {
+		if g.GoalSet {
 			anyGoal = true
-			goalHours = math.Min(goalHours, math.Max(0, g.Progress.EffectiveHours))
+			goalHours = math.Min(goalHours, math.Max(0, goalHrs))
 		} else {
 			countHours += float64(max(0, pl.Accepted)) * math.Max(0, pl.Exposure) / 3600
 		}

@@ -87,6 +87,7 @@ func (s *rowTime) Scan(v any) error {
 type targetMap struct {
 	objects map[string][]string
 	guids   map[string]string
+	known   map[string]bool
 }
 
 func loadTargetMap(ctx context.Context, appDB, sched *gorm.DB) (targetMap, error) {
@@ -98,7 +99,13 @@ func loadTargetMap(ctx context.Context, appDB, sched *gorm.DB) (targetMap, error
 	if err != nil {
 		return targetMap{}, err
 	}
-	return targetMap{objects: tslink.TargetObjects(guids), guids: guids}, nil
+	known := make(map[string]bool, len(targets))
+	for _, t := range targets {
+		if t.GUID != "" {
+			known[t.GUID] = true
+		}
+	}
+	return targetMap{objects: tslink.TargetObjects(guids), guids: guids, known: known}, nil
 }
 
 func ObjectGUIDs(ctx context.Context, appDB, sched *gorm.DB) (map[string]string, error) {
@@ -250,6 +257,11 @@ type progressRow struct {
 	NightQuality   *float64
 	NightQualityAt *time.Time
 	SeasonBoost    *float64
+	State          *string
+	Reason         *string
+	StackSubs      *int
+	MinSubs        *int
+	SubLimit       *int
 }
 
 func ptr(v float64) *float64 {
@@ -294,7 +306,31 @@ func sameFloat(a, b *float64) bool {
 	return math.Abs(*a-*b) <= 1e-9*math.Max(1, math.Max(math.Abs(*a), math.Abs(*b)))
 }
 
-func (r progressRow) same(o progressRow, signals bool) bool {
+func sameInt(a, b *int) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func sameText(a, b *string) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func (r *progressRow) setReadiness(rd Readiness) {
+	r.State, r.StackSubs, r.MinSubs, r.SubLimit = &rd.State, &rd.StackSubs, &rd.MinSubs, &rd.SubLimit
+	r.Reason = nil
+	if rd.Reason != "" {
+		r.Reason = &rd.Reason
+	}
+}
+
+func (r progressRow) sameReadiness(o progressRow) bool {
+	return sameText(r.State, o.State) && sameText(r.Reason, o.Reason) && sameInt(r.StackSubs, o.StackSubs) &&
+		sameInt(r.MinSubs, o.MinSubs) && sameInt(r.SubLimit, o.SubLimit)
+}
+
+func (r progressRow) same(o progressRow, signals, readiness bool) bool {
+	if readiness && !r.sameReadiness(o) {
+		return false
+	}
 	if signals && (!sameFloat(r.NightQuality, o.NightQuality) || !sameTime(r.NightQualityAt, o.NightQualityAt) || !sameFloat(r.SeasonBoost, o.SeasonBoost)) {
 		return false
 	}
@@ -361,7 +397,8 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	if len(byGUID) == 0 {
 		return sum, nil
 	}
-	want, err := p.progressRows(ctx, byGUID, tm, filters)
+	withReadiness := HasReadinessColumns(p.Sched)
+	want, err := p.progressRows(ctx, byGUID, tm, filters, withReadiness)
 	if err != nil {
 		return sum, err
 	}
@@ -381,7 +418,7 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 		if withSignals {
 			sig.apply(&w.row)
 		}
-		if old, ok := have[progressKey{w.row.TargetGUID, w.row.Filter}]; ok && old.same(w.row, withSignals) {
+		if old, ok := have[progressKey{w.row.TargetGUID, w.row.Filter}]; ok && old.same(w.row, withSignals, withReadiness) {
 			continue
 		}
 		sum.Changed++
@@ -391,7 +428,7 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 				"hours_needed", w.prog.HoursNeeded, "gain_per_hour_pct", w.prog.GainPerHourPct, "done", w.prog.Done)
 			continue
 		}
-		if err := p.upsert(ctx, w.row, withSignals); err != nil {
+		if err := p.upsert(ctx, w.row, withSignals, withReadiness); err != nil {
 			return sum, err
 		}
 	}
@@ -411,7 +448,7 @@ type wantedProgress struct {
 func goalsByTarget(rows []goalRow, tm targetMap) map[string]map[string]goalRow {
 	out := map[string]map[string]goalRow{}
 	for _, r := range rows {
-		if len(tm.objects[r.TargetGUID]) == 0 {
+		if len(tm.objects[r.TargetGUID]) == 0 && !tm.known[r.TargetGUID] {
 			continue
 		}
 		if out[r.TargetGUID] == nil {
@@ -425,7 +462,7 @@ func goalsByTarget(rows []goalRow, tm targetMap) map[string]map[string]goalRow {
 	return out
 }
 
-func (p *Publisher) progressRows(ctx context.Context, byGUID map[string]map[string]goalRow, tm targetMap, filters map[Key]string) ([]wantedProgress, error) {
+func (p *Publisher) progressRows(ctx context.Context, byGUID map[string]map[string]goalRow, tm targetMap, filters map[Key]string, readiness bool) ([]wantedProgress, error) {
 	guids := make([]string, 0, len(byGUID))
 	var objects []string
 	for g := range byGUID {
@@ -434,30 +471,107 @@ func (p *Publisher) progressRows(ctx context.Context, byGUID map[string]map[stri
 	}
 	sort.Strings(guids)
 	var ms []app.GoalMeasurement
-	if err := p.App.WithContext(ctx).Where("object IN ? AND error IS NULL", objects).Order("object, filter").Find(&ms).Error; err != nil {
-		return nil, fmt.Errorf("load goal measurements: %w", err)
+	if len(objects) > 0 {
+		if err := p.App.WithContext(ctx).Where("object IN ?", objects).Order("object, filter").Find(&ms).Error; err != nil {
+			return nil, fmt.Errorf("load goal measurements: %w", err)
+		}
+	}
+	subs := map[Key]int{}
+	if readiness {
+		var err error
+		if subs, err = MeasurableSubs(ctx, p.App); err != nil {
+			return nil, err
+		}
 	}
 	var out []wantedProgress
 	for _, guid := range guids {
+		objs := tm.objects[guid]
+		measured, failed := map[string]app.GoalMeasurement{}, map[string]app.GoalMeasurement{}
 		for _, m := range ms {
-			if !slices.Contains(tm.objects[guid], m.Object) {
+			if !slices.Contains(objs, m.Object) {
 				continue
 			}
-			g := DefaultGoal(m.Filter)
+			if m.Error != nil {
+				if cur, ok := failed[m.Filter]; !ok || m.Subs > cur.Subs {
+					failed[m.Filter] = m
+				}
+				continue
+			}
+			if cur, ok := measured[m.Filter]; !ok || m.EffectiveHours > cur.EffectiveHours {
+				measured[m.Filter] = m
+			}
+		}
+		for _, f := range sortedKeys(measured) {
+			m := measured[f]
+			g := DefaultGoal(f)
 			g.TargetGUID = guid
-			tsFilter := m.Filter
-			if r, ok := byGUID[guid][m.Filter]; ok {
-				g = r.goal(m.Filter)
+			tsFilter := f
+			if r, ok := byGUID[guid][f]; ok {
+				g = r.goal(f)
 				tsFilter = r.Filter
-			} else if f, ok := filters[Key{Object: m.Object, Filter: m.Filter}]; ok {
-				tsFilter = f
+			} else if tf, ok := filters[Key{Object: m.Object, Filter: f}]; ok {
+				tsFilter = tf
 			}
 			m.TargetGUID = guid
 			prog := Evaluate(m, g)
-			out = append(out, wantedProgress{row: toRow(guid, tsFilter, prog, m.Depth), prog: prog})
+			row := toRow(guid, tsFilter, prog, m.Depth)
+			if readiness {
+				row.setReadiness(Ready(&m, &prog, stackSubs(subs, objs, f)))
+			}
+			out = append(out, wantedProgress{row: row, prog: prog})
+		}
+		if !readiness {
+			continue
+		}
+		for _, f := range sortedKeys(byGUID[guid]) {
+			if _, ok := measured[f]; ok {
+				continue
+			}
+			r := byGUID[guid][f]
+			var mp *app.GoalMeasurement
+			if fm, ok := failed[f]; ok {
+				mp = &fm
+			}
+			row, prog := waitingRow(guid, r, f, mp)
+			row.setReadiness(Ready(mp, nil, stackSubs(subs, objs, f)))
+			out = append(out, wantedProgress{row: row, prog: prog})
 		}
 	}
 	return out, nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func stackSubs(subs map[Key]int, objects []string, filter string) int {
+	n := 0
+	for _, o := range objects {
+		n = max(n, subs[Key{Object: o, Filter: filter}])
+	}
+	return n
+}
+
+func waitingRow(guid string, r goalRow, filter string, m *app.GoalMeasurement) (progressRow, Progress) {
+	g := r.goal(filter)
+	prog := Progress{Filter: filter, TargetGUID: guid, Kind: g.Kind, Goal: g.SNR}
+	kind := kindSNR
+	if g.Kind == KindDepth {
+		kind, prog.Goal = kindDepth, g.Depth
+	}
+	row := progressRow{TargetGUID: guid, Filter: r.Filter, Kind: kind, GoalValue: ptr(prog.Goal)}
+	if m != nil {
+		prog.Object = m.Object
+		at := m.MeasuredAt.UTC()
+		row.MeasuredAt = &at
+		prog.MeasuredAt = at
+	}
+	return row, prog
 }
 
 func (p *Publisher) existing(ctx context.Context) (map[progressKey]progressRow, error) {
@@ -472,7 +586,7 @@ func (p *Publisher) existing(ctx context.Context) (map[progressKey]progressRow, 
 	return out, nil
 }
 
-func (p *Publisher) upsert(ctx context.Context, r progressRow, signals bool) error {
+func (p *Publisher) upsert(ctx context.Context, r progressRow, signals, readiness bool) error {
 	values := map[string]any{
 		"kind": r.Kind, "goal_value": r.GoalValue, "achieved_value": r.AchievedValue, "progress": r.Progress,
 		"snr": r.SNR, "depth": r.Depth, "effective_hours": r.EffectiveHours, "hours_needed": r.HoursNeeded,
@@ -483,6 +597,13 @@ func (p *Publisher) upsert(ctx context.Context, r progressRow, signals bool) err
 		values[ColumnNightQuality] = r.NightQuality
 		values[ColumnNightQualityAt] = r.NightQualityAt
 		values[ColumnSeasonBoost] = r.SeasonBoost
+	}
+	if readiness {
+		values[ColumnState] = r.State
+		values[ColumnReason] = r.Reason
+		values[ColumnStackSubs] = r.StackSubs
+		values[ColumnMinSubs] = r.MinSubs
+		values[ColumnSubLimit] = r.SubLimit
 	}
 	row := map[string]any{"target_guid": r.TargetGUID, "filter": r.Filter}
 	for k, v := range values {

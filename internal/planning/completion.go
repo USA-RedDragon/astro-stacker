@@ -19,6 +19,7 @@ const (
 	BasisAccepted    = "accepted"
 	BasisProvisional = "acquired, grading delayed"
 	BasisThrottle    = "acquired, no grading"
+	BasisCollecting  = "collecting subs to measure"
 
 	StatusMeasured    = "measured"
 	StatusFailed      = "failed"
