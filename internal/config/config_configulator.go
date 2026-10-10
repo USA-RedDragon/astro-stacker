@@ -109,23 +109,27 @@ type publicFramesShadow struct {
 }
 
 type discoverShadow struct {
-	SiteLatitude     *float64  `json:"site-latitude"     toml:"site-latitude"     yaml:"site-latitude"`
-	SiteLongitude    *float64  `json:"site-longitude"    toml:"site-longitude"    yaml:"site-longitude"`
-	SiteElevation    *float64  `json:"site-elevation"    toml:"site-elevation"    yaml:"site-elevation"`
-	MinAltitude      *float64  `json:"min-altitude"      toml:"min-altitude"      yaml:"min-altitude"`
-	SkyBrightness    *float64  `json:"sky-brightness"    toml:"sky-brightness"    yaml:"sky-brightness"`
-	FocalLength      *float64  `json:"focal-length"      toml:"focal-length"      yaml:"focal-length"`
-	PixelSize        *float64  `json:"pixel-size"        toml:"pixel-size"        yaml:"pixel-size"`
-	SensorWidth      *int      `json:"sensor-width"      toml:"sensor-width"      yaml:"sensor-width"`
-	SensorHeight     *int      `json:"sensor-height"     toml:"sensor-height"     yaml:"sensor-height"`
-	Colour           *bool     `json:"colour"            toml:"colour"            yaml:"colour"`
-	Filters          *[]string `json:"filters"           toml:"filters"           yaml:"filters"`
-	TypicalHFR       *float64  `json:"typical-hfr"       toml:"typical-hfr"       yaml:"typical-hfr"`
-	TypicalGuideRMS  *float64  `json:"typical-guide-rms" toml:"typical-guide-rms" yaml:"typical-guide-rms"`
-	Exposures        *[]string `json:"exposures"         toml:"exposures"         yaml:"exposures"`
-	Starfront        *bool     `json:"starfront"         toml:"starfront"         yaml:"starfront"`
-	StarfrontURL     *string   `json:"starfront-url"     toml:"starfront-url"     yaml:"starfront-url"`
-	StarfrontMinutes *int      `json:"starfront-minutes" toml:"starfront-minutes" yaml:"starfront-minutes"`
+	SiteLatitude     *float64  `json:"site-latitude"      toml:"site-latitude"      yaml:"site-latitude"`
+	SiteLongitude    *float64  `json:"site-longitude"     toml:"site-longitude"     yaml:"site-longitude"`
+	SiteElevation    *float64  `json:"site-elevation"     toml:"site-elevation"     yaml:"site-elevation"`
+	MinAltitude      *float64  `json:"min-altitude"       toml:"min-altitude"       yaml:"min-altitude"`
+	SkyBrightness    *float64  `json:"sky-brightness"     toml:"sky-brightness"     yaml:"sky-brightness"`
+	FocalLength      *float64  `json:"focal-length"       toml:"focal-length"       yaml:"focal-length"`
+	PixelSize        *float64  `json:"pixel-size"         toml:"pixel-size"         yaml:"pixel-size"`
+	SensorWidth      *int      `json:"sensor-width"       toml:"sensor-width"       yaml:"sensor-width"`
+	SensorHeight     *int      `json:"sensor-height"      toml:"sensor-height"      yaml:"sensor-height"`
+	Colour           *bool     `json:"colour"             toml:"colour"             yaml:"colour"`
+	Filters          *[]string `json:"filters"            toml:"filters"            yaml:"filters"`
+	TypicalHFR       *float64  `json:"typical-hfr"        toml:"typical-hfr"        yaml:"typical-hfr"`
+	TypicalGuideRMS  *float64  `json:"typical-guide-rms"  toml:"typical-guide-rms"  yaml:"typical-guide-rms"`
+	Exposures        *[]string `json:"exposures"          toml:"exposures"          yaml:"exposures"`
+	Starfront        *bool     `json:"starfront"          toml:"starfront"          yaml:"starfront"`
+	StarfrontURL     *string   `json:"starfront-url"      toml:"starfront-url"      yaml:"starfront-url"`
+	StarfrontMinutes *int      `json:"starfront-minutes"  toml:"starfront-minutes"  yaml:"starfront-minutes"`
+	HAlphaMap        *bool     `json:"halpha-map"         toml:"halpha-map"         yaml:"halpha-map"`
+	SkyCutouts       *bool     `json:"sky-cutouts"        toml:"sky-cutouts"        yaml:"sky-cutouts"`
+	HiPS2FITSURL     *string   `json:"hips2fits-url"      toml:"hips2fits-url"      yaml:"hips2fits-url"`
+	CutoutsPerMinute *int      `json:"cutouts-per-minute" toml:"cutouts-per-minute" yaml:"cutouts-per-minute"`
 }
 
 type schedulerShadow struct {
@@ -270,6 +274,14 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("discover.starfront-url", configulator.LayerDefault, "default tag")
 	cfg.Discover.StarfrontMinutes = 30
 	set("discover.starfront-minutes", configulator.LayerDefault, "default tag")
+	cfg.Discover.HAlphaMap = true
+	set("discover.halpha-map", configulator.LayerDefault, "default tag")
+	cfg.Discover.SkyCutouts = true
+	set("discover.sky-cutouts", configulator.LayerDefault, "default tag")
+	cfg.Discover.HiPS2FITSURL = "https://alasky.cds.unistra.fr/hips-image-services/hips2fits"
+	set("discover.hips2fits-url", configulator.LayerDefault, "default tag")
+	cfg.Discover.CutoutsPerMinute = 20
+	set("discover.cutouts-per-minute", configulator.LayerDefault, "default tag")
 	cfg.Scheduler.Queue = true
 	set("scheduler.queue", configulator.LayerDefault, "default tag")
 	cfg.Scheduler.UPS = "observatory"
@@ -617,6 +629,22 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Discover.StarfrontMinutes != nil {
 			cfg.Discover.StarfrontMinutes = *s.Discover.StarfrontMinutes
 			set("discover.starfront-minutes", configulator.LayerFile, file)
+		}
+		if s.Discover.HAlphaMap != nil {
+			cfg.Discover.HAlphaMap = *s.Discover.HAlphaMap
+			set("discover.halpha-map", configulator.LayerFile, file)
+		}
+		if s.Discover.SkyCutouts != nil {
+			cfg.Discover.SkyCutouts = *s.Discover.SkyCutouts
+			set("discover.sky-cutouts", configulator.LayerFile, file)
+		}
+		if s.Discover.HiPS2FITSURL != nil {
+			cfg.Discover.HiPS2FITSURL = *s.Discover.HiPS2FITSURL
+			set("discover.hips2fits-url", configulator.LayerFile, file)
+		}
+		if s.Discover.CutoutsPerMinute != nil {
+			cfg.Discover.CutoutsPerMinute = *s.Discover.CutoutsPerMinute
+			set("discover.cutouts-per-minute", configulator.LayerFile, file)
 		}
 	}
 	if s.Scheduler != nil {
@@ -1430,6 +1458,49 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Discover.StarfrontMinutes = int(p)
 		set("discover.starfront-minutes", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "halpha-map"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.halpha-map",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.HAlphaMap = p
+		set("discover.halpha-map", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "sky-cutouts"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.sky-cutouts",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SkyCutouts = p
+		set("discover.sky-cutouts", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "hips2fits-url"); ok {
+		cfg.Discover.HiPS2FITSURL = v
+		set("discover.hips2fits-url", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "cutouts-per-minute"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.cutouts-per-minute",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.CutoutsPerMinute = int(p)
+		set("discover.cutouts-per-minute", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduler", "url"); ok {
 		cfg.Scheduler.URL = v
 		set("scheduler.url", configulator.LayerEnv, n)
@@ -1603,6 +1674,10 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"discover" + o.Separator + "starfront",
 		"discover" + o.Separator + "starfront-url",
 		"discover" + o.Separator + "starfront-minutes",
+		"discover" + o.Separator + "halpha-map",
+		"discover" + o.Separator + "sky-cutouts",
+		"discover" + o.Separator + "hips2fits-url",
+		"discover" + o.Separator + "cutouts-per-minute",
 		"scheduler" + o.Separator + "url",
 		"scheduler" + o.Separator + "token",
 		"scheduler" + o.Separator + "queue",
@@ -1703,16 +1778,20 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Bool(names[72], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
 	fs.String(names[73], "https://collab.starfront.space", "Starfront collaboration server")
 	fs.Var(impl.NewInt(30), names[74], "Minutes between fetches of the collaboration list")
-	fs.String(names[75], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
-	fs.String(names[76], "", "Bearer token for the plugin's API")
-	fs.Bool(names[77], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
-	fs.String(names[78], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
-	fs.String(names[79], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
-	fs.Var(impl.NewInt(60), names[80], "Seconds on battery before the observatory PC shuts itself down, for the Power card; 0 if it never does")
-	fs.Bool(names[81], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
-	fs.Var(impl.NewInt(30), names[82], "Minutes between checks for masters to measure")
-	fs.Var(impl.NewInt(200), names[83], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
-	fs.String(names[84], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.Bool(names[75], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
+	fs.Bool(names[76], true, "Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database")
+	fs.String(names[77], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
+	fs.Var(impl.NewInt(20), names[78], "Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit")
+	fs.String(names[79], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
+	fs.String(names[80], "", "Bearer token for the plugin's API")
+	fs.Bool(names[81], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
+	fs.String(names[82], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
+	fs.String(names[83], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
+	fs.Var(impl.NewInt(60), names[84], "Seconds on battery before the observatory PC shuts itself down, for the Power card; 0 if it never does")
+	fs.Bool(names[85], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
+	fs.Var(impl.NewInt(30), names[86], "Minutes between checks for masters to measure")
+	fs.Var(impl.NewInt(200), names[87], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
+	fs.String(names[88], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -2616,6 +2695,54 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Discover.StarfrontMinutes = v
 		set("discover.starfront-minutes", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "halpha-map"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.halpha-map",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.HAlphaMap = v
+		set("discover.halpha-map", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "sky-cutouts"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.sky-cutouts",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SkyCutouts = v
+		set("discover.sky-cutouts", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "hips2fits-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.hips2fits-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.HiPS2FITSURL = v
+		set("discover.hips2fits-url", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "cutouts-per-minute"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.cutouts-per-minute",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.CutoutsPerMinute = v
+		set("discover.cutouts-per-minute", configulator.LayerCLI, "--"+n)
 	}
 	if n := "scheduler" + o.Separator + "url"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -4530,6 +4657,65 @@ func (s *discoverShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".starfront-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "halpha-map":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.HAlphaMap = &b
+			default:
+				return configJSONError(path+".halpha-map", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "sky-cutouts":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.SkyCutouts = &b
+			default:
+				return configJSONError(path+".sky-cutouts", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "hips2fits-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.HiPS2FITSURL = &str
+			default:
+				return configJSONError(path+".hips2fits-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "cutouts-per-minute":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".cutouts-per-minute", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".cutouts-per-minute", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.CutoutsPerMinute = &num
+			default:
+				return configJSONError(path+".cutouts-per-minute", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -4827,6 +5013,10 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "discover.starfront = %v\n", c.Discover.Starfront)
 	fmt.Fprintf(&b, "discover.starfront-url = %v\n", c.Discover.StarfrontURL)
 	fmt.Fprintf(&b, "discover.starfront-minutes = %v\n", c.Discover.StarfrontMinutes)
+	fmt.Fprintf(&b, "discover.halpha-map = %v\n", c.Discover.HAlphaMap)
+	fmt.Fprintf(&b, "discover.sky-cutouts = %v\n", c.Discover.SkyCutouts)
+	fmt.Fprintf(&b, "discover.hips2fits-url = %v\n", c.Discover.HiPS2FITSURL)
+	fmt.Fprintf(&b, "discover.cutouts-per-minute = %v\n", c.Discover.CutoutsPerMinute)
 	fmt.Fprintf(&b, "scheduler.url = %v\n", c.Scheduler.URL)
 	fmt.Fprintf(&b, "scheduler.token = %v\n", c.Scheduler.Token)
 	fmt.Fprintf(&b, "scheduler.queue = %v\n", c.Scheduler.Queue)

@@ -11,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -90,6 +91,9 @@ func newDiscover(ctx context.Context, cfg *config.Config, appStore, schedStore s
 		return site.Latitude, site.Longitude, err == nil
 	}}
 	svc.Sky = sky.Get
+	hmap := &halpha.Provider{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, Off: !cfg.Discover.HAlphaMap}
+	go hmap.Run(ctx)
+	svc.HAlpha = hmap.Get
 	slog.Info("Catalogue store loaded", "objects", ix.Len())
 	if !cfg.Discover.Starfront {
 		return svc, nil

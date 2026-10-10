@@ -63,6 +63,10 @@ type Discover struct {
 	Starfront        bool     `name:"starfront" description:"Read Starfront's public collaboration list for the Collabs page; read-only, no account" default:"true"`
 	StarfrontURL     string   `name:"starfront-url" description:"Starfront collaboration server" default:"https://collab.starfront.space"`
 	StarfrontMinutes int      `name:"starfront-minutes" description:"Minutes between fetches of the collaboration list" default:"30"`
+	HAlphaMap        bool     `name:"halpha-map" description:"Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score" default:"true"`
+	SkyCutouts       bool     `name:"sky-cutouts" description:"Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database" default:"true"`
+	HiPS2FITSURL     string   `name:"hips2fits-url" description:"CDS hips2fits service for the H-α map and survey cutouts" default:"https://alasky.cds.unistra.fr/hips-image-services/hips2fits"`
+	CutoutsPerMinute int      `name:"cutouts-per-minute" description:"Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit" default:"20"`
 }
 
 type Goals struct {

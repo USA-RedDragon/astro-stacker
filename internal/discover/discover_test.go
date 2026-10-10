@@ -9,6 +9,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
@@ -434,5 +435,43 @@ func TestUnmeasuredSkyLeavesBrightnessUnscored(t *testing.T) {
 	v, err := s.Collabs(context.Background(), nil)
 	if err != nil || v.Mag == nil || *v.Mag != 21.2 || v.Basis.Source != skybright.SourceConfig {
 		t.Fatalf("collabs sky %+v %v", v.Value, err)
+	}
+}
+
+func TestFinderUsesTheHAlphaMap(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	ctx := context.Background()
+	res, err := s.Finder(ctx, discover.FinderQuery{Types: []string{discover.GroupEmission}, Limit: 20})
+	if err != nil || len(res.Rows) == 0 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	for _, r := range res.Rows {
+		if r.HAlpha != nil || r.Narrowband != "Unknown" {
+			t.Fatalf("H-α without a map: %+v", r)
+		}
+	}
+	if res.HAlphaMap.State != halpha.StateOff {
+		t.Errorf("map state %+v", res.HAlphaMap)
+	}
+	m := &halpha.Map{W: 360, H: 180, CRPix1: 180, CRPix2: 90, CDelt1: -1, CDelt2: 1, CRVal1: 180, Data: make([]float32, 360*180), FetchedAt: time.Now()}
+	for i := range m.Data {
+		m.Data[i] = 50
+	}
+	s.HAlpha = func() (*halpha.Map, halpha.Status) { return m, halpha.Status{State: halpha.StateReady} }
+	withMap, err := s.Finder(ctx, discover.FinderQuery{Types: []string{discover.GroupEmission}, Limit: 20})
+	if err != nil || len(withMap.Rows) == 0 {
+		t.Fatalf("%+v %v", withMap, err)
+	}
+	for _, r := range withMap.Rows {
+		if r.HAlpha == nil || r.HAlpha.Rayleigh != 50 || r.Narrowband != "Strong H-α (50 R)" {
+			t.Fatalf("row %+v", r)
+		}
+	}
+	if d, err := s.Object(ctx, "M42"); err != nil || d.HAlpha == nil || d.HAlpha.Rayleigh != 50 {
+		t.Errorf("object H-α %+v %v", d.HAlpha, err)
+	}
+	if withMap.Rows[0].Score <= res.Rows[0].Score {
+		t.Errorf("H-α did not raise the emission score: %v <= %v", withMap.Rows[0].Score, res.Rows[0].Score)
 	}
 }
