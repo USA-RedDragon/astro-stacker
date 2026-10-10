@@ -161,35 +161,11 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 
 	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore)
-	obs := observatory.NewClient(cfg.Scheduler.URL, cfg.Scheduler.Token)
-	transports := []schedcmd.Transport{observatory.NewAPITransport(obs)}
-	if cfg.Scheduler.Queue {
-		transports = append(transports, observatory.NewQueueTransport(schedulerDBStore.DB()))
-	}
-	commands := &schedcmd.Service{
-		Log:        schedcmd.NewGormLog(appStore.DB()),
-		AppDB:      appStore.DB(),
-		Transports: transports,
-		Notify: func(r schedcmd.Record) {
-			if disc != nil && r.Category == schedcmd.CategoryMatching {
-				disc.Invalidate()
-			}
-			broker.Broadcast("command", r, false)
-		},
-	}
-	redeliver := &observatory.Redeliverer{Service: commands, Client: obs}
-	monitor := observatory.NewMonitor(obs, commands, broker)
-	monitor.OnOnline = func() { redeliver.Once(indexCtx) }
-	go monitor.Run(indexCtx)
-	go redeliver.Run(indexCtx, observatory.RedeliverInterval)
-	if cfg.Scheduler.Queue {
-		go observatory.NewQueueResults(schedulerDBStore.DB(), commands).Run(indexCtx, observatory.QueueResultInterval)
-	}
-	if obs.Configured() {
-		slog.Info("Scheduler API configured", "url", cfg.Scheduler.URL, "queue", cfg.Scheduler.Queue)
-	} else {
-		slog.Info("Scheduler API not configured; commands stay queued", "queue", cfg.Scheduler.Queue)
-	}
+	commands, monitor, obs := newScheduler(indexCtx, cfg, appStore, schedulerDBStore, broker, func(r schedcmd.Record) {
+		if disc != nil && r.Category == schedcmd.CategoryMatching {
+			disc.Invalidate()
+		}
+	})
 	extras := server.Extras{Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs}
 	if obs.Configured() {
 		extras.Previews = obs
@@ -224,4 +200,35 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 
 func credentials(cfg *config.Config) *miniocreds.Credentials {
 	return miniocreds.NewStaticV4(cfg.S3.AccessKey, cfg.S3.SecretKey, "")
+}
+
+func newScheduler(ctx context.Context, cfg *config.Config, appStore, schedulerDBStore store.Store, broker *events.Broker, onCommand func(schedcmd.Record)) (*schedcmd.Service, *observatory.Monitor, *observatory.Client) {
+	obs := observatory.NewClient(cfg.Scheduler.URL, cfg.Scheduler.Token)
+	transports := []schedcmd.Transport{observatory.NewAPITransport(obs)}
+	if cfg.Scheduler.Queue {
+		transports = append(transports, observatory.NewQueueTransport(schedulerDBStore.DB()))
+	}
+	commands := &schedcmd.Service{
+		Log:        schedcmd.NewGormLog(appStore.DB()),
+		AppDB:      appStore.DB(),
+		Transports: transports,
+		Notify: func(r schedcmd.Record) {
+			onCommand(r)
+			broker.Broadcast("command", r, false)
+		},
+	}
+	redeliver := &observatory.Redeliverer{Service: commands, Client: obs}
+	monitor := observatory.NewMonitor(obs, commands, broker)
+	monitor.OnOnline = func() { redeliver.Once(ctx) }
+	go monitor.Run(ctx)
+	go redeliver.Run(ctx, observatory.RedeliverInterval)
+	if cfg.Scheduler.Queue {
+		go observatory.NewQueueResults(schedulerDBStore.DB(), commands).Run(ctx, observatory.QueueResultInterval)
+	}
+	if obs.Configured() {
+		slog.Info("Scheduler API configured", "url", cfg.Scheduler.URL, "queue", cfg.Scheduler.Queue)
+	} else {
+		slog.Info("Scheduler API not configured; commands stay queued", "queue", cfg.Scheduler.Queue)
+	}
+	return commands, monitor, obs
 }
