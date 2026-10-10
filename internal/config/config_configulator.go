@@ -107,6 +107,26 @@ type publicFramesShadow struct {
 	MaxAgeDays      *int  `json:"max-age-days"     toml:"max-age-days"     yaml:"max-age-days"`
 }
 
+type discoverShadow struct {
+	SiteLatitude     *float64  `json:"site-latitude"     toml:"site-latitude"     yaml:"site-latitude"`
+	SiteLongitude    *float64  `json:"site-longitude"    toml:"site-longitude"    yaml:"site-longitude"`
+	SiteElevation    *float64  `json:"site-elevation"    toml:"site-elevation"    yaml:"site-elevation"`
+	MinAltitude      *float64  `json:"min-altitude"      toml:"min-altitude"      yaml:"min-altitude"`
+	SkyBrightness    *float64  `json:"sky-brightness"    toml:"sky-brightness"    yaml:"sky-brightness"`
+	FocalLength      *float64  `json:"focal-length"      toml:"focal-length"      yaml:"focal-length"`
+	PixelSize        *float64  `json:"pixel-size"        toml:"pixel-size"        yaml:"pixel-size"`
+	SensorWidth      *int      `json:"sensor-width"      toml:"sensor-width"      yaml:"sensor-width"`
+	SensorHeight     *int      `json:"sensor-height"     toml:"sensor-height"     yaml:"sensor-height"`
+	Colour           *bool     `json:"colour"            toml:"colour"            yaml:"colour"`
+	Filters          *[]string `json:"filters"           toml:"filters"           yaml:"filters"`
+	TypicalHFR       *float64  `json:"typical-hfr"       toml:"typical-hfr"       yaml:"typical-hfr"`
+	TypicalGuideRMS  *float64  `json:"typical-guide-rms" toml:"typical-guide-rms" yaml:"typical-guide-rms"`
+	Exposures        *[]string `json:"exposures"         toml:"exposures"         yaml:"exposures"`
+	Starfront        *bool     `json:"starfront"         toml:"starfront"         yaml:"starfront"`
+	StarfrontURL     *string   `json:"starfront-url"     toml:"starfront-url"     yaml:"starfront-url"`
+	StarfrontMinutes *int      `json:"starfront-minutes" toml:"starfront-minutes" yaml:"starfront-minutes"`
+}
+
 type configShadow struct {
 	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
 	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
@@ -118,6 +138,7 @@ type configShadow struct {
 	Previews     *previewsShadow     `json:"previews"      toml:"previews"      yaml:"previews"`
 	Stacking     *stackingShadow     `json:"stacking"      toml:"stacking"      yaml:"stacking"`
 	PublicFrames *publicFramesShadow `json:"public-frames" toml:"public-frames" yaml:"public-frames"`
+	Discover     *discoverShadow     `json:"discover"      toml:"discover"      yaml:"discover"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -129,7 +150,7 @@ func ConfigSchema() *configulator.Schema[Config] {
 	}
 }
 
-func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) error {
+func configApplyDefaults(cfg *Config, sep string, set configulator.SetOrigin) error {
 	cfg.LogLevel = LogLevel("info")
 	set("log-level", configulator.LayerDefault, "default tag")
 	cfg.HTTP.Bind = "[::]"
@@ -220,6 +241,29 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("public-frames.interval-seconds", configulator.LayerDefault, "default tag")
 	cfg.PublicFrames.MaxAgeDays = 14
 	set("public-frames.max-age-days", configulator.LayerDefault, "default tag")
+	cfg.Discover.MinAltitude = 30.0
+	set("discover.min-altitude", configulator.LayerDefault, "default tag")
+	cfg.Discover.SkyBrightness = 21.4
+	set("discover.sky-brightness", configulator.LayerDefault, "default tag")
+	cfg.Discover.FocalLength = 405.0
+	set("discover.focal-length", configulator.LayerDefault, "default tag")
+	cfg.Discover.PixelSize = 3.76
+	set("discover.pixel-size", configulator.LayerDefault, "default tag")
+	cfg.Discover.SensorWidth = 6248
+	set("discover.sensor-width", configulator.LayerDefault, "default tag")
+	cfg.Discover.SensorHeight = 4176
+	set("discover.sensor-height", configulator.LayerDefault, "default tag")
+	{
+		lst := impl.SplitList("L,R,G,B,H,O,S", sep)
+		cfg.Discover.Filters = lst
+		set("discover.filters", configulator.LayerDefault, "default tag")
+	}
+	cfg.Discover.Starfront = true
+	set("discover.starfront", configulator.LayerDefault, "default tag")
+	cfg.Discover.StarfrontURL = "https://collab.starfront.space"
+	set("discover.starfront-url", configulator.LayerDefault, "default tag")
+	cfg.Discover.StarfrontMinutes = 30
+	set("discover.starfront-minutes", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -481,6 +525,76 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.PublicFrames.MaxAgeDays != nil {
 			cfg.PublicFrames.MaxAgeDays = *s.PublicFrames.MaxAgeDays
 			set("public-frames.max-age-days", configulator.LayerFile, file)
+		}
+	}
+	if s.Discover != nil {
+		if s.Discover.SiteLatitude != nil {
+			cfg.Discover.SiteLatitude = *s.Discover.SiteLatitude
+			set("discover.site-latitude", configulator.LayerFile, file)
+		}
+		if s.Discover.SiteLongitude != nil {
+			cfg.Discover.SiteLongitude = *s.Discover.SiteLongitude
+			set("discover.site-longitude", configulator.LayerFile, file)
+		}
+		if s.Discover.SiteElevation != nil {
+			cfg.Discover.SiteElevation = *s.Discover.SiteElevation
+			set("discover.site-elevation", configulator.LayerFile, file)
+		}
+		if s.Discover.MinAltitude != nil {
+			cfg.Discover.MinAltitude = *s.Discover.MinAltitude
+			set("discover.min-altitude", configulator.LayerFile, file)
+		}
+		if s.Discover.SkyBrightness != nil {
+			cfg.Discover.SkyBrightness = *s.Discover.SkyBrightness
+			set("discover.sky-brightness", configulator.LayerFile, file)
+		}
+		if s.Discover.FocalLength != nil {
+			cfg.Discover.FocalLength = *s.Discover.FocalLength
+			set("discover.focal-length", configulator.LayerFile, file)
+		}
+		if s.Discover.PixelSize != nil {
+			cfg.Discover.PixelSize = *s.Discover.PixelSize
+			set("discover.pixel-size", configulator.LayerFile, file)
+		}
+		if s.Discover.SensorWidth != nil {
+			cfg.Discover.SensorWidth = *s.Discover.SensorWidth
+			set("discover.sensor-width", configulator.LayerFile, file)
+		}
+		if s.Discover.SensorHeight != nil {
+			cfg.Discover.SensorHeight = *s.Discover.SensorHeight
+			set("discover.sensor-height", configulator.LayerFile, file)
+		}
+		if s.Discover.Colour != nil {
+			cfg.Discover.Colour = *s.Discover.Colour
+			set("discover.colour", configulator.LayerFile, file)
+		}
+		if s.Discover.Filters != nil {
+			cfg.Discover.Filters = *s.Discover.Filters
+			set("discover.filters", configulator.LayerFile, file)
+		}
+		if s.Discover.TypicalHFR != nil {
+			cfg.Discover.TypicalHFR = *s.Discover.TypicalHFR
+			set("discover.typical-hfr", configulator.LayerFile, file)
+		}
+		if s.Discover.TypicalGuideRMS != nil {
+			cfg.Discover.TypicalGuideRMS = *s.Discover.TypicalGuideRMS
+			set("discover.typical-guide-rms", configulator.LayerFile, file)
+		}
+		if s.Discover.Exposures != nil {
+			cfg.Discover.Exposures = *s.Discover.Exposures
+			set("discover.exposures", configulator.LayerFile, file)
+		}
+		if s.Discover.Starfront != nil {
+			cfg.Discover.Starfront = *s.Discover.Starfront
+			set("discover.starfront", configulator.LayerFile, file)
+		}
+		if s.Discover.StarfrontURL != nil {
+			cfg.Discover.StarfrontURL = *s.Discover.StarfrontURL
+			set("discover.starfront-url", configulator.LayerFile, file)
+		}
+		if s.Discover.StarfrontMinutes != nil {
+			cfg.Discover.StarfrontMinutes = *s.Discover.StarfrontMinutes
+			set("discover.starfront-minutes", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -1041,6 +1155,202 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.PublicFrames.MaxAgeDays = int(p)
 		set("public-frames.max-age-days", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "site-latitude"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.site-latitude",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SiteLatitude = p
+		set("discover.site-latitude", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "site-longitude"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.site-longitude",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SiteLongitude = p
+		set("discover.site-longitude", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "site-elevation"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.site-elevation",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SiteElevation = p
+		set("discover.site-elevation", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "min-altitude"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.min-altitude",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.MinAltitude = p
+		set("discover.min-altitude", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "sky-brightness"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.sky-brightness",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SkyBrightness = p
+		set("discover.sky-brightness", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "focal-length"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.focal-length",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.FocalLength = p
+		set("discover.focal-length", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "pixel-size"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.pixel-size",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.PixelSize = p
+		set("discover.pixel-size", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "sensor-width"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.sensor-width",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SensorWidth = int(p)
+		set("discover.sensor-width", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "sensor-height"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.sensor-height",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SensorHeight = int(p)
+		set("discover.sensor-height", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "colour"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.colour",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.Colour = p
+		set("discover.colour", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "filters"); ok {
+		lst := impl.SplitList(v, ec.ArraySeparator)
+		cfg.Discover.Filters = lst
+		set("discover.filters", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "typical-hfr"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.typical-hfr",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.TypicalHFR = p
+		set("discover.typical-hfr", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "typical-guide-rms"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.typical-guide-rms",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.TypicalGuideRMS = p
+		set("discover.typical-guide-rms", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "exposures"); ok {
+		lst := impl.SplitList(v, ec.ArraySeparator)
+		cfg.Discover.Exposures = lst
+		set("discover.exposures", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "starfront"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.starfront",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.Starfront = p
+		set("discover.starfront", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "starfront-url"); ok {
+		cfg.Discover.StarfrontURL = v
+		set("discover.starfront-url", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "starfront-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.starfront-minutes",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.StarfrontMinutes = int(p)
+		set("discover.starfront-minutes", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -1111,6 +1421,23 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"public-frames" + o.Separator + "enabled",
 		"public-frames" + o.Separator + "interval-seconds",
 		"public-frames" + o.Separator + "max-age-days",
+		"discover" + o.Separator + "site-latitude",
+		"discover" + o.Separator + "site-longitude",
+		"discover" + o.Separator + "site-elevation",
+		"discover" + o.Separator + "min-altitude",
+		"discover" + o.Separator + "sky-brightness",
+		"discover" + o.Separator + "focal-length",
+		"discover" + o.Separator + "pixel-size",
+		"discover" + o.Separator + "sensor-width",
+		"discover" + o.Separator + "sensor-height",
+		"discover" + o.Separator + "colour",
+		"discover" + o.Separator + "filters",
+		"discover" + o.Separator + "typical-hfr",
+		"discover" + o.Separator + "typical-guide-rms",
+		"discover" + o.Separator + "exposures",
+		"discover" + o.Separator + "starfront",
+		"discover" + o.Separator + "starfront-url",
+		"discover" + o.Separator + "starfront-minutes",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -1183,6 +1510,24 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Bool(names[54], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
 	fs.Var(impl.NewInt(60), names[55], "Seconds between checks for newly accepted lights")
 	fs.Var(impl.NewInt(14), names[56], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
+	fs.Float64(names[57], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
+	fs.Float64(names[58], 0.0, "Observatory east longitude in degrees")
+	fs.Float64(names[59], 0.0, "Observatory elevation in metres")
+	fs.Float64(names[60], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
+	fs.Float64(names[61], 21.4, "Dark-sky brightness at the site in mag/arcsec², for brightness scores")
+	fs.Float64(names[62], 405.0, "Telescope focal length in mm")
+	fs.Float64(names[63], 3.76, "Camera pixel size in µm")
+	fs.Var(impl.NewInt(6248), names[64], "Camera width in pixels")
+	fs.Var(impl.NewInt(4176), names[65], "Camera height in pixels")
+	fs.Bool(names[66], false, "The camera is one-shot colour")
+	fs.StringSlice(names[67], nil, "Filters on the wheel as L, R, G, B, H, O or S, each optionally =bandpass in nm (H=3)")
+	fs.Lookup(names[67]).DefValue = "[L,R,G,B,H,O,S]"
+	fs.Float64(names[68], 0.0, "Typical star HFR in arcseconds, for collaboration limits; 0 if unknown")
+	fs.Float64(names[69], 0.0, "Typical guiding RMS in arcseconds, for collaboration limits; 0 if unknown")
+	fs.StringSlice(names[70], nil, "Sub lengths in seconds per filter (H=600), for collaboration limits")
+	fs.Bool(names[71], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
+	fs.String(names[72], "https://collab.starfront.space", "Starfront collaboration server")
+	fs.Var(impl.NewInt(30), names[73], "Minutes between fetches of the collaboration list")
 	return nil
 }
 
@@ -1871,6 +2216,210 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.PublicFrames.MaxAgeDays = v
 		set("public-frames.max-age-days", configulator.LayerCLI, "--"+n)
 	}
+	if n := "discover" + o.Separator + "site-latitude"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.site-latitude",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SiteLatitude = v
+		set("discover.site-latitude", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "site-longitude"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.site-longitude",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SiteLongitude = v
+		set("discover.site-longitude", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "site-elevation"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.site-elevation",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SiteElevation = v
+		set("discover.site-elevation", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "min-altitude"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.min-altitude",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.MinAltitude = v
+		set("discover.min-altitude", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "sky-brightness"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.sky-brightness",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SkyBrightness = v
+		set("discover.sky-brightness", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "focal-length"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.focal-length",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.FocalLength = v
+		set("discover.focal-length", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "pixel-size"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.pixel-size",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.PixelSize = v
+		set("discover.pixel-size", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "sensor-width"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.sensor-width",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SensorWidth = v
+		set("discover.sensor-width", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "sensor-height"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.sensor-height",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SensorHeight = v
+		set("discover.sensor-height", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "colour"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.colour",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.Colour = v
+		set("discover.colour", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "filters"; fs.Changed(n) {
+		v, err := fs.GetStringSlice(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.filters",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.Filters = v
+		set("discover.filters", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "typical-hfr"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.typical-hfr",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.TypicalHFR = v
+		set("discover.typical-hfr", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "typical-guide-rms"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.typical-guide-rms",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.TypicalGuideRMS = v
+		set("discover.typical-guide-rms", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "exposures"; fs.Changed(n) {
+		v, err := fs.GetStringSlice(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.exposures",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.Exposures = v
+		set("discover.exposures", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "starfront"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.starfront",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.Starfront = v
+		set("discover.starfront", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "starfront-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.starfront-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.StarfrontURL = v
+		set("discover.starfront-url", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "starfront-minutes"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.starfront-minutes",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.StarfrontMinutes = v
+		set("discover.starfront-minutes", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -2074,6 +2623,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.PublicFrames = &sub
+			}
+		case "discover":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("discover", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub discoverShadow
+				if err := sub.decodeJSON(dec, "discover"); err != nil {
+					return err
+				}
+				s.Discover = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -3279,6 +3847,332 @@ func (s *publicFramesShadow) decodeJSON(dec *jsontext.Decoder, path string) erro
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *discoverShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "site-latitude":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".site-latitude", v, err)
+				}
+				s.SiteLatitude = &num
+			default:
+				return configJSONError(path+".site-latitude", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "site-longitude":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".site-longitude", v, err)
+				}
+				s.SiteLongitude = &num
+			default:
+				return configJSONError(path+".site-longitude", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "site-elevation":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".site-elevation", v, err)
+				}
+				s.SiteElevation = &num
+			default:
+				return configJSONError(path+".site-elevation", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "min-altitude":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".min-altitude", v, err)
+				}
+				s.MinAltitude = &num
+			default:
+				return configJSONError(path+".min-altitude", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "sky-brightness":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".sky-brightness", v, err)
+				}
+				s.SkyBrightness = &num
+			default:
+				return configJSONError(path+".sky-brightness", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "focal-length":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".focal-length", v, err)
+				}
+				s.FocalLength = &num
+			default:
+				return configJSONError(path+".focal-length", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "pixel-size":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".pixel-size", v, err)
+				}
+				s.PixelSize = &num
+			default:
+				return configJSONError(path+".pixel-size", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "sensor-width":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".sensor-width", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".sensor-width", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.SensorWidth = &num
+			default:
+				return configJSONError(path+".sensor-width", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "sensor-height":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".sensor-height", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".sensor-height", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.SensorHeight = &num
+			default:
+				return configJSONError(path+".sensor-height", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "colour":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Colour = &b
+			default:
+				return configJSONError(path+".colour", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "filters":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginArray {
+					return configJSONError(path+".filters", open, fmt.Errorf("expected an array, got %v", open.Kind()))
+				}
+				out := []string{}
+				for dec.PeekKind() != jsontext.KindEndArray {
+					v, err := dec.ReadToken()
+					if err != nil {
+						return err
+					}
+					if v.Kind() != jsontext.KindString {
+						return configJSONError(path+".filters"+"["+strconv.Itoa(len(out))+"]", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+					}
+					el := v.String()
+					out = append(out, el)
+				}
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+				s.Filters = &out
+			}
+		case "typical-hfr":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".typical-hfr", v, err)
+				}
+				s.TypicalHFR = &num
+			default:
+				return configJSONError(path+".typical-hfr", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "typical-guide-rms":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".typical-guide-rms", v, err)
+				}
+				s.TypicalGuideRMS = &num
+			default:
+				return configJSONError(path+".typical-guide-rms", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "exposures":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginArray {
+					return configJSONError(path+".exposures", open, fmt.Errorf("expected an array, got %v", open.Kind()))
+				}
+				out := []string{}
+				for dec.PeekKind() != jsontext.KindEndArray {
+					v, err := dec.ReadToken()
+					if err != nil {
+						return err
+					}
+					if v.Kind() != jsontext.KindString {
+						return configJSONError(path+".exposures"+"["+strconv.Itoa(len(out))+"]", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+					}
+					el := v.String()
+					out = append(out, el)
+				}
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+				s.Exposures = &out
+			}
+		case "starfront":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Starfront = &b
+			default:
+				return configJSONError(path+".starfront", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "starfront-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.StarfrontURL = &str
+			default:
+				return configJSONError(path+".starfront-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "starfront-minutes":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".starfront-minutes", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".starfront-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.StarfrontMinutes = &num
+			default:
+				return configJSONError(path+".starfront-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -3350,6 +4244,23 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "public-frames.enabled = %v\n", c.PublicFrames.Enabled)
 	fmt.Fprintf(&b, "public-frames.interval-seconds = %v\n", c.PublicFrames.IntervalSeconds)
 	fmt.Fprintf(&b, "public-frames.max-age-days = %v\n", c.PublicFrames.MaxAgeDays)
+	fmt.Fprintf(&b, "discover.site-latitude = %v\n", c.Discover.SiteLatitude)
+	fmt.Fprintf(&b, "discover.site-longitude = %v\n", c.Discover.SiteLongitude)
+	fmt.Fprintf(&b, "discover.site-elevation = %v\n", c.Discover.SiteElevation)
+	fmt.Fprintf(&b, "discover.min-altitude = %v\n", c.Discover.MinAltitude)
+	fmt.Fprintf(&b, "discover.sky-brightness = %v\n", c.Discover.SkyBrightness)
+	fmt.Fprintf(&b, "discover.focal-length = %v\n", c.Discover.FocalLength)
+	fmt.Fprintf(&b, "discover.pixel-size = %v\n", c.Discover.PixelSize)
+	fmt.Fprintf(&b, "discover.sensor-width = %v\n", c.Discover.SensorWidth)
+	fmt.Fprintf(&b, "discover.sensor-height = %v\n", c.Discover.SensorHeight)
+	fmt.Fprintf(&b, "discover.colour = %v\n", c.Discover.Colour)
+	fmt.Fprintf(&b, "discover.filters = %v\n", c.Discover.Filters)
+	fmt.Fprintf(&b, "discover.typical-hfr = %v\n", c.Discover.TypicalHFR)
+	fmt.Fprintf(&b, "discover.typical-guide-rms = %v\n", c.Discover.TypicalGuideRMS)
+	fmt.Fprintf(&b, "discover.exposures = %v\n", c.Discover.Exposures)
+	fmt.Fprintf(&b, "discover.starfront = %v\n", c.Discover.Starfront)
+	fmt.Fprintf(&b, "discover.starfront-url = %v\n", c.Discover.StarfrontURL)
+	fmt.Fprintf(&b, "discover.starfront-minutes = %v\n", c.Discover.StarfrontMinutes)
 	return b.String()
 }
 

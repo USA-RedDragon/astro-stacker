@@ -297,5 +297,5 @@ func Builtin() []Spec {
 		PauseSpec(),
 		ResumeSpec(),
 		ReplanSpec(),
-	}, PlanningSpecs()...)
+	}, append(PlanningSpecs(), MatchingSpecs()...)...)
 }

@@ -271,14 +271,14 @@ func TestListFilters(t *testing.T) {
 func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 	t.Parallel()
 	samples := map[schedcmd.Kind]string{
-		schedcmd.KindProjectEdit:      string(priorityEdit(0, 1)),
-		schedcmd.KindTargetEdit:       `{"id":13,"name":"Panel 2","changes":[{"field":"active","before":true,"after":false}]}`,
-		schedcmd.KindExposurePlanEdit: `{"id":40,"name":"Ha","changes":[{"field":"enabled","before":true,"after":false}]}`,
-		schedcmd.KindSkip:             `{"scope":"project","project_id":5,"project_name":"Sadr Region"}`,
-		schedcmd.KindUnskip:           `{"scope":"project","project_id":5,"project_name":"Sadr Region"}`,
-		schedcmd.KindPause:            `{"mount":"park","resume_after_minutes":30}`,
-		schedcmd.KindResume:           `{}`,
-		schedcmd.KindReplan:           `{}`,
+		schedcmd.KindProjectEdit:       string(priorityEdit(0, 1)),
+		schedcmd.KindTargetEdit:        `{"id":13,"name":"Panel 2","changes":[{"field":"active","before":true,"after":false}]}`,
+		schedcmd.KindExposurePlanEdit:  `{"id":40,"name":"Ha","changes":[{"field":"enabled","before":true,"after":false}]}`,
+		schedcmd.KindSkip:              `{"scope":"project","project_id":5,"project_name":"Sadr Region"}`,
+		schedcmd.KindUnskip:            `{"scope":"project","project_id":5,"project_name":"Sadr Region"}`,
+		schedcmd.KindPause:             `{"mount":"park","resume_after_minutes":30}`,
+		schedcmd.KindResume:            `{}`,
+		schedcmd.KindReplan:            `{}`,
 		schedcmd.KindGoalEdit:          planningSamples[schedcmd.KindGoalEdit],
 		schedcmd.KindRuleWeightEdit:    planningSamples[schedcmd.KindRuleWeightEdit],
 		"exposuretemplate.edit":        planningSamples["exposuretemplate.edit"],
@@ -289,6 +289,7 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		schedcmd.KindUnapplySet:        planningSamples[schedcmd.KindApplySet],
 		schedcmd.KindProjectCreate:     planningSamples[schedcmd.KindProjectCreate],
 		schedcmd.KindProjectDelete:     planningSamples[schedcmd.KindProjectCreate],
+		schedcmd.KindCatalogMatch:      `{"subject":"project:Garlic Nebula","subject_name":"Garlic Nebula","object_id":"G116.9+00.2","before":"","after":"confirmed"}`,
 	}
 	reg := schedcmd.Default()
 	for _, k := range reg.Kinds() {
