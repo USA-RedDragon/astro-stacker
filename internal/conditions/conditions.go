@@ -44,7 +44,7 @@ type Weather struct {
 	DewPoint       *float64 `json:"dew_point,omitempty"`
 	Temperature    *float64 `json:"temperature,omitempty"`
 	SkyTemperature *float64 `json:"sky_temperature,omitempty"`
-	SkyBrightness  *float64 `json:"sky_brightness,omitempty"`
+	SkyBrightness  *float64 `json:"sky_brightness_lux,omitempty"`
 	Pressure       *float64 `json:"pressure,omitempty"`
 }
 
