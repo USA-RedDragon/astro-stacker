@@ -346,44 +346,72 @@ type Publisher struct {
 	Mode         string
 	SeasonBoosts SeasonBoostSource
 	Now          func() time.Time
+	Log          *slog.Logger
 
-	mu     sync.Mutex
-	warned map[string]bool
+	mu      sync.Mutex
+	outcome string
 }
 
-func (p *Publisher) warnOnce(table string) {
+func (p *Publisher) logger() *slog.Logger {
+	if p.Log != nil {
+		return p.Log
+	}
+	return slog.Default()
+}
+
+func (p *Publisher) note(outcome string, warn bool, msg string, args ...any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.warned == nil {
-		p.warned = map[string]bool{}
+	if p.outcome == outcome {
+		return
 	}
-	if !p.warned[table] {
-		p.warned[table] = true
-		slog.Warn("Scheduler database table is missing; goal progress is not published", "table", table)
+	p.outcome = outcome
+	if warn {
+		p.logger().Warn(msg, args...)
+	} else {
+		p.logger().Info(msg, args...)
 	}
 }
 
 type PublishSummary struct {
 	Rows    int
 	Changed int
+	Skipped string
+}
+
+const (
+	SkipOff           = "off"
+	SkipNoScheduler   = "no scheduler database"
+	SkipNoGoalTable   = "no " + GoalTable + " table"
+	SkipNoProgress    = "no " + ProgressTable + " table"
+	SkipNoGoals       = "no goal names a known target"
+	SkipNoProgressYet = "no progress for any goal target"
+	SkipUnchanged     = "unchanged"
+)
+
+func (p *Publisher) skip(sum PublishSummary, reason string, warn bool, msg string, args ...any) PublishSummary {
+	sum.Skipped = reason
+	p.note(reason, warn, msg, append([]any{"reason", reason, "mode", p.Mode}, args...)...)
+	return sum
 }
 
 func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	var sum PublishSummary
 	if p.Mode != PublishOn && p.Mode != PublishDryRun {
-		return sum, nil
+		return p.skip(sum, SkipOff, false, "Goal progress is not published"), nil
+	}
+	if p.Sched == nil {
+		return p.skip(sum, SkipNoScheduler, true, "Goal progress is not published"), nil
 	}
 	rows, ok, err := loadGoalRows(ctx, p.Sched)
 	if err != nil {
 		return sum, err
 	}
 	if !ok {
-		p.warnOnce(GoalTable)
-		return sum, nil
+		return p.skip(sum, SkipNoGoalTable, true, "Scheduler database table is missing; goal progress is not published", "table", GoalTable), nil
 	}
 	if !p.Sched.Migrator().HasTable(ProgressTable) {
-		p.warnOnce(ProgressTable)
-		return sum, nil
+		return p.skip(sum, SkipNoProgress, true, "Scheduler database table is missing; goal progress is not published", "table", ProgressTable), nil
 	}
 	tm, err := loadTargetMap(ctx, p.App, p.Sched)
 	if err != nil {
@@ -395,12 +423,17 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	}
 	byGUID := goalsByTarget(rows, tm)
 	if len(byGUID) == 0 {
-		return sum, nil
+		return p.skip(sum, SkipNoGoals, len(rows) > 0, "No goal progress to publish",
+			"goal_rows", len(rows), "known_targets", len(tm.known), "linked_objects", len(tm.guids)), nil
 	}
 	withReadiness := HasReadinessColumns(p.Sched)
 	want, err := p.progressRows(ctx, byGUID, tm, filters, withReadiness)
 	if err != nil {
 		return sum, err
+	}
+	if len(want) == 0 {
+		return p.skip(sum, SkipNoProgressYet, false, "No goal progress to publish",
+			"goal_rows", len(rows), "goal_targets", len(byGUID), "readiness_columns", withReadiness), nil
 	}
 	have, err := p.existing(ctx)
 	if err != nil {
@@ -432,8 +465,14 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 			return sum, err
 		}
 	}
-	if sum.Changed > 0 && p.Mode == PublishOn {
-		slog.Info("Published goal progress", "rows", sum.Rows, "changed", sum.Changed)
+	if sum.Changed == 0 {
+		return p.skip(sum, SkipUnchanged, false, "Goal progress unchanged; nothing to publish", "rows", sum.Rows), nil
+	}
+	p.mu.Lock()
+	p.outcome = ""
+	p.mu.Unlock()
+	if p.Mode == PublishOn {
+		p.logger().Info("Published goal progress", "rows", sum.Rows, "changed", sum.Changed, "readiness_columns", withReadiness, "signal_columns", withSignals)
 	}
 	return sum, nil
 }

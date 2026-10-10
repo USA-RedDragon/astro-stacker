@@ -1,9 +1,12 @@
 package goals
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -375,5 +378,63 @@ func TestPublishWithoutSignalColumnsLeavesThemAlone(t *testing.T) {
 	sched2, _ := signalDBs(t)
 	if !HasSignalColumns(sched2) {
 		t.Fatal("signal columns not found")
+	}
+}
+
+func publishSkip(ctx context.Context, t *testing.T, p *Publisher, want string) {
+	t.Helper()
+	sum, err := p.Publish(ctx)
+	if err != nil || sum.Skipped != want || sum.Changed != 0 {
+		t.Fatalf("want skip %q, got %+v %v", want, sum, err)
+	}
+}
+
+func TestPublishLogsEachSkipOnce(t *testing.T) {
+	t.Parallel()
+	logs := &bytes.Buffer{}
+	log := slog.New(slog.NewTextHandler(logs, nil))
+	ctx := context.Background()
+	db := appDB(t)
+
+	publishSkip(ctx, t, &Publisher{App: db, Sched: schedDB(t, true), Mode: PublishOff, Log: log}, SkipOff)
+	publishSkip(ctx, t, &Publisher{App: db, Mode: PublishOn, Log: log}, SkipNoScheduler)
+	publishSkip(ctx, t, &Publisher{App: db, Sched: schedDB(t, false), Mode: PublishOn, Log: log}, SkipNoGoalTable)
+
+	orphan := schedDB(t, false)
+	for _, s := range []string{CreateGoalSQLite, CreateProgressSQLite, `INSERT INTO ts_goal VALUES ('g-gone', 'Ha', 0, 20, NULL, 1, NULL, '2026-10-01 00:00:00')`} {
+		if err := orphan.Exec(s).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	publishSkip(ctx, t, &Publisher{App: db, Sched: orphan, Mode: PublishOn, Log: log}, SkipNoGoals)
+
+	sched := schedDB(t, true)
+	p := &Publisher{App: db, Sched: sched, Mode: PublishOn, Log: log}
+	if err := db.Create(&app.GoalMeasurement{Object: objM31, Filter: "L", Subs: 100, SNR: 50, EffectiveHours: 10, MeasuredAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	publishSkip(ctx, t, p, SkipNoProgressYet)
+	publishSkip(ctx, t, p, SkipNoProgressYet)
+	if n := strings.Count(logs.String(), SkipNoProgressYet); n != 1 {
+		t.Fatalf("logged %q %d times:\n%s", SkipNoProgressYet, n, logs)
+	}
+
+	if err := db.Create(&app.GoalMeasurement{Object: objGarlic, Filter: filterHa, Subs: 64, SNR: 5, EffectiveHours: 8, GainPerHourPct: 5, MeasuredAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if sum, err := p.Publish(ctx); err != nil || sum.Changed != 1 || sum.Skipped != "" {
+		t.Fatalf("publish %+v %v", sum, err)
+	}
+	publishSkip(ctx, t, p, SkipUnchanged)
+	publishSkip(ctx, t, p, SkipUnchanged)
+
+	out := logs.String()
+	for _, reason := range []string{SkipOff, SkipNoScheduler, SkipNoGoalTable, SkipNoGoals, SkipUnchanged} {
+		if n := strings.Count(out, "reason="+reason+" ") + strings.Count(out, "reason=\""+reason+"\""); n != 1 {
+			t.Errorf("logged %q %d times", reason, n)
+		}
+	}
+	if !strings.Contains(out, "level=WARN msg=\"No goal progress to publish\" reason=\""+SkipNoGoals) || !strings.Contains(out, "Published goal progress") {
+		t.Errorf("logs:\n%s", out)
 	}
 }
