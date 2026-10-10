@@ -143,6 +143,7 @@ func LoadEmbedded() (*Index, error) {
 	}
 	ds.Apply(ov)
 	ds.Apply(curatedOverlay())
+	ResolveNebulae(&ds)
 	return NewIndex(ds), nil
 }
 
