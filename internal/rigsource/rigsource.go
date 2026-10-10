@@ -32,15 +32,22 @@ const (
 )
 
 type Basis struct {
-	Source      string     `json:"source"`
-	Frames      int        `json:"frames"`
-	From        *time.Time `json:"from"`
-	To          *time.Time `json:"to"`
-	Camera      *string    `json:"camera"`
-	Telescope   *string    `json:"telescope"`
-	GuideFrames int        `json:"guideFrames"`
-	HFRFrames   int        `json:"hfrFrames"`
-	HFRSource   *string    `json:"hfrSource"`
+	Source      string      `json:"source"`
+	Frames      int         `json:"frames"`
+	From        *time.Time  `json:"from"`
+	To          *time.Time  `json:"to"`
+	Camera      *string     `json:"camera"`
+	Telescope   *string     `json:"telescope"`
+	GuideFrames int         `json:"guideFrames"`
+	HFRFrames   int         `json:"hfrFrames"`
+	HFRSource   *string     `json:"hfrSource"`
+	Filters     []FilterUse `json:"filters"`
+}
+
+type FilterUse struct {
+	Filter string     `json:"filter"`
+	Frames int        `json:"frames"`
+	Last   *time.Time `json:"last"`
 }
 
 type Rig struct {
@@ -85,7 +92,7 @@ func MosaicRig(ctx context.Context, appDB *gorm.DB) (mosaics.Rig, error) {
 }
 
 func Empty() Rig {
-	return Rig{Filters: []string{}, Exposures: map[string]float64{}, Basis: Basis{Source: SourceNone}}
+	return Rig{Filters: []string{}, Exposures: map[string]float64{}, Basis: Basis{Source: SourceNone, Filters: []FilterUse{}}}
 }
 
 func CanonicalFilter(name string) string {
@@ -229,11 +236,6 @@ func (t *tally) apply(out *Rig) {
 		c := t.bayer*2 > t.geometryRead
 		out.Colour = &c
 	}
-	for _, f := range FilterOrder() {
-		if t.filterCount[f] >= minFilterFrames {
-			out.Filters = append(out.Filters, f)
-		}
-	}
 	for f, exps := range t.byFilter {
 		if t.filterCount[f] >= minFilterFrames {
 			out.Exposures[f] = median(exps)
@@ -277,8 +279,94 @@ func Measure(ctx context.Context, appDB, sched *gorm.DB, now time.Time) (Rig, er
 		out.Basis.Camera = &c
 	}
 	t.apply(&out)
+	if err := filterUse(ctx, appDB, camera, &out); err != nil {
+		return out, err
+	}
 	measureGuiding(ctx, sched, now, &out, used)
 	return out, nil
+}
+
+type filterRow struct {
+	Filter   string
+	Exposure *float64
+	Frames   int
+	Last     *string
+}
+
+func parseTime(s string) (time.Time, bool) {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func filterUse(ctx context.Context, db *gorm.DB, camera string, out *Rig) error {
+	var rows []filterRow
+	if err := db.WithContext(ctx).Model(&app.Frame{}).
+		Select("filter, exposure, COUNT(*) AS frames, MAX(date_obs) AS last").
+		Where("type = ? AND index_error IS NULL AND camera = ?", "LIGHT", camera).
+		Group("filter, exposure").Scan(&rows).Error; err != nil {
+		return err
+	}
+	frames := map[string]int{}
+	last := map[string]time.Time{}
+	exps := map[string]map[float64]int{}
+	for _, r := range rows {
+		f := CanonicalFilter(r.Filter)
+		if f == "" {
+			continue
+		}
+		frames[f] += r.Frames
+		if r.Last != nil {
+			if t, ok := parseTime(*r.Last); ok && t.After(last[f]) {
+				last[f] = t
+			}
+		}
+		if r.Exposure != nil && *r.Exposure > 0 {
+			if exps[f] == nil {
+				exps[f] = map[float64]int{}
+			}
+			exps[f][*r.Exposure] += r.Frames
+		}
+	}
+	order := FilterOrder()
+	for f := range frames {
+		if !slices.Contains(order, f) {
+			order = append(order, f)
+		}
+	}
+	for _, f := range order {
+		if frames[f] < minFilterFrames {
+			continue
+		}
+		out.Filters = append(out.Filters, f)
+		use := FilterUse{Filter: f, Frames: frames[f]}
+		if l, ok := last[f]; ok && !l.IsZero() {
+			use.Last = &l
+		}
+		out.Basis.Filters = append(out.Basis.Filters, use)
+		if _, ok := out.Exposures[f]; !ok && len(exps[f]) > 0 {
+			out.Exposures[f] = weightedMedian(exps[f])
+		}
+	}
+	return nil
+}
+
+func weightedMedian(counts map[float64]int) float64 {
+	keys := make([]float64, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	var v []float64
+	for _, k := range keys {
+		for range counts[k] {
+			v = append(v, k)
+		}
+	}
+	return median(v)
 }
 
 func measureGuiding(ctx context.Context, sched *gorm.DB, now time.Time, out *Rig, used []lightRow) {
