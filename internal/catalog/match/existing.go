@@ -15,21 +15,21 @@ const (
 )
 
 type Existing struct {
-	Subject   string
-	Kind      string
-	ID        string
-	Name      string
-	RA        float64
-	Dec       float64
-	HasCoords bool
+	Subject   string  `json:"subject"`
+	Kind      string  `json:"kind"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	RA        float64 `json:"ra"`
+	Dec       float64 `json:"dec"`
+	HasCoords bool    `json:"hasCoords"`
 }
 
 type ExistingMatch struct {
-	Subject    string
-	Existing   Existing
-	Confidence float64
-	Evidence   []string
-	Decision   string
+	Subject    string   `json:"subject"`
+	Existing   Existing `json:"existing"`
+	Confidence float64  `json:"confidence"`
+	Evidence   []string `json:"evidence"`
+	Decision   string   `json:"decision,omitempty"`
 }
 
 func (e Existing) SubjectKey() string {
