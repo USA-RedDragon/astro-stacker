@@ -208,3 +208,66 @@ func TestCuratedGroupsAndAsterisms(t *testing.T) {
 		}
 	}
 }
+
+func TestNicknamesBelongToTheirObjects(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairs := []struct{ id, name string }{
+		{"NGC 2024", "Flame Nebula"}, {b33, "Horsehead Nebula"}, {"NGC 7000", "North America Nebula"}, {"IC 5070", "Pelican Nebula"},
+		{"M 16", "Eagle Nebula"}, {"NGC 4490", "Cocoon Galaxy"}, {"NGC 253", "Sculptor Galaxy"}, {"NGC 6960", "Witch's Broom"},
+		{"M 42", "Orion Nebula"}, {"M 31", "Andromeda Galaxy"}, {"NGC 6992", "Eastern Veil"}, {"IC 1805", "Heart Nebula"},
+		{"ACO 1656", comaCluster}, {"Cr 39", "Alpha Persei Cluster"},
+	}
+	for _, p := range pairs {
+		o, ok := ix.Get(p.id)
+		if !ok {
+			t.Errorf("%s: missing", p.id)
+			continue
+		}
+		if o.Name != p.name && !slices.Contains(o.Aliases, p.name) {
+			t.Errorf("%s is not called %s: %q %v", p.id, p.name, o.Name, o.Aliases)
+		}
+		hits, err := ix.Search(context.Background(), p.name, 1)
+		if err != nil || len(hits) == 0 || hits[0].ID != o.ID {
+			t.Errorf("%q finds %+v, want %s", p.name, hits, p.id)
+		}
+	}
+	for _, p := range []struct{ id, name string }{
+		{ic434, "Flame Nebula"}, {ic434, "Orion B"}, {"NGC 4990", "Cocoon Galaxy"}, {"NGC 253", "Sculptor Filament"}, {"NGC 6990", "Witch's Broom"},
+	} {
+		o, _ := ix.Get(p.id)
+		if o.Name == p.name || slices.Contains(o.Aliases, p.name) {
+			t.Errorf("%s still carries %q", p.id, p.name)
+		}
+	}
+	owners := map[string][]string{}
+	for _, o := range ix.All() {
+		names := append([]string{o.Name}, o.Aliases...)
+		seen := map[string]bool{}
+		for _, n := range names {
+			if n == "" || catalog.LooksLikeDesignation(n) {
+				continue
+			}
+			k := catalog.NormalizeName(n)
+			if seen[k] {
+				t.Errorf("%s lists %q twice", o.Designation, n)
+			}
+			seen[k] = true
+			owners[k] = append(owners[k], o.Designation)
+		}
+	}
+	for k, o := range owners {
+		if len(o) > 1 {
+			t.Errorf("%q is on %v", k, o)
+		}
+	}
+}
+
+const (
+	ic434       = "IC 434"
+	b33         = "B 33"
+	comaCluster = "Coma Cluster"
+)

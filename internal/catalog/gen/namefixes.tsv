@@ -1,0 +1,17 @@
+move	IC 434	NGC 2024	Flame Nebula
+move	IC 434	NGC 2024	Orion B
+move	NGC 4990	NGC 4490	Cocoon Galaxy
+drop	NGC 253	Sculptor Filament
+drop	NGC 253	Scl Filament
+rename	NGC 253	Sculptor Galaxy
+rename	ACO 426	Perseus Cluster
+rename	Cr 39	Alpha Persei Cluster
+rename	ACO 1367	Leo Cluster
+move	NGC 6990	NGC 6960	Witch's Broom
+drop	Cr 399	Brocchi' s Cluster
+drop	Cr 399	AL SUFI 's Cluster
+drop	IC 4604	Rho Ophicuhi Nebula
+drop	M 44	MANGER
+alias	M 44	Manger
+drop	NGC 4898	Z Coma Coma
+drop	Blanco 1	Dze Scl Cluster

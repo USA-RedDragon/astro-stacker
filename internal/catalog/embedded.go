@@ -46,7 +46,7 @@ func (ds *Dataset) Apply(ov Overlay) {
 		o := &ds.Objects[i]
 		if o.Name == "" {
 			o.Name = p.Name
-		} else if p.Name != "" && !slices.Contains(o.Aliases, p.Name) {
+		} else if p.Name != "" && p.Name != o.Name && !slices.Contains(o.Aliases, p.Name) {
 			o.Aliases = append(o.Aliases, p.Name)
 		}
 		for _, a := range p.Aliases {
