@@ -19,11 +19,13 @@ type Object struct {
 	Source      string   `json:"source"`
 	Members     []string `json:"members,omitempty"`
 
-	Magnitude         *float64 `json:"magnitude,omitempty"`
-	SurfaceBrightness *float64 `json:"surfaceBrightness,omitempty"`
-	Brightness        string   `json:"brightness,omitempty"`
-	BrightScore       *float64 `json:"brightScore,omitempty"`
-	Lists             []string `json:"lists,omitempty"`
+	Magnitude               *float64 `json:"magnitude,omitempty"`
+	SurfaceBrightness       *float64 `json:"surfaceBrightness,omitempty"`
+	SurfaceBrightnessSource string   `json:"surfaceBrightnessSource,omitempty"`
+	MagnitudeBand           string   `json:"magnitudeBand,omitempty"`
+	Brightness              string   `json:"brightness,omitempty"`
+	BrightScore             *float64 `json:"brightScore,omitempty"`
+	Lists                   []string `json:"lists,omitempty"`
 }
 
 type Store interface {

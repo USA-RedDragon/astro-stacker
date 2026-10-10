@@ -55,8 +55,8 @@ func (ds *Dataset) Apply(ov Overlay) {
 				o.Aliases = append(o.Aliases, a)
 			}
 		}
-		if o.SurfaceBrightness == nil {
-			o.SurfaceBrightness = p.SurfaceBrightness
+		if o.SurfaceBrightness == nil && p.SurfaceBrightness != nil {
+			o.SurfaceBrightness, o.SurfaceBrightnessSource = p.SurfaceBrightness, ov.Source.ID
 		}
 		if o.MajorArcmin == 0 && p.MajorArcmin > 0 {
 			o.MajorArcmin, o.MinorArcmin, o.PA = p.MajorArcmin, p.MinorArcmin, p.PA

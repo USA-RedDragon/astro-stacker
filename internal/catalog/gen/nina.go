@@ -232,7 +232,7 @@ func ninaObject(r ninaRow, desigs []ninaDesignation, source string) (*catalog.Ob
 		o.Magnitude = r.Magnitude
 	}
 	if r.SurfaceBrightness != nil && *r.SurfaceBrightness < 90 && typ != catalog.TypeDark {
-		o.SurfaceBrightness = r.SurfaceBrightness
+		o.SurfaceBrightness, o.SurfaceBrightnessSource = r.SurfaceBrightness, source
 	}
 	return o, ids, names
 }

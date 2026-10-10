@@ -473,11 +473,13 @@ func openNGCRow(t table, row []string) (*catalog.Object, []ngcDup) {
 	o.MinorArcmin = axis(t.get(row, "MinAx"))
 	o.PA = ptr(num(t.get(row, "PosAng")))
 	if v, ok := num(t.get(row, "V-Mag")); ok {
-		o.Magnitude = &v
-	} else {
-		o.Magnitude = ptr(num(t.get(row, "B-Mag")))
+		o.Magnitude, o.MagnitudeBand = &v, "V"
+	} else if v, ok := num(t.get(row, "B-Mag")); ok {
+		o.Magnitude, o.MagnitudeBand = &v, "B"
 	}
-	o.SurfaceBrightness = ptr(num(t.get(row, "SurfBr")))
+	if o.SurfaceBrightness = ptr(num(t.get(row, "SurfBr"))); o.SurfaceBrightness != nil {
+		o.SurfaceBrightnessSource = srcOpenNGC
+	}
 	if m := t.get(row, "M"); m != "" {
 		addAlias(o, "M "+strings.TrimLeft(m, "0"))
 	}
@@ -777,7 +779,9 @@ func (b *builder) hickson(ctx context.Context) error {
 		}
 		o := &catalog.Object{Designation: pHCG + n, Type: catalog.TypeGalaxyGroup, RA: ra, Dec: dec, Source: "vii-213-groups"}
 		o.MajorArcmin, _ = num(t.get(r, "AngSize"))
-		o.Magnitude = ptr(num(t.get(r, "Totmag")))
+		if o.Magnitude = ptr(num(t.get(r, "Totmag"))); o.Magnitude != nil {
+			o.MagnitudeBand = "R"
+		}
 		b.addOrMerge(o, nil)
 	}
 	return nil
