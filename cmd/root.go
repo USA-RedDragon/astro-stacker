@@ -21,6 +21,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
+	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	"github.com/lmittmann/tint"
@@ -173,6 +174,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 	})
 	extras := server.Extras{Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs,
+		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS, ShutdownSeconds: cfg.Scheduler.ShutdownSeconds}, schedulerDBStore.DB())}
 	if obs.Configured() {
 		extras.Previews = obs

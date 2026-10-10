@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { frame, project, type Framing, type FramingOption, type SkyPoint } from '../api/mosaics'
+import { API_BASE } from '../api/client'
 
 interface PlannerObject {
   id: string
@@ -174,18 +175,14 @@ const outline = computed(() => {
 
 const surveyUrl = computed(() => {
   const q = new URLSearchParams({
-    hips: 'CDS/P/DSS2/color',
+    ra: props.object.ra.toFixed(3),
+    dec: props.object.dec.toFixed(3),
+    fov: view.value.fovDeg.toFixed(3),
+    rotation: '0',
     width: String(W),
     height: String(H),
-    fov: view.value.fovDeg.toFixed(3),
-    projection: 'TAN',
-    coordsys: 'icrs',
-    ra: props.object.ra.toFixed(5),
-    dec: props.object.dec.toFixed(5),
-    rotation_angle: '0',
-    format: 'jpg',
   })
-  return 'https://alasky.cds.unistra.fr/hips-image-services/hips2fits?' + q.toString()
+  return API_BASE + '/sky/cutout?' + q.toString()
 })
 
 const panelCount = computed(() => shown.value?.panels.length ?? 0)

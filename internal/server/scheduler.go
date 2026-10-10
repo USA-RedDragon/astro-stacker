@@ -13,6 +13,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/gin-gonic/gin"
 )
@@ -34,6 +35,7 @@ type Extras struct {
 	Previews   PreviewSource
 	Now        func() time.Time
 	Conditions *conditions.Service
+	Cutouts    *skycutout.Service
 }
 
 const schedulerWriteTimeout = 45 * time.Second
