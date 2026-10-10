@@ -283,6 +283,12 @@ func TestResolve(t *testing.T) {
 	if len(byPos) == 0 || byPos[0].Method != discover.MethodCoordinates {
 		t.Errorf("coordinate resolve %+v", byPos)
 	}
+	for _, q := range []string{"23h59m12s +62d26m", "359.8 62.44", "RA 23:59:12 Dec +62:26", "23.9867h +62°26′"} {
+		typed, err := s.Resolve(ctx, q, nil, 0)
+		if err != nil || len(typed) == 0 || typed[0].Object.Designation != garlicID || typed[0].Method != discover.MethodCoordinates {
+			t.Errorf("coordinates typed as a name %q: %v %+v", q, err, typed)
+		}
+	}
 }
 
 type fakeCollabs struct{ st starfront.State }

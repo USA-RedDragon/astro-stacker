@@ -379,6 +379,22 @@ func (ix *Index) Find(_ context.Context, query string, limit int) []Match {
 	return out
 }
 
+func (ix *Index) Near(ctx context.Context, ra, dec, radius float64, limit int) []Match {
+	if limit <= 0 {
+		limit = 20
+	}
+	objs, _ := ix.Cone(ctx, ra, dec, radius)
+	if len(objs) > limit {
+		objs = objs[:limit]
+	}
+	out := make([]Match, len(objs))
+	for i, o := range objs {
+		d := Separation(ra, dec, o.RA, o.Dec)
+		out[i] = Match{Object: o, Score: math.Round(100*(1-d/radius)*100) / 100, How: "coordinates"}
+	}
+	return out
+}
+
 func Separation(ra1, dec1, ra2, dec2 float64) float64 {
 	const rad = math.Pi / 180
 	d1, d2 := dec1*rad, dec2*rad

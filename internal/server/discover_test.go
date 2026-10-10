@@ -63,6 +63,17 @@ func TestDiscoverRoutes(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &matches); err != nil || w.Code != http.StatusOK || len(matches) == 0 || matches[0].Object.Designation != "G116.9+00.2" {
 		t.Fatalf("search: %d %s", w.Code, w.Body.String())
 	}
+	w = discoverGet(t, r, "/api/v1/catalog/search?q=23h59m12s%20%2B62d26m&limit=5")
+	matches = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &matches); err != nil || w.Code != http.StatusOK || len(matches) == 0 || len(matches) > 5 ||
+		matches[0].How != "coordinates" || matches[0].Object.Designation != "G116.9+00.2" {
+		t.Fatalf("coordinate search: %d %s", w.Code, w.Body.String())
+	}
+	for _, m := range matches {
+		if catalog.Separation(359.8, 62.433, m.Object.RA, m.Object.Dec) > 1.01 {
+			t.Errorf("coordinate search returned %s outside 1°", m.Object.Designation)
+		}
+	}
 	if w := discoverGet(t, r, "/api/v1/catalog/search?q="); w.Code != http.StatusOK || w.Body.String() != "[]" {
 		t.Errorf("empty search: %d %s", w.Code, w.Body.String())
 	}

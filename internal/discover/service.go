@@ -249,6 +249,12 @@ type Position struct {
 }
 
 func (s *Service) Resolve(ctx context.Context, name string, pos *Position, mosaicRadius float64) ([]Link, error) {
+	if ra, dec, ok := catalog.ParseCoordinates(name); ok {
+		name = ""
+		if pos == nil {
+			pos = &Position{RA: ra, Dec: dec}
+		}
+	}
 	subj := Subject{Key: "query", Name: name, Kind: SubjectObject, State: StateNone, Hours: map[string]float64{}}
 	if name != "" {
 		subj.Targets = []string{name}
