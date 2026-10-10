@@ -129,7 +129,7 @@ func checkComputed(t *testing.T, db *gorm.DB, fx *fixture) {
 	if _, err := darkcheck.MeasurePending(ctx, db, fx.download, 2); err != nil {
 		t.Fatal(err)
 	}
-	clean, leak, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	clean, leak, err := darkcheck.JudgePending(ctx, db, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil || clean != 4 || leak != 1 {
 		t.Fatalf("clean %d leak %d err %v", clean, leak, err)
 	}
@@ -189,7 +189,7 @@ func checkPublished(t *testing.T, db, sched *gorm.DB, fx *fixture) {
 	if _, err := darkcheck.MeasurePending(ctx, db, fx.download, 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+	if _, _, err := darkcheck.JudgePending(ctx, db, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	s, err = p.Publish(ctx)
@@ -283,7 +283,7 @@ func TestExistingDarksAreRecordedOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap, fx.now.Add(time.Hour)); err != nil {
+	if _, _, err := darkcheck.JudgePending(ctx, db, fx.now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	var lit, kept app.Frame
@@ -307,7 +307,7 @@ func TestExistingDarksAreRecordedOnly(t *testing.T) {
 			t.Errorf("set %d changed from %d to %d frames", i, before[i].Count, after[i].Count)
 		}
 	}
-	if _, _, err := darkcheck.JudgePending(ctx, db, coverage.SessionGap, fx.now.Add(-6*time.Hour)); err != nil {
+	if _, _, err := darkcheck.JudgePending(ctx, db, fx.now.Add(-6*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	db.Where("key = ?", "DARK/d13_1.fits").First(&lit)
