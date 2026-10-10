@@ -11,6 +11,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/goalmeasure"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
@@ -175,7 +176,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 
 	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill)
 	commands, monitor, obs := newScheduler(indexCtx, cfg, appStore, schedulerDBStore, broker, func(r schedcmd.Record) {
-		if disc != nil && r.Category == schedcmd.CategoryMatching {
+		if disc != nil && discover.Affects(r) {
 			disc.Invalidate()
 		}
 	})

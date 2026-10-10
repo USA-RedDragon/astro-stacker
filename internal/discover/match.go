@@ -149,7 +149,7 @@ func (s *Service) wholeName(ctx context.Context, name string) bool {
 
 func (s *Service) nameCandidates(ctx context.Context, subj Subject, add nameAdd) {
 	var names []string
-	for _, n := range append([]string{subj.Name}, subj.Targets...) {
+	for _, n := range append(append([]string{subj.Name}, subj.Targets...), subj.extraNames...) {
 		if n = catalog.StripPanel(n); n != "" && !slices.Contains(names, n) {
 			names = append(names, n)
 		}
