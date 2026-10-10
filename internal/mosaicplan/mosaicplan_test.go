@@ -283,7 +283,7 @@ func checkPanels(t *testing.T, d mosaicplan.Detail) {
 	if d.Complete != 0.1 || d.WeakestPanel != 2 || d.WeakestFilter != filterRed {
 		t.Errorf("complete %v panel %d filter %s", d.Complete, d.WeakestPanel, d.WeakestFilter)
 	}
-	if len(d.Needs) != 2 || !strings.Contains(d.Needs[0], "Panel 2 needs about +12.0 h H-a") || !strings.Contains(d.Needs[1], "NE corner") {
+	if len(d.Needs) != 2 || !strings.Contains(d.Needs[0], "Panel 2 needs about +12.0 h effective H-a") || !strings.Contains(d.Needs[1], "NE corner") {
 		t.Errorf("needs %v", d.Needs)
 	}
 }
@@ -439,6 +439,19 @@ func TestHistoryIsCumulativePerPanel(t *testing.T) {
 	}
 	if d.Panels[0].TargetID != 1 || d.Panels[1].TargetID != 2 {
 		t.Errorf("target ids %d %d", d.Panels[0].TargetID, d.Panels[1].TargetID)
+	}
+}
+
+func TestNeedsSmallHoursAndUnknownGapLocation(t *testing.T) {
+	t.Parallel()
+	d := mosaicplan.Detail{
+		Panels: []mosaicplan.Panel{{Number: 1, Filters: []mosaicplan.PanelFilter{{Filter: "Luminance", EffectiveHours: 0.0006}}}, {Number: 2}},
+		Seams:  []app.MosaicSeam{{Filter: "Luminance", PanelA: 1, PanelB: 2, NoiseA: 8.3, NoiseB: 1, NoiseRatio: 8.3}},
+		Health: []app.MosaicPanelHealth{{Filter: "Luminance", Panel: 2, GapFraction: 0.05, GapDeg2: 0.2}},
+	}
+	got := mosaicplan.Needs(d)
+	if len(got) != 2 || !strings.Contains(got[0], "+2 min effective Luminance") || !strings.Contains(got[1], "location not measured") {
+		t.Errorf("needs %q", got)
 	}
 }
 
