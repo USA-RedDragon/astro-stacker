@@ -98,8 +98,10 @@ func TestGoalMaskInfoRoute(t *testing.T) {
 	if !info.Measured {
 		t.Error("measured mask not marked measured")
 	}
-	if w := serve(r, "/api/v1/goals/mask/info?object=Veil&filter=L"); w.Code != http.StatusNotFound {
-		t.Errorf("no master: %d", w.Code)
+	w = serve(r, "/api/v1/goals/mask/info?object=Veil&filter=L")
+	var none GoalMaskInfo
+	if err := json.Unmarshal(w.Body.Bytes(), &none); w.Code != http.StatusOK || err != nil || none.Measured || none.Reason != "there is no master for this object and filter yet" {
+		t.Errorf("no master: %d %s", w.Code, w.Body)
 	}
 	if w := serve(r, "/api/v1/goals/mask/info?object=Veil"); w.Code != http.StatusBadRequest {
 		t.Errorf("no filter: %d", w.Code)
