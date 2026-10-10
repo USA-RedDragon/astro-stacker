@@ -279,6 +279,16 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		schedcmd.KindPause:            `{"mount":"park","resume_after_minutes":30}`,
 		schedcmd.KindResume:           `{}`,
 		schedcmd.KindReplan:           `{}`,
+		schedcmd.KindGoalEdit:          planningSamples[schedcmd.KindGoalEdit],
+		schedcmd.KindRuleWeightEdit:    planningSamples[schedcmd.KindRuleWeightEdit],
+		"exposuretemplate.edit":        planningSamples["exposuretemplate.edit"],
+		schedcmd.KindTemplateBatchEdit: planningSamples[schedcmd.KindTemplateBatchEdit],
+		schedcmd.KindTemplateClone:     planningSamples[schedcmd.KindTemplateClone],
+		schedcmd.KindTemplateDelete:    planningSamples[schedcmd.KindTemplateDelete],
+		schedcmd.KindApplySet:          planningSamples[schedcmd.KindApplySet],
+		schedcmd.KindUnapplySet:        planningSamples[schedcmd.KindApplySet],
+		schedcmd.KindProjectCreate:     planningSamples[schedcmd.KindProjectCreate],
+		schedcmd.KindProjectDelete:     planningSamples[schedcmd.KindProjectCreate],
 	}
 	reg := schedcmd.Default()
 	for _, k := range reg.Kinds() {
