@@ -200,7 +200,11 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	slices.SortFunc(d.Filters, compareFilters)
 
 	best, keys := bestStacks(g, stacks)
-	progress, err := goals.Lookup(ctx, s.App, nil, keys)
+	gs, _, err := goals.LoadGoals(ctx, s.App, s.Sched)
+	if err != nil {
+		gs = nil
+	}
+	progress, err := goals.Lookup(ctx, s.App, gs, keys)
 	if err != nil {
 		return d, err
 	}
