@@ -103,6 +103,8 @@ stacking:
   mosaic-minutes: 10
   # Minutes a mosaic's panel masters must be unchanged before it is rebuilt
   mosaic-quiet-minutes: 30
+  # Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way
+  mosaic-seams: true
   # Camera pedestal in ADU, for scoring subs
   pedestal: 506
   # Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile
