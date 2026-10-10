@@ -181,12 +181,6 @@ func (in Inputs) objectsFor(t targetRow) []string {
 	return []string{t.Name}
 }
 
-type Frame struct {
-	WidthDeg  float64 `json:"widthDeg"`
-	HeightDeg float64 `json:"heightDeg"`
-	Scale     float64 `json:"scale"`
-}
-
 type Snapshot struct {
 	Frame     Frame         `json:"frame"`
 	Projects  []Project     `json:"projects"`

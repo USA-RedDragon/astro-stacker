@@ -82,7 +82,7 @@ func TestPlanningDraftsRoute(t *testing.T) {
 	projects, _ := out["projects"].([]any)
 	frame, _ := out["frame"].(map[string]any)
 	sets, _ := out["sets"].([]any)
-	if code != http.StatusOK || len(projects) != 1 || frame["widthDeg"] == nil || len(sets) != 1 {
+	if code != http.StatusOK || len(projects) != 1 || frame["widthDeg"] != nil || frame["reason"] == nil || len(sets) != 1 {
 		t.Fatalf("%d %v", code, out)
 	}
 	setID, _ := sets[0].(map[string]any)["id"].(string)

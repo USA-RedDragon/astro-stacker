@@ -5,11 +5,12 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
-	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -119,11 +120,13 @@ func planningSnapshot(c *gin.Context) (*planning.Snapshot, bool) {
 	}
 	s, err := planning.Load(ctx, sched, appDB, in)
 	if err == nil {
-		f := sky.Frame{FocalLength: 405, PixelSize: 3.76, WidthPx: 6248, HeightPx: 4176}
-		if di.Config != nil && di.Config.Discover.FocalLength > 0 {
-			f = sky.Frame{FocalLength: di.Config.Discover.FocalLength, PixelSize: di.Config.Discover.PixelSize, WidthPx: di.Config.Discover.SensorWidth, HeightPx: di.Config.Discover.SensorHeight}
+		rig, rerr := rigsource.Measure(ctx, appDB, sched, time.Now())
+		s.Frame = planning.FrameFromRig(rig)
+		if rerr != nil {
+			msg := "the rig could not be measured: " + rerr.Error()
+			s.Frame = planning.FrameFromRig(rigsource.Empty())
+			s.Frame.Reason = &msg
 		}
-		s.Frame = planning.Frame{WidthDeg: f.WidthDeg(), HeightDeg: f.HeightDeg(), Scale: f.Scale()}
 	}
 	if err != nil {
 		status := http.StatusInternalServerError
