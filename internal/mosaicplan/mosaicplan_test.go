@@ -246,6 +246,9 @@ func TestDetailUsesWeakestPanelAndFallsBackToScheduler(t *testing.T) {
 	if !d.Adopted || len(d.Panels) != 2 || d.Rows != 1 || d.Cols != 2 || !d.Balancing.On || d.Balancing.PanelDeficit != 75 || !d.Balancing.PanelDeficitSet || d.Balancing.OnWeight != mosaics.PanelDeficitOnWeight {
 		t.Fatalf("detail %+v", d)
 	}
+	if !d.RigKnown || d.Layout == nil || *d.Layout != "2 × 1 at 0°" || d.Panels[1].Col == nil {
+		t.Errorf("layout %v %+v", d.Layout, d.Panels[1])
+	}
 	if strings.Join(d.Filters, ",") != "Red,H-a" {
 		t.Errorf("filters %v", d.Filters)
 	}
@@ -465,6 +468,9 @@ func TestSeasonBoostsOnlyForBalancedMosaics(t *testing.T) {
 	d, err := svc.Detail(ctx, markarian)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if d.RigKnown || d.Layout != nil || d.Rows != 0 || d.Panels[0].Row != nil || d.Panels[0].Col != nil {
+		t.Errorf("grid placed without a rig: layout %v rows %d panel %+v", d.Layout, d.Rows, d.Panels[0])
 	}
 	if len(boosts) != len(d.Panels) {
 		t.Fatalf("boosts %v for panels %+v", boosts, d.Panels)
