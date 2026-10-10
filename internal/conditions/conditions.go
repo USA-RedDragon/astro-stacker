@@ -94,8 +94,8 @@ type Power struct {
 	InputVoltage     *float64 `json:"input_voltage,omitempty"`
 	RuntimeSeconds   *float64 `json:"runtime_seconds,omitempty"`
 	Flags            []string `json:"flags,omitempty"`
-	OnBattery        bool     `json:"on_battery"`
-	LowBattery       bool     `json:"low_battery"`
+	OnBattery        *bool    `json:"on_battery,omitempty"`
+	LowBattery       *bool    `json:"low_battery,omitempty"`
 	OnBatterySeconds *float64 `json:"on_battery_seconds,omitempty"`
 }
 
@@ -105,7 +105,7 @@ type Sync struct {
 	Heartbeat  *time.Time `json:"heartbeat,omitempty"`
 	LastBatch  *time.Time `json:"last_batch,omitempty"`
 	LagSeconds *float64   `json:"lag_seconds,omitempty"`
-	Errors     int        `json:"errors"`
+	Errors     *int       `json:"errors,omitempty"`
 }
 
 type Report struct {
@@ -255,7 +255,7 @@ func (s *Service) fillMetrics(ctx context.Context, r *Report) {
 		return
 	}
 	fillPower(&r.Power, ups)
-	if r.Power.OnBattery {
+	if r.Power.OnBattery != nil && *r.Power.OnBattery {
 		q := fmt.Sprintf(`time() - max_over_time(timestamp(network_ups_tools_ups_status{flag="OB",ups=%q} == 0)[6h:30s])`, s.opts.UPS)
 		if v, err := s.query(ctx, q); err == nil && len(v) > 0 {
 			r.Power.OnBatterySeconds = finite(v[0].value)
@@ -396,16 +396,15 @@ func fillPower(p *Power, samples []sample) {
 		case "device_info":
 			p.Model = strings.TrimSpace(manufacturer(sm.labels["mfr"]) + " " + sm.labels["model"])
 		case "ups_status":
-			if sm.value != 1 {
-				continue
-			}
 			f := sm.labels["flag"]
-			p.Flags = append(p.Flags, f)
 			switch f {
 			case "OB":
-				p.OnBattery = true
+				p.OnBattery = flag(sm.value)
 			case "LB":
-				p.LowBattery = true
+				p.LowBattery = flag(sm.value)
+			}
+			if sm.value == 1 {
+				p.Flags = append(p.Flags, f)
 			}
 		}
 	}
@@ -414,20 +413,21 @@ func fillPower(p *Power, samples []sample) {
 var ErrNoSym = errors.New("no SymmetricDS tables")
 
 func parseSymTime(ts, offset string) (time.Time, bool) {
-	ts = strings.TrimSpace(strings.Replace(ts, "T", " ", 1))
+	ts = strings.TrimSpace(ts)
 	if ts == "" {
 		return time.Time{}, false
 	}
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		return t.UTC(), true
+	}
+	ts = strings.Replace(ts, "T", " ", 1)
 	if offset == "" {
-		offset = "+00:00"
+		return time.Time{}, false
 	}
 	for _, layout := range []string{"2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999Z07:00"} {
 		if t, err := time.Parse(layout, ts+offset); err == nil {
 			return t.UTC(), true
 		}
-	}
-	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-		return t.UTC(), true
 	}
 	return time.Time{}, false
 }
@@ -491,7 +491,8 @@ func readSym(ctx context.Context, db *gorm.DB, now time.Time) (Sync, error) {
 		if err := db.Raw("SELECT COUNT(*) FROM sym_incoming_batch WHERE status = 'ER'").Scan(&errs).Error; err != nil {
 			return Sync{}, err
 		}
-		out.Errors = int(errs)
+		n := int(errs)
+		out.Errors = &n
 	}
 	if !latest.IsZero() {
 		lag := math.Max(0, now.Sub(latest).Seconds())

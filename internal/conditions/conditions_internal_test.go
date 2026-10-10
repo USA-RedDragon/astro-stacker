@@ -70,7 +70,7 @@ func TestReportFromPrometheus(t *testing.T) {
 
 func checkPower(t *testing.T, p Power) {
 	t.Helper()
-	if p.Model != "CyberPower EC450G" || !p.OnBattery || p.Charge == nil || *p.Charge != 97 || p.OnBatterySeconds == nil || *p.OnBatterySeconds != 95 {
+	if p.Model != "CyberPower EC450G" || p.OnBattery == nil || !*p.OnBattery || p.LowBattery != nil || p.Charge == nil || *p.Charge != 97 || p.OnBatterySeconds == nil || *p.OnBatterySeconds != 95 {
 		t.Fatalf("power %+v", p)
 	}
 	if p.RuntimeSeconds == nil || *p.RuntimeSeconds != 4300 {
@@ -126,7 +126,7 @@ func TestReadSym(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Node != "home" || s.Errors != 1 || s.LastBatch == nil || !s.LastBatch.Equal(time.Date(2026, 10, 9, 11, 25, 30, 0, time.UTC)) {
+	if s.Node != "home" || s.Errors == nil || *s.Errors != 1 || s.LastBatch == nil || !s.LastBatch.Equal(time.Date(2026, 10, 9, 11, 25, 30, 0, time.UTC)) {
 		t.Fatalf("sync %+v", s)
 	}
 	if s.LagSeconds == nil || *s.LagSeconds != 30 {
@@ -143,6 +143,9 @@ func TestParseSymTime(t *testing.T) {
 	got, ok := parseSymTime("2026-10-09 06:32:12", "-05:00")
 	if !ok || !got.Equal(time.Date(2026, 10, 9, 11, 32, 12, 0, time.UTC)) {
 		t.Fatalf("got %v %v", got, ok)
+	}
+	if _, ok := parseSymTime("2026-10-09 06:32:12", ""); ok {
+		t.Fatal("no offset parsed as UTC")
 	}
 	if _, ok := parseSymTime("", "+00:00"); ok {
 		t.Fatal("empty parsed")
