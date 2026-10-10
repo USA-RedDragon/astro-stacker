@@ -71,7 +71,7 @@ internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	108	94
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	189	161
 internal/observatory/transport.go	50	45
 internal/planning/completion.go	56	31
@@ -80,7 +80,7 @@ internal/planning/drafts.go	157	138
 internal/planning/frame.go	5	5
 internal/planning/judge.go	38	34
 internal/planning/rows.go	6	6
-internal/planning/service.go	291	266
+internal/planning/service.go	292	267
 internal/planning/sets.go	85	82
 internal/preview/preview.go	69	59
 internal/previewer/previewer.go	80	5
@@ -104,7 +104,7 @@ internal/schedcmd/planning.go	400	325
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	195	171
+internal/schedcmd/service.go	195	169
 internal/server/conditions.go	23	17
 internal/server/discover.go	116	100
 internal/server/goalmask.go	84	73
