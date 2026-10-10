@@ -179,3 +179,13 @@ scheduler:
   # token: ""
   # Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory
   queue: true
+# Faint-signal SNR and depth of every master, measured from random half stacks of its registered subs, and progress toward Target Scheduler goals
+goals:
+  # Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours
+  enabled: false
+  # Minutes between checks for masters to measure
+  interval-minutes: 30
+  # Most registered subs read per measurement; a master with more uses a fixed random subset of this many
+  max-subs: 200
+  # Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on
+  publish: "off"
