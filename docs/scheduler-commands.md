@@ -39,6 +39,20 @@ ts_command_result (command_id text primary key, status text, message text, detai
 - Undo of a command that is still `queued` or `pending` cancels it instead.
 - A kind with no inverse returns `ErrNoInverse`, and History shows it as not undoable.
 
+## Planning kinds
+
+| Kind | Payload | Inverse |
+|---|---|---|
+| `project.batchedit`, `exposureplan.batchedit`, `exposuretemplate.batchedit` | `{items: [EditPayload]}`, applied in one transaction | itself, before and after swapped |
+| `exposuretemplate.edit` | `EditPayload` | itself |
+| `goal.edit` | per target guid and filter, `before`/`after` `GoalSetting` (`null` = no `ts_goal` row) | itself |
+| `ruleweight.edit` | per rule, `before`/`after` weight (`null` = no row) | itself |
+| `exposuretemplate.clone` / `.delete` | new template guid and name; delete only when unused | each other |
+| `exposureplan.applyset` / `.unapplyset` | per target: plans to create (guids made by the stacker), disable and enable | each other |
+| `project.create` / `.delete` | project, targets, plans, goals and rule weights, guids made by the stacker; delete is refused once a target has subs | each other |
+
+A spec may also change the app database when it is submitted (`AppSideEffect`). `project.create` writes a wizard mosaic's planned panels; its inverse removes them, and so does a cancelled, rejected or failed create.
+
 ## Adding a command kind
 
 **Stacker** (`internal/schedcmd`):
