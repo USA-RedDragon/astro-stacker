@@ -2,13 +2,17 @@ package server
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/planning"
+	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const searchConeRadius = 1.0
@@ -41,6 +45,34 @@ func discoverError(c *gin.Context, err error) {
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 	}
+}
+
+func pickPlans(c *gin.Context) *planning.Snapshot {
+	v, ok := c.Get(middleware.DepInjectionKey)
+	if !ok {
+		return nil
+	}
+	di, ok := v.(*middleware.DepInjection)
+	if !ok || di.SchedulerDBStore == nil {
+		return nil
+	}
+	ctx := c.Request.Context()
+	sched := di.SchedulerDBStore.DB()
+	var appDB *gorm.DB
+	if di.AppStore != nil {
+		appDB = di.AppStore.DB()
+	}
+	in, err := planning.AppInputs(ctx, appDB, sched)
+	if err != nil {
+		slog.Warn("Could not load goal settings for the exposure pick", "error", err)
+		return nil
+	}
+	s, err := planning.Load(ctx, sched, appDB, in)
+	if err != nil {
+		slog.Warn("Could not load the scheduler's templates for the exposure pick", "error", err)
+		return nil
+	}
+	return s
 }
 
 func applyDiscoverRoutes(g *gin.RouterGroup, x Extras) {
@@ -87,6 +119,14 @@ func applyDiscoverRoutes(g *gin.RouterGroup, x Extras) {
 	})
 	g.GET("/catalog/objects/:id", func(c *gin.Context) {
 		out, err := d.Object(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			discoverError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, out)
+	})
+	g.GET("/catalog/objects/:id/pick", func(c *gin.Context) {
+		out, err := d.Pick(c.Request.Context(), c.Param("id"), pickPlans(c))
 		if err != nil {
 			discoverError(c, err)
 			return

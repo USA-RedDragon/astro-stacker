@@ -105,3 +105,31 @@ func TestDiscoverRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestPickRoute(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.Stack{}, &app.Frame{}, &app.ObjectXref{}); err != nil {
+		t.Fatal(err)
+	}
+	d := &discover.Service{Catalog: ix, AppDB: db, Rig: discover.Rig{Frame: sky.Frame{FocalLength: 405, PixelSize: 3.76, WidthPx: 6248, HeightPx: 4176}}}
+	r := discoverRouter(t, d)
+	w := discoverGet(t, r, "/api/v1/catalog/objects/M42/pick")
+	var p discover.ExposurePick
+	if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil || w.Code != http.StatusOK || p.Palette != discover.PaletteHOO || len(p.Filters) != 2 {
+		t.Fatalf("pick: %d %s", w.Code, w.Body.String())
+	}
+	if p.Filters[0].Exposure != nil || p.Filters[0].ExposureBasis != "no subs in this filter yet" || p.Filters[0].Hours.Hours != nil {
+		t.Errorf("filter without data: %+v", p.Filters[0])
+	}
+	if w := discoverGet(t, r, "/api/v1/catalog/objects/nope/pick"); w.Code != http.StatusNotFound {
+		t.Errorf("unknown object: %d", w.Code)
+	}
+}
