@@ -285,4 +285,8 @@ func TestMissingShapeStaysNull(t *testing.T) {
 	if o, _ := ix.Get("NGC6995"); o.PA != nil {
 		t.Errorf("NGC 6995 has no OpenNGC position angle but got %v", *o.PA)
 	}
+	chain, _ := ix.Get("MARKARIANSCHAIN")
+	if len(chain.Members) != 8 || chain.PA == nil || chain.Source != "member-groups" {
+		t.Errorf("Markarian's Chain is not computed from its members: %+v", chain)
+	}
 }

@@ -17,6 +17,7 @@ type Object struct {
 	MinorArcmin *float64 `json:"minorArcmin"`
 	PA          *float64 `json:"pa"`
 	Source      string   `json:"source"`
+	Members     []string `json:"members,omitempty"`
 
 	Magnitude         *float64 `json:"magnitude,omitempty"`
 	SurfaceBrightness *float64 `json:"surfaceBrightness,omitempty"`

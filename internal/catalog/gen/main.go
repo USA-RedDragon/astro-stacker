@@ -302,6 +302,9 @@ func (b *builder) build(ctx context.Context) error {
 		return err
 	}
 	b.finalize()
+	if err := b.groups(); err != nil {
+		return err
+	}
 	return b.buildLists()
 }
 
