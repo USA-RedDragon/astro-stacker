@@ -16,55 +16,69 @@ const (
 	MethodDesignation = "designation"
 	MethodName        = "name"
 	MethodSimilar     = "similar"
-	MethodCoordinates = "coordinates"
 	MethodFootprint   = "footprint"
+	MethodManual      = "manual"
 
 	StatusAuto      = "auto"
-	StatusInFrame   = "in-frame"
+	StatusImaged    = "imaged"
+	StatusPlanned   = "planned"
 	StatusSuggested = "suggested"
 	StatusConfirmed = app.XrefConfirmed
 	StatusRejected  = app.XrefRejected
 
-	autoConfidence     = 0.95
-	minSuggestion      = 0.4
-	linkedSuggestion   = 0.75
-	maxSuggestions     = 3
-	halfFrameDiagonal  = 2.0
-	nearRadius         = 0.25
-	nameAgreeRadius    = 0.5
-	minFootprintArcmin = 2.0
+	BasisFrames   = "frames"
+	BasisPointing = "pointing"
+	BasisTarget   = "target"
+	BasisPlan     = "plan"
+	BasisName     = "name"
+	BasisManual   = "manual"
+
+	RuleInsideFrames  = "inside-frames"
+	RuleInsidePlan    = "inside-planned-frame"
+	RuleNameOutside   = "name-outside-frames"
+	RuleNameAtPlace   = "exact-name-at-position"
+	RuleNameFar       = "exact-name-far-from-position"
+	RuleNameOnly      = "exact-name-no-position"
+	RuleSimilarName   = "similar-name"
+	RuleConfirmed     = "confirmed-by-you"
+	minNameSimilarity = 0.5
 )
 
 type Link struct {
-	Subject     string         `json:"subject"`
-	SubjectName string         `json:"subjectName"`
-	Object      catalog.Object `json:"object"`
-	Method      string         `json:"method"`
-	Confidence  float64        `json:"confidence"`
-	Why         string         `json:"why"`
-	Separation  float64        `json:"separation"`
-	Status      string         `json:"status"`
+	Subject      string         `json:"subject"`
+	SubjectName  string         `json:"subjectName"`
+	Object       catalog.Object `json:"object"`
+	Method       string         `json:"method"`
+	Rule         string         `json:"rule"`
+	Why          string         `json:"why"`
+	Separation   *float64       `json:"separation"`
+	AgreeRadius  *float64       `json:"agreeRadius,omitempty"`
+	Similarity   *float64       `json:"similarity,omitempty"`
+	Status       string         `json:"status"`
+	Basis        string         `json:"basis"`
+	Coverage     *float64       `json:"coverage"`
+	CentreInside bool           `json:"centreInside"`
+	Targets      []string       `json:"targets,omitempty"`
+	NameMatch    string         `json:"nameMatch,omitempty"`
 }
 
 func (l Link) Linked() bool {
-	return l.Status == StatusAuto || l.Status == StatusConfirmed || l.Status == StatusInFrame
+	switch l.Status {
+	case StatusAuto, StatusConfirmed, StatusImaged, StatusPlanned:
+		return true
+	}
+	return false
+}
+
+func round3p(v float64) *float64 {
+	r := round3(v)
+	return &r
 }
 
 var nameSplit = regexp.MustCompile(`(?i)\s*(?:&|\+|/|,|\band\b)\s*`)
 
 func objectRadius(o catalog.Object) float64 {
 	return o.MajorArcmin / 120
-}
-
-type candidate struct {
-	obj        catalog.Object
-	nameMethod string
-	nameSim    float64
-	whole      string
-	part       string
-	coord      bool
-	footprint  bool
-	sep        float64
 }
 
 type nameAdd func(o catalog.Object, method string, sim float64, whole, part string)
@@ -169,7 +183,7 @@ func (s *Service) matchName(ctx context.Context, n, whole string, add nameAdd) {
 			for _, alias := range append([]string{m.Object.Name}, m.Object.Aliases...) {
 				best = math.Max(best, catalog.Similarity(catalog.CoreName(alias), core))
 			}
-			if best >= 0.5 {
+			if best >= minNameSimilarity {
 				add(m.Object, MethodSimilar, best, whole, n)
 			}
 		}
@@ -199,128 +213,120 @@ func (s *Service) notCatalogue(subj Subject) (string, bool) {
 }
 
 func (s *Service) matchSubject(ctx context.Context, subj Subject) ([]Link, string) {
-	cands := map[string]*candidate{}
-	var order []string
-	get := func(o catalog.Object) *candidate {
-		c, ok := cands[o.ID]
-		if !ok {
-			c = &candidate{obj: o, sep: -1}
-			cands[o.ID] = c
-			order = append(order, o.ID)
-		}
-		return c
+	if len(subj.imaged) > 0 || len(subj.planned) > 0 {
+		return s.matchFootprint(ctx, subj)
 	}
+	return s.matchNames(ctx, subj)
+}
+
+func (s *Service) nameHits(ctx context.Context, subj Subject) (map[string]*nameHit, map[string]catalog.Object) {
+	names := map[string]*nameHit{}
+	objs := map[string]catalog.Object{}
+	rank := map[string]int{MethodDesignation: 3, MethodName: 2, MethodSimilar: 1}
+	s.nameCandidates(ctx, subj, func(o catalog.Object, method string, sim float64, whole, part string) {
+		n := names[o.ID]
+		if n == nil || rank[method] > rank[n.method] || method == n.method && sim > n.sim {
+			names[o.ID] = &nameHit{method: method, sim: sim, whole: whole, part: part}
+			objs[o.ID] = o
+		}
+	})
+	return names, objs
+}
+
+func (s *Service) matchNames(ctx context.Context, subj Subject) ([]Link, string) {
 	reason, certain := s.notCatalogue(subj)
-	if !certain {
-		s.nameCandidates(ctx, subj, func(o catalog.Object, method string, sim float64, whole, part string) {
-			c := get(o)
-			rank := map[string]int{MethodDesignation: 3, MethodName: 2, MethodSimilar: 1, "": 0}
-			if rank[method] > rank[c.nameMethod] || method == c.nameMethod && sim > c.nameSim {
-				c.nameMethod, c.nameSim, c.whole, c.part = method, sim, whole, part
-			}
-		})
+	if certain {
+		return nil, reason
 	}
-	named := len(order) > 0
-	footprint := subj.Radius + halfFrameDiagonal/2
-	if subj.HasPos {
-		near, _ := s.Catalog.Cone(ctx, subj.RA, subj.Dec, subj.Radius+halfFrameDiagonal)
-		for _, o := range near {
-			d := catalog.Separation(subj.RA, subj.Dec, o.RA, o.Dec)
-			r := objectRadius(o)
-			notable := len(o.Lists) > 0 || o.Name != ""
-			centred := notable && d <= math.Max(r, nearRadius) && (!subj.Mosaic || o.MajorArcmin/60 >= subj.Radius)
-			inside := len(o.Lists) > 0 && o.MajorArcmin >= minFootprintArcmin && d+r <= footprint
-			if centred || inside {
-				c := get(o)
-				c.coord, c.footprint = centred, inside
-			}
-		}
-		for _, c := range cands {
-			c.sep = catalog.Separation(subj.RA, subj.Dec, c.obj.RA, c.obj.Dec)
-		}
-	}
-	if reason != "" && !certain && (named || slices.ContainsFunc(order, func(id string) bool { return cands[id].coord })) {
+	names, objs := s.nameHits(ctx, subj)
+	if len(names) > 0 {
 		reason = ""
 	}
-	links := make([]Link, 0, len(order))
-	for _, id := range order {
-		c := cands[id]
-		l := score(subj, c, footprint)
-		if l.Confidence <= 0 || reason != "" && l.Status != StatusInFrame {
-			continue
+	if reason != "" {
+		return nil, reason
+	}
+	links := make([]Link, 0, len(names))
+	for id, n := range names {
+		o := objs[id]
+		l := Link{Subject: subj.Key, SubjectName: subj.Name, Object: o, Method: n.method, Basis: BasisName, NameMatch: n.method}
+		if n.method == MethodSimilar {
+			l.Similarity = round3p(n.sim)
+		}
+		l.Why = n.describe(o) + "." + n.composite()
+		agree := objectRadius(o) + subj.Radius
+		switch {
+		case n.method == MethodSimilar:
+			l.Status, l.Rule = StatusSuggested, RuleSimilarName
+		case !subj.HasPos:
+			l.Status, l.Rule = StatusAuto, RuleNameOnly
+			l.Why += " No position to check it against."
+		default:
+			sep := catalog.Separation(subj.RA, subj.Dec, o.RA, o.Dec)
+			l.Separation, l.AgreeRadius = round3p(sep), round3p(agree)
+			if sep <= agree {
+				l.Status, l.Rule = StatusAuto, RuleNameAtPlace
+				l.Why += fmt.Sprintf(" Its centre is %s from your position, inside its own extent.", angle(sep))
+			} else {
+				l.Status, l.Rule = StatusSuggested, RuleNameFar
+				l.Why += fmt.Sprintf(" But its centre is %s from your position, outside its %s extent.", angle(sep), angle(agree))
+			}
+		}
+		if n.method == MethodSimilar && subj.HasPos {
+			l.Separation = round3p(catalog.Separation(subj.RA, subj.Dec, o.RA, o.Dec))
 		}
 		links = append(links, l)
 	}
+	sortLinks(links)
+	return links, ""
+}
+
+func linkRank(l Link) int {
+	switch l.Status {
+	case StatusConfirmed:
+		return 0
+	case StatusImaged:
+		return 1
+	case StatusAuto:
+		return 2
+	case StatusPlanned:
+		return 3
+	case StatusSuggested:
+		return 4
+	}
+	return 5
+}
+
+func sortLinks(links []Link) {
+	val := func(p *float64, def float64) float64 {
+		if p == nil {
+			return def
+		}
+		return *p
+	}
 	slices.SortStableFunc(links, func(a, b Link) int {
-		if a.Confidence != b.Confidence {
-			if a.Confidence > b.Confidence {
+		if ra, rb := linkRank(a), linkRank(b); ra != rb {
+			return ra - rb
+		}
+		if na, nb := a.NameMatch != "", b.NameMatch != ""; na != nb {
+			if na {
+				return -1
+			}
+			return 1
+		}
+		if ca, cb := val(a.Coverage, 0), val(b.Coverage, 0); ca != cb {
+			if ca > cb {
+				return -1
+			}
+			return 1
+		}
+		if sa, sb := val(a.Separation, math.Inf(1)), val(b.Separation, math.Inf(1)); sa != sb {
+			if sa < sb {
 				return -1
 			}
 			return 1
 		}
 		return strings.Compare(a.Object.ID, b.Object.ID)
 	})
-	return links, reason
-}
-
-func score(subj Subject, c *candidate, footprint float64) Link {
-	l := Link{Subject: subj.Key, SubjectName: subj.Name, Object: c.obj, Separation: math.Round(c.sep*1000) / 1000}
-	r := objectRadius(c.obj)
-	agreeRadius := math.Max(math.Max(r, nameAgreeRadius), footprint)
-	if c.whole != "" {
-		agreeRadius = math.Max(agreeRadius, subj.Radius+halfFrameDiagonal)
-	}
-	agrees := !subj.HasPos || c.sep >= 0 && c.sep <= agreeRadius
-	where := ""
-	if subj.HasPos && c.sep >= 0 {
-		where = fmt.Sprintf("Centres %s apart.", angle(c.sep))
-	}
-	switch {
-	case c.nameMethod == MethodDesignation && subj.HasPos:
-		l.Method, l.Confidence, l.Why = MethodDesignation, 0.99, "Your name is its catalogue designation"
-	case c.nameMethod == MethodName && subj.HasPos:
-		l.Method, l.Confidence, l.Why = MethodName, 0.96, "Your name is its common name"
-	case c.nameMethod == MethodDesignation:
-		l.Method, l.Confidence, l.Why = MethodDesignation, 0.9, "Your name is its catalogue designation; no coordinates to check."
-	case c.nameMethod == MethodName:
-		l.Method, l.Confidence, l.Why = MethodName, 0.85, "Your name is its common name; no coordinates to check."
-	case c.nameMethod == MethodSimilar:
-		l.Method, l.Confidence, l.Why = MethodSimilar, math.Min(0.92, 0.55+0.4*c.nameSim), "Name is spelled differently"
-		if !subj.HasPos {
-			l.Confidence, l.Why = math.Min(l.Confidence, 0.6), l.Why+"; no coordinates to check."
-		}
-	case c.coord:
-		near := 1 - c.sep/math.Max(r, nearRadius)
-		l.Method, l.Confidence = MethodCoordinates, 0.5+0.3*near
-		if subj.Mosaic && c.obj.MajorArcmin/60 >= subj.Radius*1.5 {
-			l.Confidence += 0.05
-		}
-		l.Why = "No name in common. " + where
-	case c.footprint:
-		l.Method, l.Confidence, l.Why = MethodFootprint, 0.5, "Inside your frame. "+where
-	}
-	if c.nameMethod != "" && subj.HasPos {
-		if agrees {
-			l.Why += ". " + where
-		} else {
-			l.Confidence /= 2
-			l.Why += fmt.Sprintf(", but it is %s from your coordinates.", angle(c.sep))
-		}
-	}
-	if c.whole != "" && c.nameMethod != "" {
-		l.Why += fmt.Sprintf(" “%s” names more than one object; this is “%s”.", c.whole, c.part)
-	}
-	l.Confidence = math.Round(l.Confidence*100) / 100
-	l.Why = strings.TrimSpace(l.Why)
-	switch {
-	case l.Method == MethodFootprint:
-		l.Status = StatusInFrame
-	case l.Confidence >= autoConfidence:
-		l.Status = StatusAuto
-	default:
-		l.Status = StatusSuggested
-	}
-	return l
 }
 
 func angle(deg float64) string {
@@ -345,21 +351,15 @@ func applyDecisions(links []Link, decisions map[string]map[string]string) []Link
 }
 
 func trimSuggestions(links []Link) []Link {
-	hasPrimary := slices.ContainsFunc(links, func(l Link) bool {
-		return (l.Status == StatusAuto || l.Status == StatusConfirmed) && l.Method != MethodFootprint
-	})
-	out := make([]Link, 0, len(links))
-	n := 0
+	resolved := map[string]bool{}
 	for _, l := range links {
-		if l.Status == StatusSuggested {
-			if l.Confidence < minSuggestion || hasPrimary && l.Confidence < linkedSuggestion || n >= maxSuggestions {
-				continue
-			}
-			n++
+		if (l.Status == StatusAuto || l.Status == StatusConfirmed) && l.NameMatch != "" {
+			resolved[l.Subject] = true
 		}
-		out = append(out, l)
 	}
-	return out
+	return slices.DeleteFunc(links, func(l Link) bool {
+		return l.Status == StatusSuggested && l.Rule == RuleSimilarName && resolved[l.Subject]
+	})
 }
 
 func (s *Service) decisions(ctx context.Context) (map[string]map[string]string, []app.ObjectXref, error) {

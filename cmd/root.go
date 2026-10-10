@@ -171,7 +171,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore)
+	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill)
 	commands, monitor, obs := newScheduler(indexCtx, cfg, appStore, schedulerDBStore, broker, func(r schedcmd.Record) {
 		if disc != nil && r.Category == schedcmd.CategoryMatching {
 			disc.Invalidate()

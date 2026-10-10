@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -18,7 +20,11 @@ import (
 const (
 	CompletionDone       = "done"
 	CompletionInProgress = "in-progress"
+	CompletionMeasuring  = "measuring"
 	CompletionNotStarted = "not-started"
+
+	DoneByGoals = "goals"
+	DoneByTS    = "ts-complete"
 
 	upTonightHours = 1.0
 )
@@ -26,37 +32,49 @@ const (
 var ErrUnknownList = errors.New("unknown catalogue")
 
 type SubjectRef struct {
-	Key       string  `json:"key"`
-	Name      string  `json:"name"`
-	ProjectID int     `json:"projectId,omitempty"`
-	State     string  `json:"state,omitempty"`
-	Status    string  `json:"status"`
-	Method    string  `json:"method"`
-	Done      bool    `json:"done"`
-	Hours     float64 `json:"hours"`
+	Key        string   `json:"key"`
+	Name       string   `json:"name"`
+	ProjectID  int      `json:"projectId,omitempty"`
+	State      string   `json:"state,omitempty"`
+	Status     string   `json:"status"`
+	Method     string   `json:"method"`
+	Basis      string   `json:"basis,omitempty"`
+	Coverage   *float64 `json:"coverage"`
+	Done       bool     `json:"done"`
+	DoneBy     string   `json:"doneBy,omitempty"`
+	Completion string   `json:"completion"`
+	Tally      Tally    `json:"tally"`
+	Why        string   `json:"why,omitempty"`
+	Hours      float64  `json:"hours"`
 }
 
 type Tonight struct {
-	Up           bool       `json:"up"`
-	Hours        float64    `json:"hours"`
-	Start        *time.Time `json:"start,omitempty"`
-	End          *time.Time `json:"end,omitempty"`
-	PeakAlt      *float64   `json:"peakAlt"`
-	PeakAt       *time.Time `json:"peakAt,omitempty"`
-	MoonSep      *float64   `json:"moonSeparation"`
-	MoonIllum    float64    `json:"moonIllumination"`
-	SiteResolved bool       `json:"siteResolved"`
+	MinAltitude    float64    `json:"minAltitude"`
+	AltitudeSource string     `json:"minAltitudeSource"`
+	UpThreshold    float64    `json:"upThresholdHours"`
+	Up             bool       `json:"up"`
+	Hours          float64    `json:"hours"`
+	Start          *time.Time `json:"start,omitempty"`
+	End            *time.Time `json:"end,omitempty"`
+	PeakAlt        *float64   `json:"peakAlt"`
+	PeakAt         *time.Time `json:"peakAt,omitempty"`
+	MoonSep        *float64   `json:"moonSeparation"`
+	MoonIllum      float64    `json:"moonIllumination"`
+	SiteResolved   bool       `json:"siteResolved"`
 }
 
 type CatalogueEntry struct {
-	Index    int                `json:"index"`
-	Label    string             `json:"label"`
-	Object   catalog.Object     `json:"object"`
-	Status   string             `json:"status"`
-	Hours    map[string]float64 `json:"hours"`
-	Subjects []SubjectRef       `json:"subjects"`
-	Tonight  *Tonight           `json:"tonight,omitempty"`
-	Fit      *sky.Fit           `json:"fit"`
+	Index     int                `json:"index"`
+	Label     string             `json:"label"`
+	Object    catalog.Object     `json:"object"`
+	Status    string             `json:"status"`
+	DoneBy    string             `json:"doneBy,omitempty"`
+	Scheduled bool               `json:"scheduled"`
+	Tally     Tally              `json:"tally"`
+	Hours     map[string]float64 `json:"hours"`
+	Subjects  []SubjectRef       `json:"subjects"`
+	Tonight   *Tonight           `json:"tonight,omitempty"`
+	Fit       *sky.Fit           `json:"fit"`
 }
 
 type CatalogueSummary struct {
@@ -64,12 +82,17 @@ type CatalogueSummary struct {
 	Name       string `json:"name"`
 	Total      int    `json:"total"`
 	Done       int    `json:"done"`
+	DoneGoals  int    `json:"doneByGoals"`
+	DoneTS     int    `json:"doneByTs"`
 	InProgress int    `json:"inProgress"`
+	Measuring  int    `json:"measuring"`
 	NotStarted int    `json:"notStarted"`
+	Scheduled  int    `json:"scheduled"`
 	UpTonight  int    `json:"upTonight"`
 }
 
 type Overview struct {
+	Backfill    *goals.Backfill    `json:"backfill,omitempty"`
 	Catalogues  []CatalogueSummary `json:"catalogues"`
 	OpenMatches int                `json:"openMatches"`
 	Night       *NightInfo         `json:"night,omitempty"`
@@ -84,18 +107,33 @@ type NightInfo struct {
 	DarkHours        float64    `json:"darkHours"`
 	MoonIllumination float64    `json:"moonIllumination"`
 	MinAltitude      float64    `json:"minAltitude"`
-	MinAltitudeFrom  string     `json:"minAltitudeSource"`
+	AltitudeSource   string     `json:"minAltitudeSource"`
+	UpTonightHours   float64    `json:"upTonightHours"`
 }
 
-func nightInfo(n sky.Night, minAlt float64) *NightInfo {
-	return &NightInfo{Start: n.Start, Dusk: n.Dusk, Dawn: n.Dawn, DarkHours: n.DarkHours(), MoonIllumination: math.Round(n.MoonIllumination()*100) / 100, MinAltitude: minAlt, MinAltitudeFrom: MinAltitudeSetting}
+func nightInfo(n sky.Night, minAlt float64, source string) *NightInfo {
+	return &NightInfo{Start: n.Start, Dusk: n.Dusk, Dawn: n.Dawn, DarkHours: n.DarkHours(), MoonIllumination: math.Round(n.MoonIllumination()*100) / 100,
+		MinAltitude: minAlt, AltitudeSource: source, UpTonightHours: upTonightHours}
 }
+
+const (
+	defaultMinAltitude = 30
+	altitudeSetting    = MinAltitudeSetting
+	altitudeBuiltIn    = "the built-in default"
+)
 
 func (s *Service) minAlt() float64 {
 	if s.Rig.MinAltitude > 0 {
 		return s.Rig.MinAltitude
 	}
-	return 30
+	return defaultMinAltitude
+}
+
+func (s *Service) minAltSource() string {
+	if s.Rig.MinAltitude > 0 {
+		return altitudeSetting
+	}
+	return altitudeBuiltIn
 }
 
 func round1(v *float64) *float64 {
@@ -107,45 +145,107 @@ func round1(v *float64) *float64 {
 }
 
 func (s *Service) tonightFor(n *sky.Night, o catalog.Object) *Tonight {
+	return s.tonightAt(n, o, s.minAlt(), s.minAltSource())
+}
+
+func (s *Service) tonightAt(n *sky.Night, o catalog.Object, minAlt float64, source string) *Tonight {
 	if n == nil {
 		return nil
 	}
-	w := n.Window(o.RA, o.Dec, s.minAlt())
+	w := n.Window(o.RA, o.Dec, minAlt)
 	return &Tonight{
 		Up: w.Hours >= upTonightHours, Hours: w.Hours, Start: w.Start, End: w.End, PeakAlt: round1(w.PeakAlt), PeakAt: w.PeakAt,
 		MoonSep: round1(n.MoonSeparation(o.RA, o.Dec)), MoonIllum: math.Round(n.MoonIllumination()*100) / 100, SiteResolved: true,
+		MinAltitude: minAlt, AltitudeSource: source, UpThreshold: upTonightHours,
 	}
+}
+
+func (s *Service) altitudeFor(snap *snapshot, subjects map[string]Subject, o catalog.Object) (float64, string) {
+	for _, l := range snap.byObject[o.ID] {
+		if !l.Linked() {
+			continue
+		}
+		if subj, ok := subjects[l.Subject]; ok && subj.MinAltitude != nil && *subj.MinAltitude > 0 {
+			return *subj.MinAltitude, "the minimum altitude of Target Scheduler project " + subj.Name
+		}
+	}
+	return s.minAlt(), s.minAltSource()
+}
+
+func (snap *snapshot) linkTally(subj Subject, l Link) Tally {
+	targets := l.Targets
+	if len(targets) == 0 {
+		targets = subj.Targets
+	}
+	var t Tally
+	for _, name := range targets {
+		if d := snap.objects[name]; d != nil {
+			t.add(d)
+		}
+	}
+	return t
+}
+
+func completionRank(status string) int {
+	switch status {
+	case CompletionDone:
+		return 3
+	case CompletionMeasuring:
+		return 2
+	case CompletionInProgress:
+		return 1
+	}
+	return 0
 }
 
 func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Night, o catalog.Object, rig Rig) CatalogueEntry {
 	e := CatalogueEntry{Object: o, Hours: map[string]float64{}, Subjects: []SubjectRef{}, Status: CompletionNotStarted}
 	seen := map[string]bool{}
+	counted := map[string]bool{}
 	for _, l := range snap.byObject[o.ID] {
 		subj, ok := subjects[l.Subject]
 		if !ok || seen[l.Subject] {
 			continue
 		}
 		seen[l.Subject] = true
+		t := snap.linkTally(subj, l)
 		ref := SubjectRef{Key: subj.Key, Name: subj.Name, ProjectID: subj.ProjectID, State: subj.StateName, Status: l.Status, Method: l.Method,
-			Done: subj.Done, Hours: math.Round(subj.TotalHours()*100) / 100}
+			Basis: l.Basis, Coverage: l.Coverage, Why: l.Why, Tally: t, Completion: t.status(subj.TSDone), DoneBy: t.doneBy(subj.TSDone),
+			Hours: math.Round(t.Hours*100) / 100}
+		ref.Done = ref.DoneBy != ""
+		ref.Tally.Hours = ref.Hours
 		e.Subjects = append(e.Subjects, ref)
 		if !l.Linked() {
 			continue
 		}
-		for f, h := range subj.Hours {
-			e.Hours[f] += h
+		targets := l.Targets
+		if len(targets) == 0 {
+			targets = subj.Targets
 		}
-		switch {
-		case subj.Done:
-			e.Status = CompletionDone
-		case e.Status != CompletionDone && (subj.TotalHours() > 0 || subj.Scheduled()):
-			e.Status = CompletionInProgress
+		for _, name := range targets {
+			d := snap.objects[name]
+			if d == nil || counted[name] {
+				continue
+			}
+			counted[name] = true
+			for f, h := range d.hours {
+				e.Hours[f] += h
+			}
+			e.Tally.add(d)
+		}
+		if completionRank(ref.Completion) > completionRank(e.Status) {
+			e.Status, e.DoneBy = ref.Completion, ref.DoneBy
 		}
 	}
 	for f, h := range e.Hours {
 		e.Hours[f] = math.Round(h*100) / 100
 	}
-	e.Tonight = s.tonightFor(n, o)
+	e.Tally.Hours = math.Round(e.Tally.Hours*100) / 100
+	alt, source := s.altitudeFor(snap, subjects, o)
+	e.Tonight = s.tonightAt(n, o, alt, source)
+	if e.Status == CompletionNotStarted && slices.ContainsFunc(e.Subjects, func(r SubjectRef) bool { return r.Status == StatusPlanned }) {
+		e.Scheduled = true
+	}
 	e.Fit = rig.fit(o.MajorArcmin, o.Minor())
 	return e
 }
@@ -201,9 +301,9 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	}
 	n, siteErr := s.tonightNight(ctx)
 	subjects := subjectMap(snap)
-	out := Overview{SiteError: siteErr, Sources: s.Catalog.Sources()}
+	out := Overview{SiteError: siteErr, Sources: s.Catalog.Sources(), Backfill: s.backfill(ctx)}
 	if n != nil {
-		out.Night = nightInfo(*n, s.minAlt())
+		out.Night = nightInfo(*n, s.minAlt(), s.minAltSource())
 	}
 	rig, _ := s.rig(ctx)
 	for _, l := range s.Catalog.Lists() {
@@ -213,10 +313,20 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 			switch e.Status {
 			case CompletionDone:
 				sum.Done++
+				if e.DoneBy == DoneByTS {
+					sum.DoneTS++
+				} else {
+					sum.DoneGoals++
+				}
 			case CompletionInProgress:
 				sum.InProgress++
+			case CompletionMeasuring:
+				sum.Measuring++
 			default:
 				sum.NotStarted++
+				if e.Scheduled {
+					sum.Scheduled++
+				}
 			}
 			if e.Tonight != nil && e.Tonight.Up {
 				sum.UpTonight++
@@ -287,7 +397,8 @@ func (s *Service) Object(ctx context.Context, id string) (ObjectDetail, error) {
 		d.Links = []Link{}
 	}
 	if yr, err := s.year(ctx, s.now().Year()); err == nil {
-		d.Months = roundMonths(yr.Hours(o.RA, o.Dec, s.minAlt()))
+		alt, _ := s.altitudeFor(snap, subjectMap(snap), o)
+		d.Months = roundMonths(yr.Hours(o.RA, o.Dec, alt))
 	}
 	for _, l := range s.Catalog.Lists() {
 		for _, k := range o.Lists {
@@ -307,3 +418,55 @@ func roundMonths(m [12]float64) [12]float64 {
 }
 
 var ErrNotFound = errors.New("not found")
+
+type Tally struct {
+	Filters  int     `json:"filters"`
+	Measured int     `json:"measured"`
+	Done     int     `json:"done"`
+	Short    int     `json:"short"`
+	Hours    float64 `json:"hours"`
+}
+
+func (t *Tally) add(d *objectData) {
+	t.Filters += d.filters
+	t.Measured += d.measured
+	t.Done += d.done
+	t.Short += d.short
+	for _, h := range d.hours {
+		t.Hours += h
+	}
+}
+
+func (t Tally) doneBy(tsComplete bool) string {
+	switch {
+	case tsComplete:
+		return DoneByTS
+	case t.Filters > 0 && t.Measured == t.Filters && t.Done == t.Filters:
+		return DoneByGoals
+	}
+	return ""
+}
+
+func (t Tally) status(tsComplete bool) string {
+	switch {
+	case t.doneBy(tsComplete) != "":
+		return CompletionDone
+	case t.Filters == 0:
+		return CompletionNotStarted
+	case t.Measured < t.Filters:
+		return CompletionMeasuring
+	}
+	return CompletionInProgress
+}
+
+func (s *Service) backfill(ctx context.Context) *goals.Backfill {
+	var live goals.BackfillLive
+	if s.Backfill != nil {
+		live = s.Backfill()
+	}
+	b, err := goals.CountBackfill(ctx, s.AppDB, live)
+	if err != nil {
+		return nil
+	}
+	return &b
+}

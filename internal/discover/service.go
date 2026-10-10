@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -36,16 +37,17 @@ type Rig struct {
 type SiteFunc func(ctx context.Context) (sky.Site, error)
 
 type Service struct {
-	Measure func(ctx context.Context) rigsource.Rig
-	Sky     func(ctx context.Context) skybright.Value
-	HAlpha  func() (*halpha.Map, halpha.Status)
-	Catalog *catalog.Index
-	AppDB   *gorm.DB
-	SchedDB *gorm.DB
-	Site    SiteFunc
-	Rig     Rig
-	Now     func() time.Time
-	TTL     time.Duration
+	Backfill func() goals.BackfillLive
+	Measure  func(ctx context.Context) rigsource.Rig
+	Sky      func(ctx context.Context) skybright.Value
+	HAlpha   func() (*halpha.Map, halpha.Status)
+	Catalog  *catalog.Index
+	AppDB    *gorm.DB
+	SchedDB  *gorm.DB
+	Site     SiteFunc
+	Rig      Rig
+	Now      func() time.Time
+	TTL      time.Duration
 
 	mu       sync.Mutex
 	snap     *snapshot
@@ -61,6 +63,7 @@ type snapshot struct {
 	links    []Link
 	bySubj   map[string][]Link
 	byObject map[string][]Link
+	objects  map[string]*objectData
 }
 
 func ParseFilterValues(entries []string) map[string]float64 {
@@ -260,7 +263,8 @@ func (s *Service) snapshot(ctx context.Context) (*snapshot, error) {
 	if snap != nil && s.now().Sub(snap.at) < ttl {
 		return snap, nil
 	}
-	subjects, err := s.loadSubjects(ctx)
+	rig, _ := s.rig(ctx)
+	subjects, objects, err := s.loadSubjects(ctx, rig.Frame)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +272,7 @@ func (s *Service) snapshot(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	snap = &snapshot{at: s.now(), subjects: subjects, bySubj: map[string][]Link{}, byObject: map[string][]Link{}}
+	snap = &snapshot{at: s.now(), subjects: subjects, bySubj: map[string][]Link{}, byObject: map[string][]Link{}, objects: objects}
 	known := map[string]bool{}
 	for i, subj := range subjects {
 		known[subj.Key] = true
@@ -292,8 +296,8 @@ func (s *Service) snapshot(ctx context.Context) (*snapshot, error) {
 		if name == "" {
 			name = r.Subject
 		}
-		snap.links = append(snap.links, Link{Subject: r.Subject, SubjectName: name, Object: o, Method: "manual",
-			Confidence: 1, Why: "Linked by you.", Separation: -1, Status: StatusConfirmed})
+		snap.links = append(snap.links, Link{Subject: r.Subject, SubjectName: name, Object: o, Method: MethodManual, Rule: RuleConfirmed,
+			Why: confirmedWhy(r), Status: StatusConfirmed, Basis: BasisManual})
 	}
 	for _, l := range snap.links {
 		snap.bySubj[l.Subject] = append(snap.bySubj[l.Subject], l)
@@ -364,6 +368,7 @@ func (s *Service) Resolve(ctx context.Context, name string, pos *Position, mosai
 	if pos != nil {
 		subj.RA, subj.Dec, subj.HasPos, subj.Radius = pos.RA, pos.Dec, true, mosaicRadius
 		subj.Mosaic = mosaicRadius > 0
+		s.planQuery(ctx, &subj)
 	}
 	if name == "" && !subj.HasPos {
 		return nil, fmt.Errorf("%w: give a name or coordinates", ErrBadQuery)
@@ -373,3 +378,22 @@ func (s *Service) Resolve(ctx context.Context, name string, pos *Position, mosai
 }
 
 var ErrBadQuery = errors.New("bad query")
+
+func confirmedWhy(r app.ObjectXref) string {
+	if r.DecidedAt.IsZero() {
+		return "Confirmed by you."
+	}
+	return "Confirmed by you on " + r.DecidedAt.Format(time.DateOnly) + "."
+}
+
+func (s *Service) planQuery(ctx context.Context, subj *Subject) {
+	rig, _ := s.rig(ctx)
+	f, ok := planField("your frame", subj.RA, subj.Dec, 0, rig.Frame)
+	if !ok {
+		return
+	}
+	if subj.Radius > 0 {
+		f = circleField(FieldPlan, "your mosaic", subj.RA, subj.Dec, f.radius+subj.Radius)
+	}
+	subj.planned = []field{f}
+}
