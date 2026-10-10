@@ -65,15 +65,20 @@ type Frame struct {
 	Photometry    *string `gorm:"type:text"`
 	PhotometryRev *int
 	PhotometryErr *string `gorm:"type:text"`
-	// LightLeak is the large-scale spread, in ADU, of a dark left out of
-	// its master because light reached the sensor; nil when it's clean or
-	// unchecked.
+	// LightLeak is the large-scale spread, in ADU, of a dark rejected by
+	// darkcheck (light reached the sensor, or it was off its setpoint);
+	// nil when it's clean or unchecked.
 	LightLeak *float64
-	// DarkSpread is the same measure for every dark checked, clean or
-	// leaky, so a clean dark can be told from one never checked (nil):
-	// darks are checked only when a master is built from them, and those
-	// checked before this was recorded have nil.
+	// DarkSpread is the same measure for every dark measured, clean or
+	// rejected; nil until the dark is measured.
 	DarkSpread *float64
+
+	CalMedianADU   *float64
+	CalSpreadADU   *float64
+	CalNoiseADU    *float64
+	CalMeasuredAt  *time.Time
+	CalCheck       *string `gorm:"index"`
+	CalCheckReason *string `gorm:"type:text"`
 
 	// IndexError is set when the header could not be read; the frame is
 	// retried when its ETag changes.

@@ -4,67 +4,37 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
 	"os"
-	"slices"
+	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
+	"github.com/USA-RedDragon/astro-stacker/internal/darkcheck"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
-// A clean dark is flat: over this camera's darks the medians of 32×24 blocks
-// spread (5th to 95th percentile) by 1 ADU, since each median is taken over
-// thousands of pixels and pixel noise barely moves it. Light reaching the
-// sensor adds a gradient and dust shadows: 155 ADU in a dark taken with the
-// cover off in daylight, and a ramp from 2 to 14 ADU over a set whose last
-// frames were taken as the morning brightened. A dark is leaky when its
-// spread exceeds maxCleanADU.
-const maxCleanADU = 3
-
-func leaky(spread float64) bool { return spread > maxCleanADU }
-
-// darkSpread measures a raw dark's large-scale structure and pixel noise,
-// both in 16-bit ADU.
-func darkSpread(d []float32, w, h int) (spread, noise float64) {
-	const adu = 65535
-	med := func(v []float32) float32 {
-		s := slices.Clone(v)
-		slices.Sort(s)
-		return s[len(s)/2]
+func frameSetup(f app.Frame) darkcheck.Setup {
+	s := darkcheck.Setup{Exposure: val(f.Exposure), Gain: val(f.Gain), Offset: val(f.Offset), BinX: val(f.BinX), SetTemp: val(f.SetTemp), CCDTemp: f.CCDTemp}
+	switch {
+	case f.DateObs != nil:
+		s.TakenAt = *f.DateObs
+	case f.Night != nil:
+		s.TakenAt = *f.Night
 	}
-	sample := make([]float32, 0, len(d)/16+1)
-	for i := 0; i < len(d); i += 16 {
-		sample = append(sample, d[i])
-	}
-	m := med(sample)
-	for i, v := range sample {
-		sample[i] = float32(math.Abs(float64(v - m)))
-	}
-	noise = 1.4826 * float64(med(sample)) * adu
-	const nx, ny = 32, 24
-	blocks := make([]float32, 0, nx*ny)
-	v := make([]float32, 0, (w/nx+1)*(h/ny+1)/4)
-	for by := range ny {
-		for bx := range nx {
-			v = v[:0]
-			for y := by * h / ny; y < (by+1)*h/ny; y += 2 {
-				for x := bx * w / nx; x < (bx+1)*w/nx; x += 2 {
-					v = append(v, d[y*w+x])
-				}
-			}
-			blocks = append(blocks, med(v))
-		}
-	}
-	slices.Sort(blocks)
-	return float64(blocks[len(blocks)*95/100]-blocks[len(blocks)*5/100]) * adu, noise
+	return s
 }
 
-// dropLeakyDarks checks each downloaded dark for light and removes the
-// leaky ones from files, recording the measure on every frame and the leak
-// on the leaky ones. It returns how many are left.
 func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files []string) (int, error) {
+	refs, _, err := darkcheck.LoadReferences(ctx, p.db, coverage.SessionGap)
+	if err != nil {
+		return 0, err
+	}
 	left := 0
 	for i, f := range frames {
+		if f.CalCheck != nil && *f.CalCheck == darkcheck.StateClean {
+			left++
+			continue
+		}
 		b, err := os.ReadFile(files[i])
 		if err != nil {
 			return 0, err
@@ -73,19 +43,26 @@ func (p *Pipeline) dropLeakyDarks(ctx context.Context, frames []app.Frame, files
 		if err != nil {
 			return 0, fmt.Errorf("read %s: %w", f.Key, err)
 		}
-		spread, noise := darkSpread(im.Data, im.W, im.H)
-		var leak *float64
-		if leaky(spread) {
-			leak = &spread
-			slog.Warn("Leaving out a dark with a light leak", "key", f.Key, "spread_adu", math.Round(spread), "noise_adu", math.Round(noise))
+		m := darkcheck.Measure(im.Data, im.W, im.H)
+		s := frameSetup(f)
+		v := refs.Judge(s, m)
+		cols := map[string]any{
+			"dark_spread": m.Spread, "cal_median_adu": m.Median, "cal_spread_adu": m.Spread, "cal_noise_adu": m.Noise,
+			"cal_measured_at": time.Now().UTC(), "cal_check": v.State, "cal_check_reason": v.Reason, "light_leak": nil,
+		}
+		if v.State == darkcheck.StateLeak || v.State == darkcheck.StateOffTemp {
+			cols["light_leak"] = m.Spread
+			slog.Warn("Leaving out a rejected dark", "key", f.Key, "reason", v.Reason)
 			if err := os.Remove(files[i]); err != nil {
 				return 0, err
 			}
 		} else {
+			if v.State == darkcheck.StateClean {
+				refs.AddClean(s, m)
+			}
 			left++
 		}
-		if err := p.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).
-			UpdateColumns(map[string]any{"light_leak": leak, "dark_spread": spread}).Error; err != nil {
+		if err := p.db.WithContext(ctx).Model(&app.Frame{}).Where("id = ?", f.ID).UpdateColumns(cols).Error; err != nil {
 			return 0, err
 		}
 	}

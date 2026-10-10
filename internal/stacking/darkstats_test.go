@@ -2,12 +2,15 @@ package stacking
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/darkcheck"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -15,7 +18,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestDarkStats prints the light-leak measure of real darks in DARK_DIR.
 func TestDarkStats(t *testing.T) {
 	t.Parallel()
 	dir := os.Getenv("DARK_DIR")
@@ -34,47 +36,28 @@ func TestDarkStats(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		spread, noise := darkSpread(im.Data, im.W, im.H)
-		t.Logf("%-60s noise %5.2f  spread %6.1f ADU  leaky %v", f, noise, spread, leaky(spread))
+		m := darkcheck.Measure(im.Data, im.W, im.H)
+		t.Logf("%-60s median %6.1f  noise %5.2f  spread %6.1f ADU", f, m.Median, m.Noise, m.Spread)
 	}
 }
 
-// testDarks are a clean dark, one with light reaching the sensor and one
-// with a faint dawn ramp, well under the pixel noise.
-func testDarks() (clean, leak, dawn []float32, w, h int) {
-	w, h = 2048, 1536
-	r := rand.New(rand.NewPCG(5, 5))
-	clean = make([]float32, w*h)
-	leak = make([]float32, w*h)
-	dawn = make([]float32, w*h)
+func testFrame(seed uint64, w, h int, ramp float64) []float32 {
+	r := rand.New(rand.NewPCG(seed, seed))
+	d := make([]float32, w*h)
 	for y := range h {
 		for x := range w {
 			n := 500 + 7*r.NormFloat64()
-			ramp := float64(w-x+h-y) / float64(w+h) // brighter towards the top left
-			clean[y*w+x] = float32(n / 65535)
-			leak[y*w+x] = float32((n + 150*ramp) / 65535)
-			dawn[y*w+x] = float32((n + 6*ramp) / 65535)
+			d[y*w+x] = float32((n + ramp*float64(w-x+h-y)/float64(w+h)) / 65535)
 		}
 	}
-	return clean, leak, dawn, w, h
+	return d
 }
 
-func TestLightLeak(t *testing.T) {
-	t.Parallel()
-	clean, leak, dawn, w, h := testDarks()
-	if s, _ := darkSpread(clean, w, h); leaky(s) {
-		t.Errorf("clean dark: spread %v called leaky", s)
-	}
-	if s, _ := darkSpread(leak, w, h); !leaky(s) {
-		t.Errorf("leaky dark: spread %v called clean", s)
-	}
-	if s, _ := darkSpread(dawn, w, h); !leaky(s) {
-		t.Errorf("dawn dark: spread %v called clean", s)
-	}
+func testDarks() (clean, leak []float32, w, h int) {
+	w, h = 2048, 1536
+	return testFrame(5, w, h, 0), testFrame(6, w, h, 150), w, h
 }
 
-// Every dark checked records its measure, so a clean one can be told from
-// one never checked; only the leaky one is left out.
 func TestDropLeakyDarksRecordsClean(t *testing.T) {
 	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -84,13 +67,23 @@ func TestDropLeakyDarksRecordsClean(t *testing.T) {
 	if err := db.AutoMigrate(&app.Frame{}); err != nil {
 		t.Fatal(err)
 	}
-	clean, leak, _, w, h := testDarks()
+	clean, leak, w, h := testDarks()
+	gain, offset, bin, exp, temp := 100.0, 50.0, 1.0, 300.0, -10.0
+	for i := range 5 {
+		m := darkcheck.Measure(testFrame(uint64(20+i), w, h, 0), w, h)
+		now := time.Now()
+		b := app.Frame{Key: fmt.Sprintf("bias%d.fit", i), Type: "BIAS", Gain: &gain, Offset: &offset, BinX: &bin,
+			CalMedianADU: &m.Median, CalSpreadADU: &m.Spread, CalNoiseADU: &m.Noise, CalMeasuredAt: &now}
+		if err := db.Create(&b).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	dir := t.TempDir()
 	darks := [][]float32{clean, leak}
 	frames := make([]app.Frame, 0, len(darks))
 	files := make([]string, 0, len(darks))
 	for i, data := range darks {
-		f := app.Frame{Key: []string{"clean.fit", "leak.fit"}[i], Type: frameTypeDark}
+		f := app.Frame{Key: []string{"clean.fit", "leak.fit"}[i], Type: frameTypeDark, Gain: &gain, Offset: &offset, BinX: &bin, Exposure: &exp, SetTemp: &temp}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -107,11 +100,11 @@ func TestDropLeakyDarksRecordsClean(t *testing.T) {
 	}
 	var got []app.Frame
 	db.Order("id").Find(&got)
-	if got[0].DarkSpread == nil || got[0].LightLeak != nil {
-		t.Errorf("clean dark: spread %v, leak %v", got[0].DarkSpread, got[0].LightLeak)
+	if got[5].DarkSpread == nil || got[5].LightLeak != nil || got[5].CalCheck == nil || *got[5].CalCheck != darkcheck.StateClean {
+		t.Errorf("clean dark: spread %v, leak %v, check %v", got[5].DarkSpread, got[5].LightLeak, got[5].CalCheckReason)
 	}
-	if got[1].DarkSpread == nil || got[1].LightLeak == nil || *got[1].LightLeak != *got[1].DarkSpread {
-		t.Errorf("leaky dark: spread %v, leak %v", got[1].DarkSpread, got[1].LightLeak)
+	if got[6].DarkSpread == nil || got[6].LightLeak == nil || *got[6].LightLeak != *got[6].DarkSpread || *got[6].CalCheck != darkcheck.StateLeak {
+		t.Errorf("leaky dark: spread %v, leak %v", got[6].DarkSpread, got[6].LightLeak)
 	}
 	if _, err := os.Stat(files[1]); !os.IsNotExist(err) {
 		t.Error("leaky dark not removed")
