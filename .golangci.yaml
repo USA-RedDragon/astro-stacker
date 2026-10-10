@@ -62,7 +62,7 @@ linters:
       - path: internal/(goals|goalmeasure|planning)/.*_test\.go$
         linters:
           - testpackage
-      - path: internal/server/(planning|goalmask)_test\.go$
+      - path: internal/server/(planning|goalmask|objects)_test\.go$
         linters:
           - testpackage
       - path: internal/goals/measure\.go$
