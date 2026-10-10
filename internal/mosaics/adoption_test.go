@@ -130,6 +130,9 @@ func TestPropose(t *testing.T) {
 			if p.ProjectGUID != tc.project.GUID || p.Project != tc.project.Name || len(p.Fingerprint) != 16 {
 				t.Fatalf("identity %q %q %q", p.ProjectGUID, p.Project, p.Fingerprint)
 			}
+			if !strings.HasPrefix(p.Rule, p.Confidence+": ") {
+				t.Fatalf("rule %q does not name confidence %s", p.Rule, p.Confidence)
+			}
 			if tc.auto != (p.Issue == "") {
 				t.Fatalf("auto %v with issue %q", p.Auto, p.Issue)
 			}
