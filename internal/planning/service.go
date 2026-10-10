@@ -503,6 +503,44 @@ func (in Inputs) measurementFor(tr targetRow, filter string, env targetEnv) (app
 	return m, key, found, stacked
 }
 
+func (in Inputs) resolveGoal(tr targetRow, g *FilterGoal, env targetEnv, guid string, driven bool) goals.Kind {
+	f := g.Filter
+	m, key, found, stacked := in.measurementFor(tr, g.StackKey, env)
+	g.DefaultGoal = goals.DefaultGoal(g.StackKey)
+	g.DefaultGoal.TargetGUID, g.DefaultGoal.Filter = guid, f
+	goal, set := in.Goals[key]
+	if !set {
+		goal, set = in.Goals[goals.Key{Object: tr.Name, Filter: g.StackKey}]
+	}
+	g.GoalSet = set
+	switch {
+	case found && m.Error != nil:
+		g.Status, g.Error = StatusFailed, *m.Error
+	case found:
+		g.Status, g.Measured = StatusMeasured, true
+		g.Measurement = measurementOf(m)
+	case stacked:
+		g.Status = StatusNotMeasured
+	default:
+		g.Status = StatusNoMaster
+	}
+	if set || (driven && g.Measured) {
+		if !set {
+			goal = g.DefaultGoal
+		}
+		goal.TargetGUID, goal.Filter = guid, f
+		g.Goal = &goal
+	}
+	if g.Goal != nil && g.Measured {
+		ev := goals.Evaluate(m, *g.Goal)
+		g.Progress = &ev
+	}
+	if set {
+		return goal.Kind
+	}
+	return ""
+}
+
 func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env targetEnv, in Inputs) Target {
 	t := Target{ID: tr.ID, GUID: deref(tr.GUID), Name: tr.Name, Active: tr.Active != 0, RAHours: tr.RA, Dec: tr.Dec, Rotation: tr.Rotation, Panel: panelNumber(tr.Name), GoalMode: goals.KindSNR}
 	t.Driven = in.targetGoalDriven(tr)
@@ -540,39 +578,8 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 	}
 	t.SetName = SetName(setNames)
 	for _, f := range order {
-		g := byFilter[f]
-		m, key, found, stacked := in.measurementFor(tr, g.StackKey, env)
-		g.DefaultGoal = goals.DefaultGoal(g.StackKey)
-		g.DefaultGoal.TargetGUID, g.DefaultGoal.Filter = t.GUID, f
-		goal, set := in.Goals[key]
-		if !set {
-			goal, set = in.Goals[goals.Key{Object: tr.Name, Filter: g.StackKey}]
-		}
-		g.GoalSet = set
-		if set {
-			t.GoalMode = goal.Kind
-		}
-		switch {
-		case found && m.Error != nil:
-			g.Status, g.Error = StatusFailed, *m.Error
-		case found:
-			g.Status, g.Measured = StatusMeasured, true
-			g.Measurement = measurementOf(m)
-		case stacked:
-			g.Status = StatusNotMeasured
-		default:
-			g.Status = StatusNoMaster
-		}
-		if set || (t.Driven && g.Measured) {
-			if !set {
-				goal = g.DefaultGoal
-			}
-			goal.TargetGUID, goal.Filter = t.GUID, f
-			g.Goal = &goal
-		}
-		if g.Goal != nil && g.Measured {
-			ev := goals.Evaluate(m, *g.Goal)
-			g.Progress = &ev
+		if k := in.resolveGoal(tr, byFilter[f], env, t.GUID, t.Driven); k != "" {
+			t.GoalMode = k
 		}
 	}
 	sum, minPct, novProg := 0.0, math.Inf(1), math.Inf(1)
