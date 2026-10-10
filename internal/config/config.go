@@ -49,7 +49,7 @@ type Discover struct {
 	SiteLongitude    float64  `name:"site-longitude" description:"Observatory east longitude in degrees"`
 	SiteElevation    *float64 `name:"site-elevation" description:"Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise"`
 	MinAltitude      float64  `name:"min-altitude" description:"Altitude in degrees an object must clear in astronomical darkness to count as up" default:"30"`
-	SkyBrightness    float64  `name:"sky-brightness" description:"Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky"`
+	SkyBrightness    float64  `name:"sky-brightness" description:"Override for the dark-sky brightness in mag/arcsec²; 0 measures it from broadband (L, G, R, B) masters' zero points and their subs' sky"`
 	FocalLength      float64  `name:"focal-length" description:"Ignored: the focal length is read from lights' FOCALLEN"`
 	PixelSize        float64  `name:"pixel-size" description:"Ignored: the pixel size is read from lights' XPIXSZ"`
 	SensorWidth      int      `name:"sensor-width" description:"Ignored: the image width is read from lights' headers"`

@@ -147,7 +147,7 @@ discover:
   # site-elevation: 0.0
   # Altitude in degrees an object must clear in astronomical darkness to count as up
   min-altitude: 30
-  # Override for the dark-sky brightness in mag/arcsec²; 0 measures it from L masters' zero points and their subs' sky
+  # Override for the dark-sky brightness in mag/arcsec²; 0 measures it from broadband (L, G, R, B) masters' zero points and their subs' sky
   # sky-brightness: 0.0
   # Ignored: the focal length is read from lights' FOCALLEN
   # focal-length: 0.0
