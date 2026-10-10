@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -360,6 +361,52 @@ func TestCollabs(t *testing.T) {
 	}
 	if discover.CanonicalFilter("H-a") != "H" || discover.CanonicalFilter("O-III") != "O" || discover.CanonicalFilter("Lum") != "L" {
 		t.Error("filter canonicalisation")
+	}
+}
+
+func TestCollabFilters(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	closed := starfront.Project{Name: "closed", Status: "done", Created: float64(time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC).Unix()),
+		Payload: starfront.Payload{Kind: "mosaic", Region: starfront.Region{RA: 83.8, Dec: -5.4, Width: 1.66, Height: 1.48}}}
+	ha := closed
+	ha.ID, ha.Payload.Requirements = "d", starfront.Requirements{Filters: map[string]*float64{"Ha": nil}, MinFramesPerVisit: ptr(10), RequireCalibrated: true,
+		MinAltitude: ptr(20.0), MaxMoonIllumination: ptr(0.5), MinMoonSeparation: ptr(30.0)}
+	ha.Payload.Goals = map[string]float64{"Ha": 15}
+	osc := closed
+	osc.ID, osc.Payload.Requirements = "e", starfront.Requirements{Filters: map[string]*float64{"OSC": nil}}
+	osc.Payload.Goals = map[string]float64{"OSC": 35}
+	nm := closed
+	nm.ID, nm.Payload.Requirements = "f", starfront.Requirements{Filters: map[string]*float64{"L": ptr(100.0)}}
+	v, err := s.Collabs(context.Background(), fakeCollabs{starfront.State{Enabled: true, Projects: []starfront.Project{ha, osc, nm}}})
+	if err != nil || len(v.Closed) != 3 {
+		t.Fatalf("%v %d", err, len(v.Closed))
+	}
+	byID := map[string]discover.Collab{}
+	for _, c := range v.Closed {
+		byID[c.ID] = c
+	}
+	filterRow := func(c discover.Collab) discover.Criterion {
+		for _, cr := range c.Criteria {
+			if cr.Name == "Filters" {
+				return cr
+			}
+		}
+		return discover.Criterion{}
+	}
+	for _, cr := range byID["d"].Criteria {
+		if strings.Contains(cr.You, "not checked") || strings.Contains(cr.You, "can meet") || strings.Contains(cr.You, "per cell") || strings.Contains(cr.You, "dealt") {
+			t.Errorf("criterion not computed: %+v", cr)
+		}
+	}
+	if f := filterRow(byID["d"]); f.Result != discover.CriterionPass || f.Rule != "H, any bandpass" || byID["d"].Goals["H"] != 15 {
+		t.Errorf("Ha not canonicalised: %+v goals %+v", f, byID["d"].Goals)
+	}
+	if f := filterRow(byID["e"]); f.Result != discover.CriterionFail || !strings.Contains(f.You, "colour camera") || byID["e"].Verdict != discover.VerdictNoFit {
+		t.Errorf("OSC on a mono rig: %+v", f)
+	}
+	if f := filterRow(byID["f"]); f.Result != discover.CriterionOpen || !strings.Contains(f.You, "bandpass not set") || byID["f"].Verdict != discover.VerdictUnchecked || byID["f"].Unchecked == 0 {
+		t.Errorf("unknown bandpass passed silently: %+v %s", f, byID["f"].Verdict)
 	}
 }
 
