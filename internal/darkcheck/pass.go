@@ -151,7 +151,12 @@ func (r *References) Judge(s Setup, m Measures) Verdict {
 	return Judge(s, m, &b, nil)
 }
 
-func LoadReferences(ctx context.Context, db *gorm.DB, gap time.Duration) (*References, []measured, error) {
+func LoadReferences(ctx context.Context, db *gorm.DB, gap time.Duration) (*References, error) {
+	refs, _, err := loadReferences(ctx, db, gap)
+	return refs, err
+}
+
+func loadReferences(ctx context.Context, db *gorm.DB, gap time.Duration) (*References, []measured, error) {
 	var rows []measured
 	if err := db.WithContext(ctx).Model(&app.Frame{}).
 		Select(`id, key, type, exposure, gain, "offset", bin_x, set_temp, ccd_temp, date_obs, night, cal_median_adu, cal_spread_adu, cal_noise_adu, cal_check`).
@@ -179,7 +184,7 @@ func LoadReferences(ctx context.Context, db *gorm.DB, gap time.Duration) (*Refer
 }
 
 func JudgePending(ctx context.Context, db *gorm.DB, gap time.Duration) (clean, leak int, err error) {
-	refs, rows, err := LoadReferences(ctx, db, gap)
+	refs, rows, err := loadReferences(ctx, db, gap)
 	if err != nil {
 		return 0, 0, err
 	}
