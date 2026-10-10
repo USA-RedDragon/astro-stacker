@@ -23,7 +23,7 @@ type targetRow struct {
 	Active    int      `gorm:"column:active"`
 	RA        *float64 `gorm:"column:ra"`
 	Dec       *float64 `gorm:"column:dec"`
-	Rotation  float64  `gorm:"column:rotation"`
+	Rotation  *float64 `gorm:"column:rotation"`
 	ProjectID *int     `gorm:"column:projectid"`
 	GUID      *string  `gorm:"column:guid"`
 }

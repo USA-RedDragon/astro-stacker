@@ -36,7 +36,7 @@ func testDBs(t *testing.T) (*gorm.DB, *gorm.DB) {
 		`create table acquiredimage ("Id" integer primary key, "projectId" integer, "targetId" integer, acquireddate integer, filtername text, "gradingStatus" integer, metadata text)`,
 		`create table ts_target_season (target_guid text primary key, nights_left integer, out_of_season integer, season_end text, computed_for text, computed_at text)`,
 		`insert into project values (5,'p','Cygnis Loop',null,1,0,90,15,0,1,1,'pg5'),(7,'p','Garlic Nebula',null,1,1,60,20,0,0,1,'pg7')`,
-		`insert into target values (12,'Cygnis Loop Panel 1',1,20.8,30.7,0,5,'g12'),(13,'Cygnis Loop Panel 2',1,20.9,31.2,0,5,'g13'),(20,'Garlic Nebula',1,23.98,62.44,0,7,'g20')`,
+		`insert into target values (12,'Cygnis Loop Panel 1',1,20.8,30.7,0,5,'g12'),(13,'Cygnis Loop Panel 2',1,20.9,31.2,0,5,'g13'),(20,'Garlic Nebula',1,23.98,62.44,null,7,'g20')`,
 		`insert into exposuretemplate values (1,'p','H-a','H-a',100,10,1,2,1,45,7,85,600,0,0,1,'t1'),(2,'p','O-III','O-III',100,10,1,2,1,45,7,85,600,0,0,1,'t2'),(3,'p','Luminance','Luminance',0,50,1,0,1,30,7,85,300,0,0,1,'t3')`,
 		`insert into exposureplan values (40,'p',-1,300,350,180,12,1,1,'e40'),(41,'p',-1,300,300,200,12,2,1,'e41'),(42,'p',-1,300,10,10,13,1,1,'e42'),(43,'p',-1,300,10,10,13,2,1,'e43'),(50,'p',-1,100,64,64,20,1,1,'e50'),(51,'p',-1,100,47,47,20,2,1,'e51'),(52,'p',300,1,1,1,20,3,0,'e52')`,
 		`insert into ruleweight values (1,'Project Priority',100,5),(2,'Target Switch Penalty',67,5),(3,'Filter Steering',100,5)`,
@@ -283,5 +283,21 @@ func TestTwilightNameKeepsUnsetUnset(t *testing.T) {
 		if got := twilightName(&v); got == nil || *got != want {
 			t.Errorf("%d: %v, want %s", v, got, want)
 		}
+	}
+}
+
+func TestLoadKeepsAnUnsetRotationUnset(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	s, err := Load(context.Background(), sched, appDB, Inputs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cyg, _ := s.Project(5)
+	if r := cyg.Targets[0].Rotation; r == nil || *r != 0 {
+		t.Errorf("a set rotation of 0 came back as %v", r)
+	}
+	if garlic, _ := s.Project(7); garlic.Targets[0].Rotation != nil {
+		t.Errorf("an unset rotation came back as %v", *garlic.Targets[0].Rotation)
 	}
 }
