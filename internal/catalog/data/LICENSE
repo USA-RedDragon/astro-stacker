@@ -1,0 +1,20 @@
+catalog.json.zst is built by internal/catalog/gen from these sources, and is not covered by the repository's MIT licence.
+
+Because it adapts OpenNGC, the file as a whole is licensed under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0), https://creativecommons.org/licenses/by-sa/4.0/.
+
+OpenNGC v20260501, Mattia Verga, https://github.com/mattiaverga/OpenNGC (CC BY-SA 4.0).
+
+VizieR catalogues, CDS, Strasbourg (DOI 10.26093/cds/vizier). Their use follows the VizieR terms at https://cds.unistra.fr/vizier-org/licences_vizier.html, which allow free scientific and non-commercial use with citation of the original authors:
+  VII/20   Sharpless S. 1959, ApJS 4, 257
+  VII/9    Lynds B.T. 1965, ApJS 12, 163
+  VII/7A   Lynds B.T. 1962, ApJS 7, 1
+  VII/220A Barnard E.E. 1927, Carnegie Institution of Washington
+  VII/21   van den Bergh S. 1966, AJ 71, 990
+  VII/192  Arp H. 1966, ApJS 14, 1; Webb 1996
+  VII/213  Hickson P. 1982, ApJ 255, 382
+  VII/297  Green D.A. 2025, A Catalogue of Galactic Supernova Remnants
+  V/84     Acker A. et al. 1992, Strasbourg-ESO Catalogue of Galactic Planetary Nebulae
+  VII/216  Rodgers A.W., Campbell C.T., Whiteoak J.B. 1960, MNRAS 121, 103
+  VII/231  Cederblad S. 1946, Lund Medd. Ser. II 119
+
+Herschel 400 membership: the Astronomical League's Herschel 400 Observing Program list, as tabulated by Wikipedia's "Herschel 400 Catalogue" article (CC BY-SA 4.0).
