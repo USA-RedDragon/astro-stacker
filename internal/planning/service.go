@@ -115,7 +115,7 @@ type Target struct {
 	Active   bool         `json:"active"`
 	RAHours  *float64     `json:"raHours"`
 	Dec      *float64     `json:"dec"`
-	Rotation float64      `json:"rotation"`
+	Rotation *float64     `json:"rotation"`
 	Panel    int          `json:"panel,omitempty"`
 	Plans    []Plan       `json:"plans"`
 	Goals    []FilterGoal `json:"goals"`
