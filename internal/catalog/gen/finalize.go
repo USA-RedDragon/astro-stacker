@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"unicode"
@@ -77,7 +78,8 @@ func (b *builder) dedupeNames() {
 			}
 		}
 	}
-	for k, objs := range owners {
+	for _, k := range slices.Sorted(maps.Keys(owners)) {
+		objs := owners[k]
 		if len(objs) < 2 {
 			continue
 		}
