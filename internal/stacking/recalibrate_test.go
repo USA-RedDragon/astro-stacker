@@ -74,6 +74,9 @@ func TestRecalReason(t *testing.T) {
 		{"likely 8 °C off", darkHistory{likely: dark(0, 30)}, recalCloser},
 		// Unrecorded lights are never taken back for a set that grew.
 		{"likely the same setup", darkHistory{likely: dark(-5, 8)}, ""},
+		{"frames no set has now", darkHistory{used: dark(-5, 25), gone: true}, recalChanged},
+		{"an imported master", darkHistory{used: &calmatch.Set{Type: frameTypeDark, Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5,
+			BinX: 1, Master: "m.xisf"}, gone: true}, ""},
 	} {
 		if got := recalReason(g, c.h, now); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
@@ -112,7 +115,7 @@ func TestInferDark(t *testing.T) {
 
 // recalDB holds a -5 °C dark library of 25 frames uploaded settled long ago,
 // with the master of its first 8, and lights stacked in master 7.
-func recalDB(t *testing.T) (*gorm.DB, func(key string, sf app.StackFrame) int) {
+func recalDB(t *testing.T) (*gorm.DB, func(key string, sf app.StackFrame) int, string) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -123,18 +126,22 @@ func recalDB(t *testing.T) (*gorm.DB, func(key string, sf app.StackFrame) int) {
 	}
 	night := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 	start := time.Date(2026, 9, 29, 4, 0, 0, 0, time.UTC)
+	darks := make([]app.Frame, 0, 25)
 	for i := range 25 {
 		d := start.Add(time.Duration(i) * 10 * time.Minute)
-		if err := db.Create(&app.Frame{Key: fmt.Sprintf("dark-%d", i), Type: frameTypeDark, Exposure: fp(600), Gain: fp(0),
-			Offset: fp(50), SetTemp: fp(-5), BinX: fp(1), Night: &night, DateObs: &d, LastModified: d}).Error; err != nil {
+		f := app.Frame{Key: fmt.Sprintf("dark-%d", i), Type: frameTypeDark, Exposure: fp(600), Gain: fp(0),
+			Offset: fp(50), SetTemp: fp(-5), BinX: fp(1), Night: &night, DateObs: &d, LastModified: d}
+		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}
+		darks = append(darks, f)
 	}
+	whole := setKey(frameTypeDark, darks)
 	if err := db.Create(&app.CalibrationMaster{SetKey: "partial", Type: frameTypeDark, ObjectKey: "x", Frames: 8,
 		Exposure: fp(600), Gain: fp(0), Offset: fp(50), SetTemp: fp(-5), BinX: fp(1)}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&app.CalibrationMaster{SetKey: "whole", Type: frameTypeDark, ObjectKey: "y", Frames: 25,
+	if err := db.Create(&app.CalibrationMaster{SetKey: whole, Type: frameTypeDark, ObjectKey: "y", Frames: 25,
 		Exposure: fp(600), Gain: fp(0), Offset: fp(50), SetTemp: fp(-5), BinX: fp(1)}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -160,16 +167,16 @@ func recalDB(t *testing.T) (*gorm.DB, func(key string, sf app.StackFrame) int) {
 		}
 		return sf.ID
 	}
-	return db, light
+	return db, light, whole
 }
 
 func TestRecalibrateDarks(t *testing.T) {
 	t.Parallel()
-	db, light := recalDB(t)
+	db, light, wholeKey := recalDB(t)
 	s := func(v string) *string { return &v }
 	noDark := light(subA, app.StackFrame{NoDark: true})
 	partial := light("b.xisf", app.StackFrame{DarkMaster: s("partial")})
-	whole := light("c.xisf", app.StackFrame{DarkMaster: s("whole")})
+	whole := light("c.xisf", app.StackFrame{DarkMaster: s(wholeKey)})
 	unknown := light("d.xisf", app.StackFrame{})
 	calibrated := light("e_cal.fits", app.StackFrame{})
 	// A 0 °C library from 2025, and lights stacked before masters were
@@ -215,10 +222,41 @@ func TestRecalibrateDarks(t *testing.T) {
 	}
 }
 
+func TestRecalibrateDarksAfterDarksRemoved(t *testing.T) {
+	t.Parallel()
+	db, light, wholeKey := recalDB(t)
+	s := func(v string) *string { return &v }
+	id := light("c.xisf", app.StackFrame{DarkMaster: s(wholeKey)})
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
+	status := func() string {
+		var sf app.StackFrame
+		db.First(&sf, id)
+		return sf.Status
+	}
+	if err := p.recalibrateDarks(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got != app.StackStatusAdded {
+		t.Fatalf("with every dark of its master present: %s", got)
+	}
+	if err := db.Where("key IN ?", []string{"dark-21", "dark-22"}).Delete(&app.Frame{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&app.Frame{}).Where("key = ?", "dark-23").Update("light_leak", 40.0).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := p.recalibrateDarks(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got != app.StackStatusRecalibrate {
+		t.Fatalf("after darks of its master were deleted and rejected: %s", got)
+	}
+}
+
 // No more than RecalibrateLimit lights wait at once, the best reason first.
 func TestRecalibrateDarksTrickles(t *testing.T) {
 	t.Parallel()
-	db, light := recalDB(t)
+	db, light, wholeKey := recalDB(t)
 	s := func(v string) *string { return &v }
 	light("waiting.xisf", app.StackFrame{Status: app.StackStatusRecalibrate})
 	partial := make([]int, 0, 3)
@@ -256,7 +294,7 @@ func TestRecalibrateDarksTrickles(t *testing.T) {
 	// Once they are stacked again, with the whole set, the rest follow.
 	db.Model(&app.StackFrame{}).Where("status = ?", app.StackStatusRecalibrate).Update("status", app.StackStatusAdded)
 	db.Model(&app.StackFrame{}).Where("id IN ?", []int{noDark, partial[0]}).
-		Updates(map[string]any{"dark_master": "whole", "no_dark": false})
+		Updates(map[string]any{"dark_master": wholeKey, "no_dark": false})
 	if err := p.recalibrateDarks(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +309,7 @@ func TestRecalibrateDarksTrickles(t *testing.T) {
 // masters recorded their setup gets it when next used.
 func TestMasterForSettleAndSetup(t *testing.T) {
 	t.Parallel()
-	db, _ := recalDB(t)
+	db, _, _ := recalDB(t)
 	dir := t.TempDir()
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, dir, DefaultPipelineOptions())
 	ctx := context.Background()
@@ -290,6 +328,9 @@ func TestMasterForSettleAndSetup(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := setKey(frameTypeDark, frames)
+	if err := db.Where("set_key = ?", key).Delete(&app.CalibrationMaster{}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	arriving := dark
 	arriving.Uploaded = time.Now().Add(-time.Hour)
