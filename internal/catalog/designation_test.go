@@ -12,6 +12,7 @@ const (
 	abell85 = "Abell 85"
 	garlic  = "G116.9+00.2"
 	messier = "messier"
+	sh216   = "Sh2-216"
 )
 
 func TestCanonical(t *testing.T) {
@@ -58,5 +59,14 @@ func TestKeyAndNames(t *testing.T) {
 	}
 	if s := catalog.Similarity("garlic", "rosette"); s > 0.2 {
 		t.Errorf("Similarity of unrelated names = %.2f", s)
+	}
+}
+
+func TestSharplessSpellings(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{"Sharpless 216": sh216, "Sharpless 2-216": sh216, "Sh2 216": sh216, "SH 2-16": "Sh2-16"} {
+		if got, ok := catalog.Canonical(in); !ok || got != want {
+			t.Errorf("Canonical(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

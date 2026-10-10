@@ -22,7 +22,7 @@ var reMessier = regexp.MustCompile(`^(?:M|MESSIER)\s*-?\s*0*(\d{1,3})$`)
 var reNGC = regexp.MustCompile(`^NGC\s*-?\s*0*(\d{1,4})\s*([A-Z])?$`)
 var reIC = regexp.MustCompile(`^IC\s*-?\s*0*(\d{1,4})\s*([A-Z])?$`)
 var reCaldwell = regexp.MustCompile(`^(?:C|CALDWELL)\s*-?\s*0*(\d{1,3})$`)
-var reSharpless = regexp.MustCompile(`^(?:SH\s*2|SHARPLESS(?:\s*2)?)\s*-?\s*0*(\d{1,3})$`)
+var reSharpless = regexp.MustCompile(`^(?:SH\s*2\s*-?|SHARPLESS(?:\s*2\s*-)?)\s*0*(\d{1,3})$`)
 var reLBN = regexp.MustCompile(`^LBN\s*-?\s*0*(\d{1,4})$`)
 var reLDN = regexp.MustCompile(`^(?:LDN|LYNDS)\s*-?\s*0*(\d{1,4})$`)
 var reBarnard = regexp.MustCompile(`^(?:B|BARNARD)\s*-?\s*0*(\d{1,3})\s*([A-Z])?$`)
@@ -126,6 +126,16 @@ func Key(designation string) string {
 		designation = c
 	}
 	return strings.ToUpper(strings.Join(strings.Fields(designation), ""))
+}
+
+var designationShape = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{0,9}[ -]?[+-]?\d[0-9A-Za-z.+\-*?]*$|^\d[A-Za-z]{1,2}\s?\d+(\.\d+)?$`)
+
+func LooksLikeDesignation(s string) bool {
+	if _, ok := Canonical(s); ok {
+		return true
+	}
+	s = strings.TrimSpace(s)
+	return len(s) <= 24 && designationShape.MatchString(s)
 }
 
 var panelSuffix = regexp.MustCompile(`(?i)(?:\s*[-,]?\s*\bpanel\s*\d+|\s+p\d+)\s*$`)
