@@ -24,6 +24,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
+	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
@@ -144,6 +145,9 @@ type Pipeline struct {
 
 	// Events, if set, hears about updated masters and what workers do.
 	Events *events.Broker
+	// Wake, if set, ends idle workers' wait early, as when new lights are
+	// ready to score.
+	Wake *wake.Signal
 
 	statusMu sync.Mutex
 	working  map[string]*events.Worker // by object
@@ -195,11 +199,18 @@ func (p *Pipeline) stopping(ctx context.Context) bool {
 // pause waits d, or less if the pipeline stops meanwhile; it reports
 // whether to carry on.
 func (p *Pipeline) pause(ctx context.Context, d time.Duration) bool {
+	return p.pauseUntil(ctx, d, nil)
+}
+
+// pauseUntil is pause that also ends when woke closes.
+func (p *Pipeline) pauseUntil(ctx context.Context, d time.Duration, woke <-chan struct{}) bool {
 	select {
 	case <-ctx.Done():
 		return false
 	case <-p.drain:
 		return false
+	case <-woke:
+		return true
 	case <-time.After(d):
 		return true
 	}
@@ -274,6 +285,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 
 func (p *Pipeline) work(ctx context.Context, interval time.Duration) {
 	for !p.stopping(ctx) {
+		woke := p.Wake.C()
 		n, err := p.RunOnce(ctx, "", "")
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Stacking failed", "error", err)
@@ -281,7 +293,7 @@ func (p *Pipeline) work(ctx context.Context, interval time.Duration) {
 		if n > 0 && err == nil {
 			continue
 		}
-		if !p.pause(ctx, interval) {
+		if !p.pauseUntil(ctx, interval, woke) {
 			return
 		}
 	}

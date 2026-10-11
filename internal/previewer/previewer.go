@@ -21,6 +21,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
@@ -39,6 +40,8 @@ type Previewer struct {
 
 	// Events, if set, hears about rendered previews.
 	Events *events.Broker
+	// Wake, if set, ends the idle wait early, as when new lights are indexed.
+	Wake *wake.Signal
 }
 
 func New(client *minio.Client, source, dest string, db *gorm.DB, concurrency int, opts preview.Options) *Previewer {
@@ -50,9 +53,11 @@ func Key(frameKey string) string {
 	return "previews/" + strings.TrimSuffix(frameKey, path.Ext(frameKey)) + ".jpg"
 }
 
-// Run renders previews until ctx is cancelled, sleeping interval when idle.
+// Run renders previews until ctx is cancelled, sleeping interval when idle
+// or until Wake fires.
 func (p *Previewer) Run(ctx context.Context, interval time.Duration) {
 	for {
+		woke := p.Wake.C()
 		n, err := p.RenderBatch(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Rendering previews failed", "error", err)
@@ -67,6 +72,7 @@ func (p *Previewer) Run(ctx context.Context, interval time.Duration) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-woke:
 		case <-time.After(interval):
 		}
 	}

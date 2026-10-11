@@ -23,6 +23,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -40,6 +41,9 @@ type Indexer struct {
 
 	// Events, if set, hears when new frames are indexed.
 	Events *events.Broker
+	// Wake, if set, is notified when new frames are indexed and when new
+	// lights' starlight is measured, so previews and stacking start at once.
+	Wake *wake.Signal
 
 	AfterScan        func(context.Context)
 	RejectDarksSince time.Time
@@ -100,6 +104,7 @@ func (ix *Indexer) scan(ctx context.Context) {
 	} else if err == nil {
 		if stats.Indexed > 0 {
 			ix.Events.Publish(events.Event{Type: events.TypeFrames})
+			ix.Wake.Notify()
 		}
 		slog.Info("Indexed bucket", "bucket", ix.bucket, "seen", stats.Seen, "indexed", stats.Indexed,
 			"failed", stats.Failed, "removed", stats.Removed, "duration", time.Since(start).Round(time.Millisecond))
@@ -141,6 +146,7 @@ func (ix *Indexer) photometryPass(ctx context.Context) bool {
 	if n == 0 {
 		return false
 	}
+	ix.Wake.Notify()
 	var pending int64
 	if err := photometryPending(ix.db.WithContext(ctx)).Count(&pending).Error; err != nil {
 		slog.Error("Counting lights waiting for photometry failed", "error", err)
