@@ -267,6 +267,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		// before the sweep, which restacks what that marks.
 		for !p.stopping(ctx) {
 			p.rescoreAdded(ctx)
+			p.reconcileLateRecords(ctx)
 			if err := p.dropDuplicates(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("Taking duplicates out of masters failed", "error", err)
 			}
