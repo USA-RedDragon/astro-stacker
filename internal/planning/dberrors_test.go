@@ -88,7 +88,7 @@ func TestAppInputsFailWhenObjectLinksFail(t *testing.T) {
 		if tx.Statement.Table != "frame_targets" {
 			return
 		}
-		if seen++; seen == 2 {
+		if seen++; seen == 1 {
 			tx.Statement.SQL.Reset()
 			tx.Statement.SQL.WriteString("SELECT 1 FROM " + injected)
 			tx.Statement.Vars = nil

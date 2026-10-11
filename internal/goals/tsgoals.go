@@ -212,6 +212,19 @@ func LoadGoals(ctx context.Context, appDB, sched *gorm.DB) (map[Key]Goal, map[Ke
 	if err != nil {
 		return nil, nil, err
 	}
+	return loadGoals(ctx, sched, tm)
+}
+
+func LoadGoalsAndLinks(ctx context.Context, appDB, sched *gorm.DB) (map[Key]Goal, map[string]tslink.ObjectLink, error) {
+	tm, err := loadTargetMap(ctx, appDB, sched)
+	if err != nil {
+		return nil, nil, err
+	}
+	gs, _, err := loadGoals(ctx, sched, tm)
+	return gs, tm.links, err
+}
+
+func loadGoals(ctx context.Context, sched *gorm.DB, tm targetMap) (map[Key]Goal, map[Key]string, error) {
 	filters, err := loadPlanFilters(ctx, sched, tm)
 	if err != nil {
 		return nil, nil, err

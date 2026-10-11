@@ -31,15 +31,11 @@ func AppInputs(ctx context.Context, appDB, sched *gorm.DB) (Inputs, error) {
 	if appDB == nil {
 		return in, nil
 	}
-	gs, _, err := goals.LoadGoals(ctx, appDB, sched)
+	gs, byObject, err := goals.LoadGoalsAndLinks(ctx, appDB, sched)
 	if err != nil {
 		return in, err
 	}
 	in.Goals = gs
-	byObject, err := goals.ObjectLinks(ctx, appDB, sched)
-	if err != nil {
-		return in, err
-	}
 	for obj, l := range byObject {
 		in.ObjectsByGUID[l.TargetGUID] = append(in.ObjectsByGUID[l.TargetGUID], obj)
 	}
