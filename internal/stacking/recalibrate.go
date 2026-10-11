@@ -25,13 +25,16 @@ const (
 	// CloserDarkC closer to the light's than its dark's was.
 	recalCloser  = "closer_dark"
 	recalChanged = "dark_changed"
+	// recalFull: it was calibrated with a short dark set, and a full one
+	// (calmatch.FullDarkSet) matches now.
+	recalFull = "dark_full"
 )
 
 func recalOrder(why string) int {
 	switch why {
 	case recalCloser:
 		return 1
-	case recalGrown:
+	case recalGrown, recalFull:
 		return 2
 	default:
 		return 0
@@ -80,6 +83,9 @@ func recalReason(g calmatch.Group, h darkHistory, now calmatch.Match) string {
 	}
 	if h.used != nil && h.used.Master == "" && sameSetup(*h.used, *now.Set) && now.Set.Count > h.used.Count {
 		return recalGrown
+	}
+	if !calmatch.FullDark(*was) && calmatch.FullDark(*now.Set) && !sameSetup(*was, *now.Set) {
+		return recalFull
 	}
 	if h.used != nil && h.used.Master == "" && h.gone {
 		return recalChanged
@@ -260,7 +266,7 @@ func (p *Pipeline) recalibrateDarks(ctx context.Context) error {
 	if len(take) == 0 {
 		slog.Info("Lights due a better dark wait for those being calibrated again", "due", len(found),
 			"no_dark", byReason[recalNoDark], "closer_dark", byReason[recalCloser], "dark_grew", byReason[recalGrown],
-			"dark_changed", byReason[recalChanged], "waiting", waiting)
+			"dark_changed", byReason[recalChanged], "dark_full", byReason[recalFull], "waiting", waiting)
 		return nil
 	}
 	ids := make([]int, len(take))
@@ -284,6 +290,7 @@ func (p *Pipeline) recalibrateDarks(ctx context.Context) error {
 	}
 	slog.Info("Calibrating stacked lights again with a better dark", "lights", len(take), "masters", len(stackIDs),
 		"due", len(found), "no_dark", byReason[recalNoDark], "closer_dark", byReason[recalCloser],
-		"dark_grew", byReason[recalGrown], "dark_changed", byReason[recalChanged], "left_for_later", len(found)-len(take))
+		"dark_grew", byReason[recalGrown], "dark_changed", byReason[recalChanged], "dark_full", byReason[recalFull],
+		"left_for_later", len(found)-len(take))
 	return nil
 }
