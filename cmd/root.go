@@ -99,7 +99,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	indexCtx, stopIndexer := context.WithCancel(context.Background())
 	defer stopIndexer()
 	var signer *previewer.Signer
-	mosaicPlans := newMosaicPlans(cfg, appStore, schedulerDBStore)
+	mosaicPlans, horizon := newMosaicPlans(cfg, appStore, schedulerDBStore)
+	go horizon.Run(indexCtx)
 	var restacker middleware.Restacker
 	drainStacker := func() {}
 	drainGoals := func() {}

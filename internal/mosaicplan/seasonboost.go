@@ -56,25 +56,39 @@ func (s *Service) SeasonBoosts(ctx context.Context, now time.Time) (map[string]f
 	if ratio != nil && ratio.Value > 0 {
 		perRaw = ratio.Value
 	}
-	for _, b := range SeasonBoostsFor(snap.Projects, site, ClearShare(hist.perMonth()), perRaw, now) {
+	for _, b := range SeasonBoostsFor(snap.Projects, site, s.horizonReport(ctx), ClearShare(hist.perMonth()), perRaw, now) {
 		out[b.GUID] = b.Boost
 	}
 	return out, nil
 }
 
-func SeasonBoostsFor(projects []planning.Project, site mosaics.Site, share [12]float64, effectivePerRaw float64, now time.Time) []TargetSeasonBoost {
+// ProjectHorizon is the altitude settings of a planning project.
+func ProjectHorizon(p planning.Project) HorizonSettings {
+	hs := HorizonSettings{ProfileID: p.ProfileID, UseCustom: p.UseCustomHorizon != nil && *p.UseCustomHorizon}
+	if !p.MinAltitudeNull {
+		m := p.MinimumAltitude
+		hs.MinAltitude = &m
+	}
+	if p.HorizonOffset != nil {
+		hs.Offset = *p.HorizonOffset
+	}
+	return hs
+}
+
+func SeasonBoostsFor(projects []planning.Project, site mosaics.Site, report *mosaics.HorizonReport, share [12]float64, effectivePerRaw float64, now time.Time) []TargetSeasonBoost {
 	var out []TargetSeasonBoost
 	for _, p := range projects {
 		if p.State != stateActive {
 			continue
 		}
+		limit, _, limitOK := LimitFor(ProjectHorizon(p), report)
 		for _, t := range p.Targets {
 			if !t.Active || t.GUID == "" || t.RAHours == nil || t.Dec == nil {
 				continue
 			}
 			b := TargetSeasonBoost{Project: p.Name, Target: t.Name, GUID: t.GUID}
-			avail, in := SeasonHours(t.Season, site, mosaics.Point{RA: *t.RAHours * 15, Dec: *t.Dec}, p.MinimumAltitude, p.MinimumTime, share, now)
-			if in {
+			avail, in := SeasonHours(t.Season, site, mosaics.Point{RA: *t.RAHours * 15, Dec: *t.Dec}, limit, p.MinimumTime, share, now)
+			if in && limitOK {
 				b.Needed = TargetHoursNeeded(t, p.Grader, effectivePerRaw)
 				b.Available = avail
 				b.Boost = SeasonPriority(b.Needed, b.Available)
@@ -117,7 +131,7 @@ func ClearShare(months []MonthNights) [12]float64 {
 	return out
 }
 
-func SeasonHours(season *planning.Season, site mosaics.Site, pt mosaics.Point, minAlt float64, minMinutes int, share [12]float64, now time.Time) (float64, bool) {
+func SeasonHours(season *planning.Season, site mosaics.Site, pt mosaics.Point, limit mosaics.Limit, minMinutes int, share [12]float64, now time.Time) (float64, bool) {
 	if season == nil || season.OutOfSeason || season.NightsLeft <= 0 {
 		return 0, false
 	}
@@ -133,7 +147,7 @@ func SeasonHours(season *planning.Season, site mosaics.Site, pt mosaics.Point, m
 	for i := 0; i < n; i += boostSampleNights {
 		w := min(boostSampleNights, n-i)
 		night := first.AddDate(0, 0, i+w/2)
-		h := mosaics.DarkHours(night, site, []mosaics.Point{pt}, mosaics.Flat(minAlt))
+		h := mosaics.DarkHours(night, site, []mosaics.Point{pt}, limit)
 		if h*60 < float64(minMinutes) {
 			continue
 		}

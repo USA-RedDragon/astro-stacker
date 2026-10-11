@@ -8,7 +8,7 @@ type projectRow struct {
 	State           int      `gorm:"column:state"`
 	Priority        int      `gorm:"column:priority"`
 	MinimumTime     int      `gorm:"column:minimumtime"`
-	MinimumAltitude float64  `gorm:"column:minimumaltitude"`
+	MinimumAltitude *float64 `gorm:"column:minimumaltitude"`
 	MaximumAltitude *float64 `gorm:"column:maximumAltitude"`
 	IsMosaic        int      `gorm:"column:isMosaic"`
 	EnableGrader    int      `gorm:"column:enablegrader"`

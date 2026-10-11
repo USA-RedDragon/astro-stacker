@@ -44,12 +44,12 @@ func schedFixture(t *testing.T) *gorm.DB {
 	db := open(t, "sched")
 	stmts := make([]string, 0, 16)
 	stmts = append(stmts,
-		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, name TEXT, guid TEXT, "isMosaic" INTEGER, minimumaltitude REAL, priority INTEGER, state INTEGER, minimumtime INTEGER)`,
+		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, name TEXT, guid TEXT, "isMosaic" INTEGER, minimumaltitude REAL, priority INTEGER, state INTEGER, minimumtime INTEGER, "profileId" TEXT DEFAULT 'prof-1', usecustomhorizon INTEGER DEFAULT 0, horizonoffset REAL DEFAULT 0)`,
 		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, active INTEGER, ra REAL, dec REAL, rotation REAL, projectid INTEGER, guid TEXT)`,
 		`CREATE TABLE exposuretemplate ("Id" INTEGER PRIMARY KEY, filtername TEXT, defaultexposure REAL)`,
 		`CREATE TABLE exposureplan ("Id" INTEGER PRIMARY KEY, targetid INTEGER, "exposureTemplateId" INTEGER, exposure REAL, desired INTEGER, accepted INTEGER, enabled INTEGER)`,
 		`CREATE TABLE ruleweight ("Id" INTEGER PRIMARY KEY, name TEXT, weight REAL, projectid INTEGER)`,
-		`INSERT INTO project VALUES (1, 'Markarian Chain', 'pm', 1, 20, 1, 1, 60), (2, 'Rho', 'pr', 1, 10, 1, 1, 90), (3, 'Rosette', 'pros', 0, 0, 1, 1, 60)`,
+		`INSERT INTO project ("Id", name, guid, "isMosaic", minimumaltitude, priority, state, minimumtime) VALUES (1, 'Markarian Chain', 'pm', 1, 20, 1, 1, 60), (2, 'Rho', 'pr', 1, 10, 1, 1, 90), (3, 'Rosette', 'pros', 0, 0, 1, 1, 60)`,
 		`INSERT INTO exposuretemplate VALUES (1, 'Red', 120), (2, 'H-a', 300)`,
 		`INSERT INTO ruleweight VALUES (1, 'Panel Deficit', 75, 1), (2, 'Mosaic Completion', 0, 1), (3, 'Mosaic Completion', 0, 2)`,
 	)

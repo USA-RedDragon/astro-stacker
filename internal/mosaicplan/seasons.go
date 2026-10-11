@@ -93,6 +93,7 @@ type SeasonPlan struct {
 	GoalHoursSource string                `json:"goalHoursSource"`
 	EffectivePerRaw *EffectiveRatio       `json:"effectivePerRaw"`
 	PanelPriority   []PanelSeasonPriority `json:"panelPriority"`
+	Horizon         HorizonBasis          `json:"horizon"`
 }
 
 type EffectiveRatio struct {
@@ -199,28 +200,32 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 		plan.Current = &SeasonPace{Start: start, End: end}
 	}
 	var months [12]float64
+	limit, hb, limitOK := s.projectLimit(ctx, d)
+	plan.Horizon = hb
 	if s.Site != nil {
 		if site, ok := s.Site(ctx); ok {
 			plan.SiteKnown = true
-			months = mosaics.MonthlyDarkHours(now.Year(), site, centres, mosaics.Flat(d.TS.MinAltitude))
-			for m, h := range months {
-				plan.Months = append(plan.Months, Month{Month: m + 1, Name: time.Month(m + 1).String()[:3], Hours: math.Round(h*10) / 10})
+			if limitOK {
+				months = mosaics.MonthlyDarkHours(now.Year(), site, centres, limit)
+				for m, h := range months {
+					plan.Months = append(plan.Months, Month{Month: m + 1, Name: time.Month(m + 1).String()[:3], Hours: math.Round(h*10) / 10})
+				}
+				plan.NightsLeft = nightsLeft(now, site, centres, limit)
+				plan.InSeason = plan.NightsLeft > 0
 			}
-			plan.NightsLeft = nightsLeft(now, site, centres, mosaics.Flat(d.TS.MinAltitude))
-			plan.InSeason = plan.NightsLeft > 0
 		}
 	}
 	hist, err := s.clearNights(ctx)
 	if err != nil {
 		return plan, err
 	}
-	plan.Basis = seasonBasis(hist, seasons, months, plan.SiteKnown)
+	plan.Basis = seasonBasis(hist, seasons, months, plan.SiteKnown, limitOK, hb.Reason)
 	usedPace, hours := choosePace(pace, plan.Basis, seasons, now)
 	plan.HoursPerSeason = hours
 	if hours != nil {
 		plan.Pace = &usedPace
 	}
-	plan.PanelPriority = s.panelPriorities(ctx, d, now)
+	plan.PanelPriority = s.panelPriorities(ctx, d, now, limit, limitOK)
 	if plan.HoursPerSeason == nil {
 		if plan.Basis.Reason == nil {
 			plan.Basis.Reason = reason("this project has no completed season yet")
@@ -249,7 +254,16 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 
 func reason(s string) *string { return &s }
 
-func seasonBasis(hist nightHistory, seasons []SeasonPace, months [12]float64, siteKnown bool) SeasonBasis {
+const reasonNoProject = "this mosaic has no Target Scheduler project, so its minimum altitude and horizon are unknown and dark hours are not worked out"
+
+func (s *Service) projectLimit(ctx context.Context, d Detail) (mosaics.Limit, HorizonBasis, bool) {
+	if d.TS.ID == 0 {
+		return mosaics.Limit{}, HorizonBasis{Kind: HorizonMinimumAltitude, Reason: reason(reasonNoProject)}, false
+	}
+	return s.limitFor(ctx, d.TS.horizon())
+}
+
+func seasonBasis(hist nightHistory, seasons []SeasonPace, months [12]float64, siteKnown, limitKnown bool, limitReason *string) SeasonBasis {
 	b := SeasonBasis{ImagingNightsPerMonth: hist.perMonth(), UsableMonths: []int{}, HistoryNights: len(hist.hours)}
 	b.HistoryFrom, b.HistoryTo = hist.span()
 	var first, last time.Time
@@ -262,12 +276,14 @@ func seasonBasis(hist nightHistory, seasons []SeasonPace, months [12]float64, si
 		}
 	}
 	last = hist.last
-	if siteKnown {
+	if siteKnown && limitKnown {
 		b.UsableMonths = usableMonths(months)
 	}
 	switch {
 	case !siteKnown:
 		b.Reason = reason("the observatory site is not known, so the target's dark hours per month can't be worked out")
+	case !limitKnown:
+		b.Reason = limitReason
 	case len(b.UsableMonths) == 0:
 		b.Reason = reason("the target never has enough dark hours in a month at this site")
 	case len(hist.hours) < minHistoryNights:
@@ -472,7 +488,7 @@ func (s *Service) seasonPaces(ctx context.Context, d Detail, ra float64) ([]Seas
 	return out, nil
 }
 
-func (s *Service) panelPriorities(ctx context.Context, d Detail, now time.Time) []PanelSeasonPriority {
+func (s *Service) panelPriorities(ctx context.Context, d Detail, now time.Time, limit mosaics.Limit, limitOK bool) []PanelSeasonPriority {
 	out := make([]PanelSeasonPriority, 0, len(d.Panels))
 	var site mosaics.Site
 	known := false
@@ -490,8 +506,8 @@ func (s *Service) panelPriorities(ctx context.Context, d Detail, now time.Time) 
 				pp.HoursLeft += f.HoursNeeded
 			}
 		}
-		if known {
-			months := mosaics.MonthlyDarkHours(now.Year(), site, []mosaics.Point{{RA: p.RA, Dec: p.Dec}}, mosaics.Flat(d.TS.MinAltitude))
+		if known && limitOK {
+			months := mosaics.MonthlyDarkHours(now.Year(), site, []mosaics.Point{{RA: p.RA, Dec: p.Dec}}, limit)
 			for i := range 12 {
 				t := now.AddDate(0, i, 0)
 				if months[int(t.Month())-1] < usableMonthly {
