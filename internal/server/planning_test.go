@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/ruleweights"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -38,6 +40,12 @@ func memStore(t *testing.T) testStore {
 
 func planningEngine(t *testing.T) *gin.Engine {
 	t.Helper()
+	r, _, _ := planningEngineWith(t, nil)
+	return r
+}
+
+func planningEngineWith(t *testing.T, cmds *schedcmd.Service) (*gin.Engine, testStore, testStore) {
+	t.Helper()
 	sched := memStore(t)
 	appStore := memStore(t)
 	if err := appStore.DB().AutoMigrate(&app.Stack{}, &app.GoalMeasurement{}, &app.FrameTarget{}); err != nil {
@@ -61,8 +69,8 @@ func planningEngine(t *testing.T) *gin.Engine {
 	}
 	r := gin.New()
 	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{}, AppStore: appStore, SchedulerDBStore: sched}))
-	applyPlanningRoutes(r.Group("/api/v1"), nil)
-	return r
+	applyPlanningRoutes(r.Group("/api/v1"), nil, cmds)
+	return r, sched, appStore
 }
 
 func get(t *testing.T, r *gin.Engine, method, path, body string) (int, map[string]any) {
@@ -137,5 +145,133 @@ func TestPlanningProjectSettingsRoute(t *testing.T) {
 	}
 	if code, out = get(t, r, http.MethodPost, "/api/v1/planning/projects/draft", fmt.Sprintf(draft, `,"flatsHandling":150`)); code != http.StatusUnprocessableEntity {
 		t.Fatalf("flats 150 should be 422, got %d %v", code, out)
+	}
+}
+
+type sentCommands struct{ sent []schedcmd.Envelope }
+
+func (s *sentCommands) Name() string { return "test" }
+
+func (s *sentCommands) Send(_ context.Context, e schedcmd.Envelope) (schedcmd.Result, error) {
+	s.sent = append(s.sent, e)
+	return schedcmd.Result{ID: e.ID, Status: schedcmd.StatusQueued}, nil
+}
+
+func (s *sentCommands) Cancel(_ context.Context, id string) (schedcmd.Result, error) {
+	return schedcmd.Result{ID: id, Status: schedcmd.StatusCancelled}, nil
+}
+
+func weightsEngine(t *testing.T) (*sentCommands, func(method, path, body string) (int, map[string]any), testStore) {
+	t.Helper()
+	tr := &sentCommands{}
+	cmds := &schedcmd.Service{Transports: []schedcmd.Transport{tr}}
+	r, sched, appStore := planningEngineWith(t, cmds)
+	if err := appStore.DB().AutoMigrate(&schedcmd.Record{}, &app.GlobalRuleWeight{}); err != nil {
+		t.Fatal(err)
+	}
+	cmds.Log, cmds.AppDB = schedcmd.NewGormLog(appStore.DB()), appStore.DB()
+	n := 0
+	cmds.NewID = func() string { n++; return fmt.Sprintf("cmd-%d", n) }
+	for _, q := range []string{
+		`insert into project values (8,'p','Veil',null,1,1,60,20,70,1,1,'pg8',2,1,100,1,30,1,1.5)`,
+		`insert into ruleweight (name, weight, projectid) values ('Novelty',35,7),('Novelty',5,8),('Rarity',75,7),('Rarity',20,8)`,
+	} {
+		if err := sched.DB().Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	return tr, func(method, path, body string) (int, map[string]any) { return get(t, r, method, path, body) }, appStore
+}
+
+func TestRuleWeightsRoutes(t *testing.T) {
+	t.Parallel()
+	tr, call, appStore := weightsEngine(t)
+	code, out := call(http.MethodGet, "/api/v1/planning/rule-weights", "")
+	weights, _ := out["weights"].(map[string]any)
+	differing, _ := out["differing"].([]any)
+	if code != http.StatusOK || out["basis"] != "projects" || weights["Novelty"] != 35.0 || weights["Novelty (mosaic)"] != 5.0 || len(differing) != 1 {
+		t.Fatalf("%d %v", code, out)
+	}
+
+	code, out = call(http.MethodPost, "/api/v1/planning/rule-weights/apply", `{"weights":{"Rarity":101}}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("out of range: %d %v", code, out)
+	}
+	code, _ = call(http.MethodPost, "/api/v1/planning/rule-weights/apply", `{"projectIds":[404]}`)
+	if code != http.StatusNotFound {
+		t.Fatalf("unknown project: %d", code)
+	}
+
+	code, out = call(http.MethodPost, "/api/v1/planning/rule-weights/apply", `{"weights":{"Rarity":50,"Novelty (mosaic)":5}}`)
+	global, _ := out["global"].(map[string]any)
+	projects, _ := out["projects"].([]any)
+	if code != http.StatusAccepted || global["status"] != string(schedcmd.StatusSaved) || len(projects) != 2 {
+		t.Fatalf("%d %v", code, out)
+	}
+	saved, err := ruleweights.Load(context.Background(), appStore.DB())
+	if err != nil || saved.Weights["Rarity"] != 50 || saved.Weights["Novelty"] != 35 || len(saved.Weights) != len(ruleweights.Keys()) {
+		t.Fatalf("%+v %v", saved, err)
+	}
+	if len(tr.sent) != 2 {
+		t.Fatalf("one ruleweight.edit per project, got %d", len(tr.sent))
+	}
+	for _, e := range tr.sent {
+		var p schedcmd.RuleWeightEditPayload
+		if e.Kind != schedcmd.KindRuleWeightEdit || json.Unmarshal(e.Payload, &p) != nil {
+			t.Fatalf("%+v", e)
+		}
+		for _, c := range p.Changes {
+			if c.Rule == "Rarity" && *c.After != 50 || c.Rule == ruleweights.NoveltyMosaic {
+				t.Fatalf("%+v", p)
+			}
+			if c.Rule == "Novelty" && p.ProjectID == 8 && *c.After != 5 {
+				t.Fatalf("the mosaic takes Novelty (mosaic): %+v", p)
+			}
+		}
+	}
+}
+
+func TestRuleWeightsPreviewSavesNothing(t *testing.T) {
+	t.Parallel()
+	tr, call, appStore := weightsEngine(t)
+	code, out := call(http.MethodPost, "/api/v1/planning/rule-weights/preview", `{"weights":{"Rarity":20}}`)
+	weights, _ := out["weights"].(map[string]any)
+	differing, _ := out["differing"].([]any)
+	var first map[string]any
+	if len(differing) > 0 {
+		first, _ = differing[0].(map[string]any)
+	}
+	if code != http.StatusOK || weights["Rarity"] != 20.0 || len(differing) != 1 || first["id"] != 7.0 {
+		t.Fatalf("%d %v", code, out)
+	}
+	if code, _ = call(http.MethodPost, "/api/v1/planning/rule-weights/preview", `{"weights":{"Made Up":1}}`); code != http.StatusBadRequest {
+		t.Fatalf("unknown rule: %d", code)
+	}
+	saved, err := ruleweights.Load(context.Background(), appStore.DB())
+	if err != nil || len(saved.Weights) != 0 || len(tr.sent) != 0 {
+		t.Fatalf("%+v %v %d", saved, err, len(tr.sent))
+	}
+}
+
+func TestRuleWeightsResetOneProject(t *testing.T) {
+	t.Parallel()
+	tr, call, _ := weightsEngine(t)
+	code, out := call(http.MethodPost, "/api/v1/planning/rule-weights/apply", `{"projectIds":[7]}`)
+	projects, _ := out["projects"].([]any)
+	if code != http.StatusAccepted || out["global"] != nil || len(projects) != 1 || len(tr.sent) != 1 {
+		t.Fatalf("reset one project: %d %v", code, out)
+	}
+	var p schedcmd.RuleWeightEditPayload
+	_ = json.Unmarshal(tr.sent[0].Payload, &p)
+	if p.ProjectID != 7 || p.ProjectGUID != "pg7" || !strings.Contains(string(tr.sent[0].Payload), `"Rarity"`) {
+		t.Fatalf("%s", tr.sent[0].Payload)
+	}
+}
+
+func TestRuleWeightsApplyNeedsCommands(t *testing.T) {
+	t.Parallel()
+	r := planningEngine(t)
+	if code, _ := get(t, r, http.MethodPost, "/api/v1/planning/rule-weights/apply", `{}`); code != http.StatusServiceUnavailable {
+		t.Fatalf("%d", code)
 	}
 }

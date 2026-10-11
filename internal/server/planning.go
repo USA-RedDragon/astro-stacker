@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -27,7 +28,7 @@ func backfillReport(ctx context.Context, appDB *gorm.DB, live func() goals.Backf
 	return &b
 }
 
-func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive) {
+func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive, cmds *schedcmd.Service) {
 	g.GET("/goals/mask", goalMaskRoute)
 	g.GET("/goals/mask/info", goalMaskInfoRoute)
 	g.GET("/planning", func(c *gin.Context) {
@@ -53,6 +54,35 @@ func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"project": p, "rules": s.Rules, "sets": s.Sets, "templates": s.Templates, "defaults": s.Defaults})
+	})
+	g.GET("/planning/rule-weights", func(c *gin.Context) {
+		s, ok := planningSnapshot(c, backfill)
+		if !ok {
+			return
+		}
+		c.JSON(http.StatusOK, s.GlobalWeights)
+	})
+	g.POST("/planning/rule-weights/preview", func(c *gin.Context) {
+		var body struct {
+			Weights map[string]float64 `json:"weights"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+			return
+		}
+		s, ok := planningSnapshot(c, backfill)
+		if !ok {
+			return
+		}
+		g, err := s.GlobalWith(body.Weights)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, g)
+	})
+	g.POST("/planning/rule-weights/apply", func(c *gin.Context) {
+		applyGlobalWeights(c, backfill, cmds)
 	})
 	g.POST("/planning/applyset/draft", func(c *gin.Context) {
 		var body struct {
@@ -135,4 +165,73 @@ func planningSnapshot(c *gin.Context, backfill func() goals.BackfillLive) (*plan
 		return nil, false
 	}
 	return s, true
+}
+
+type globalWeightsResult struct {
+	Global   *schedcmd.Record       `json:"global,omitempty"`
+	Projects []schedcmd.Record      `json:"projects"`
+	Failed   []string               `json:"failed"`
+	Weights  planning.GlobalWeights `json:"weights"`
+}
+
+func applyGlobalWeights(c *gin.Context, backfill func() goals.BackfillLive, cmds *schedcmd.Service) {
+	if cmds == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "Scheduler commands are not configured."})
+		return
+	}
+	var body struct {
+		Weights    map[string]float64 `json:"weights"`
+		ProjectIDs []int              `json:"projectIds"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		return
+	}
+	s, ok := planningSnapshot(c, backfill)
+	if !ok {
+		return
+	}
+	ctx := c.Request.Context()
+	out := globalWeightsResult{Projects: []schedcmd.Record{}, Failed: []string{}}
+	if len(body.Weights) > 0 {
+		p, err := s.GlobalChanges(body.Weights)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+			return
+		}
+		if len(p.Changes) > 0 {
+			raw, err := json.Marshal(p)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+				return
+			}
+			r, err := cmds.Submit(ctx, schedcmd.KindRuleWeightGlobal, raw, author(c))
+			if err != nil {
+				commandError(c, err)
+				return
+			}
+			out.Global = &r
+			if s, ok = planningSnapshot(c, backfill); !ok {
+				return
+			}
+		}
+	}
+	edits, err := s.SyncEdits(body.ProjectIDs)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{errorKey: err.Error()})
+		return
+	}
+	for _, e := range edits {
+		raw, err := json.Marshal(e)
+		if err == nil {
+			var r schedcmd.Record
+			if r, err = cmds.Submit(ctx, schedcmd.KindRuleWeightEdit, raw, author(c)); err == nil {
+				out.Projects = append(out.Projects, r)
+				continue
+			}
+		}
+		out.Failed = append(out.Failed, e.ProjectName+": "+err.Error())
+	}
+	out.Weights = s.GlobalWeights
+	c.JSON(http.StatusAccepted, out)
 }

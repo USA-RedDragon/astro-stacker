@@ -7,7 +7,6 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
-	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 )
 
@@ -263,13 +262,7 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 		Project: schedcmd.NewProject{GUID: newID(), Name: name, Description: desc, Priority: priorityIndex(d.Priority), State: 1,
 			MinimumTime: minTime, MinimumAltitude: minAlt, IsMosaic: mosaic, ProjectSettings: settings},
 		Catalog: d.Catalog, Match: d.Match, MatchWith: d.MatchWith,
-		RuleWeights: map[string]float64{},
-	}
-	for _, r := range Rules() {
-		out.RuleWeights[r.Name] = r.DefaultWeight
-	}
-	if mosaic {
-		out.RuleWeights["Panel Deficit"] = mosaics.PanelDeficitOnWeight
+		RuleWeights: WeightsFor(s.GlobalWeights.Weights, mosaic),
 	}
 	def := goals.DefaultGoal("")
 	plateau := def.PlateauStop
