@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -76,25 +77,10 @@ func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer
 	}
 	svc := x.Commands
 	g.GET("/commands", func(c *gin.Context) {
-		f := schedcmd.Filter{
-			Author:   c.Query("author"),
-			Category: schedcmd.Category(c.Query("category")),
-			Query:    c.Query("q"),
-		}
-		if s := c.Query("status"); s != "" {
-			for _, p := range strings.Split(s, ",") {
-				if p = strings.TrimSpace(p); p != "" {
-					f.Status = append(f.Status, schedcmd.Status(p))
-				}
-			}
-		}
-		if n, err := strconv.Atoi(c.Query("limit")); err == nil {
-			f.Limit = n
-		}
-		if b := c.Query("before"); b != "" {
-			if t, err := time.Parse(time.RFC3339, b); err == nil {
-				f.Before = t
-			}
+		f, err := commandFilter(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+			return
 		}
 		out, err := svc.Log.List(c.Request.Context(), f)
 		if err != nil {
@@ -150,6 +136,46 @@ func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer
 		}
 		c.JSON(http.StatusOK, r)
 	})
+}
+
+func commandFilter(c *gin.Context) (schedcmd.Filter, error) {
+	f := schedcmd.Filter{
+		Author:      c.Query("author"),
+		Category:    schedcmd.Category(c.Query("category")),
+		Destination: schedcmd.Destination(c.Query("destination")),
+		Query:       c.Query("q"),
+		BeforeID:    c.Query("before_id"),
+	}
+	if s := c.Query("status"); s != "" {
+		for _, p := range strings.Split(s, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				f.Status = append(f.Status, schedcmd.Status(p))
+			}
+		}
+	}
+	if l := c.Query("limit"); l != "" {
+		n, err := strconv.Atoi(l)
+		if err != nil || n < 1 || n > schedcmd.MaxListLimit {
+			return f, fmt.Errorf("limit must be a whole number from 1 to %d", schedcmd.MaxListLimit)
+		}
+		f.Limit = n
+	}
+	for _, p := range []struct {
+		name string
+		to   *time.Time
+	}{{"before", &f.Before}, {"since", &f.Since}} {
+		if v := c.Query(p.name); v != "" {
+			t, err := time.Parse(time.RFC3339Nano, v)
+			if err != nil {
+				return f, fmt.Errorf("%s must be RFC3339", p.name)
+			}
+			*p.to = t
+		}
+	}
+	if f.BeforeID != "" && f.Before.IsZero() {
+		return f, errors.New("before_id needs before")
+	}
+	return f, nil
 }
 
 func author(c *gin.Context) string {

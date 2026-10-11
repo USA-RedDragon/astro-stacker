@@ -12,13 +12,21 @@ import (
 
 var ErrNotFound = errors.New("command not found")
 
+const (
+	DefaultListLimit = 200
+	MaxListLimit     = 500
+)
+
 type Filter struct {
-	Author   string
-	Category Category
-	Query    string
-	Status   []Status
-	Limit    int
-	Before   time.Time
+	Author      string
+	Category    Category
+	Destination Destination
+	Query       string
+	Status      []Status
+	Limit       int
+	Before      time.Time
+	BeforeID    string
+	Since       time.Time
 }
 
 type Log interface {
@@ -56,21 +64,31 @@ func (l *GormLog) List(ctx context.Context, f Filter) ([]Record, error) {
 	if f.Category != "" {
 		q = q.Where("category = ?", f.Category)
 	}
+	if f.Destination != "" {
+		q = q.Where("destination = ?", f.Destination)
+	}
 	if len(f.Status) > 0 {
 		q = q.Where("status IN ?", f.Status)
 	}
 	if s := strings.TrimSpace(strings.ToLower(f.Query)); s != "" {
 		q = q.Where("search LIKE ?", "%"+escapeLike(s)+"%")
 	}
-	if !f.Before.IsZero() {
+	switch {
+	case !f.Before.IsZero() && f.BeforeID != "":
+		q = q.Where("created_at < ? OR (created_at = ? AND id < ?)", f.Before, f.Before, f.BeforeID)
+	case !f.Before.IsZero():
 		q = q.Where("created_at < ?", f.Before)
 	}
-	limit := f.Limit
-	if limit <= 0 || limit > 500 {
-		limit = 200
+	if !f.Since.IsZero() {
+		q = q.Where("created_at >= ?", f.Since)
 	}
+	limit := f.Limit
+	if limit <= 0 {
+		limit = DefaultListLimit
+	}
+	limit = min(limit, MaxListLimit)
 	var out []Record
-	err := q.Order("created_at DESC").Limit(limit).Find(&out).Error
+	err := q.Order("created_at DESC, id DESC").Limit(limit).Find(&out).Error
 	return out, err
 }
 
