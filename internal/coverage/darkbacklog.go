@@ -22,6 +22,7 @@ type DarkBacklog struct {
 	SetTempExactC     float64           `json:"set_temp_exact_c"`
 	SessionGapHours   float64           `json:"session_gap_hours"`
 	RankingBasis      string            `json:"ranking_basis"`
+	LastNight         string            `json:"last_night"`
 	Combos            []DarkCombo       `json:"combos"`
 	Unschedulable     []DarkUnscheduled `json:"unschedulable"`
 	LastSession       *DarkSession      `json:"last_session"`
@@ -48,6 +49,7 @@ type DarkCombo struct {
 	LightsThin      int          `json:"lights_thin"`
 	LightsRecent    int          `json:"lights_recent"`
 	LightsActive    int          `json:"lights_active"`
+	LightsLastNight int          `json:"lights_last_night"`
 	Score           float64      `json:"score"`
 	ScoreParts      ScoreParts   `json:"score_parts"`
 	Nights          int          `json:"nights"`
@@ -213,6 +215,7 @@ func ComboKey(exposure, gain, offset, bin, setTemp float64) string {
 type tempTally struct {
 	blocked, scaled, thin int
 	recent, active        int
+	lastNight             int
 	score                 ScoreParts
 	nights                map[string]bool
 	latest                string
@@ -271,7 +274,7 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 	r := newDarkRank(lights, now)
 	b := DarkBacklog{
 		ComputedAt: now.UTC(), FramesNeeded: DarkFramesTarget, FramesNeededBasis: FramesNeededBasis(measured),
-		SetTempExactC: calmatch.SetTempExactC, SessionGapHours: SessionGap.Hours(), RankingBasis: RankingBasis(),
+		SetTempExactC: calmatch.SetTempExactC, SessionGapHours: SessionGap.Hours(), RankingBasis: RankingBasis(), LastNight: r.lastNightText(),
 		Combos: []DarkCombo{}, Unschedulable: []DarkUnscheduled{}, Rejected: []RejectedDark{},
 	}
 	tallies := map[darkSetup]map[float64]*tempTally{}
@@ -337,7 +340,7 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 	sort.SliceStable(b.Unschedulable, func(i, j int) bool { return b.Unschedulable[i].Lights > b.Unschedulable[j].Lights })
 
 	for su, temps := range tallies {
-		for _, c := range pickSetTemps(temps) {
+		for _, c := range pickSetTemps(temps, r.lastNightText()) {
 			c.Exposure, c.Gain, c.Offset, c.Binning = su.exposure, su.gain, su.offset, su.bin
 			c.ComboKey = ComboKey(su.exposure, su.gain, su.offset, su.bin, c.SetTemp)
 			c.FramesNeeded = DarkFramesTarget
@@ -347,6 +350,9 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 	}
 	sort.SliceStable(b.Combos, func(i, j int) bool {
 		a, c := b.Combos[i], b.Combos[j]
+		if (a.LightsLastNight > 0) != (c.LightsLastNight > 0) {
+			return a.LightsLastNight > 0
+		}
 		if a.Score != c.Score {
 			return a.Score > c.Score
 		}
@@ -379,7 +385,7 @@ func fptr(p *float64) any {
 	return *p
 }
 
-func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
+func pickSetTemps(temps map[float64]*tempTally, lastNight string) []DarkCombo {
 	left := map[float64]bool{}
 	for t := range temps {
 		left[t] = true
@@ -387,11 +393,12 @@ func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
 	var out []DarkCombo
 	for len(left) > 0 {
 		var best, bestScore float64
-		bestBlocked, bestScaled, bestThin, found := -1, -1, -1, false
+		bestLast, bestBlocked, bestScaled, bestThin, found := -1, -1, -1, -1, false
 		for cand := range left {
-			bl, sc, th, score := 0, 0, 0, 0.0
+			last, bl, sc, th, score := 0, 0, 0, 0, 0.0
 			for t := range left {
 				if math.Abs(t-cand) <= calmatch.SetTempExactC {
+					last += temps[t].lastNight
 					bl += temps[t].blocked
 					sc += temps[t].scaled
 					th += temps[t].thin
@@ -399,9 +406,9 @@ func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
 				}
 			}
 			score = math.Round(score*1e6) / 1e6
-			if !found || score > bestScore || (score == bestScore && (bl > bestBlocked || (bl == bestBlocked && (sc > bestScaled ||
-				(sc == bestScaled && (th > bestThin || (th == bestThin && cand > best))))))) {
-				best, bestScore, bestBlocked, bestScaled, bestThin, found = cand, score, bl, sc, th, true
+			if !found || last > bestLast || (last == bestLast && (score > bestScore || (score == bestScore && (bl > bestBlocked || (bl == bestBlocked &&
+				(sc > bestScaled || (sc == bestScaled && (th > bestThin || (th == bestThin && cand > best))))))))) {
+				best, bestLast, bestScore, bestBlocked, bestScaled, bestThin, found = cand, last, score, bl, sc, th, true
 			}
 		}
 		c := DarkCombo{SetTemp: best, SetTempsCovered: []float64{}, Requests: []RequestRef{}}
@@ -422,6 +429,7 @@ func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
 			c.LightsThin += tt.thin
 			c.LightsRecent += tt.recent
 			c.LightsActive += tt.active
+			c.LightsLastNight += tt.lastNight
 			c.ScoreParts.Blocked += tt.score.Blocked
 			c.ScoreParts.Scaled += tt.score.Scaled
 			c.ScoreParts.Thin += tt.score.Thin
@@ -457,7 +465,7 @@ func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
 			c.LightsBlocked, strings.Join(temps, ", "), c.LightsScaled, c.LightsThin, DarkFramesTarget, numText(best), numText(calmatch.SetTempExactC))
 		c.ScoreParts = c.ScoreParts.rounded()
 		c.Score = roundScore(c.ScoreParts.Blocked + c.ScoreParts.Scaled + c.ScoreParts.Thin)
-		c.Basis += " " + scoreNote(c)
+		c.Basis += " " + scoreNote(c, lastNight)
 		out = append(out, c)
 	}
 	return out

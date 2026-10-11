@@ -32,19 +32,21 @@ func (p ScoreParts) rounded() ScoreParts {
 }
 
 func RankingBasis() string {
-	return fmt.Sprintf("Combos are ranked by score, highest first. Each light adds its need weight times its age weight. "+
+	return fmt.Sprintf("Requested dark sets come first. Next come combos with lights from the last imaging night (the latest night with lights), "+
+		"so the darks for the night that just ended are taken at its dawn. All other combos follow. Within each group, combos are ranked by score, highest first. "+
+		"Each light adds its need weight times its age weight. "+
 		"Need weight: %s for a light with no dark at all, %s for a light calibrated with a dark scaled from another setpoint or exposure, "+
 		"%s for a light with an exact dark set of fewer than %d clean darks. Age weight: 1 for a light from the night that ends today, halved for every %s days "+
 		"since its night, so recent lights dominate. A light of an active target never weighs less than %s; a target is active when it has lights "+
-		"from the last %d days. Requested dark sets come first; ties go to more "+
-		"lights with no dark, then scaled, then short sets, then the latest night.",
+		"from the last %d days. Ties go to more lights with no dark, then scaled, then short sets, then the latest night.",
 		numText(DarkWeightBlocked), numText(DarkWeightScaled), numText(DarkWeightThin), DarkFramesTarget, numText(DarkHalfLifeDays),
 		numText(DarkActiveFloor), DarkRecentDays)
 }
 
 type darkRank struct {
-	today  time.Time
-	active map[string]bool
+	today     time.Time
+	lastNight time.Time
+	active    map[string]bool
 }
 
 func targetKey(name string) string {
@@ -58,6 +60,9 @@ func nightDate(t time.Time) time.Time {
 func newDarkRank(lights []darkLightGroup, now time.Time) darkRank {
 	r := darkRank{today: nightDate(now.UTC()), active: map[string]bool{}}
 	for _, l := range lights {
+		if n := nightDate(l.Night); n.After(r.lastNight) {
+			r.lastNight = n
+		}
 		if l.Object != "" && r.ageDays(l.Night) <= DarkRecentDays {
 			r.active[targetKey(l.Object)] = true
 		}
@@ -71,6 +76,17 @@ func (r darkRank) ageDays(night time.Time) int {
 
 func (r darkRank) isActive(l darkLightGroup) bool {
 	return l.Object != "" && r.active[targetKey(l.Object)]
+}
+
+func (r darkRank) isLastNight(l darkLightGroup) bool {
+	return !r.lastNight.IsZero() && nightDate(l.Night).Equal(r.lastNight)
+}
+
+func (r darkRank) lastNightText() string {
+	if r.lastNight.IsZero() {
+		return ""
+	}
+	return r.lastNight.Format(time.DateOnly)
 }
 
 func (r darkRank) weight(l darkLightGroup) float64 {
@@ -97,15 +113,22 @@ func (r darkRank) add(t *tempTally, l darkLightGroup, q calmatch.Quality) {
 	if r.isActive(l) {
 		t.active += l.N
 	}
+	if r.isLastNight(l) {
+		t.lastNight += l.N
+	}
 }
 
 func roundScore(v float64) float64 {
 	return math.Round(v*100) / 100
 }
 
-func scoreNote(c DarkCombo) string {
-	return fmt.Sprintf("Score %s = %s from lights with no dark + %s from lights on a scaled dark + %s from lights on a short set; "+
+func scoreNote(c DarkCombo, lastNight string) string {
+	note := fmt.Sprintf("Score %s = %s from lights with no dark + %s from lights on a scaled dark + %s from lights on a short set; "+
 		"%d of its lights are from the last %d days, %d belong to active targets, and the latest night is %s.",
 		numText(c.Score), numText(c.ScoreParts.Blocked), numText(c.ScoreParts.Scaled), numText(c.ScoreParts.Thin),
 		c.LightsRecent, DarkRecentDays, c.LightsActive, c.LatestNight)
+	if c.LightsLastNight > 0 {
+		note += fmt.Sprintf(" %d of its lights are from the last imaging night, %s, so it ranks ahead of every combo without any.", c.LightsLastNight, lastNight)
+	}
+	return note
 }
