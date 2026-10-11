@@ -9,7 +9,7 @@ func Ladder() []float64 { return []float64{60, 120, 180, 300, 600} }
 
 const ReadNoiseFactor = 9.26
 
-const NearBest = 0.95
+const DefaultTolerance = 0.02
 
 const SaturationFloor = 0.02
 

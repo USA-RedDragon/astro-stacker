@@ -115,11 +115,12 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	biasNeed := calpublish.NewBias(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
 	flatRequests := calpublish.NewFlat(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
 	subLengths := &sublength.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Site: sublength.SiteFunc(siteFunc(cfg, appStore)),
-		Pedestal: cfg.Stacking.Pedestal, Mode: cfg.SubLength.Publish, NewLengths: cfg.SubLength.NewLengths}
+		Pedestal: cfg.Stacking.Pedestal, Mode: cfg.SubLength.Publish, NewLengths: cfg.SubLength.NewLengths,
+		Tolerance: cfg.SubLength.TolerancePct / 100}
 	darkNeed.Planned = plannedDarks(subLengths)
 	go subLengths.Run(indexCtx, time.Duration(cfg.SubLength.IntervalMinutes)*time.Minute)
 	slog.Info("Sub lengths started", "publish", cfg.SubLength.Publish, "new_lengths", cfg.SubLength.NewLengths,
-		"interval_minutes", cfg.SubLength.IntervalMinutes)
+		"interval_minutes", cfg.SubLength.IntervalMinutes, "tolerance_percent", cfg.SubLength.TolerancePct)
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)

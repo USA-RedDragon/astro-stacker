@@ -151,7 +151,7 @@ func TestSubLength(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if def.SubLength.Publish != config.GoalsPublishOff || def.SubLength.NewLengths || def.SubLength.IntervalMinutes != 60 || def.Stacking.ScorePerSecond {
+	if def.SubLength.Publish != config.GoalsPublishOff || def.SubLength.NewLengths || def.SubLength.IntervalMinutes != 60 || def.SubLength.TolerancePct != 2 || def.Stacking.ScorePerSecond {
 		t.Errorf("defaults %+v, per second %v", def.SubLength, def.Stacking.ScorePerSecond)
 	}
 	for _, tt := range []struct {
@@ -171,6 +171,13 @@ func TestSubLength(t *testing.T) {
 		cfg.SubLength.Publish, cfg.Stacking.ScorePerSecond, cfg.SubLength.IntervalMinutes = tt.publish, tt.perSecond, tt.interval
 		if err := cfg.Validate(); !errors.Is(err, tt.want) {
 			t.Errorf("%+v: Validate() = %v, want %v", tt, err, tt.want)
+		}
+	}
+	for _, tol := range []float64{0, -1, 50} {
+		cfg := def
+		cfg.SubLength.TolerancePct = tol
+		if err := cfg.Validate(); !errors.Is(err, config.ErrInvalidSubLengthTolerance) {
+			t.Errorf("tolerance %v: %v", tol, err)
 		}
 	}
 }

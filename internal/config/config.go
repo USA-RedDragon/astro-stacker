@@ -53,9 +53,10 @@ type Darks struct {
 }
 
 type SubLength struct {
-	Publish         string `name:"publish" description:"Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second" default:"off"`
-	NewLengths      bool   `name:"new-lengths" description:"Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals"`
-	IntervalMinutes int    `name:"interval-minutes" description:"Minutes between recomputing the lengths" default:"60"`
+	Publish         string  `name:"publish" description:"Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second" default:"off"`
+	NewLengths      bool    `name:"new-lengths" description:"Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals"`
+	IntervalMinutes int     `name:"interval-minutes" description:"Minutes between recomputing the lengths" default:"60"`
+	TolerancePct    float64 `name:"tolerance-percent" description:"The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars" default:"2"`
 }
 
 func (s SubLength) validate(perSecond bool) error {
@@ -70,6 +71,9 @@ func (s SubLength) validate(perSecond bool) error {
 	}
 	if s.IntervalMinutes < 1 {
 		return ErrInvalidSubLengthInterval
+	}
+	if !(s.TolerancePct > 0 && s.TolerancePct < 50) {
+		return ErrInvalidSubLengthTolerance
 	}
 	return nil
 }
@@ -253,6 +257,7 @@ var (
 	ErrInvalidSubLengthPublish      = errors.New("sub-length.publish must be off, dry-run or on")
 	ErrSubLengthNeedsPerSecond      = errors.New("sub-length.publish on needs stacking.score-per-second, so subs of different lengths weigh fairly in one master")
 	ErrInvalidSubLengthInterval     = errors.New("sub-length.interval-minutes must be at least 1")
+	ErrInvalidSubLengthTolerance    = errors.New("sub-length.tolerance-percent must be above 0 and below 50")
 	ErrInvalidDarksRejectSince      = errors.New("darks.reject-since must be a date, YYYY-MM-DD")
 	ErrInvalidCalibrationPublish    = errors.New("calibration.publish must be off, dry-run or on")
 )

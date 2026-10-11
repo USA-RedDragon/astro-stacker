@@ -2,6 +2,7 @@ package sublength
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,10 +97,15 @@ func TestRecommendBrightMoonGoesShorterAndCapsSaturation(t *testing.T) {
 	t.Parallel()
 	rej := FitRejection([]Point{{120, 307, 5}, {300, 10487, 127}, {600, 4716, 88}})
 	stars := []Stars{{Exposure: 300, Ranks: []int{32, 64, 128, 256}, Flux: []float64{8000, 4000, 2000, 1000}, Saturated: []bool{true, true, false, false}, Detected: 1000}}
-	rec, ok := Recommend(Input{Sensor: sensor0(), Sky: 3, SkySubs: 30, SkySource: SourceTarget, Current: 300, Overhead: 13.5,
-		Rejection: rej, Stars: stars, DarkLengths: []float64{120, 300, 600}})
+	in := Input{Sensor: sensor0(), Sky: 3, SkySubs: 30, SkySource: SourceTarget, Current: 300, Overhead: 13.5,
+		Rejection: rej, Stars: stars, DarkLengths: []float64{120, 300, 600}}
+	if rec, ok := Recommend(in); !ok || rec.Exposure != 300 || rec.Tolerance != DefaultTolerance || !strings.Contains(rec.Basis, "within 2.0% of the best") {
+		t.Fatalf("bright moon at the default 2%%: %v s, tolerance %v, basis %q; want 300 s (120 s loses 3.6%% SNR per hour)", rec.Exposure, rec.Tolerance, rec.Basis)
+	}
+	in.Tolerance = 0.05
+	rec, ok := Recommend(in)
 	if !ok || rec.Exposure != 120 {
-		t.Fatalf("bright moon: %v s, want 120 s", rec.Exposure)
+		t.Fatalf("bright moon at 5%%: %v s, want 120 s", rec.Exposure)
 	}
 	for _, c := range rec.Candidates {
 		if c.Exposure == 600 && c.Blocked == "" {
