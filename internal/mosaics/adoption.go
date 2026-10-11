@@ -164,8 +164,9 @@ func namedMosaic(p TSProject, named []namedTarget, rig Rig) Proposal {
 	if lonely := isolated(prop.Panels); len(lonely) > 0 {
 		medium = true
 		why = append(why, fmt.Sprintf("%s %s no other panel by %.0f%% or more", panelList(lonely), verb(len(lonely), "overlaps", "overlap"), neighbourOverlap*100))
-		issues = append(issues, fmt.Sprintf("%s %s no other panel by 3%% or more.", panelList(lonely), verb(len(lonely), "overlaps", "overlap")))
-		suggestions = append(suggestions, fmt.Sprintf("Check the coordinates of %s in TS before adopting.", panelList(lonely)))
+		issue, fix := lonelyNote(prop.Panels, lonely, rig)
+		issues = append(issues, issue)
+		suggestions = append(suggestions, fix)
 	}
 	prop.Rule = fmt.Sprintf("High: the targets are named \"… Panel N\" and numbered 1 to N, TS flags the project as a mosaic, and every panel overlaps another by %.0f%% or more.", neighbourOverlap*100)
 	if medium {
@@ -233,6 +234,43 @@ func adopt(targets []TSTarget, numbers []int, rig Rig) []AdoptedPanel {
 		}
 	}
 	return out
+}
+
+func lonelyNote(panels []AdoptedPanel, lonely []int, rig Rig) (issue, suggestion string) {
+	byNumber := map[int]AdoptedPanel{}
+	for _, p := range panels {
+		byNumber[p.Panel] = p
+	}
+	touching := true
+	parts := make([]string, 0, len(lonely))
+	for _, n := range lonely {
+		p := byNumber[n]
+		best, near := 0.0, math.Inf(1)
+		for _, q := range panels {
+			if q.Panel == n {
+				continue
+			}
+			best = math.Max(best, OverlapFraction(p.Footprint, q.Footprint))
+			near = math.Min(near, separation(p.Centre, q.Centre))
+		}
+		edge := math.Abs(near-rig.WidthDeg) <= 0.02*rig.WidthDeg || math.Abs(near-rig.HeightDeg) <= 0.02*rig.HeightDeg
+		if best >= 0.005 || !edge {
+			touching = false
+		}
+		parts = append(parts, fmt.Sprintf("Panel %d overlaps its neighbours by %.1f%% at most, with the nearest centre %.2f° away", n, best*100, near))
+	}
+	list := panelList(lonely)
+	field := fmt.Sprintf("%.2f° × %.2f°", rig.WidthDeg, rig.HeightDeg)
+	if touching {
+		issue = fmt.Sprintf("%s overlap no other panel by 3%% or more: their centres are one full %s field apart, so the panels touch edge to edge with no overlap.", list, field)
+		if len(lonely) == 1 {
+			issue = fmt.Sprintf("Panel %d overlaps no other panel by 3%% or more: its centre is one full %s field from its neighbour, so the panels touch edge to edge with no overlap.", lonely[0], field)
+		}
+	} else {
+		issue = fmt.Sprintf("%s %s no other panel by 3%% or more for the %s field: %s.", list, verb(len(lonely), "overlaps", "overlap"), field, strings.Join(parts, "; "))
+	}
+	suggestion = fmt.Sprintf("Plan the mosaic again with 10–20%% overlap (3%% at the least) in NINA's Framing Assistant and update the coordinates of %s in TS. The next check picks up the new coordinates.", list)
+	return issue, suggestion
 }
 
 func sequential(numbers []int) bool {
