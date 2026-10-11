@@ -21,6 +21,7 @@ const (
 	NoveltyMosaic  = "Novelty (mosaic)"
 	FilterSteering = "Filter Steering"
 	PanelDeficit   = "Panel Deficit"
+	EvenPanels     = "Even Panels"
 	Tolerance      = 1e-6
 )
 
@@ -32,7 +33,7 @@ var ErrStale = errors.New("the global rule weights changed since this was prepar
 func Keys() []string {
 	return []string{
 		"Project Priority", "Setting Soonest", "Percent Complete", "Target Switch Penalty",
-		"Mosaic Completion", PanelDeficit, "Meridian Window Priority", "Meridian Flip Penalty",
+		"Mosaic Completion", PanelDeficit, EvenPanels, "Meridian Window Priority", "Meridian Flip Penalty",
 		"Smart Exposure Order", Novelty, NoveltyMosaic, "Rarity", "Condition Match",
 		"Seasonal Runway", "Season Priority", FilterSteering,
 	}

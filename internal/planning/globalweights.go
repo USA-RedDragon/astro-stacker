@@ -56,6 +56,9 @@ func GlobalRules() []GlobalRule {
 			g.Label, g.For = "Novelty, mosaics", WeightsForMosaic
 		case ruleweights.PanelDeficit:
 			g.DefaultWeight, g.MosaicOnly = mosaics.PanelDeficitOnWeight, true
+		case ruleweights.EvenPanels:
+			g.DefaultWeight, g.Switch, g.MosaicOnly, g.New = 0, true, true, true
+			g.Description = "Not a scored rule: on, Panel Deficit shares this season's imaging hours out evenly across a mosaic's unfinished panels instead of favouring the weakest panel. Each panel's fair share grows with its number of unfinished filters. Off, Panel Deficit favours the weakest panel. Does nothing while Panel Deficit is 0."
 		case "Mosaic Completion", RuleSeasonPriority:
 			g.MosaicOnly = true
 		case ruleweights.FilterSteering:

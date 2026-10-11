@@ -83,7 +83,7 @@ func (r *seasonsRig) plan(setup string, src mosaicplan.HorizonSource) mosaicplan
 		r.t.Fatal(err)
 	}
 	r.svc.Horizon = src
-	plan, err := r.svc.Seasons(context.Background(), markarian, "weakest", "", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+	plan, err := r.svc.Seasons(context.Background(), markarian, "", "", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		r.t.Fatal(err)
 	}

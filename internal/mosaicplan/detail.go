@@ -11,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
+	"github.com/USA-RedDragon/astro-stacker/internal/ruleweights"
 	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
@@ -91,6 +92,7 @@ type Balancing struct {
 	MosaicCompletion float64 `json:"mosaicCompletion"`
 	On               bool    `json:"on"`
 	OnWeight         float64 `json:"onWeight"`
+	EvenPanels       bool    `json:"evenPanels"`
 }
 
 type Project struct {
@@ -740,6 +742,8 @@ func (s *Service) loadTS(ctx context.Context, d *Detail) error {
 			d.Balancing.PanelDeficit, d.Balancing.PanelDeficitSet = w.Weight, true
 		case RuleMosaicCompletion:
 			d.Balancing.MosaicCompletion = w.Weight
+		case ruleweights.EvenPanels:
+			d.Balancing.EvenPanels = w.Weight > 0
 		}
 	}
 	d.Balancing.On = d.Balancing.PanelDeficit > 0
