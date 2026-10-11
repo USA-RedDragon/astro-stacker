@@ -161,6 +161,12 @@ type darksShadow struct {
 	Publish     *string `json:"publish"      toml:"publish"      yaml:"publish"`
 }
 
+type subLengthShadow struct {
+	Publish         *string `json:"publish"          toml:"publish"          yaml:"publish"`
+	NewLengths      *bool   `json:"new-lengths"      toml:"new-lengths"      yaml:"new-lengths"`
+	IntervalMinutes *int    `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
+}
+
 type calibrationShadow struct {
 	Publish *string `json:"publish" toml:"publish" yaml:"publish"`
 }
@@ -180,6 +186,7 @@ type configShadow struct {
 	Scheduler    *schedulerShadow    `json:"scheduler"     toml:"scheduler"     yaml:"scheduler"`
 	Goals        *goalsShadow        `json:"goals"         toml:"goals"         yaml:"goals"`
 	Darks        *darksShadow        `json:"darks"         toml:"darks"         yaml:"darks"`
+	SubLength    *subLengthShadow    `json:"sub-length"    toml:"sub-length"    yaml:"sub-length"`
 	Calibration  *calibrationShadow  `json:"calibration"   toml:"calibration"   yaml:"calibration"`
 }
 
@@ -329,6 +336,10 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("darks.reject-since", configulator.LayerDefault, "default tag")
 	cfg.Darks.Publish = "off"
 	set("darks.publish", configulator.LayerDefault, "default tag")
+	cfg.SubLength.Publish = "off"
+	set("sub-length.publish", configulator.LayerDefault, "default tag")
+	cfg.SubLength.IntervalMinutes = 60
+	set("sub-length.interval-minutes", configulator.LayerDefault, "default tag")
 	cfg.Calibration.Publish = "off"
 	set("calibration.publish", configulator.LayerDefault, "default tag")
 	return nil
@@ -769,6 +780,20 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Darks.Publish != nil {
 			cfg.Darks.Publish = *s.Darks.Publish
 			set("darks.publish", configulator.LayerFile, file)
+		}
+	}
+	if s.SubLength != nil {
+		if s.SubLength.Publish != nil {
+			cfg.SubLength.Publish = *s.SubLength.Publish
+			set("sub-length.publish", configulator.LayerFile, file)
+		}
+		if s.SubLength.NewLengths != nil {
+			cfg.SubLength.NewLengths = *s.SubLength.NewLengths
+			set("sub-length.new-lengths", configulator.LayerFile, file)
+		}
+		if s.SubLength.IntervalMinutes != nil {
+			cfg.SubLength.IntervalMinutes = *s.SubLength.IntervalMinutes
+			set("sub-length.interval-minutes", configulator.LayerFile, file)
 		}
 	}
 	if s.Calibration != nil {
@@ -1749,6 +1774,36 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Darks.Publish = v
 		set("darks.publish", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "sub-length", "publish"); ok {
+		cfg.SubLength.Publish = v
+		set("sub-length.publish", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "sub-length", "new-lengths"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "sub-length.new-lengths",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.SubLength.NewLengths = p
+		set("sub-length.new-lengths", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "sub-length", "interval-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "sub-length.interval-minutes",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.SubLength.IntervalMinutes = int(p)
+		set("sub-length.interval-minutes", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "calibration", "publish"); ok {
 		cfg.Calibration.Publish = v
 		set("calibration.publish", configulator.LayerEnv, n)
@@ -1865,6 +1920,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"goals" + o.Separator + "depth-switch",
 		"darks" + o.Separator + "reject-since",
 		"darks" + o.Separator + "publish",
+		"sub-length" + o.Separator + "publish",
+		"sub-length" + o.Separator + "new-lengths",
+		"sub-length" + o.Separator + "interval-minutes",
 		"calibration" + o.Separator + "publish",
 	}
 	for i, name := range names {
@@ -1980,7 +2038,10 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[96], "on", "Every hour, move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
 	fs.String(names[97], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
 	fs.String(names[98], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[99], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[99], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
+	fs.Bool(names[100], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
+	fs.Var(impl.NewInt(60), names[101], "Minutes between recomputing the lengths")
+	fs.String(names[102], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -3174,6 +3235,42 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Darks.Publish = v
 		set("darks.publish", configulator.LayerCLI, "--"+n)
 	}
+	if n := "sub-length" + o.Separator + "publish"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "sub-length.publish",
+				Source: "--" + n,
+			}
+		}
+		cfg.SubLength.Publish = v
+		set("sub-length.publish", configulator.LayerCLI, "--"+n)
+	}
+	if n := "sub-length" + o.Separator + "new-lengths"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "sub-length.new-lengths",
+				Source: "--" + n,
+			}
+		}
+		cfg.SubLength.NewLengths = v
+		set("sub-length.new-lengths", configulator.LayerCLI, "--"+n)
+	}
+	if n := "sub-length" + o.Separator + "interval-minutes"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "sub-length.interval-minutes",
+				Source: "--" + n,
+			}
+		}
+		cfg.SubLength.IntervalMinutes = v
+		set("sub-length.interval-minutes", configulator.LayerCLI, "--"+n)
+	}
 	if n := "calibration" + o.Separator + "publish"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
@@ -3465,6 +3562,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Darks = &sub
+			}
+		case "sub-length":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("sub-length", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub subLengthShadow
+				if err := sub.decodeJSON(dec, "sub-length"); err != nil {
+					return err
+				}
+				s.SubLength = &sub
 			}
 		case "calibration":
 			if dec.PeekKind() == jsontext.KindNull {
@@ -5460,6 +5576,75 @@ func (s *darksShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 
 // decodeJSON decodes the members of an object whose opening brace has
 // been read. path is the object's dotted path.
+func (s *subLengthShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "publish":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Publish = &str
+			default:
+				return configJSONError(path+".publish", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "new-lengths":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.NewLengths = &b
+			default:
+				return configJSONError(path+".new-lengths", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "interval-minutes":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".interval-minutes", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalMinutes = &num
+			default:
+				return configJSONError(path+".interval-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
 func (s *calibrationShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
@@ -5611,6 +5796,9 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "goals.depth-switch = %v\n", c.Goals.DepthSwitch)
 	fmt.Fprintf(&b, "darks.reject-since = %v\n", c.Darks.RejectSince)
 	fmt.Fprintf(&b, "darks.publish = %v\n", c.Darks.Publish)
+	fmt.Fprintf(&b, "sub-length.publish = %v\n", c.SubLength.Publish)
+	fmt.Fprintf(&b, "sub-length.new-lengths = %v\n", c.SubLength.NewLengths)
+	fmt.Fprintf(&b, "sub-length.interval-minutes = %v\n", c.SubLength.IntervalMinutes)
 	fmt.Fprintf(&b, "calibration.publish = %v\n", c.Calibration.Publish)
 	return b.String()
 }
