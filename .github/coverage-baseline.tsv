@@ -40,7 +40,7 @@ internal/frameheader/frame.go	42	41
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	397	333
+internal/goalmeasure/runner.go	397	334
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -48,9 +48,9 @@ internal/goals/image.go	124	120
 internal/goals/mask.go	42	35
 internal/goals/measure.go	257	240
 internal/goals/progress.go	103	90
-internal/goals/readiness.go	29	28
+internal/goals/readiness.go	29	29
 internal/goals/signals.go	51	46
-internal/goals/tsgoals.go	317	282
+internal/goals/tsgoals.go	317	286
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
