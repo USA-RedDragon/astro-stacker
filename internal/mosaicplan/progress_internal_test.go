@@ -119,3 +119,14 @@ func TestFramesVerdict(t *testing.T) {
 		t.Error("a project-named object reads like any other")
 	}
 }
+
+func TestLayoutTextWrapsRotation(t *testing.T) {
+	t.Parallel()
+	d := Detail{RigKnown: true, Rows: 2, Cols: 1, Panels: []Panel{{Number: 1}, {Number: 2}}}
+	for rot, want := range map[float64]string{359.7: "1 × 2 at 0°", 0.2: "1 × 2 at 0°", 135.4: "1 × 2 at 135°"} {
+		d.Rotation = rot
+		if got := layoutText(d); got == nil || *got != want {
+			t.Errorf("rotation %v gave %v, want %q", rot, got, want)
+		}
+	}
+}

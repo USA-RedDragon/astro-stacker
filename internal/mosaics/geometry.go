@@ -253,6 +253,34 @@ func GridCells(centres []Point, rotationDeg float64, rig Rig) (rows, cols []int)
 	return cluster(across, rig.HeightDeg/2), cluster(along, rig.WidthDeg/2)
 }
 
+// FrameRotation returns the rotation of the mosaic's own frame at the mean
+// panel centre. A panel's own rotation is relative to north at that panel,
+// which drifts from the frame's rotation away from the centre. Panels turned
+// by 180° cover the same frame, so the result keeps the first panel's side.
+func FrameRotation(centres []Point, rotationsDeg []float64) float64 {
+	n := min(len(centres), len(rotationsDeg))
+	if n == 0 {
+		return 0
+	}
+	c := meanPoint(centres[:n])
+	var sx, sy, first float64
+	for i := range n {
+		ahead := Offset(centres[i], rotationsDeg[i], 0, 0.01)
+		x0, y0 := Project(c, centres[i])
+		x1, y1 := Project(c, ahead)
+		a := math.Atan2(x1-x0, y1-y0)
+		if i == 0 {
+			first = a / deg
+		}
+		sx, sy = sx+math.Cos(2*a), sy+math.Sin(2*a)
+	}
+	m := math.Atan2(sy, sx) / 2 / deg
+	if math.Abs(wrap180(first-m)) > 90 {
+		m += 180
+	}
+	return wrap360(math.Round(wrap360(m)*1e6) / 1e6)
+}
+
 func cluster(v []float64, tol float64) []int {
 	idx := make([]int, len(v))
 	for i := range idx {
