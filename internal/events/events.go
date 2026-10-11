@@ -19,6 +19,7 @@ const (
 	TypeMaster  = "master"  // a master was updated
 	TypeMosaic  = "mosaic"  // a project's mosaic was updated; Object is the project
 	TypeFrames  = "frames"  // new frames were indexed
+	TypeSubs    = "subs"    // a target's lights were measured or triaged; Object is the target
 	TypeStatus  = "status"  // what the stacker is doing; not replayed
 )
 

@@ -369,6 +369,7 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 			return 0, err
 		}
 	}
+	p.Events.Publish(events.Event{Type: events.TypeSubs, Object: first.Object, Filter: first.Filter})
 	return len(frames), nil
 }
 

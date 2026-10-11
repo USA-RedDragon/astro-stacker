@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -140,4 +142,33 @@ func TestGeometryUnreadAndFill(t *testing.T) {
 	if !okW || !okH || !okF || width == nil || height != nil || focal != nil || cols["geometry_rev"] != GeometryRevision {
 		t.Errorf("columns %+v", cols)
 	}
+}
+
+// Measured lights raise one subs event per target, in name order, and a
+// pass that measured nothing raises none.
+func TestPublishSubs(t *testing.T) {
+	t.Parallel()
+	b := events.NewBroker()
+	_, ch, cancel := b.Subscribe(0)
+	defer cancel()
+	ix := &Indexer{Events: b}
+	ix.publishSubs(map[string]bool{})
+	ix.publishSubs(map[string]bool{"M 33": true, "M 31": true})
+	got := make([]string, 0, 2)
+	for range 2 {
+		msg := string(<-ch)
+		if !strings.Contains(msg, `"type":"subs"`) {
+			t.Fatalf("message %q is not a subs event", msg)
+		}
+		got = append(got, msg[strings.Index(msg, `"object":`):strings.Index(msg, `,"time"`)])
+	}
+	if want := []string{`"object":"M 31"`, `"object":"M 33"`}; !slices.Equal(got, want) {
+		t.Errorf("events %v, want %v", got, want)
+	}
+	select {
+	case msg := <-ch:
+		t.Errorf("extra event %q", msg)
+	default:
+	}
+	(&Indexer{}).publishSubs(map[string]bool{"M 31": true})
 }

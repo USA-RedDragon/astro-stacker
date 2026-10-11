@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -263,7 +265,7 @@ func pointingUnread(db *gorm.DB) *gorm.DB {
 // Each is downloaded whole once.
 func (ix *Indexer) MeasureUnrecorded(ctx context.Context) (int, error) {
 	var frames []app.Frame
-	if err := ix.db.WithContext(ctx).Select("id", "key").
+	if err := ix.db.WithContext(ctx).Select("id", "key", "object").
 		Where("type = ? AND index_error IS NULL AND measured_at IS NULL", "LIGHT").
 		Where("id IN (?)", ix.db.Table("stack_frames").Select("frame_id").Where("status = ?", app.StackStatusNoMetadata)).
 		Find(&frames).Error; err != nil {
@@ -273,6 +275,8 @@ func (ix *Indexer) MeasureUnrecorded(ctx context.Context) (int, error) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	done := 0
+	objects := map[string]bool{}
+	defer func() { ix.publishSubs(objects) }()
 	for range ix.concurrency {
 		wg.Go(func() {
 			for f := range work {
@@ -292,6 +296,7 @@ func (ix *Indexer) MeasureUnrecorded(ctx context.Context) (int, error) {
 				}
 				mu.Lock()
 				done++
+				objects[f.Object] = true
 				mu.Unlock()
 			}
 		})
@@ -360,13 +365,15 @@ func (ix *Indexer) MeasurePhotometry(ctx context.Context) (int, error) {
 
 func (ix *Indexer) measurePhotometry(ctx context.Context, pending *gorm.DB) (int, error) {
 	var frames []app.Frame
-	if err := pending.Select("id", "key").Find(&frames).Error; err != nil {
+	if err := pending.Select("id", "key", "object").Find(&frames).Error; err != nil {
 		return 0, err
 	}
 	work := make(chan app.Frame)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	done := 0
+	objects := map[string]bool{}
+	defer func() { ix.publishSubs(objects) }()
 	for range min(ix.concurrency, photometryWorkers) {
 		wg.Go(func() {
 			for f := range work {
@@ -394,6 +401,7 @@ func (ix *Indexer) measurePhotometry(ctx context.Context, pending *gorm.DB) (int
 				}
 				mu.Lock()
 				done++
+				objects[f.Object] = true
 				mu.Unlock()
 			}
 		})
@@ -410,6 +418,14 @@ func (ix *Indexer) measurePhotometry(ctx context.Context, pending *gorm.DB) (int
 	close(work)
 	wg.Wait()
 	return done, ctx.Err()
+}
+
+// publishSubs tells listeners which targets' lights have new measurements,
+// so pages showing their scores reload them.
+func (ix *Indexer) publishSubs(objects map[string]bool) {
+	for _, o := range slices.Sorted(maps.Keys(objects)) {
+		ix.Events.Publish(events.Event{Type: events.TypeSubs, Object: o})
+	}
 }
 
 type Stats struct {
