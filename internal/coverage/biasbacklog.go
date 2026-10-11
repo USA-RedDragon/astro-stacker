@@ -16,15 +16,11 @@ import (
 // BiasFramesTarget is how many bias frames make a set.
 const BiasFramesTarget = 30
 
-// BiasMaxAgeDays is how many days apart lights and their bias may be before
-// a new bias set is wanted.
-const BiasMaxAgeDays = 30
-
 const (
 	BiasFramesNeededBasis = "The target of 30 bias frames per set matches the only bias set on record (30 frames, 2025-02-05) and the 30-frame flat sets; " +
 		"the user chose the dark target the same way (to match the sets already taken)."
-	BiasMaxAgeBasis = "A setting, not a measurement: only one bias set per gain and offset is on record, so bias drift has not been measured. " +
-		"Bias frames take seconds each, so a monthly set is cheap."
+	BiasAgeBasis = "Bias does not go stale by age (the user's choice): lights use the nearest bias set of their gain, offset and binning however old, " +
+		"and a new set is wanted only when none exists or the set is short of the frame target."
 )
 
 const (
@@ -38,8 +34,7 @@ type BiasBacklog struct {
 	ComputedAt        time.Time         `json:"computed_at"`
 	FramesNeeded      int               `json:"frames_needed"`
 	FramesNeededBasis string            `json:"frames_needed_basis"`
-	MaxAgeDays        int               `json:"max_age_days"`
-	MaxAgeBasis       string            `json:"max_age_basis"`
+	AgeBasis          string            `json:"age_basis"`
 	SessionGapHours   float64           `json:"session_gap_hours"`
 	Combos            []BiasCombo       `json:"combos"`
 	Unschedulable     []BiasUnscheduled `json:"unschedulable"`
@@ -55,7 +50,6 @@ type BiasCombo struct {
 	FramesNeeded       int          `json:"frames_needed"`
 	FramesHave         int          `json:"frames_have"`
 	LightsMissing      int          `json:"lights_missing"`
-	LightsStale        int          `json:"lights_stale"`
 	LightsThin         int          `json:"lights_thin"`
 	Nights             int          `json:"nights"`
 	LatestNight        string       `json:"latest_night"`
@@ -119,16 +113,16 @@ func dayDiff(a, b time.Time) int {
 }
 
 type biasTally struct {
-	missing, stale, thin int
-	nights               map[string]bool
-	latest               string
-	readout              map[string]int
+	missing, thin int
+	nights        map[string]bool
+	latest        string
+	readout       map[string]int
 }
 
 // BuildBiasBacklog lists, per gain, offset and binning, the lights whose
-// bias set is missing, too old when a new one would be nearer, or short of
-// BiasFramesTarget, with the sets open bias requests still need at
-// priority 0.
+// bias set is missing or short of BiasFramesTarget, with the sets open bias
+// requests still need at priority 0. The age of a bias set never makes it
+// wanted.
 func BuildBiasBacklog(ctx context.Context, db *gorm.DB, now time.Time) (BiasBacklog, error) {
 	sets, _, err := loadSets(ctx, db)
 	if err != nil {
@@ -184,7 +178,7 @@ func fullBiasAfter(s calmatch.Set, sets []calmatch.Set) bool {
 func biasBacklog(lights []biasLightGroup, frames []biasFrame, sets []calmatch.Set, now time.Time) BiasBacklog {
 	b := BiasBacklog{
 		ComputedAt: now.UTC(), FramesNeeded: BiasFramesTarget, FramesNeededBasis: BiasFramesNeededBasis,
-		MaxAgeDays: BiasMaxAgeDays, MaxAgeBasis: BiasMaxAgeBasis, SessionGapHours: SessionGap.Hours(),
+		AgeBasis: BiasAgeBasis, SessionGapHours: SessionGap.Hours(),
 		Combos: []BiasCombo{}, Unschedulable: []BiasUnscheduled{},
 	}
 	tallies := map[biasSetup]*biasTally{}
@@ -201,11 +195,9 @@ func biasBacklog(lights []biasLightGroup, frames []biasFrame, sets []calmatch.Se
 		g := calmatch.Group{Night: l.Night, Exposure: math.NaN(), Gain: *l.Gain, Offset: *l.Offset,
 			SetTemp: math.NaN(), BinX: *l.BinX, Rotator: math.NaN()}
 		m := calmatch.Choose(g, sets).Bias
-		toNow := dayDiff(now, l.Night)
 		missing := m.Quality == calmatch.Missing
-		stale := !missing && m.AgeDays > BiasMaxAgeDays && toNow < m.AgeDays
-		thin := !missing && !stale && m.Set.Master == "" && m.Set.Count > 0 && m.Set.Count < BiasFramesTarget && !fullBiasAfter(*m.Set, sets)
-		if !missing && !stale && !thin {
+		thin := !missing && m.Set.Master == "" && m.Set.Count > 0 && m.Set.Count < BiasFramesTarget && !fullBiasAfter(*m.Set, sets)
+		if !missing && !thin {
 			continue
 		}
 		su := biasSetup{gain: g.Gain, offset: g.Offset, bin: g.BinX}
@@ -217,8 +209,6 @@ func biasBacklog(lights []biasLightGroup, frames []biasFrame, sets []calmatch.Se
 		switch {
 		case missing:
 			t.missing += l.N
-		case stale:
-			t.stale += l.N
 		default:
 			t.thin += l.N
 		}
@@ -242,21 +232,18 @@ func biasBacklog(lights []biasLightGroup, frames []biasFrame, sets []calmatch.Se
 	})
 	for su, t := range tallies {
 		c := newBiasCombo(su, mostCommon(t.readout))
-		c.LightsMissing, c.LightsStale, c.LightsThin = t.missing, t.stale, t.thin
+		c.LightsMissing, c.LightsThin = t.missing, t.thin
 		c.Nights, c.LatestNight = len(t.nights), t.latest
 		fillBiasProgress(&c, su, frames, sets, now)
-		c.Basis = fmt.Sprintf("%d lights at gain %s, offset %s, bin %s have no bias to calibrate with, %d have a bias set more than %d days "+
-			"from their night where one taken now would be nearer, and %d have a bias set of fewer than %d frames with no full set taken after it.",
-			c.LightsMissing, numText(su.gain), numText(su.offset), numText(su.bin), c.LightsStale, BiasMaxAgeDays, c.LightsThin, BiasFramesTarget)
+		c.Basis = fmt.Sprintf("%d lights at gain %s, offset %s, bin %s have no bias to calibrate with, "+
+			"and %d have a bias set of fewer than %d frames with no full set taken after it.",
+			c.LightsMissing, numText(su.gain), numText(su.offset), numText(su.bin), c.LightsThin, BiasFramesTarget)
 		b.Combos = append(b.Combos, c)
 	}
 	sort.SliceStable(b.Combos, func(i, j int) bool {
 		a, c := b.Combos[i], b.Combos[j]
 		if a.LightsMissing != c.LightsMissing {
 			return a.LightsMissing > c.LightsMissing
-		}
-		if a.LightsStale != c.LightsStale {
-			return a.LightsStale > c.LightsStale
 		}
 		if a.LightsThin != c.LightsThin {
 			return a.LightsThin > c.LightsThin

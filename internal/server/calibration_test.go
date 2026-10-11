@@ -144,12 +144,12 @@ func TestBiasBacklogRoute(t *testing.T) {
 	var b map[string]any
 	getJSON(t, r, "/api/v1/coverage/bias-backlog", &b)
 	combos, _ := b["combos"].([]any)
-	if len(combos) != 1 || b["frames_needed"] != 30.0 || b["max_age_days"] != 30.0 || b["session_gap_hours"] != 36.0 {
+	if len(combos) != 1 || b["frames_needed"] != 30.0 || b["max_age_days"] != nil || b["age_basis"] == "" || b["session_gap_hours"] != 36.0 {
 		t.Fatalf("backlog %v", b)
 	}
 	c, _ := combos[0].(map[string]any)
 	reqs, _ := c["requests"].([]any)
-	if c["combo_key"] != "bias|100|50|1" || c["priority"] != 0.0 || c["lights_stale"] != 0.0 || c["frames_have"] != 12.0 ||
+	if c["combo_key"] != "bias|100|50|1" || c["priority"] != 0.0 || c["lights_stale"] != nil || c["frames_have"] != 12.0 ||
 		c["current_bias_night"] != "2026-10-10" || len(reqs) != 1 {
 		t.Errorf("combo %v", c)
 	}
