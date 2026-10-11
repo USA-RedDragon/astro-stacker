@@ -8,7 +8,7 @@ import (
 )
 
 func measuredGoal(f string, progress float64, done bool) FilterGoal {
-	g := FilterGoal{Filter: f, Goal: &goals.Goal{}, Status: StatusMeasured, Progress: &goals.Progress{Progress: progress, Done: done}, Enough: done}
+	g := FilterGoal{Filter: f, Goal: &goals.Goal{}, GoalSet: true, Status: StatusMeasured, Progress: &goals.Progress{Progress: progress, Done: done}, Enough: done}
 	finishFilter(&g)
 	return g
 }
@@ -59,6 +59,25 @@ func TestLeastUnmeasuredRanksBelowMeasured(t *testing.T) {
 	}
 	if e := leastOfGoals("x", nil); e.Enough || e.Text() != NoPlansReason {
 		t.Fatalf("%+v", e)
+	}
+}
+
+func TestLeastListsCountBasedFilters(t *testing.T) {
+	t.Parallel()
+	counts := FilterGoal{Filter: filterLum, Status: StatusNoMaster}
+	finishFilter(&counts)
+	a := Target{Name: "a", Active: true, Least: leastOfGoals("a", []FilterGoal{measuredGoal("Red", 0.5, false), counts})}
+	if len(a.Least.CountBased) != 1 || a.Least.CountBased[0] != filterLum || a.Least.Filter != filterLum || a.Least.NotMeasured != NoGoalReason {
+		t.Fatalf("%+v", a.Least)
+	}
+	b := Target{Name: "b", Active: true, Least: leastOfGoals("b", []FilterGoal{measuredGoal("Red", 0.1, false), counts})}
+	c := Target{Name: "c", Active: false, Least: leastOfGoals("c", []FilterGoal{{Filter: "Green"}})}
+	l := leastOfTargets([]Target{a, b, c})
+	if len(l.CountBased) != 1 || l.CountBased[0] != filterLum {
+		t.Fatalf("one entry per filter, inactive targets left out: %+v", l.CountBased)
+	}
+	if l := leastOfGoals("x", []FilterGoal{measuredGoal("Red", 0.5, false)}); l.CountBased == nil || len(l.CountBased) != 0 {
+		t.Fatalf("goal-driven targets list no count-based filters: %+v", l.CountBased)
 	}
 }
 
@@ -113,7 +132,7 @@ func TestLeastOfTargetsSkipsTargetsWithoutEnabledPlans(t *testing.T) {
 
 func plateauGoal(f string, progress, plateau float64) FilterGoal {
 	h := 20.0
-	g := FilterGoal{Filter: f, Goal: &goals.Goal{}, Status: StatusMeasured, Progress: &goals.Progress{Progress: progress, Done: progress >= 1}, Enough: progress >= 1,
+	g := FilterGoal{Filter: f, Goal: &goals.Goal{}, GoalSet: true, Status: StatusMeasured, Progress: &goals.Progress{Progress: progress, Done: progress >= 1}, Enough: progress >= 1,
 		Measurement: &Measurement{EffectiveHours: plateau * h, PlateauAt: goals.Plateau{Hours: &h, Progress: &plateau}}}
 	finishFilter(&g)
 	return g

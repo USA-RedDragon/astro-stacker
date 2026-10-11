@@ -3,6 +3,7 @@ package planning
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 )
@@ -17,6 +18,7 @@ type Least struct {
 	NotMeasured string       `json:"notMeasured,omitempty"`
 	Unmeasured  int          `json:"unmeasured"`
 	Filters     int          `json:"filters"`
+	CountBased  []string     `json:"countBased"`
 	Plateau     LeastPlateau `json:"plateau"`
 }
 
@@ -165,7 +167,12 @@ func filterLess(enoughA bool, pa *float64, enoughB bool, pb *float64) bool {
 }
 
 func leastOfGoals(target string, gs []FilterGoal) Least {
-	l := Least{Target: target, Filters: len(gs), Enough: len(gs) > 0, Plateau: leastPlateauOf(target, gs)}
+	l := Least{Target: target, Filters: len(gs), Enough: len(gs) > 0, CountBased: []string{}, Plateau: leastPlateauOf(target, gs)}
+	for _, g := range gs {
+		if !g.GoalSet {
+			l.CountBased = append(l.CountBased, g.Filter)
+		}
+	}
 	if len(gs) == 0 {
 		l.NotMeasured = NoPlansReason
 		return l
@@ -208,6 +215,7 @@ func leastOfTargets(ts []Target) Least {
 	var w *Least
 	var wp *LeastPlateau
 	enough, unmeasured, filters, plateauUnmeasured := false, 0, 0, 0
+	counts := []string{}
 	for i := range ts {
 		if !ts[i].Active || ts[i].Least.Filters == 0 {
 			continue
@@ -220,6 +228,11 @@ func leastOfTargets(ts []Target) Least {
 		unmeasured += l.Unmeasured
 		filters += l.Filters
 		plateauUnmeasured += l.Plateau.Unmeasured
+		for _, f := range l.CountBased {
+			if !slices.Contains(counts, f) {
+				counts = append(counts, f)
+			}
+		}
 		if w == nil || LeastLess(l, *w) {
 			w = &l
 		}
@@ -229,10 +242,10 @@ func leastOfTargets(ts []Target) Least {
 		}
 	}
 	if w == nil {
-		return Least{NotMeasured: NoPlansReason, Plateau: LeastPlateau{NotMeasured: NoPlansReason, GainPct: goals.PlateauGainPct}}
+		return Least{NotMeasured: NoPlansReason, CountBased: counts, Plateau: LeastPlateau{NotMeasured: NoPlansReason, GainPct: goals.PlateauGainPct}}
 	}
 	out := *w
-	out.Enough, out.Unmeasured, out.Filters = enough, unmeasured, filters
+	out.Enough, out.Unmeasured, out.Filters, out.CountBased = enough, unmeasured, filters, counts
 	out.Plateau = *wp
 	out.Plateau.Unmeasured, out.Plateau.Filters = plateauUnmeasured, filters
 	return out
