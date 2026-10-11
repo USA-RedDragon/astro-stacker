@@ -18,6 +18,13 @@ type Point struct {
 
 type Footprint [4]Point
 
+type Cost struct {
+	Hours   *float64 `json:"hours"`
+	Nights  *int     `json:"nights"`
+	Seasons *int     `json:"seasons"`
+	Text    string   `json:"text"`
+}
+
 type Gap struct {
 	Fraction float64 `json:"fraction"`
 	AreaDeg2 float64 `json:"areaDeg2"`

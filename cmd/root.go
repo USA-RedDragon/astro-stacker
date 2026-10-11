@@ -185,7 +185,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill)
+	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill, mosaicPlans)
 	previews := server.NewPreviewCache(nil, nil)
 	commands, monitor, obs := newScheduler(indexCtx, cfg, appStore, schedulerDBStore, broker, func(r schedcmd.Record) {
 		if disc != nil && discover.Affects(r) {

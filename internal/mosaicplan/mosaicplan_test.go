@@ -565,6 +565,32 @@ func TestFrameOffersLayoutsAndAChosenGrid(t *testing.T) {
 	}
 }
 
+func TestEstimatorMatchesTheFramingCost(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	appDB := appFixture(t)
+	addNights(t, appDB, "Elsewhere", time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC), 10, 4*3600)
+	svc := mosaicplan.New(appDB, schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
+	rot := 0.0
+	f, err := svc.Frame(ctx, mosaicplan.FramingRequest{RA: 313, Dec: 44, MajorArcmin: 240, Rotation: &rot, Rows: 2, Cols: 3}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	est, err := svc.Estimator(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := est(6, [12]float64{})
+	if f.Chosen == nil || c.Hours == nil || f.Chosen.Hours == nil || *c.Hours != *f.Chosen.Hours || c.Nights == nil || *c.Nights != *f.Chosen.Nights || c.Text != f.Chosen.Cost {
+		t.Errorf("estimator %+v, framing %+v", c, f.Chosen)
+	}
+	march := [12]float64{2: 6}
+	if c := est(6, march); c.Seasons == nil || !strings.Contains(c.Text, "season") {
+		t.Errorf("with a usable March %+v", c)
+	}
+}
+
 func TestHistoryIsCumulativePerPanel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

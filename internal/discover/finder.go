@@ -3,6 +3,7 @@ package discover
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
@@ -136,6 +138,7 @@ type FinderRow struct {
 	Subjects   []SubjectRef   `json:"subjects"`
 	Rotation   *float64       `json:"rotation"`
 	CatalogGap bool           `json:"catalogueGap"`
+	Mosaic     *mosaics.Cost  `json:"mosaic,omitempty"`
 }
 
 type Exclusion struct {
@@ -413,8 +416,26 @@ func (s *Service) Finder(ctx context.Context, q FinderQuery) (FinderResult, erro
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
+	s.mosaicCosts(ctx, hits)
 	out.Rows = append(out.Rows, hits...)
 	return out, nil
+}
+
+func (s *Service) mosaicCosts(ctx context.Context, rows []FinderRow) {
+	if s.MosaicCost == nil || !slices.ContainsFunc(rows, func(r FinderRow) bool { return r.Fit.Panels > 1 }) {
+		return
+	}
+	est, err := s.MosaicCost(ctx)
+	if err != nil {
+		slog.Warn("Could not estimate mosaic hours for the finder", "error", err)
+		return
+	}
+	for i := range rows {
+		if rows[i].Fit.Panels > 1 {
+			c := est(rows[i].Fit.Panels, rows[i].Months)
+			rows[i].Mosaic = &c
+		}
+	}
 }
 
 func sortRows(rows []FinderRow, by string) {

@@ -126,33 +126,9 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 	if err := s.framingBasis(ctx, req, months, out.SiteKnown, &out.Basis); err != nil {
 		return out, err
 	}
-	b := out.Basis
 	cost := func(l mosaics.Layout) FramingOption {
-		opt := FramingOption{Layout: l}
-		if b.HoursPerPanel == nil {
-			opt.Cost = "hours per panel unknown: no target has an hour of effective exposure yet"
-			return opt
-		}
-		h := *b.HoursPerPanel * float64(len(l.Panels))
-		opt.Hours = &h
-		if b.HoursPerClearNight == nil {
-			opt.Cost = fmt.Sprintf("%.0f h effective · nights unknown: %s", h, *b.Reason)
-			return opt
-		}
-		n := int(math.Ceil(h / *b.HoursPerClearNight))
-		opt.Nights = &n
-		if b.ClearNightsPerSeason == nil || *b.ClearNightsPerSeason <= 0 {
-			opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d imaging nights at your %.1f h per imaging night", h, n, *b.HoursPerClearNight)
-			return opt
-		}
-		se := max(1, int(math.Ceil(float64(n) / *b.ClearNightsPerSeason)))
-		opt.Seasons = &se
-		season := "1 season"
-		if se > 1 {
-			season = fmt.Sprintf("%d seasons", se)
-		}
-		opt.Cost = fmt.Sprintf("%.0f h effective · ≈ %d imaging nights at your %.1f h per imaging night · %s", h, n, *b.HoursPerClearNight, season)
-		return opt
+		c := costOf(out.Basis, len(l.Panels))
+		return FramingOption{Layout: l, Hours: c.Hours, Nights: c.Nights, Seasons: c.Seasons, Cost: c.Text}
 	}
 	for i, l := range mosaics.Alternatives(o, out.Rotation, out.Overlap, rig) {
 		opt := cost(l)
@@ -178,37 +154,93 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 	return out, nil
 }
 
-func (s *Service) framingBasis(ctx context.Context, req FramingRequest, months [12]float64, siteKnown bool, b *FramingBasis) error {
-	if req.HoursPerPanel > 0 {
-		v, src := req.HoursPerPanel, sourceRequest
-		b.HoursPerPanel, b.HoursPerPanelSource = &v, &src
-	} else {
-		med, n, err := s.medianTargetHours(ctx)
-		if err != nil {
-			return err
-		}
-		if med != nil {
-			src := sourceTargets
-			b.HoursPerPanel, b.HoursPerPanelSource, b.Targets = med, &src, n
-		}
+type history struct {
+	median *float64
+	n      int
+	nights nightHistory
+}
+
+func (s *Service) loadHistory(ctx context.Context) (history, error) {
+	med, n, err := s.medianTargetHours(ctx)
+	if err != nil {
+		return history{}, err
 	}
 	hist, err := s.clearNights(ctx)
 	if err != nil {
+		return history{}, err
+	}
+	return history{median: med, n: n, nights: hist}, nil
+}
+
+func (s *Service) framingBasis(ctx context.Context, req FramingRequest, months [12]float64, siteKnown bool, b *FramingBasis) error {
+	h, err := s.loadHistory(ctx)
+	if err != nil {
 		return err
 	}
-	b.HistoryNights = len(hist.hours)
-	if v := hist.hoursPerClearNight(); v != nil {
+	*b = h.basis(req.HoursPerPanel, months, siteKnown)
+	return nil
+}
+
+func (h history) basis(hoursPerPanel float64, months [12]float64, siteKnown bool) FramingBasis {
+	var b FramingBasis
+	if hoursPerPanel > 0 {
+		v, src := hoursPerPanel, sourceRequest
+		b.HoursPerPanel, b.HoursPerPanelSource = &v, &src
+	} else if h.median != nil {
+		v, src := *h.median, sourceTargets
+		b.HoursPerPanel, b.HoursPerPanelSource, b.Targets = &v, &src, h.n
+	}
+	b.HistoryNights = len(h.nights.hours)
+	if v := h.nights.hoursPerClearNight(); v != nil {
 		r := math.Round(*v*100) / 100
 		b.HoursPerClearNight = &r
 	} else {
-		b.Reason = reason(fmt.Sprintf("only %d imaging nights (nights with accepted subs) of history; at least %d are needed", len(hist.hours), minHistoryNights))
+		b.Reason = reason(fmt.Sprintf("only %d imaging nights (nights with accepted subs) of history; at least %d are needed", len(h.nights.hours), minHistoryNights))
 	}
 	if siteKnown {
-		b.ClearNightsPerSeason = clearNightsIn(hist.perMonth(), usableMonths(months))
+		b.ClearNightsPerSeason = clearNightsIn(h.nights.perMonth(), usableMonths(months))
 	} else if b.Reason == nil {
 		b.Reason = reason("the observatory site is not known, so the target's season can't be worked out")
 	}
-	return nil
+	return b
+}
+
+func costOf(b FramingBasis, panels int) mosaics.Cost {
+	var c mosaics.Cost
+	if b.HoursPerPanel == nil {
+		c.Text = "hours per panel unknown: no target has an hour of effective exposure yet"
+		return c
+	}
+	h := *b.HoursPerPanel * float64(panels)
+	c.Hours = &h
+	if b.HoursPerClearNight == nil {
+		c.Text = fmt.Sprintf("%.0f h effective · nights unknown: %s", h, *b.Reason)
+		return c
+	}
+	n := int(math.Ceil(h / *b.HoursPerClearNight))
+	c.Nights = &n
+	if b.ClearNightsPerSeason == nil || *b.ClearNightsPerSeason <= 0 {
+		c.Text = fmt.Sprintf("%.0f h effective · ≈ %d imaging nights at your %.1f h per imaging night", h, n, *b.HoursPerClearNight)
+		return c
+	}
+	se := max(1, int(math.Ceil(float64(n) / *b.ClearNightsPerSeason)))
+	c.Seasons = &se
+	season := "1 season"
+	if se > 1 {
+		season = fmt.Sprintf("%d seasons", se)
+	}
+	c.Text = fmt.Sprintf("%.0f h effective · ≈ %d imaging nights at your %.1f h per imaging night · %s", h, n, *b.HoursPerClearNight, season)
+	return c
+}
+
+func (s *Service) Estimator(ctx context.Context) (func(panels int, months [12]float64) mosaics.Cost, error) {
+	h, err := s.loadHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return func(panels int, months [12]float64) mosaics.Cost {
+		return costOf(h.basis(0, months, true), panels)
+	}, nil
 }
 
 func outline(ra float64, req FramingRequest) mosaics.Outline {
