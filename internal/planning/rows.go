@@ -13,6 +13,14 @@ type projectRow struct {
 	IsMosaic        int     `gorm:"column:isMosaic"`
 	EnableGrader    int     `gorm:"column:enablegrader"`
 	GUID            *string `gorm:"column:guid"`
+
+	DitherEvery           *int     `gorm:"column:ditherevery"`
+	FilterSwitchFrequency *int     `gorm:"column:filterswitchfrequency"`
+	FlatsHandling         *int     `gorm:"column:flatsHandling"`
+	SmartExposureOrder    *int     `gorm:"column:smartexposureorder"`
+	MeridianWindow        *int     `gorm:"column:meridianwindow"`
+	UseCustomHorizon      *int     `gorm:"column:usecustomhorizon"`
+	HorizonOffset         *float64 `gorm:"column:horizonoffset"`
 }
 
 func (projectRow) TableName() string { return "project" }

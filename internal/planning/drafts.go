@@ -204,6 +204,16 @@ type ProjectDraft struct {
 	Desired         int          `json:"desired"`
 	Goal            GoalDraft    `json:"goal"`
 	Panels          []PanelDraft `json:"panels"`
+
+	DitherEvery           *int     `json:"ditherEvery"`
+	FilterSwitchFrequency *int     `json:"filterSwitchFrequency"`
+	FlatsHandling         *int     `json:"flatsHandling"`
+	SmartExposureOrder    *bool    `json:"smartExposureOrder"`
+	MeridianWindow        *int     `json:"meridianWindow"`
+	UseCustomHorizon      *bool    `json:"useCustomHorizon"`
+	HorizonOffset         *float64 `json:"horizonOffset"`
+	MaximumAltitude       *float64 `json:"maximumAltitude"`
+	EnableGrader          *bool    `json:"enableGrader"`
 }
 
 func priorityIndex(s string) int {
@@ -240,6 +250,10 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 	if minAlt < 0 || minAlt >= 90 {
 		return nil, errors.New("the minimum altitude must be from 0° to 90°")
 	}
+	settings, err := s.draftSettings(d, items)
+	if err != nil {
+		return nil, err
+	}
 	mosaic := len(d.Panels) > 1
 	desc := ""
 	if d.Catalog != "" {
@@ -247,7 +261,7 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 	}
 	out := &schedcmd.ProjectCreatePayload{
 		Project: schedcmd.NewProject{GUID: newID(), Name: name, Description: desc, Priority: priorityIndex(d.Priority), State: 1,
-			MinimumTime: minTime, MinimumAltitude: minAlt, IsMosaic: mosaic},
+			MinimumTime: minTime, MinimumAltitude: minAlt, IsMosaic: mosaic, ProjectSettings: settings},
 		Catalog: d.Catalog, Match: d.Match, MatchWith: d.MatchWith,
 		RuleWeights: map[string]float64{},
 	}
@@ -300,6 +314,53 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 		out.Targets = append(out.Targets, nt)
 	}
 	return out, nil
+}
+
+func (d ProjectDraft) settings() schedcmd.ProjectSettings {
+	return schedcmd.ProjectSettings{
+		DitherEvery: d.DitherEvery, FilterSwitchFrequency: d.FilterSwitchFrequency, FlatsHandling: d.FlatsHandling,
+		SmartExposureOrder: d.SmartExposureOrder, MeridianWindow: d.MeridianWindow, UseCustomHorizon: d.UseCustomHorizon,
+		HorizonOffset: d.HorizonOffset, MaximumAltitude: d.MaximumAltitude, EnableGrader: d.EnableGrader,
+	}
+}
+
+func (s *Snapshot) draftProfile(items []draftItem) string {
+	for _, it := range items {
+		if p := s.templateProfiles[it.tmpl.ID]; p != "" {
+			return p
+		}
+	}
+	return s.Defaults.ProjectSettings.ProfileID
+}
+
+func pick[T any](given *T, fallback T) *T {
+	if given != nil {
+		v := *given
+		return &v
+	}
+	return &fallback
+}
+
+func (s *Snapshot) draftSettings(d ProjectDraft, items []draftItem) (schedcmd.ProjectSettings, error) {
+	given := d.settings()
+	if err := given.Validate(d.MinimumAltitude); err != nil {
+		return given, err
+	}
+	def := s.ProjectSettingsFor(s.draftProfile(items))
+	if d.MaximumAltitude == nil && def.MaximumAltitude > 0 && def.MaximumAltitude <= d.MinimumAltitude {
+		def.MaximumAltitude = 0
+	}
+	return schedcmd.ProjectSettings{
+		DitherEvery:           pick(given.DitherEvery, def.DitherEvery),
+		FilterSwitchFrequency: pick(given.FilterSwitchFrequency, def.FilterSwitchFrequency),
+		FlatsHandling:         pick(given.FlatsHandling, def.FlatsHandling),
+		SmartExposureOrder:    pick(given.SmartExposureOrder, def.SmartExposureOrder),
+		MeridianWindow:        pick(given.MeridianWindow, def.MeridianWindow),
+		UseCustomHorizon:      pick(given.UseCustomHorizon, def.UseCustomHorizon),
+		HorizonOffset:         pick(given.HorizonOffset, def.HorizonOffset),
+		MaximumAltitude:       pick(given.MaximumAltitude, def.MaximumAltitude),
+		EnableGrader:          pick(given.EnableGrader, def.EnableGrader),
+	}, nil
 }
 
 type draftItem struct {

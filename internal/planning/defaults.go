@@ -27,6 +27,8 @@ type GoalDefaults struct {
 type Defaults struct {
 	Goal               GoalDefaults `json:"goal"`
 	PanelDeficitWeight float64      `json:"panelDeficitWeight"`
+
+	ProjectSettings ProjectSettingsDefaults `json:"projectSettings"`
 }
 
 func defaultsFor(templates []Template) Defaults {
