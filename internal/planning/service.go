@@ -246,6 +246,7 @@ type Snapshot struct {
 	projectRows      []projectRow
 	templateProfiles map[int]string
 	weightsBy        map[int]map[string]float64
+	goalSettings     goals.Settings
 }
 
 func twilightName(v *int) *string {
@@ -435,8 +436,12 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 	if err != nil {
 		return nil, err
 	}
+	settings, err := goals.LoadSettings(ctx, sched)
+	if err != nil {
+		return nil, err
+	}
 	x := r.index()
-	out := &Snapshot{Rules: Rules(), projectRows: r.projects, templateProfiles: map[int]string{}}
+	out := &Snapshot{Rules: Rules(), projectRows: r.projects, templateProfiles: map[int]string{}, goalSettings: settings}
 	out.weightsBy = x.weightsBy
 	for _, pr := range r.projects {
 		out.Projects = append(out.Projects, buildProject(pr, r, x, in))
@@ -770,3 +775,5 @@ func (s *Snapshot) Project(id int) (Project, bool) {
 	}
 	return s.Projects[i], true
 }
+
+func (s *Snapshot) GoalSettings() goals.Settings { return s.goalSettings }
