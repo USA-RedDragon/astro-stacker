@@ -264,6 +264,9 @@ func (p *Pipeline) MosaicsOnce(ctx context.Context) error {
 			filters = append(filters, f)
 		}
 		slices.Sort(filters)
+		if err := p.dropStaleMosaics(ctx, g, filters); err != nil {
+			slog.Error("Dropping stale mosaics failed", "project", g.Project, "error", err)
+		}
 		for _, filter := range filters {
 			if p.stopping(ctx) {
 				return nil
@@ -278,6 +281,60 @@ func (p *Pipeline) MosaicsOnce(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// dropStaleMosaics removes a project's mosaics, seams and panel health for
+// filters that no panel has a master in any more, such as after frames from
+// another rig are split off the panels.
+func (p *Pipeline) dropStaleMosaics(ctx context.Context, g mosaicGroup, keep []string) error {
+	db := p.db.WithContext(ctx)
+	q := db.Where("project = ?", g.Project)
+	if g.ProjectGUID != "" {
+		q = db.Where("project = ? OR project_guid = ?", g.Project, g.ProjectGUID)
+	}
+	var rows []app.Mosaic
+	if err := q.Find(&rows).Error; err != nil {
+		return err
+	}
+	dropped := false
+	for _, m := range rows {
+		if slices.Contains(keep, m.Filter) {
+			continue
+		}
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("project = ? AND filter = ?", m.Project, m.Filter).Delete(&app.MosaicSeam{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("project = ? AND filter = ?", m.Project, m.Filter).Delete(&app.MosaicPanelHealth{}).Error; err != nil {
+				return err
+			}
+			return tx.Delete(&app.Mosaic{}, m.ID).Error
+		}); err != nil {
+			return err
+		}
+		p.removeMosaicFiles(ctx, m)
+		dropped = true
+		slog.Info("Dropped a mosaic no panel has a master for", "project", m.Project, "filter", m.Filter)
+	}
+	if dropped {
+		p.refreshMosaicCover(ctx, g.Project)
+		p.Events.Publish(events.Event{Type: events.TypeMosaic, Object: g.Project})
+	}
+	return nil
+}
+
+func (p *Pipeline) removeMosaicFiles(ctx context.Context, m app.Mosaic) {
+	if p.s3 == nil {
+		return
+	}
+	for _, key := range []*string{m.MasterKey, m.XISFKey, m.PreviewKey, m.LinearKey} {
+		if key == nil {
+			continue
+		}
+		if err := p.s3.RemoveObject(ctx, p.dest, *key, minio.RemoveObjectOptions{}); err != nil {
+			slog.Warn("Could not remove a stale mosaic file", "key", *key, "error", err)
+		}
+	}
 }
 
 func (p *Pipeline) findMosaic(ctx context.Context, g mosaicGroup, filter string) (app.Mosaic, error) {

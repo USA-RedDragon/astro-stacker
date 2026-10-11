@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -184,5 +185,50 @@ func TestSaveSeamsReplacesAProjectFiltersRows(t *testing.T) {
 	p.busy = nil
 	if !p.seamsDue() || p.seamsDue() {
 		t.Error("seam budget not spent once")
+	}
+}
+
+func TestDropStaleMosaicsKeepsOnlyFiltersWithMasters(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.Mosaic{}, &app.MosaicSeam{}, &app.MosaicPanelHealth{}, &app.Cover{}); err != nil {
+		t.Fatal(err)
+	}
+	const other = "Eagle Nebula"
+	for _, f := range []string{"Red", "H-a"} {
+		for _, project := range []string{rhoProject, other} {
+			db.Create(&app.Mosaic{Project: project, ProjectGUID: "guid-" + project, Filter: f})
+			db.Create(&app.MosaicSeam{Project: project, Filter: f, PanelA: 1, PanelB: 2})
+			db.Create(&app.MosaicPanelHealth{Project: project, Filter: f, Panel: 1, GapFraction: 0.96})
+		}
+	}
+	db.Create(&app.Mosaic{Project: "Old name", ProjectGUID: "guid-" + rhoProject, Filter: "S-II"})
+	p := &Pipeline{db: db}
+	g := mosaicGroup{Project: rhoProject, ProjectGUID: "guid-" + rhoProject}
+	if err := p.dropStaleMosaics(context.Background(), g, []string{"Red"}); err != nil {
+		t.Fatal(err)
+	}
+	var mosaics []app.Mosaic
+	db.Order("project, filter").Find(&mosaics)
+	got := make([]string, 0, len(mosaics))
+	for _, m := range mosaics {
+		got = append(got, m.Project+"/"+m.Filter)
+	}
+	want := []string{other + "/H-a", other + "/Red", rhoProject + "/Red"}
+	if !slices.Equal(got, want) {
+		t.Errorf("mosaics left %v, want %v", got, want)
+	}
+	var seams, health int64
+	db.Model(&app.MosaicSeam{}).Where("project = ? AND filter = ?", rhoProject, "H-a").Count(&seams)
+	db.Model(&app.MosaicPanelHealth{}).Where("project = ? AND filter = ?", rhoProject, "H-a").Count(&health)
+	if seams != 0 || health != 0 {
+		t.Errorf("%d seams and %d health rows left for the dropped filter", seams, health)
+	}
+	db.Model(&app.MosaicPanelHealth{}).Count(&health)
+	if health != 3 {
+		t.Errorf("%d health rows left, want 3", health)
 	}
 }
