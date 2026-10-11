@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
@@ -529,67 +528,6 @@ func schedulingProgress(p Panel) float64 {
 		if !f.Done {
 			out = math.Min(out, f.Progress)
 		}
-	}
-	return out
-}
-
-func (s *Service) SeasonBoosts(ctx context.Context, now time.Time) (map[string]float64, error) {
-	groups, err := s.groups(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]float64{}
-	var gs map[goals.Key]goals.Goal
-	loaded := false
-	for _, g := range groups {
-		ts := Detail{ProjectGUID: g.ProjectGUID}
-		if err := s.loadTS(ctx, &ts); err != nil {
-			return nil, err
-		}
-		if !ts.Balancing.On {
-			continue
-		}
-		if !loaded {
-			if gs, err = s.loadGoals(ctx); err != nil {
-				return nil, err
-			}
-			loaded = true
-		}
-		d, err := s.build(ctx, g, gs)
-		if err != nil {
-			return nil, err
-		}
-		for guid, b := range seasonBoosts(d, s.panelPriorities(ctx, d, now)) {
-			out[guid] = b
-		}
-	}
-	return out, nil
-}
-
-func seasonBoosts(d Detail, priorities []PanelSeasonPriority) map[string]float64 {
-	out := map[string]float64{}
-	guids := make(map[int]string, len(d.Panels))
-	for _, p := range d.Panels {
-		if p.TargetGUID != "" {
-			guids[p.Number] = p.TargetGUID
-		}
-	}
-	top := 0.0
-	for _, p := range priorities {
-		if p.ThisSeason {
-			top = math.Max(top, p.Priority)
-		}
-	}
-	for _, p := range priorities {
-		guid := guids[p.Panel]
-		if guid == "" {
-			continue
-		}
-		b := 0.0
-		if p.ThisSeason && top > 0 {
-			b = p.Priority / top
-		}
-		out[guid] = b
 	}
 	return out
 }

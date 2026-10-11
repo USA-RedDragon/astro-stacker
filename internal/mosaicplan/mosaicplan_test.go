@@ -631,7 +631,7 @@ func TestNeedsSmallHoursAndUnknownGapLocation(t *testing.T) {
 func TestNoiseAndSeamStatus(t *testing.T) {
 	t.Parallel()
 	p90, at := 2e-4, time.Unix(100, 0)
-	ms := []app.Mosaic{{Filter: filterHa, NoiseP90: &p90, NoiseMaxPanel: 3, NoiseTiles: 40, NoiseAt: &at, SeamSignature: "x/2"}, {Filter: "O-III"}}
+	ms := []app.Mosaic{{Filter: filterHa, NoiseP90: &p90, NoiseMaxPanel: 3, NoiseTiles: 40, NoiseAt: &at, SeamSignature: "x/2"}, {Filter: filterOIII}}
 	seams := []app.MosaicSeam{{Filter: filterHa, PanelA: 1, PanelB: 2, MeasuredAt: at}, {Filter: filterHa, PanelA: 2, PanelB: 3, MeasuredAt: at.Add(time.Hour)}}
 	noise, status := mosaicplan.NoiseAndStatus(ms, seams)
 	if len(noise) != 2 || noise[0].P90 == nil || *noise[0].P90 != p90 || noise[0].MaxPanel == nil || *noise[0].MaxPanel != 3 || noise[1].MaxPanel != nil || noise[1].P90 != nil {
@@ -642,35 +642,43 @@ func TestNoiseAndSeamStatus(t *testing.T) {
 	}
 }
 
-func TestSeasonBoostsOnlyForBalancedMosaics(t *testing.T) {
+func TestSeasonBoostsCoverEveryActiveTarget(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	svc := mosaicplan.New(appFixture(t), schedFixture(t))
-	svc.Site = func(context.Context) (mosaics.Site, bool) { return mosaics.Site{Lat: 32, Lon: -97}, true }
-	boosts, err := svc.SeasonBoosts(ctx, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := svc.Detail(ctx, markarian)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.RigKnown || d.Layout != nil || d.Rows != 0 || d.Panels[0].Row != nil || d.Panels[0].Col != nil {
-		t.Errorf("grid placed without a rig: layout %v rows %d panel %+v", d.Layout, d.Rows, d.Panels[0])
-	}
-	if len(boosts) != len(d.Panels) {
-		t.Fatalf("boosts %v for panels %+v", boosts, d.Panels)
-	}
-	top := 0.0
-	for _, p := range d.Panels {
-		b, ok := boosts[p.TargetGUID]
-		if !ok || b < 0 || b > 1 {
-			t.Errorf("panel %d boost %v %v", p.Number, b, ok)
+	sched := schedFixture(t)
+	for _, q := range []string{
+		`CREATE TABLE ts_target_season (target_guid TEXT PRIMARY KEY, nights_left INTEGER, out_of_season INTEGER, season_end TEXT, computed_for TEXT, computed_at TEXT)`,
+		`INSERT INTO ts_target_season VALUES ('m1', 60, 0, '2026-05-30', '2026-04-01', NULL), ('m2', 0, 1, NULL, '2026-04-01', NULL), ('ros1', 20, 0, '2026-04-20', '2026-04-01', NULL)`,
+		`INSERT INTO exposureplan VALUES (6, 20, 1, 300, 30, 0, 1)`,
+	} {
+		if err := sched.Exec(q).Error; err != nil {
+			t.Fatal(q, err)
 		}
-		top = math.Max(top, b)
 	}
-	if top != 0 && top != 1 {
-		t.Errorf("boosts are not scaled to the top panel: %v", boosts)
+	svc := mosaicplan.New(appFixture(t), sched)
+	now := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	if boosts, err := svc.SeasonBoosts(ctx, now); err != nil || len(boosts) != 0 {
+		t.Fatalf("no site should publish no boosts: %v %v", boosts, err)
+	}
+	svc.Site = func(context.Context) (mosaics.Site, bool) { return mosaics.Site{Lat: 32, Lon: -97}, true }
+	boosts, err := svc.SeasonBoosts(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, guid := range []string{"m1", "m2", "r1", "r2", "ros1", "ros2"} {
+		b, ok := boosts[guid]
+		if !ok || b < 0 || b > 1 {
+			t.Errorf("%s boost %v %v", guid, b, ok)
+		}
+	}
+	if boosts["m1"] <= 0 || boosts["ros1"] <= 0 {
+		t.Errorf("in-season mosaic panels and single targets with work left get a boost: %v", boosts)
+	}
+	if boosts["m2"] != 0 || boosts["r1"] != 0 || boosts["ros2"] != 0 {
+		t.Errorf("out of season, no season row, or no work left gets 0: %v", boosts)
+	}
+	if boosts["m1"] == 1 && boosts["ros1"] == 1 {
+		t.Errorf("boosts are not scaled to a top target: %v", boosts)
 	}
 }
 
@@ -854,28 +862,5 @@ func TestListLoadsGoalsOnce(t *testing.T) {
 	}
 	if n := targetLoads.Load(); n > 2 {
 		t.Errorf("List of %d mosaics loaded Target Scheduler's targets %d times", len(list), n)
-	}
-}
-
-func TestSeasonBoostsSkipBuildingUnbalancedMosaics(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	appDB := appFixture(t)
-	var seamLoads atomic.Int64
-	if err := appDB.Callback().Query().After("gorm:query").Register("count:seams", func(db *gorm.DB) {
-		if db.Statement.Table == "mosaic_seams" {
-			seamLoads.Add(1)
-		}
-	}); err != nil {
-		t.Fatal(err)
-	}
-	svc := mosaicplan.New(appDB, schedFixture(t))
-	svc.Site = func(context.Context) (mosaics.Site, bool) { return mosaics.Site{Lat: 32, Lon: -97}, true }
-	boosts, err := svc.SeasonBoosts(ctx, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC))
-	if err != nil || len(boosts) != 2 {
-		t.Fatalf("boosts %v %v", boosts, err)
-	}
-	if n := seamLoads.Load(); n != 1 {
-		t.Errorf("season boosts built %d mosaics for the one that balances panels", n)
 	}
 }
