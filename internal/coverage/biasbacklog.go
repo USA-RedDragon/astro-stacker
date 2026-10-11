@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
 
@@ -126,7 +127,8 @@ type biasTally struct {
 
 // BuildBiasBacklog lists, per gain, offset and binning, the lights whose
 // bias set is missing, too old when a new one would be nearer, or short of
-// BiasFramesTarget.
+// BiasFramesTarget, with the sets open bias requests still need at
+// priority 0.
 func BuildBiasBacklog(ctx context.Context, db *gorm.DB, now time.Time) (BiasBacklog, error) {
 	sets, _, err := loadSets(ctx, db)
 	if err != nil {
@@ -144,7 +146,13 @@ func BuildBiasBacklog(ctx context.Context, db *gorm.DB, now time.Time) (BiasBack
 	if err != nil {
 		return BiasBacklog{}, err
 	}
-	return biasBacklog(lights, frames, sets, now), nil
+	b := biasBacklog(lights, frames, sets, now)
+	needs, err := openNeeds(ctx, db, app.CalibrationBias, requestFrames{bias: frames})
+	if err != nil {
+		return BiasBacklog{}, err
+	}
+	mergeBiasRequests(&b, needs, frames, sets, now)
+	return b, nil
 }
 
 func loadBias(ctx context.Context, db *gorm.DB) ([]biasFrame, error) {

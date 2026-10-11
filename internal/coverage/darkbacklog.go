@@ -11,6 +11,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkcheck"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
 
@@ -29,25 +30,26 @@ type DarkBacklog struct {
 }
 
 type DarkCombo struct {
-	ComboKey        string     `json:"combo_key"`
-	Priority        int        `json:"priority"`
-	Exposure        float64    `json:"exposure"`
-	Gain            float64    `json:"gain"`
-	Offset          float64    `json:"offset"`
-	Binning         float64    `json:"binning"`
-	ReadoutMode     *string    `json:"readout_mode"`
-	SetTemp         float64    `json:"set_temp"`
-	SetTempsCovered []float64  `json:"set_temps_covered"`
-	FramesNeeded    int        `json:"frames_needed"`
-	FramesHave      int        `json:"frames_have"`
-	FramesRejected  int        `json:"frames_rejected"`
-	LightsBlocked   int        `json:"lights_blocked"`
-	LightsScaled    int        `json:"lights_scaled"`
-	LightsThin      int        `json:"lights_thin"`
-	Nights          int        `json:"nights"`
-	LatestNight     string     `json:"latest_night"`
-	NewestDarkAt    *time.Time `json:"newest_dark_at"`
-	Basis           string     `json:"basis"`
+	ComboKey        string       `json:"combo_key"`
+	Priority        int          `json:"priority"`
+	Exposure        float64      `json:"exposure"`
+	Gain            float64      `json:"gain"`
+	Offset          float64      `json:"offset"`
+	Binning         float64      `json:"binning"`
+	ReadoutMode     *string      `json:"readout_mode"`
+	SetTemp         float64      `json:"set_temp"`
+	SetTempsCovered []float64    `json:"set_temps_covered"`
+	FramesNeeded    int          `json:"frames_needed"`
+	FramesHave      int          `json:"frames_have"`
+	FramesRejected  int          `json:"frames_rejected"`
+	LightsBlocked   int          `json:"lights_blocked"`
+	LightsScaled    int          `json:"lights_scaled"`
+	LightsThin      int          `json:"lights_thin"`
+	Nights          int          `json:"nights"`
+	LatestNight     string       `json:"latest_night"`
+	NewestDarkAt    *time.Time   `json:"newest_dark_at"`
+	Requests        []RequestRef `json:"requests"`
+	Basis           string       `json:"basis"`
 }
 
 type DarkUnscheduled struct {
@@ -226,7 +228,13 @@ func BuildDarkBacklog(ctx context.Context, db *gorm.DB, now time.Time) (DarkBack
 	if err != nil {
 		return DarkBacklog{}, err
 	}
-	return darkBacklog(lights, darks, sets, now), nil
+	b := darkBacklog(lights, darks, sets, now)
+	needs, err := openNeeds(ctx, db, app.CalibrationDarks, requestFrames{darks: darks})
+	if err != nil {
+		return DarkBacklog{}, err
+	}
+	mergeDarkRequests(&b, needs, darks, now)
+	return b, nil
 }
 
 func loadDarks(ctx context.Context, db *gorm.DB) ([]darkFrame, error) {
@@ -380,7 +388,7 @@ func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
 				best, bestBlocked, bestScaled, bestThin, found = cand, bl, sc, th, true
 			}
 		}
-		c := DarkCombo{SetTemp: best, SetTempsCovered: []float64{}}
+		c := DarkCombo{SetTemp: best, SetTempsCovered: []float64{}, Requests: []RequestRef{}}
 		nights := map[string]bool{}
 		readout := map[string]int{}
 		var covered []float64
