@@ -142,14 +142,12 @@ func checkComputed(t *testing.T, db *gorm.DB, fx *fixture) {
 		t.Fatalf("combos %+v", b.Combos)
 	}
 	first, second, third := b.Combos[0], b.Combos[1], b.Combos[2]
-	if first.SetTemp != -20 || first.LightsBlocked != 8 || first.Priority != 1 || len(first.SetTempsCovered) != 3 || first.FramesNeeded != 25 {
-		t.Errorf("first %+v", first)
+	if b.LastNight != "2026-10-09" || first.SetTemp != -13 || first.Priority != 1 || first.LightsScaled != 4 || first.LightsBlocked != 0 ||
+		first.LightsLastNight != 4 || first.FramesHave != 1 || first.FramesRejected != 1 || first.NewestDarkAt == nil {
+		t.Errorf("last night %s, first %+v", b.LastNight, first)
 	}
-	checkThin(t, b, third)
-	if second.SetTemp != -13 || second.LightsScaled != 4 || second.LightsBlocked != 0 || second.FramesHave != 1 ||
-		second.FramesRejected != 1 || second.NewestDarkAt == nil {
-		t.Errorf("second %+v", second)
-	}
+	checkThin(t, b, second)
+	checkOlder(t, first, third)
 	if len(b.Unschedulable) != 1 || b.Unschedulable[0].Lights != 1 {
 		t.Errorf("unschedulable %+v", b.Unschedulable)
 	}
@@ -161,11 +159,19 @@ func checkComputed(t *testing.T, db *gorm.DB, fx *fixture) {
 	}
 }
 
-func checkThin(t *testing.T, b coverage.DarkBacklog, third coverage.DarkCombo) {
+func checkOlder(t *testing.T, first, third coverage.DarkCombo) {
 	t.Helper()
-	if third.SetTemp != -5 || third.LightsThin != 3 || third.LightsBlocked != 0 || third.LightsScaled != 0 || third.FramesHave != 0 ||
-		third.FramesNeeded != 25 || third.Priority != 3 {
-		t.Errorf("an exact set of 3 clean darks should stay on the backlog: %+v", third)
+	if third.SetTemp != -20 || third.LightsBlocked != 8 || third.LightsLastNight != 0 || third.Priority != 3 || len(third.SetTempsCovered) != 3 ||
+		third.FramesNeeded != 25 || !(third.Score > first.Score) {
+		t.Errorf("older lights with no dark rank after last night's combos even with a higher score: %+v", third)
+	}
+}
+
+func checkThin(t *testing.T, b coverage.DarkBacklog, c coverage.DarkCombo) {
+	t.Helper()
+	if c.SetTemp != -5 || c.LightsThin != 3 || c.LightsBlocked != 0 || c.LightsScaled != 0 || c.FramesHave != 0 ||
+		c.FramesNeeded != 25 || c.Priority != 2 || c.LightsLastNight != 3 {
+		t.Errorf("an exact set of 3 clean darks should stay on the backlog: %+v", c)
 	}
 	if b.FramesNeeded != 25 || !strings.Contains(b.FramesNeededBasis, "The 2 dark sets on record have a median of 3 clean darks") {
 		t.Errorf("frames needed %d: %s", b.FramesNeeded, b.FramesNeededBasis)
@@ -187,8 +193,8 @@ func checkPublished(t *testing.T, db, sched *gorm.DB, fx *fixture) {
 	if err := sched.Table(darkneed.Table).Order("priority").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 3 || rows[0].ComboKey != "300|100|50|1|-20" || rows[0].CameraOffset != 50 || rows[1].NewestDarkAt == nil ||
-		!rows[1].NewestDarkAt.Equal(fx.now.Add(-2*time.Hour)) {
+	if len(rows) != 3 || rows[0].ComboKey != "300|100|50|1|-13" || rows[0].CameraOffset != 50 || rows[0].NewestDarkAt == nil ||
+		!rows[0].NewestDarkAt.Equal(fx.now.Add(-2*time.Hour)) || rows[2].ComboKey != "300|100|50|1|-20" {
 		t.Fatalf("rows %+v", rows)
 	}
 	if s, err := p.Publish(ctx); err != nil || s.Skipped != darkneed.SkipUnchanged {
