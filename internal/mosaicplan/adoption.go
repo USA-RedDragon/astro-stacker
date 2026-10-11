@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"slices"
 	"strings"
@@ -350,6 +351,10 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 	pl, err := s.candidates(ctx)
 	if err != nil {
 		return rep, err
+	}
+	if len(pl.projects) == 0 {
+		slog.Warn("Target Scheduler returned no projects; adoption pass skipped")
+		return rep, nil
 	}
 	cands, rig := pl.cands, pl.rig
 	now := time.Now()
