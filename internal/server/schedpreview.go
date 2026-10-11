@@ -66,12 +66,17 @@ type previewEntry struct {
 	asked    time.Time
 	failedAt time.Time
 	run      *previewRun
+	seq      uint64
+	savedSeq uint64
 }
 
 type previewRun struct {
-	done chan struct{}
-	data json.RawMessage
-	err  error
+	done    chan struct{}
+	data    json.RawMessage
+	err     error
+	gen     uint64
+	stamp   string
+	stamped bool
 }
 
 func NewPreviewCache(src PreviewSource, now func() time.Time) *PreviewCache {
@@ -161,23 +166,34 @@ func (p *PreviewCache) Get(ctx context.Context, start *time.Time, force bool) (j
 	}
 }
 
+func (r *previewRun) serves(gen uint64, stamp string, stamped bool) bool {
+	return r != nil && r.gen == gen && r.stamped == stamped && r.stamp == stamp
+}
+
 func (p *PreviewCache) launch(ctx context.Context, e *previewEntry, stamp string, stamped bool, now time.Time) *previewRun {
-	if e.run != nil {
+	if e.run.serves(p.gen, stamp, stamped) {
 		return e.run
 	}
-	run := &previewRun{done: make(chan struct{})}
-	e.run = run
 	gen := p.gen
+	run := &previewRun{done: make(chan struct{}), gen: gen, stamp: stamp, stamped: stamped}
+	e.run = run
+	e.seq++
+	seq := e.seq
 	go func() {
 		data, err := p.Source.Preview(context.WithoutCancel(ctx), e.start)
 		p.mu.Lock()
-		e.run = nil
-		if err != nil {
+		if e.run == run {
+			e.run = nil
+		}
+		switch {
+		case seq < e.savedSeq:
+		case err != nil:
 			e.failedAt = p.now()
-		} else {
+		default:
 			e.data, e.at, e.stamp, e.stamped, e.gen = data, now, stamp, stamped, gen
 			e.planFrom = previewPlanStart(data)
 			e.failedAt = time.Time{}
+			e.savedSeq = seq
 		}
 		p.mu.Unlock()
 		run.data, run.err = data, err
