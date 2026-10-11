@@ -705,7 +705,7 @@ func TestRunAdoptionKeepsOtherInstrumentsApartAndWithdrawsItsOwnAttachments(t *t
 		t.Errorf("%d links left after withdrawing", n)
 	}
 	if a := by["subs Sh2-1"]; a.Status != app.AdoptionAccepted || a.DecidedBy != "web" {
-		t.Errorf("a person's decision changed %+v", a)
+		t.Errorf("a person's decision changed %+v %+v", a, a.Frames)
 	}
 	appDB.Model(&app.FrameTarget{}).Where("object = ? AND target_guid = ?", "Sh2-1", "r1").Count(&n)
 	if n != 1 {
@@ -753,5 +753,44 @@ func TestRunAdoptionSettlesSubsTargetSchedulerLinkedSince(t *testing.T) {
 	}
 	if third.Auto != 0 {
 		t.Errorf("third run %+v", third)
+	}
+}
+
+func TestRunAdoptionClosesRowsForRemovedOrPlannedProjects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	appDB := appFixture(t)
+	sched := schedFixture(t)
+	svc := mosaicplan.New(appDB, sched)
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
+	first, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := adoptionsBySubject(t, first.Items)
+	if by["Rosette"].Status != app.AdoptionProposed || by["Rho"].Status != app.AdoptionProposed {
+		t.Fatalf("open rows %+v %+v", by["Rosette"], by["Rho"])
+	}
+	for _, q := range []string{`DELETE FROM target WHERE projectid = 3`, `DELETE FROM project WHERE "Id" = 3`} {
+		if err := sched.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := appDB.Create(&app.MosaicPanel{ProjectGUID: "pr", TargetGUID: "r1", Project: "Rho", Target: "IC 4604 Panel 1", Panel: 1, Source: app.MosaicSourceWizard}).Error; err != nil {
+		t.Fatal(err)
+	}
+	again, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by = adoptionsBySubject(t, again.Items)
+	if a := by["Rosette"]; a.Status != app.AdoptionAuto || a.DecidedBy != mosaicplan.AutoDecider || !strings.Contains(a.Suggestion, "removed from Target Scheduler") {
+		t.Errorf("removed project %+v", a)
+	}
+	if a := by["Rho"]; a.Status != app.AdoptionAuto || !strings.Contains(a.Suggestion, "planned in Add target") {
+		t.Errorf("planned project %+v", a)
+	}
+	if again.Review != 0 {
+		t.Errorf("report %+v", again)
 	}
 }
