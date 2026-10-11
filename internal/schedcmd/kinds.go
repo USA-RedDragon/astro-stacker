@@ -373,5 +373,5 @@ func Builtin() []Spec {
 		AbortExposureSpec(),
 		MosaicAdoptSpec(),
 		GlobalWeightsSpec(),
-	}, append(PlanningSpecs(), MatchingSpecs()...)...)
+	}, append(append(PlanningSpecs(), MatchingSpecs()...), CalibrationSpecs()...)...)
 }
