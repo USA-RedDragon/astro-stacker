@@ -40,7 +40,7 @@ internal/frameheader/frame.go	42	41
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	397	334
+internal/goalmeasure/runner.go	397	333
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -77,7 +77,7 @@ internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	70	54
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	108	94
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	189	161
 internal/observatory/transport.go	50	45
 internal/planning/completion.go	56	31
@@ -110,7 +110,7 @@ internal/schedcmd/planning.go	400	325
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	195	171
+internal/schedcmd/service.go	195	169
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	11	8
 internal/server/discover.go	142	109
@@ -142,7 +142,8 @@ internal/stacking/coverstretch.go	111	107
 internal/stacking/crop.go	161	127
 internal/stacking/distortion.go	87	35
 internal/stacking/duplicate.go	34	29
-internal/stacking/gain.go	122	80
+internal/stacking/freespace_unix.go	7	5
+internal/stacking/gain.go	118	108
 internal/stacking/header.go	188	54
 internal/stacking/lightleak.go	33	25
 internal/stacking/linearfit.go	198	86
@@ -155,14 +156,14 @@ internal/stacking/mosaicmatch.go	269	240
 internal/stacking/mosaicseams.go	295	214
 internal/stacking/mosaicstars.go	191	173
 internal/stacking/outputs.go	104	17
-internal/stacking/pipeline.go	381	134
+internal/stacking/pipeline.go	381	144
 internal/stacking/pointing.go	73	53
 internal/stacking/process.go	262	44
-internal/stacking/rebuild.go	237	153
+internal/stacking/rebuild.go	264	238
 internal/stacking/recalibrate.go	118	105
 internal/stacking/registered.go	324	227
 internal/stacking/rescore.go	76	49
-internal/stacking/status.go	71	14
+internal/stacking/status.go	71	23
 internal/stacking/tsverdicts.go	252	209
 internal/starfront/starfront.go	180	144
 internal/store/gorm/gorm.go	37	0
