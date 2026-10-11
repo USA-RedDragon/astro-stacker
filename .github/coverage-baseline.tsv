@@ -40,7 +40,7 @@ internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	397	333
+internal/goalmeasure/runner.go	397	334
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -50,7 +50,7 @@ internal/goals/measure.go	257	240
 internal/goals/progress.go	103	90
 internal/goals/readiness.go	29	28
 internal/goals/signals.go	51	46
-internal/goals/tsgoals.go	317	282
+internal/goals/tsgoals.go	317	284
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
@@ -63,7 +63,7 @@ internal/indexer/recent.go	78	65
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/moon/moon.go	33	31
-internal/mosaicplan/adoption.go	309	263
+internal/mosaicplan/adoption.go	325	279
 internal/mosaicplan/clearnights.go	74	69
 internal/mosaicplan/detail.go	337	297
 internal/mosaicplan/framing.go	108	72
