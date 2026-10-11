@@ -161,7 +161,8 @@ func TestCoverFromFiles(t *testing.T) {
 	}
 }
 
-// A mosaic panel with green and blue but no red yet is left black, not cyan.
+// A mosaic panel with green and blue but no red yet is neutral sky grey,
+// not cyan and not black.
 func TestCoverNeedsEveryChannel(t *testing.T) {
 	t.Parallel()
 	const w, h = 64, 32
@@ -187,11 +188,16 @@ func TestCoverNeedsEveryChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, g, b, _ := img.At(w*3/4, h/2).RGBA()
-	if r>>8 > 8 || g>>8 > 8 || b>>8 > 8 {
-		t.Errorf("pixel without red = %d,%d,%d, want black", r>>8, g>>8, b>>8)
+	r, g, b = r>>8, g>>8, b>>8
+	if max(r, g, b)-min(r, g, b) > 3 || r < 16 {
+		t.Errorf("pixel without red = %d,%d,%d, want neutral grey", r, g, b)
 	}
-	if _, g, _, _ := img.At(w/4, h/2).RGBA(); g>>8 < 16 {
+	sr, sg, sb, _ := img.At(w/4, h/2).RGBA()
+	if sg>>8 < 16 {
 		t.Errorf("pixel with every channel is black")
+	}
+	if lum := (sr>>8 + sg>>8 + sb>>8) / 3; max(lum, r)-min(lum, r) > 20 {
+		t.Errorf("grey %d is far from the sky's %d", r, lum)
 	}
 }
 
