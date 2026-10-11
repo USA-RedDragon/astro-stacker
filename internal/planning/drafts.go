@@ -15,7 +15,6 @@ var (
 	ErrMissingTemplate = errors.New("the observatory has no template for this set")
 	ErrNoTargets       = errors.New("no targets chosen")
 	ErrNoDesired       = errors.New("no desired count")
-	ErrNoExposure      = errors.New("no sub length")
 )
 
 type TargetEffect struct {
@@ -76,7 +75,6 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 	out := ApplySetDraft{}
 	type want struct {
 		tmpl    Template
-		exp     float64
 		desired int
 	}
 	var wants []want
@@ -90,7 +88,7 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 		if err != nil {
 			return out, err
 		}
-		wants = append(wants, want{t, it.Exposure, n})
+		wants = append(wants, want{t, n})
 	}
 	if len(out.Missing) > 0 {
 		return out, fmt.Errorf("%w: %s", ErrMissingTemplate, strings.Join(out.Missing, ", "))
@@ -126,7 +124,7 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 				at.Enable = append(at.Enable, schedcmd.PlanRef{ID: int64(disabled.ID), GUID: disabled.GUID, TemplateName: w.tmpl.Name})
 				ons = append(ons, w.tmpl.Name)
 			default:
-				at.Create = append(at.Create, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(w.tmpl.ID), TemplateName: w.tmpl.Name, Exposure: w.exp, Desired: w.desired})
+				at.Create = append(at.Create, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(w.tmpl.ID), TemplateName: w.tmpl.Name, Exposure: TemplateLength, Desired: w.desired})
 				adds = append(adds, w.tmpl.Name)
 			}
 		}
@@ -414,6 +412,8 @@ func (s *Snapshot) draftSettings(d ProjectDraft, items []draftItem) (schedcmd.Pr
 	}, nil
 }
 
+const TemplateLength = -1.0
+
 type draftItem struct {
 	tmpl     Template
 	exposure float64
@@ -451,8 +451,9 @@ func (s *Snapshot) draftItems(d ProjectDraft) ([]draftItem, error) {
 			if !ok {
 				return nil, fmt.Errorf("%w: template %d", ErrMissingTemplate, pd.TemplateID)
 			}
-			if !(pd.Exposure > 0) {
-				return nil, fmt.Errorf("%w for %s", ErrNoExposure, t.Name)
+			exp := pd.Exposure
+			if !(exp > 0) {
+				exp = TemplateLength
 			}
 			n := d.Desired
 			if n <= 0 {
@@ -464,7 +465,7 @@ func (s *Snapshot) draftItems(d ProjectDraft) ([]draftItem, error) {
 			if n <= 0 {
 				return nil, fmt.Errorf("%w for %s", ErrNoDesired, t.Name)
 			}
-			out = append(out, draftItem{tmpl: t, exposure: pd.Exposure, desired: n})
+			out = append(out, draftItem{tmpl: t, exposure: exp, desired: n})
 		}
 		return out, nil
 	}
@@ -481,7 +482,7 @@ func (s *Snapshot) draftItems(d ProjectDraft) ([]draftItem, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, draftItem{tmpl: t, exposure: it.Exposure, desired: n})
+		out = append(out, draftItem{tmpl: t, exposure: TemplateLength, desired: n})
 	}
 	return out, nil
 }
