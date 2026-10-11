@@ -155,6 +155,9 @@ func (s *Service) Report(ctx context.Context) Report {
 	r := Report{At: now}
 	s.fillMetrics(ctx, &r)
 	r.Sync = s.readSync(ctx, now)
+	if ctx.Err() != nil {
+		return r
+	}
 	s.mu.Lock()
 	s.cached = &r
 	s.mu.Unlock()
