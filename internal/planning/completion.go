@@ -8,6 +8,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -90,10 +91,19 @@ func measurementOf(m app.GoalMeasurement) *Measurement {
 	return out
 }
 
-func loadPrefs(ctx context.Context, db *gorm.DB) map[string]Prefs {
+func loadPrefs(ctx context.Context, db *gorm.DB) (map[string]Prefs, error) {
 	out := map[string]Prefs{}
-	if !tableExists(db, "profilepreference") {
-		return out
+	has, err := tables.Has(ctx, db, "profilepreference")
+	if err != nil || !has {
+		return out, err
+	}
+	delay := "NULL"
+	hasDelay, err := tables.HasColumn(ctx, db, "profilepreference", "delayGrading")
+	if err != nil {
+		return nil, err
+	}
+	if hasDelay {
+		delay = `"delayGrading"`
 	}
 	var rows []struct {
 		ProfileID string   `gorm:"column:profile_id"`
@@ -101,8 +111,8 @@ func loadPrefs(ctx context.Context, db *gorm.DB) map[string]Prefs {
 		Throttle  *float64 `gorm:"column:throttle"`
 	}
 	if err := db.WithContext(ctx).Table("profilepreference").
-		Select(`"profileId" AS profile_id, "delayGrading" AS delay, exposurethrottle AS throttle`).Scan(&rows).Error; err != nil {
-		return out
+		Select(`"profileId" AS profile_id, ` + delay + ` AS delay, exposurethrottle AS throttle`).Scan(&rows).Error; err != nil {
+		return nil, err
 	}
 	for _, r := range rows {
 		p := Prefs{DelayGrading: pluginDelayGrading, ExposureThrottle: pluginExposureThrottle, Source: "profile"}
@@ -114,7 +124,7 @@ func loadPrefs(ctx context.Context, db *gorm.DB) map[string]Prefs {
 		}
 		out[r.ProfileID] = p
 	}
-	return out
+	return out, nil
 }
 
 func prefsFor(all map[string]Prefs, profile string) Prefs {
