@@ -28,9 +28,14 @@ const DepInjectionKey = "DepInjection"
 
 func Inject(inj *DepInjection) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		inj.AppStore = inj.AppStore.WithContext(c.Request.Context())
-		inj.SchedulerDBStore = inj.SchedulerDBStore.WithContext(c.Request.Context())
-		c.Set(DepInjectionKey, inj)
+		di := *inj
+		if di.AppStore != nil {
+			di.AppStore = di.AppStore.WithContext(c.Request.Context())
+		}
+		if di.SchedulerDBStore != nil {
+			di.SchedulerDBStore = di.SchedulerDBStore.WithContext(c.Request.Context())
+		}
+		c.Set(DepInjectionKey, &di)
 		c.Next()
 	}
 }
