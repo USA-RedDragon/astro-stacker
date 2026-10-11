@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -448,8 +449,14 @@ func (s *Service) readSync(ctx context.Context, now time.Time) Sync {
 
 func readSym(ctx context.Context, db *gorm.DB, now time.Time) (Sync, error) {
 	db = db.WithContext(ctx)
-	if !db.Migrator().HasTable("sym_node_identity") || !db.Migrator().HasTable("sym_node_host") {
-		return Sync{}, ErrNoSym
+	for _, t := range []string{"sym_node_identity", "sym_node_host"} {
+		has, err := tables.Has(ctx, db, t)
+		if err != nil {
+			return Sync{}, err
+		}
+		if !has {
+			return Sync{}, ErrNoSym
+		}
 	}
 	var self string
 	if err := db.Raw("SELECT node_id FROM sym_node_identity").Scan(&self).Error; err != nil {
@@ -476,7 +483,11 @@ func readSym(ctx context.Context, db *gorm.DB, now time.Time) (Sync, error) {
 		out.Heartbeat = &t
 		latest = t
 	}
-	if db.Migrator().HasTable("sym_incoming_batch") {
+	hasBatches, err := tables.Has(ctx, db, "sym_incoming_batch")
+	if err != nil {
+		return Sync{}, err
+	}
+	if hasBatches {
 		var last string
 		if err := db.Raw("SELECT COALESCE(CAST(MAX(create_time) AS VARCHAR(40)), '') FROM sym_incoming_batch WHERE status = 'OK'").Scan(&last).Error; err != nil {
 			return Sync{}, err
