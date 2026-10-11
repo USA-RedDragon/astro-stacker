@@ -97,3 +97,16 @@ func TestCollectingIsNeverEnoughEvenWhenThePluginPaused(t *testing.T) {
 		t.Fatalf("%+v", g)
 	}
 }
+
+func TestLeastOfTargetsSkipsTargetsWithoutEnabledPlans(t *testing.T) {
+	t.Parallel()
+	done := Target{Name: "done", Active: true, Least: leastOfGoals("done", []FilterGoal{measuredGoal("L", 1, true)})}
+	empty := Target{Name: "empty", Active: true, Least: leastOfGoals("empty", nil)}
+	l := leastOfTargets([]Target{empty, done})
+	if l.Target != "done" || !l.Enough || l.Progress == nil || *l.Progress != 1 || l.Filters != 1 || l.Filter != "L" {
+		t.Fatalf("%+v", l)
+	}
+	if l := leastOfTargets([]Target{empty}); l.Filters != 0 || l.Enough || l.NotMeasured != NoPlansReason {
+		t.Fatalf("%+v", l)
+	}
+}

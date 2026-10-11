@@ -472,9 +472,22 @@ func describeJudgement(j planning.Judgement) (string, bool) {
 	return j.Target + " " + j.Least.Text(), byGoal
 }
 
+func withPlans(judged map[string]planning.Judgement, targets []string) []string {
+	var out []string
+	for _, name := range targets {
+		if j, ok := judged[name]; ok && j.Least.Filters > 0 {
+			out = append(out, name)
+		}
+	}
+	if len(out) == 0 {
+		return targets
+	}
+	return out
+}
+
 func weakestJudgement(judged map[string]planning.Judgement, targets []string) *planning.Judgement {
 	var weakest *planning.Judgement
-	for _, name := range targets {
+	for _, name := range withPlans(judged, targets) {
 		j, ok := judged[name]
 		if ok && (weakest == nil || planning.LeastLess(j.Least, weakest.Least)) {
 			weakest = &j
@@ -485,7 +498,7 @@ func weakestJudgement(judged map[string]planning.Judgement, targets []string) *p
 
 func judge(t Tally, judged map[string]planning.Judgement, targets []string) (string, string, bool) {
 	done, unmeasured, byGoal, n := true, 0, true, 0
-	for _, name := range targets {
+	for _, name := range withPlans(judged, targets) {
 		j, ok := judged[name]
 		if !ok {
 			continue
