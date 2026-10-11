@@ -20,7 +20,7 @@ internal/conditions/conditions.go	204	151
 internal/conditions/moon.go	45	45
 internal/config/config.go	36	24
 internal/coverage/coverage.go	179	158
-internal/coverage/darkbacklog.go	224	203
+internal/coverage/darkbacklog.go	225	203
 internal/coverage/imported.go	56	54
 internal/darkcheck/darkcheck.go	121	115
 internal/darkcheck/pass.go	112	85
@@ -126,7 +126,7 @@ internal/server/planning.go	84	55
 internal/server/public.go	12	12
 internal/server/routes.go	359	86
 internal/server/scheddata.go	255	212
-internal/server/schedpreview.go	180	171
+internal/server/schedpreview.go	193	185
 internal/server/scheduler.go	78	19
 internal/server/server.go	89	28
 internal/server/skycutout.go	24	20
@@ -141,7 +141,7 @@ internal/skycutout/skycutout.go	152	131
 internal/stacking/accumulator.go	155	151
 internal/stacking/comet.go	518	252
 internal/stacking/cosmetic.go	61	50
-internal/stacking/cover.go	256	138
+internal/stacking/cover.go	256	147
 internal/stacking/coverline.go	458	425
 internal/stacking/coverstretch.go	111	107
 internal/stacking/crop.go	161	127
@@ -155,7 +155,7 @@ internal/stacking/linearfit.go	198	86
 internal/stacking/localnorm.go	203	194
 internal/stacking/masters.go	186	48
 internal/stacking/moonlit.go	134	51
-internal/stacking/mosaic.go	430	141
+internal/stacking/mosaic.go	464	164
 internal/stacking/mosaiclayout.go	211	172
 internal/stacking/mosaicmatch.go	269	240
 internal/stacking/mosaicseams.go	295	214
@@ -173,7 +173,7 @@ internal/stacking/tsverdicts.go	252	209
 internal/starfront/starfront.go	180	144
 internal/store/gorm/gorm.go	37	0
 internal/store/models/app/imageprocess.go	3	0
-internal/store/models/app/stacking.go	1	0
+internal/store/models/app/stacking.go	1	1
 internal/store/models/app/tsverdict.go	1	1
 internal/store/models/scheduler/target.go	8	0
 internal/store/store.go	13	0
