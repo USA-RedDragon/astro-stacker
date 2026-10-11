@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -253,8 +255,11 @@ func (t *tally) apply(out *Rig) {
 
 func Measure(ctx context.Context, appDB, sched *gorm.DB, now time.Time) (Rig, error) {
 	out := Empty()
-	if appDB == nil || !appDB.Migrator().HasTable(&app.Frame{}) {
+	if appDB == nil {
 		return out, nil
+	}
+	if has, err := tables.Has(ctx, appDB, &app.Frame{}); err != nil || !has {
+		return out, err
 	}
 	rows, err := lights(ctx, appDB, now)
 	if err != nil || len(rows) == 0 {
@@ -282,7 +287,9 @@ func Measure(ctx context.Context, appDB, sched *gorm.DB, now time.Time) (Rig, er
 	if err := filterUse(ctx, appDB, camera, &out); err != nil {
 		return out, err
 	}
-	measureGuiding(ctx, sched, now, &out, used)
+	if err := measureGuiding(ctx, sched, now, &out, used); err != nil {
+		return Empty(), err
+	}
 	return out, nil
 }
 
@@ -369,9 +376,16 @@ func weightedMedian(counts map[float64]int) float64 {
 	return median(v)
 }
 
-func measureGuiding(ctx context.Context, sched *gorm.DB, now time.Time, out *Rig, used []lightRow) {
+func measureGuiding(ctx context.Context, sched *gorm.DB, now time.Time, out *Rig, used []lightRow) error {
 	var hfr, rms []float64
-	if sched != nil && sched.Migrator().HasTable("acquiredimage") {
+	hasAcquired := false
+	if sched != nil {
+		var err error
+		if hasAcquired, err = tables.Has(ctx, sched, "acquiredimage"); err != nil {
+			return fmt.Errorf("check acquiredimage: %w", err)
+		}
+	}
+	if hasAcquired {
 		since := now.Add(-Window)
 		if out.Basis.From != nil && out.Basis.From.Before(since) {
 			since = *out.Basis.From
@@ -380,18 +394,19 @@ func measureGuiding(ctx context.Context, sched *gorm.DB, now time.Time, out *Rig
 		if err := sched.WithContext(ctx).Table("acquiredimage").Where("metadata IS NOT NULL").
 			Where(`CAST(acquireddate AS BIGINT) >= ? AND (CAST(acquireddate AS BIGINT) < ? OR CAST(acquireddate AS BIGINT) >= ?)`,
 				since.Unix(), int64(ticksThreshold), since.Unix()*ticksPerSecond+ticksUnixOffset).
-			Order("acquireddate DESC").Limit(maxTSRows).Pluck("metadata", &metas).Error; err == nil {
-			for _, raw := range metas {
-				var m quality.Metadata
-				if json.Unmarshal([]byte(raw), &m) != nil {
-					continue
-				}
-				if v := float64(m.HFR); v > 0 && !math.IsInf(v, 0) {
-					hfr = append(hfr, v)
-				}
-				if v := float64(m.GuidingRMSArcSec); v > 0 && !math.IsInf(v, 0) {
-					rms = append(rms, v)
-				}
+			Order("acquireddate DESC").Limit(maxTSRows).Pluck("metadata", &metas).Error; err != nil {
+			return fmt.Errorf("load guiding from acquiredimage: %w", err)
+		}
+		for _, raw := range metas {
+			var m quality.Metadata
+			if json.Unmarshal([]byte(raw), &m) != nil {
+				continue
+			}
+			if v := float64(m.HFR); v > 0 && !math.IsInf(v, 0) {
+				hfr = append(hfr, v)
+			}
+			if v := float64(m.GuidingRMSArcSec); v > 0 && !math.IsInf(v, 0) {
+				rms = append(rms, v)
 			}
 		}
 	}
@@ -412,6 +427,7 @@ func measureGuiding(ctx context.Context, sched *gorm.DB, now time.Time, out *Rig
 		v := median(hfr) * *out.Scale
 		out.TypicalHFR, out.Basis.HFRFrames, out.Basis.HFRSource = &v, len(hfr), &src
 	}
+	return nil
 }
 
 type Source struct {

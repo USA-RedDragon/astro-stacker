@@ -26,14 +26,25 @@ func open(t *testing.T) *gorm.DB {
 
 func TestMeasureReadsTheRigFromRecentLights(t *testing.T) {
 	t.Parallel()
+	appDB, sched, now := rigFixture(t)
+	r, err := rigsource.Measure(context.Background(), appDB, sched, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkMeasured(t, r)
+}
+
+func rigFixture(t *testing.T) (*gorm.DB, *gorm.DB, time.Time) {
+	t.Helper()
 	appDB, sched := open(t), open(t)
 	if err := appDB.AutoMigrate(&app.Frame{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 	rev := 1
-	add := func(i int, camera, filter string, exp float64, w, h int, fl, px float64, bayer string, age time.Duration) {
+	add := func(i int, camera, filter string, exp float64, w, h int, fl float64, bayer string, age time.Duration) {
 		t.Helper()
+		px := 3.76
 		d := now.Add(-age)
 		f := app.Frame{Key: fmt.Sprintf("f%d", i), ETag: "e", Type: light, Camera: camera, Filter: filter, Exposure: &exp, DateObs: &d, LastModified: d,
 			Width: &w, Height: &h, FocalLength: &fl, PixelSize: &px, GeometryRev: &rev}
@@ -48,17 +59,17 @@ func TestMeasureReadsTheRigFromRecentLights(t *testing.T) {
 	}
 	i := 0
 	for range 6 {
-		add(i, "ASI2600MM", "H-a", 600, 6248, 4176, 405, 3.76, "", time.Hour)
+		add(i, "ASI2600MM", "H-a", 600, 6248, 4176, 405, "", time.Hour)
 		i++
 	}
 	for range 4 {
-		add(i, "ASI2600MM", "Luminance", 120, 6248, 4176, 404, 3.76, "", 2*time.Hour)
+		add(i, "ASI2600MM", "Luminance", 120, 6248, 4176, 404, "", 2*time.Hour)
 		i++
 	}
-	add(i, "ASI2600MM", "Red", 300, 6248, 4176, 405, 3.76, "", time.Hour)
-	add(i+1, "ASI2600MC", "", 60, 3000, 2000, 250, 3.76, "RGGB", time.Hour)
+	add(i, "ASI2600MM", "Red", 300, 6248, 4176, 405, "", time.Hour)
+	add(i+1, "ASI2600MC", "", 60, 3000, 2000, 250, "RGGB", time.Hour)
 	for k := range 3 {
-		add(i+2+k, "ASI2600MM", "O-III", 600, 6248, 4176, 405, 3.76, "", 90*24*time.Hour)
+		add(i+2+k, "ASI2600MM", "O-III", 600, 6248, 4176, 405, "", 90*24*time.Hour)
 	}
 	if err := sched.Exec(`CREATE TABLE acquiredimage (Id INTEGER PRIMARY KEY, acquireddate INTEGER, metadata TEXT)`).Error; err != nil {
 		t.Fatal(err)
@@ -73,11 +84,7 @@ func TestMeasureReadsTheRigFromRecentLights(t *testing.T) {
 	if err := sched.Exec(`INSERT INTO acquiredimage (acquireddate, metadata) VALUES (?, ?)`, now.Add(-100*24*time.Hour).Unix(), `{"HFR":9,"GuidingRMSArcSec":9}`).Error; err != nil {
 		t.Fatal(err)
 	}
-	r, err := rigsource.Measure(context.Background(), appDB, sched, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkMeasured(t, r)
+	return appDB, sched, now
 }
 
 func checkFilterBasis(t *testing.T, r rigsource.Rig) {
