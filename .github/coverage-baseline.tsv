@@ -79,7 +79,7 @@ internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	66	55
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	108	94
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	197	168
 internal/observatory/transport.go	50	45
 internal/planning/completion.go	56	31
@@ -114,7 +114,7 @@ internal/schedcmd/planning.go	404	331
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	195	171
+internal/schedcmd/service.go	195	169
 internal/schedcmd/settings.go	84	78
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	11	8
@@ -160,11 +160,11 @@ internal/stacking/mosaiclayout.go	211	172
 internal/stacking/mosaicmatch.go	269	240
 internal/stacking/mosaicseams.go	295	217
 internal/stacking/mosaicstars.go	191	173
-internal/stacking/outputs.go	104	17
-internal/stacking/pipeline.go	387	149
+internal/stacking/outputs.go	105	18
+internal/stacking/pipeline.go	388	149
 internal/stacking/pointing.go	73	53
 internal/stacking/process.go	262	44
-internal/stacking/rebuild.go	264	238
+internal/stacking/rebuild.go	276	248
 internal/stacking/recalibrate.go	118	105
 internal/stacking/registered.go	324	227
 internal/stacking/rescore.go	76	49
