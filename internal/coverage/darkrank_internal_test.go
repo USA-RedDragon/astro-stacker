@@ -1,16 +1,12 @@
 package coverage
 
 import (
-	"context"
 	"math"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 const oldCombo = "300|0|240|1|-15"
@@ -40,7 +36,7 @@ func dawn20261011() (time.Time, []darkLightGroup, []calmatch.Set) {
 func TestRecentScaledLightsOutrankOldLightsWithNoDark(t *testing.T) {
 	t.Parallel()
 	now, lights, sets := dawn20261011()
-	b := darkBacklog(lights, nil, sets, nil, now)
+	b := darkBacklog(lights, nil, sets, now)
 	if len(b.Combos) != 3 {
 		t.Fatalf("got %d combos, want 3", len(b.Combos))
 	}
@@ -61,7 +57,7 @@ func TestRecentScaledLightsOutrankOldLightsWithNoDark(t *testing.T) {
 		!strings.Contains(top.Basis, "40 of its lights are from the last 30 days, 40 belong to active targets, and the latest night is 2026-10-10") {
 		t.Errorf("basis does not explain the score: %s", top.Basis)
 	}
-	if b.RankingBasis != RankingBasis() || !strings.Contains(b.RankingBasis, "halved for every 30 days") {
+	if b.RankingBasis != RankingBasis() || !strings.Contains(b.RankingBasis, "halved for every 30 days") || strings.Contains(b.RankingBasis, "Target Scheduler") {
 		t.Errorf("ranking basis: %q", b.RankingBasis)
 	}
 }
@@ -74,7 +70,7 @@ func TestNoDarkAtAllStillOutranksAScaledDarkOfTheSameAge(t *testing.T) {
 		rankLight(night, "A", 300, 50, -4, 30),
 		rankLight(night, "B", 300, 240, -4, 20),
 	}
-	b := darkBacklog(lights, nil, sets, nil, now)
+	b := darkBacklog(lights, nil, sets, now)
 	if b.Combos[0].ComboKey != "300|0|240|1|-4" {
 		t.Fatalf("first combo %s, want the one with no dark", b.Combos[0].ComboKey)
 	}
@@ -83,10 +79,11 @@ func TestNoDarkAtAllStillOutranksAScaledDarkOfTheSameAge(t *testing.T) {
 	}
 }
 
-func TestActiveTargetLightsKeepAFloorWeight(t *testing.T) {
+func TestActiveMeansLightsInTheLastThirtyDays(t *testing.T) {
 	t.Parallel()
 	now, lights, sets := dawn20261011()
-	b := darkBacklog(lights, nil, sets, map[string]bool{"rosette nebula ": true}, now)
+	recent := rankLight(time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC), "Rosette Nebula", 600, 50, -20, 1)
+	b := darkBacklog(append(lights, recent), nil, sets, now)
 	var old DarkCombo
 	for _, c := range b.Combos {
 		if c.ComboKey == oldCombo {
@@ -94,16 +91,13 @@ func TestActiveTargetLightsKeepAFloorWeight(t *testing.T) {
 		}
 	}
 	if old.LightsActive != 213 || old.Score != 42.6 || old.ScoreParts.Blocked != 42.6 {
-		t.Errorf("active 2025 combo: active %d score %v parts %+v", old.LightsActive, old.Score, old.ScoreParts)
+		t.Errorf("a target with lights in the last %d days keeps the floor: active %d score %v parts %+v", DarkRecentDays, old.LightsActive, old.Score, old.ScoreParts)
 	}
-	if b.Combos[0].ComboKey != oldCombo {
-		t.Errorf("an active target's 213 lights with no dark should outrank 40 scaled lights: first is %s", b.Combos[0].ComboKey)
-	}
-	recentObject := []darkLightGroup{lights[0], rankLight(time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC), "Rosette Nebula", 600, 50, -20, 1)}
-	b = darkBacklog(recentObject, nil, sets, nil, now)
+	stale := rankLight(time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC), "Rosette Nebula", 600, 50, -20, 1)
+	b = darkBacklog(append(lights, stale), nil, sets, now)
 	for _, c := range b.Combos {
-		if c.ComboKey == oldCombo && c.LightsActive != 213 {
-			t.Errorf("a target with lights in the last %d days is active: %+v", DarkRecentDays, c)
+		if c.ComboKey == oldCombo && (c.LightsActive != 0 || !(c.Score < 0.01)) {
+			t.Errorf("a target whose latest lights are %d days old is not active: %+v", 31, c)
 		}
 	}
 }
@@ -111,7 +105,7 @@ func TestActiveTargetLightsKeepAFloorWeight(t *testing.T) {
 func TestAgeHalvesEveryHalfLife(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 11, 11, 0, 0, 0, time.UTC)
-	r := newDarkRank(nil, nil, now)
+	r := newDarkRank(nil, now)
 	for _, tc := range []struct {
 		night time.Time
 		want  float64
@@ -144,40 +138,5 @@ func TestPickSetTempsCentresOnTheHigherScore(t *testing.T) {
 			t.Logf("%v covers %v score %v", c.SetTemp, c.SetTempsCovered, c.Score)
 		}
 		t.Fatal("the first set temperature should cover tonight's -4 °C lights, not the most lights with no dark")
-	}
-}
-
-func TestActiveTargetsReadsActiveProjectsAndEnabledTargets(t *testing.T) {
-	t.Parallel()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if raw, err := db.DB(); err == nil {
-		raw.SetMaxOpenConns(1)
-	}
-	got, err := ActiveTargets(context.Background(), db)
-	if err != nil || len(got) != 0 {
-		t.Fatalf("no tables: %v %v", got, err)
-	}
-	for _, q := range []string{
-		`create table project ("Id" integer primary key, state integer)`,
-		`create table target ("Id" integer primary key, projectid integer, name text, active integer)`,
-		`insert into project values (1, 1), (2, 2)`,
-		`insert into target values (1, 1, 'Caldwell 14', 1), (2, 1, 'Off', 0), (3, 2, 'Inactive Project', 1), (4, 1, 'No Flag', null)`,
-	} {
-		if err := db.Exec(q).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err = ActiveTargets(context.Background(), db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || !got["caldwell 14"] || !got["no flag"] {
-		t.Errorf("active targets %v", got)
-	}
-	if got, err := ActiveTargets(context.Background(), nil); err != nil || len(got) != 0 {
-		t.Errorf("nil scheduler db: %v %v", got, err)
 	}
 }

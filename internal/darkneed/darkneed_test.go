@@ -134,7 +134,7 @@ func checkComputed(t *testing.T, db *gorm.DB, fx *fixture) {
 	if err != nil || clean != 4 || leak != 1 {
 		t.Fatalf("clean %d leak %d err %v", clean, leak, err)
 	}
-	b, err := coverage.BuildDarkBacklog(ctx, db, nil, fx.now)
+	b, err := coverage.BuildDarkBacklog(ctx, db, fx.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestExistingDarksAreRecordedOnly(t *testing.T) {
 	if kept.LightLeak == nil || *kept.LightLeak != oldLeak {
 		t.Errorf("an earlier rejection was cleared: %v", kept.LightLeak)
 	}
-	b, err := coverage.BuildDarkBacklog(ctx, db, nil, fx.now)
+	b, err := coverage.BuildDarkBacklog(ctx, db, fx.now)
 	if err != nil {
 		t.Fatal(err)
 	}

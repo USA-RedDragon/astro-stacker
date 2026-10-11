@@ -176,7 +176,7 @@ func (p *Publisher) Publish(ctx context.Context) (Status, error) {
 	if !has {
 		return p.finish(Status{Skipped: SkipNoTable}), nil
 	}
-	b, err := coverage.BuildDarkBacklog(ctx, p.App, p.Sched, p.now())
+	b, err := coverage.BuildDarkBacklog(ctx, p.App, p.now())
 	if err != nil {
 		return p.fail(err)
 	}
