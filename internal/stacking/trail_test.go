@@ -27,6 +27,8 @@ func TestSatelliteTrail(t *testing.T) {
 	}
 	out := os.Getenv("TRAIL_OUT")
 	files, _ := filepath.Glob(filepath.Join(dir, "*.fit"))
+	xisf, _ := filepath.Glob(filepath.Join(dir, "*.xisf"))
+	files = append(files, xisf...)
 	slices.Sort(files)
 	var trail storedSub
 	var clean []storedSub
@@ -134,17 +136,21 @@ func TestSatelliteTrail(t *testing.T) {
 			cmem = append(cmem, toMemSub(p, s.exposure, s.weight, opts.SaturationLevel))
 		}
 		wt := medianAnchored(cmem, w, h, opts)
+		// Where fewer than three subs have data no rejection is possible, so
+		// only pixels every clean sub of this warm-up covers count.
 		var sum, worst float64
+		covered := 0
 		for i, m := range mask {
-			if m {
+			if m && wt.Count[i] >= float32(k) {
 				d := float64(warm.Mean[i] - wt.Mean[i])
 				sum += d
 				worst = max(worst, d)
+				covered++
 			}
 		}
 		s := masterSigma(wt)
 		name := fmt.Sprintf("4-warm-up-%d-subs", k+1)
-		t.Logf("%-44s mean leftover on the trail %+6.2fσ, worst pixel %+6.2fσ", name, sum/float64(n)/s, worst/s)
+		t.Logf("%-44s mean leftover on the trail %+6.2fσ, worst pixel %+6.2fσ (%d of %d trail pixels covered by every sub)", name, sum/float64(covered)/s, worst/s, covered, n)
 		if out != "" {
 			writeCrop(t, filepath.Join(out, name+".png"), warm, wt)
 			writeDiff(t, filepath.Join(out, "diff-"+name+".png"), warm, wt, s)
