@@ -735,7 +735,7 @@ func precalibrated(f app.Frame) bool {
 // stars when Target Scheduler has no record of them, and their photometry.
 func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error) {
 	var frames []app.Frame
-	if err := p.db.WithContext(ctx).Select("id", "key", "object", "filter", "exposure", "gain", "offset", "sky_adu", "star_hfr", "star_count", "photometry_rev").
+	if err := p.db.WithContext(ctx).Select("id", "key", "object", "filter", "exposure", "gain", "offset", "rotator", "sky_adu", "star_hfr", "star_count", "photometry_rev").
 		Where("(measured_at IS NOT NULL AND star_hfr > 0) OR photometry_rev IS NOT NULL").Find(&frames).Error; err != nil {
 		return nil, fmt.Errorf("load measured lights: %w", err)
 	}
@@ -746,7 +746,7 @@ func (p *Pipeline) measuredSubs(ctx context.Context) ([]quality.Measured, error)
 	out := make([]quality.Measured, 0, len(frames))
 	for _, f := range frames {
 		m := quality.Measured{File: path.Base(f.Key), Target: f.Object, Filter: f.Filter, Exposure: val(f.Exposure),
-			Gain: val(f.Gain), Offset: val(f.Offset), Calibrated: precalibrated(f), Photometry: phots[f.ID]}
+			Gain: val(f.Gain), Offset: val(f.Offset), Rotator: f.Rotator, Calibrated: precalibrated(f), Photometry: phots[f.ID]}
 		if f.StarHFR != nil && *f.StarHFR > 0 {
 			m.SkyADU, m.HFR, m.Stars = val(f.SkyADU), val(f.StarHFR), intVal(f.StarCount)
 		}

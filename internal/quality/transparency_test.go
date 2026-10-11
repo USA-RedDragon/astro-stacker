@@ -270,3 +270,42 @@ func TestScoresTakeCoreTransparency(t *testing.T) {
 		t.Errorf("halo sub: score %v, plain %v (best %v)", h.Score, h.PlainScore, h.PlainTargetBest)
 	}
 }
+
+// Subs Target Scheduler has no record of, as M 78's of 2025-02 and 03, take
+// their transparency from their photometry as recorded ones do, in fields
+// framed by their header's rotator angle.
+func TestMeasuredSubsTakeCoreTransparency(t *testing.T) {
+	t.Parallel()
+	rot := func(deg float64) *float64 { return &deg }
+	var measured []quality.Measured
+	add := func(file string, gain float64, rotator *float64, phot *measure.Photometry) {
+		measured = append(measured, quality.Measured{File: file, Target: "M 78", Filter: filterLum, Exposure: 300,
+			SkyADU: 900, Gain: gain, Offset: 50, HFR: 2, Stars: 400, Rotator: rotator, Photometry: phot})
+	}
+	for i := range 12 {
+		add(fmt.Sprintf("clear_%02d.xisf", i), math.NaN(), nil, photometry(1))
+	}
+	add("hazy.xisf", math.NaN(), nil, photometry(0.44))
+	add("turned.xisf", math.NaN(), rot(45), photometry(0.44))
+	add("unmeasured.xisf", math.NaN(), nil, nil)
+	scores, err := quality.LoadScores(t.Context(), emptyScheduler(t), quality.Pedestals{Configured: 506}, measured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := scores["hazy.xisf"]
+	if math.Abs(h.Transparency-0.44) > 0.01 || h.TransparencySource != quality.TransparencyPhotometry {
+		t.Errorf("hazy sub: transparency %.3f from %q, want 0.44 from photometry", h.Transparency, h.TransparencySource)
+	}
+	if want := h.PlainScore * h.Transparency * h.Transparency; !(h.PlainScore > 0) || math.Abs(h.Score-want) > 1e-12 {
+		t.Errorf("hazy sub: score %v, want %v x t^2 = %v", h.Score, h.PlainScore, want)
+	}
+	for _, f := range []string{"turned.xisf", "unmeasured.xisf"} {
+		s := scores[f]
+		if s.Transparency != 1 || s.Score != s.PlainScore || s.TransparencySource != "" {
+			t.Errorf("%s: transparency %v from %q, score %v (plain %v), want 1 and the plain score", f, s.Transparency, s.TransparencySource, s.Score, s.PlainScore)
+		}
+	}
+	if got, want := scores["unmeasured.xisf"].TransparencyMissing, "no star photometry of the sub; no Target Scheduler record of its light above the sky"; got != want {
+		t.Errorf("unmeasured sub's missing transparency = %q, want %q", got, want)
+	}
+}

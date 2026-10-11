@@ -229,7 +229,7 @@ const (
 	TransparencySkyExcess  = "sky_excess"
 )
 
-func transparencyMissing(hasPhot, fieldPhot, hasExcess bool) string {
+func transparencyMissing(hasPhot, fieldPhot, hasExcess, recorded bool) string {
 	var why []string
 	switch {
 	case !hasPhot:
@@ -239,9 +239,12 @@ func transparencyMissing(hasPhot, fieldPhot, hasExcess bool) string {
 	default:
 		why = append(why, fmt.Sprintf("fewer than %d star ranks are bright and unclipped enough to compare", coreMinRanks))
 	}
-	if hasExcess {
+	switch {
+	case hasExcess:
 		why = append(why, fmt.Sprintf("its field has fewer than %d subs, or under %d ADU of light above the sky, to compare against", transparencyMinSubs, transparencyMinExcess))
-	} else {
+	case !recorded:
+		why = append(why, "no Target Scheduler record of its light above the sky")
+	default:
 		why = append(why, "no ADU mean in Target Scheduler's record")
 	}
 	return strings.Join(why, "; ")
