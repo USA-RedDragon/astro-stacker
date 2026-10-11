@@ -37,8 +37,9 @@ import (
 // mosaicMethod is part of every mosaic's signature, so a change to how
 // they are assembled builds them all again. 2: panels flattened first.
 // 3: panels matched on their overlaps; the FITS marked bottom-up, and an
-// XISF copy for PixInsight.
-const mosaicMethod = 3
+// XISF copy for PixInsight. 4: panels that share no overlap levelled on
+// their sky.
+const mosaicMethod = 4
 
 // StageAssembling is reported while a mosaic is being built.
 const StageAssembling = "assembling"
