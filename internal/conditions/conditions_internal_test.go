@@ -78,6 +78,25 @@ func checkPower(t *testing.T, p Power) {
 	}
 }
 
+func TestReportFromAnEndedRequestIsNotShared(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Query().Get("query"), "network_ups_tools") {
+			_, _ = w.Write([]byte(upsBody))
+			return
+		}
+		_, _ = w.Write([]byte(promBody))
+	}))
+	defer srv.Close()
+	s := New(Options{MetricsURL: srv.URL}, nil)
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.Report(ended)
+	if r := s.Report(context.Background()); r.Weather.Source.Source != SourcePrometheus {
+		t.Fatalf("the next viewer got the ended request's report: %+v", r.Weather.Source)
+	}
+}
+
 func TestNoMetricsURL(t *testing.T) {
 	t.Parallel()
 	r := New(Options{}, nil).Report(context.Background())
