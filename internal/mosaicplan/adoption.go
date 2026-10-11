@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -351,16 +352,16 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 		return rep, err
 	}
 	cands, rig := pl.cands, pl.rig
-	var existing []app.MosaicAdoption
-	if err := s.App.WithContext(ctx).Find(&existing).Error; err != nil {
-		return rep, err
-	}
-	bySubject := map[string]app.MosaicAdoption{}
-	for _, e := range existing {
-		bySubject[e.Subject] = e
-	}
 	now := time.Now()
 	err = s.App.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing []app.MosaicAdoption
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Order("id").Find(&existing).Error; err != nil {
+			return err
+		}
+		bySubject := map[string]app.MosaicAdoption{}
+		for _, e := range existing {
+			bySubject[e.Subject] = e
+		}
 		for _, c := range cands {
 			row := c.row
 			old, seen := bySubject[row.Subject]
