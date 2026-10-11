@@ -45,7 +45,7 @@ func Rules() []Rule {
 		{Name: "Rarity", DefaultWeight: 20, New: true, Description: "Favours targets with a short or closing season. 1.0 with 10 or fewer usable nights left, 0 with 120 or more. Nights count only when the target clears the horizon, its maximum altitude, its meridian window and the moon avoidance of at least one filter."},
 		{Name: RuleConditionMatch, DefaultWeight: 0, New: true, Description: "Favours targets that suit tonight: high in the sky against their own peak, a filter the moon allows (narrowband shrugs off a bright moon, broadband doesn't), and the sky quality the stacker measured on the last three hours of subs (poor skies favour narrowband)."},
 		{Name: RuleSeasonalRunway, DefaultWeight: 0, New: true, Description: "Favours targets that will run out of season before they finish: the hours their goals still need against 30% of the usable hours left in their season (3 h a night when the season has no hour count). 1.0 when they won't make it."},
-		{Name: RuleSeasonPriority, DefaultWeight: 0, New: true, Description: "Pushes the mosaic panels the season plan says to push now: those furthest behind with the fewest months of window left. Only for mosaics using the weakest-first plan (balancing on)."},
+		{Name: RuleSeasonPriority, DefaultWeight: 0, New: true, Description: "Favours targets whose goals need much of the imaging time left in their season: hours still needed (the goal measurement, or the plan counts until measured) against the dark hours above the minimum altitude until the season ends, weighted by how often each month has been an imaging night. Score = needed / (needed + available): 0.5 when it needs all of it. Every active target, single or mosaic panel."},
 	}
 }
 
