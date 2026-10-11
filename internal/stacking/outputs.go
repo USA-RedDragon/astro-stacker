@@ -33,6 +33,12 @@ func stackPrefix(s *app.Stack) string {
 	return path.Join("stacks", s.Object, s.Filter)
 }
 
+// saveStack saves a master's row but its needs_rebuild, which sweeps mark
+// while it is stacked and only rebuild clears.
+func (p *Pipeline) saveStack(ctx context.Context, stack *app.Stack) error {
+	return p.db.WithContext(ctx).Omit("needs_rebuild").Save(stack).Error
+}
+
 // publish writes the master, its previews and the accumulator state, then
 // updates the stack row.
 func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulator) error {
@@ -127,7 +133,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	stack.MasterKey, stack.StateKey, stack.XISFKey = keys["master.fit"], keys["state.fit"], keys["master.xisf"]
 	stack.PreviewKey, stack.LinearKey = keys["preview.jpg"], keys["linear.bin"]
 	stack.UpdatedAt = time.Now()
-	if err := p.db.WithContext(ctx).Save(stack).Error; err != nil {
+	if err := p.saveStack(ctx, stack); err != nil {
 		return err
 	}
 	metrics.MastersUpdated.Inc()
