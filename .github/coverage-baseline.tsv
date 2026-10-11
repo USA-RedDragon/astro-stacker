@@ -40,7 +40,7 @@ internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	397	333
+internal/goalmeasure/runner.go	397	334
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -50,7 +50,7 @@ internal/goals/measure.go	257	240
 internal/goals/progress.go	103	90
 internal/goals/readiness.go	29	28
 internal/goals/signals.go	51	46
-internal/goals/tsgoals.go	317	282
+internal/goals/tsgoals.go	317	284
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
@@ -79,7 +79,7 @@ internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	66	55
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	108	94
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	197	168
 internal/observatory/transport.go	50	45
 internal/planning/completion.go	56	31
@@ -114,7 +114,7 @@ internal/schedcmd/planning.go	404	331
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	195	169
+internal/schedcmd/service.go	195	171
 internal/schedcmd/settings.go	84	78
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	11	8
@@ -124,7 +124,7 @@ internal/server/middleware/di.go	8	8
 internal/server/mosaicplan.go	58	2
 internal/server/planning.go	84	55
 internal/server/public.go	12	12
-internal/server/routes.go	359	86
+internal/server/routes.go	364	88
 internal/server/scheddata.go	255	212
 internal/server/schedpreview.go	193	185
 internal/server/scheduler.go	78	19
@@ -141,7 +141,7 @@ internal/skycutout/skycutout.go	152	131
 internal/stacking/accumulator.go	155	151
 internal/stacking/comet.go	518	252
 internal/stacking/cosmetic.go	61	50
-internal/stacking/cover.go	256	147
+internal/stacking/cover.go	262	154
 internal/stacking/coverline.go	458	425
 internal/stacking/coverstretch.go	111	107
 internal/stacking/crop.go	161	127
@@ -158,7 +158,7 @@ internal/stacking/moonlit.go	134	51
 internal/stacking/mosaic.go	464	164
 internal/stacking/mosaiclayout.go	211	172
 internal/stacking/mosaicmatch.go	269	240
-internal/stacking/mosaicseams.go	295	214
+internal/stacking/mosaicseams.go	295	217
 internal/stacking/mosaicstars.go	191	173
 internal/stacking/outputs.go	104	17
 internal/stacking/pipeline.go	387	149
