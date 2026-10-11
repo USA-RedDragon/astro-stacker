@@ -81,7 +81,7 @@ type RejectedDark struct {
 
 const RejectedListed = 50
 
-const DarkFramesTarget = 25
+const DarkFramesTarget = calmatch.FullDarkSet
 
 type cleanSets struct {
 	median, sets int
@@ -93,9 +93,9 @@ func FramesNeededBasis(c cleanSets) string {
 		measured = fmt.Sprintf("The %d dark sets on record have a median of %d clean darks each (ingest check verdict clean, not rejected).", c.sets, c.median)
 	}
 	return fmt.Sprintf("The target of %d darks in one set is the user's choice, to match the dark sets already taken. %s "+
-		"The master-dark builder still accepts a set of %d or more (calmatch.MinFrames), so a combo whose exact dark set has %d to %d clean darks "+
-		"is calibrated with it and stays on this backlog until a set of %d is taken.",
-		DarkFramesTarget, measured, calmatch.MinFrames, calmatch.MinFrames, DarkFramesTarget-1, DarkFramesTarget)
+		"Lights use a full set of the same exposure within %s °C when one exists. Only when none does is a shorter set of %d or more "+
+		"(calmatch.MinFrames) used, and its lights stay on this backlog until a set of %d is taken.",
+		DarkFramesTarget, measured, numText(calmatch.SetTempExactC), calmatch.MinFrames, DarkFramesTarget)
 }
 
 func clean(f darkFrame) bool {
@@ -141,16 +141,17 @@ func measureCleanSets(sets []calmatch.Set, darks []darkFrame) (map[int]int, clea
 	return counts, cleanSets{median: all[len(all)/2], sets: len(all)}
 }
 
-func fullExactDark(g calmatch.Group, sets []calmatch.Set, counts map[int]int) bool {
+// fullChosenDark reports whether the dark set chosen for some lights is
+// full: a master made elsewhere, or a set with DarkFramesTarget clean darks.
+func fullChosenDark(chosen calmatch.Set, sets []calmatch.Set, counts map[int]int) bool {
+	if chosen.Master != "" {
+		return true
+	}
 	for i, s := range sets {
-		if s.Type != darkType || !calmatch.Buildable(s) || !same(s.Gain, g.Gain) || !same(s.Offset, g.Offset) || !same(s.BinX, g.BinX) {
-			continue
-		}
-		if calmatch.TempOff(g, s) > calmatch.SetTempExactC || math.Abs(s.Exposure-g.Exposure) > calmatch.ExposureTolerance*g.Exposure {
-			continue
-		}
-		if s.Master != "" || counts[i] >= DarkFramesTarget {
-			return true
+		if s.Type == chosen.Type && s.From.Equal(chosen.From) && s.To.Equal(chosen.To) && s.Master == "" &&
+			same(s.Exposure, chosen.Exposure) && same(s.Gain, chosen.Gain) && same(s.Offset, chosen.Offset) &&
+			same(s.SetTemp, chosen.SetTemp) && same(s.BinX, chosen.BinX) {
+			return counts[i] >= DarkFramesTarget
 		}
 	}
 	return false
@@ -283,7 +284,7 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 		g := calmatch.Group{Night: l.Night, Exposure: *l.Exposure, Gain: *l.Gain, Offset: *l.Offset,
 			SetTemp: *l.SetTemp, BinX: *l.BinX, Rotator: math.NaN()}
 		m := calmatch.Choose(g, sets).Dark
-		if m.Quality == calmatch.Exact && fullExactDark(g, sets, counts) {
+		if m.Quality == calmatch.Exact && fullChosenDark(*m.Set, sets, counts) {
 			continue
 		}
 		su := darkSetup{exposure: g.Exposure, gain: g.Gain, offset: g.Offset, bin: g.BinX}

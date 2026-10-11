@@ -180,9 +180,10 @@ func chooseBias(g Group, sets []Set) Match {
 
 // Darks must match gain, offset and binning. Their thermal signal is scaled
 // to the lights (bias-subtracted dark optimization), and the IMX571 has no amp
-// glow, so neither the setpoint nor the exposure has to match exactly. The
-// closest setpoint wins, then a same-exposure dark, then the longest one
-// (scaling down adds less noise), then the nearest night.
+// glow, so neither the setpoint nor the exposure has to match exactly. A full
+// set (FullDarkSet) of the same exposure within SetTempExactC wins over any
+// short one; otherwise the closest setpoint wins, then a same-exposure dark,
+// then the longest one (scaling down adds less noise), then the nearest night.
 func chooseDark(g Group, sets []Set) Match {
 	var cands []Set
 	for _, s := range sets {
@@ -198,6 +199,9 @@ func chooseDark(g Group, sets []Set) Match {
 		return Match{Quality: Missing}
 	}
 	sort.SliceStable(cands, func(i, j int) bool {
+		if fi, fj := fullExact(g, cands[i]), fullExact(g, cands[j]); fi != fj {
+			return fi
+		}
 		ti, tj := TempOff(g, cands[i]), TempOff(g, cands[j])
 		if ti != tj {
 			return ti < tj
@@ -218,6 +222,19 @@ func chooseDark(g Group, sets []Set) Match {
 		m.Quality = Exact
 	}
 	return m
+}
+
+// FullDarkSet is how many darks make a full set, the user's choice to match
+// the dark sets already taken. A shorter set is used only when no full one
+// matches.
+const FullDarkSet = 25
+
+// FullDark reports whether a dark set is full: a master made elsewhere, a
+// set of unknown size, or one of at least FullDarkSet frames.
+func FullDark(s Set) bool { return s.Master != "" || s.Count == 0 || s.Count >= FullDarkSet }
+
+func fullExact(g Group, s Set) bool {
+	return FullDark(s) && TempOff(g, s) <= SetTempExactC && sameExposure(g, s)
 }
 
 // MinFrames is the fewest frames a master is built from; a set with fewer,

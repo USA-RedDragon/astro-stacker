@@ -172,3 +172,36 @@ func TestUnbuildableDarkSetIsPassedOver(t *testing.T) {
 		t.Errorf("chose %+v, want the -5 °C set", m.Set)
 	}
 }
+
+func TestDarkPrefersAFullSetWithinTheExactBandOverACloserShortOne(t *testing.T) {
+	t.Parallel()
+	g := lights()
+	dark := func(temp float64, count int) calmatch.Set {
+		return calmatch.Set{Type: typeDark, Night: night("2025-11-01"), Exposure: 600, Gain: 0, Offset: 50, SetTemp: temp, BinX: 1, Count: count}
+	}
+	short, full := dark(-10, 14), dark(-11, 25)
+	m := calmatch.Choose(g, []calmatch.Set{short, full}).Dark
+	if m.Set == nil || m.Set.SetTemp != -11 || m.Quality != calmatch.Exact || m.Scaled {
+		t.Fatalf("chose %+v (%s), want the full set at -11", m.Set, m.Quality)
+	}
+	if m := calmatch.Choose(g, []calmatch.Set{short}).Dark; m.Set == nil || m.Set.SetTemp != -10 || m.Quality != calmatch.Exact {
+		t.Fatalf("with only the short set chose %+v (%s)", m.Set, m.Quality)
+	}
+	far := dark(-12, 40)
+	if m := calmatch.Choose(g, []calmatch.Set{short, far}).Dark; m.Set == nil || m.Set.SetTemp != -10 {
+		t.Fatalf("a full set 2 °C off beat the short exact one: %+v", m.Set)
+	}
+	otherExposure := full
+	otherExposure.Exposure = 300
+	if m := calmatch.Choose(g, []calmatch.Set{short, otherExposure}).Dark; m.Set == nil || m.Set.Exposure != 600 {
+		t.Fatalf("a full set of another exposure beat the short exact one: %+v", m.Set)
+	}
+	imported := dark(-11, 0)
+	imported.Master = "masters/dark.xisf"
+	if m := calmatch.Choose(g, []calmatch.Set{short, imported}).Dark; m.Set == nil || m.Set.Master == "" {
+		t.Fatalf("an imported master within 1 °C lost to a short set: %+v", m.Set)
+	}
+	if !calmatch.FullDark(full) || calmatch.FullDark(short) || !calmatch.FullDark(imported) {
+		t.Fatal("FullDark misjudged a set")
+	}
+}
