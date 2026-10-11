@@ -12,6 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
@@ -37,17 +38,18 @@ type Rig struct {
 type SiteFunc func(ctx context.Context) (sky.Site, error)
 
 type Service struct {
-	Backfill func() goals.BackfillLive
-	Measure  func(ctx context.Context) rigsource.Rig
-	Sky      func(ctx context.Context) skybright.Value
-	HAlpha   func() (*halpha.Map, halpha.Status)
-	Catalog  *catalog.Index
-	AppDB    *gorm.DB
-	SchedDB  *gorm.DB
-	Site     SiteFunc
-	Rig      Rig
-	Now      func() time.Time
-	TTL      time.Duration
+	Backfill   func() goals.BackfillLive
+	MosaicCost func(ctx context.Context) (func(panels int, months [12]float64) mosaics.Cost, error)
+	Measure    func(ctx context.Context) rigsource.Rig
+	Sky        func(ctx context.Context) skybright.Value
+	HAlpha     func() (*halpha.Map, halpha.Status)
+	Catalog    *catalog.Index
+	AppDB      *gorm.DB
+	SchedDB    *gorm.DB
+	Site       SiteFunc
+	Rig        Rig
+	Now        func() time.Time
+	TTL        time.Duration
 
 	mu       sync.Mutex
 	gen      uint64

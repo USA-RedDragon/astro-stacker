@@ -16,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/halpha"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -384,6 +385,36 @@ func TestFinder(t *testing.T) {
 	}
 	if fill, _ := s.Finder(ctx, discover.FinderQuery{Sort: discover.SortFill, Limit: 5}); len(fill.Rows) != 5 {
 		t.Errorf("fill sort returned %d", len(fill.Rows))
+	}
+}
+
+func TestFinderGivesMosaicsTheirHours(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	seasons := 3
+	s.MosaicCost = func(context.Context) (func(int, [12]float64) mosaics.Cost, error) {
+		return func(panels int, _ [12]float64) mosaics.Cost {
+			h := 5.0 * float64(panels)
+			return mosaics.Cost{Hours: &h, Seasons: &seasons, Text: fmt.Sprintf("%d panels", panels)}
+		}, nil
+	}
+	res, err := s.Finder(context.Background(), discover.FinderQuery{Fits: []string{sky.FitMany}, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Rows) == 0 {
+		t.Fatal("no mosaics")
+	}
+	for _, r := range res.Rows {
+		if r.Mosaic == nil || r.Mosaic.Hours == nil || *r.Mosaic.Hours != 5*float64(r.Fit.Panels) {
+			t.Errorf("%s: %+v", r.Object.Designation, r.Mosaic)
+		}
+	}
+	one, _ := s.Finder(context.Background(), discover.FinderQuery{Fits: []string{sky.FitOne}, Limit: 5})
+	for _, r := range one.Rows {
+		if r.Mosaic != nil {
+			t.Errorf("%s fits one frame but has %+v", r.Object.Designation, r.Mosaic)
+		}
 	}
 }
 
