@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -335,5 +336,41 @@ func TestLoadShowsHowEachObjectIsLinked(t *testing.T) {
 	if len(got) != 2 || got[0].Object != garlicNebula || got[0].Frames != 0 || got[0].Methods[0].Method != tslink.LinkTargetName ||
 		got[1].Object != alias || got[1].Frames != 3 || got[1].Methods[0].Method != app.LinkHeader {
 		t.Errorf("links %+v", got)
+	}
+}
+
+func TestAppInputsLoadsTargetsOnce(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	if err := appDB.AutoMigrate(&app.Frame{}, &app.FrameTarget{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := appDB.Create(&app.Frame{Key: "k", ETag: "e", Type: "LIGHT", Object: garlicNebula}).Error; err != nil {
+		t.Fatal(err)
+	}
+	loads := 0
+	if err := sched.Callback().Row().After("gorm:row").Register("count:targets", func(db *gorm.DB) {
+		if strings.Contains(db.Statement.SQL.String(), "JOIN project ON target.projectid") {
+			loads++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sched.Callback().Query().After("gorm:query").Register("count:targets", func(db *gorm.DB) {
+		if strings.Contains(db.Statement.SQL.String(), "JOIN project ON target.projectid") {
+			loads++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	in, err := AppInputs(context.Background(), appDB, sched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(in.ObjectsByGUID[in.Links[garlicNebula].TargetGUID]) != 1 || in.Links[garlicNebula].TargetGUID == "" {
+		t.Errorf("inputs %+v", in)
+	}
+	if loads != 1 {
+		t.Errorf("loaded Target Scheduler's targets %d times", loads)
 	}
 }
