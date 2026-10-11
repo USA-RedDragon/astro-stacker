@@ -173,9 +173,11 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
+	cache := p.newSubCache(dir)
+	defer cache.close()
 	// Subs of several gains go on the one with most weight: a sub counts as
 	// exposed as long as the ADU it records there (see gain.go).
-	scales, err := p.gainScales(ctx, dir, stack, subs, gains)
+	scales, err := p.gainScales(ctx, cache, stack, subs, gains)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +187,7 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 	stack.GainMethod, stack.GainScales = gainMethod, scales.encode()
 
 	if len(subs) < WarmUpSubs {
-		return p.rebuildMedian(ctx, dir, stack, subs)
+		return p.rebuildMedian(ctx, cache, stack, subs)
 	}
 	passes := 2
 	if len(subs) < 40 {
@@ -193,7 +195,7 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 		// clip once more against cleaner statistics.
 		passes = 3
 	}
-	return p.rebuildStreaming(ctx, dir, stack, subs, passes)
+	return p.rebuildStreaming(ctx, cache, stack, subs, passes)
 }
 
 // frameGains is the camera gain of each row's light, nil when unknown.
@@ -233,18 +235,13 @@ type memSub struct {
 
 // rebuildMedian holds every sub in memory as 16-bit samples and anchors
 // rejection on the per-pixel median, which a single outlier can't move.
-func (p *Pipeline) rebuildMedian(ctx context.Context, dir string, stack *app.Stack, subs []storedSub) (*Accumulator, error) {
+func (p *Pipeline) rebuildMedian(ctx context.Context, cache *subCache, stack *app.Stack, subs []storedSub) (*Accumulator, error) {
 	var all []memSub
 	var w, h int
 	sat := p.opts.Stack.SaturationLevel
 	for i, s := range subs {
 		p.progress(stack.Object, stack.Filter, StageRebuilding, i, len(subs))
-		local := filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
-		if err := p.download(ctx, p.dest, s.key, local); err != nil {
-			return nil, err
-		}
-		sub, sw, sh, err := readSub(local)
-		os.Remove(local)
+		sub, sw, sh, err := cache.load(ctx, s.key)
 		if err != nil {
 			return nil, err
 		}
@@ -406,19 +403,88 @@ func foldMem(acc *Accumulator, l memSub, reject []bool, sat float32) {
 }
 
 // rebuildStreaming reads the subs once per pass, one at a time, so memory
-// stays at a few frames no matter how many subs there are.
-func (p *Pipeline) rebuildStreaming(ctx context.Context, dir string, stack *app.Stack, subs []storedSub, passes int) (*Accumulator, error) {
+// stays at a few frames no matter how many subs there are. The cache keeps
+// later passes from downloading them again.
+func (p *Pipeline) rebuildStreaming(ctx context.Context, cache *subCache, stack *app.Stack, subs []storedSub, passes int) (*Accumulator, error) {
 	loaded := 0
-	return streamStack(subs, passes, p.opts.Stack, func(i int, s storedSub) ([]float32, int, int, error) {
+	return streamStack(subs, passes, p.opts.Stack, func(_ int, s storedSub) ([]float32, int, int, error) {
 		p.progress(stack.Object, stack.Filter, StageRebuilding, loaded, passes*len(subs))
 		loaded++
-		local := filepath.Join(dir, fmt.Sprintf("s%04d.fit", i))
-		if err := p.download(ctx, p.dest, s.key, local); err != nil {
-			return nil, 0, 0, err
-		}
-		defer os.Remove(local)
-		return readSub(local)
+		return cache.load(ctx, s.key)
 	})
+}
+
+// subCache keeps a rebuild's subs on the scratch volume after their first
+// download, so its later passes read them from disk. Every rebuild's cache
+// shares the pipeline's RebuildCache bytes, and a sub is only kept while
+// the volume has RebuildCacheFree bytes left; the rest are downloaded on
+// every pass. The first subs to arrive are the ones kept: the passes read
+// in the same order, so evicting for later ones would save nothing.
+type subCache struct {
+	p    *Pipeline
+	dir  string
+	kept map[string]string
+	n    int
+	held int64
+}
+
+func (p *Pipeline) newSubCache(dir string) *subCache {
+	return &subCache{p: p, dir: dir, kept: map[string]string{}}
+}
+
+func (c *subCache) load(ctx context.Context, key string) ([]float32, int, int, error) {
+	if file, ok := c.kept[key]; ok {
+		return readSub(file)
+	}
+	c.n++
+	file := filepath.Join(c.dir, fmt.Sprintf("c%05d.fit", c.n))
+	if err := c.p.download(ctx, c.p.dest, key, file); err != nil {
+		return nil, 0, 0, err
+	}
+	sub, w, h, err := readSub(file)
+	if err == nil && c.keep(file) {
+		c.kept[key] = file
+	} else {
+		os.Remove(file)
+	}
+	return sub, w, h, err
+}
+
+func (c *subCache) keep(file string) bool {
+	st, err := os.Stat(file)
+	if err != nil {
+		return false
+	}
+	free, err := freeSpace(c.dir)
+	if err != nil || free < c.p.opts.RebuildCacheFree {
+		return false
+	}
+	if !c.p.reserveCache(st.Size()) {
+		return false
+	}
+	c.held += st.Size()
+	return true
+}
+
+func (c *subCache) close() {
+	for _, file := range c.kept {
+		os.Remove(file)
+	}
+	c.kept = map[string]string{}
+	c.p.reserveCache(-c.held)
+	c.held = 0
+}
+
+// reserveCache takes n bytes of the rebuild cache budget, or gives them
+// back when n is negative.
+func (p *Pipeline) reserveCache(n int64) bool {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+	if n > 0 && p.cacheHeld+n > p.opts.RebuildCache {
+		return false
+	}
+	p.cacheHeld += n
+	return true
 }
 
 // streamStack stacks subs from load in passes. The first pass has no

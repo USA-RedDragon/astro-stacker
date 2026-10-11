@@ -74,6 +74,11 @@ type PipelineOptions struct {
 	// sendVerdicts).
 	Verdicts VerdictOptions
 	Stack    Options
+	// RebuildCache is the most bytes of registered subs all rebuilds
+	// together keep on the work volume between passes, and
+	// RebuildCacheFree the space they leave free on it.
+	RebuildCache     int64
+	RebuildCacheFree int64
 
 	RegisteredGrace        time.Duration
 	RegisteredDeletePause  time.Duration
@@ -99,6 +104,9 @@ func DefaultPipelineOptions() PipelineOptions {
 		CalibrationSettle: 3 * time.Hour,
 		RecalibrateLimit:  300,
 		Stack:             DefaultOptions(),
+
+		RebuildCache:     8 << 30,
+		RebuildCacheFree: 6 << 30,
 
 		RegisteredGrace:        24 * time.Hour,
 		RegisteredDeletePause:  200 * time.Millisecond,
@@ -147,6 +155,9 @@ type Pipeline struct {
 
 	// verdictFiles caches acquired images' file names, by Id, for the
 	// verdicts.
+	cacheMu   sync.Mutex
+	cacheHeld int64
+
 	verdictMu    sync.Mutex
 	verdictFiles map[int]string
 
