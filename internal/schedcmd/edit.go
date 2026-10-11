@@ -87,6 +87,9 @@ func (s EditSpec) Validate(payload json.RawMessage) error {
 			}
 		}
 	}
+	if s.Entity == entityProject {
+		return projectAltitudeCross(p.Changes)
+	}
 	return nil
 }
 
