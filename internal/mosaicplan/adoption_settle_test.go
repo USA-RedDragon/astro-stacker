@@ -120,3 +120,30 @@ func TestRunAdoptionLeavesAPersonsChangedRowForThePerson(t *testing.T) {
 		t.Errorf("second run %+v", again)
 	}
 }
+
+func TestRunAdoptionSkipsWhenTSHasNoProjects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _, sched := adoptionSvc(t)
+	_, by := runAdoption(ctx, t, svc)
+	before := by["Rosette"]
+	if err := sched.Exec(`DELETE FROM target`).Error; err != nil {
+		t.Fatal(err)
+	}
+	rep, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Auto != 0 || len(rep.Items) != 0 {
+		t.Fatalf("an empty Target Scheduler read closed rows %+v", rep)
+	}
+	list, err := svc.Adoptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range list {
+		if a.ID == before.ID && a.Status != before.Status {
+			t.Fatalf("row changed after an empty read %+v", a)
+		}
+	}
+}
