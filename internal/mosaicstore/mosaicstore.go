@@ -61,42 +61,37 @@ func SetStatus(ctx context.Context, db *gorm.DB, id int, before, after, who stri
 			return fmt.Errorf("%w: %s is %s, not %s", ErrConflict, row.Subject, row.Status, before)
 		}
 		now := time.Now()
-		switch row.Kind {
-		case KindFrames:
-			var fp FramesProposal
-			if err := json.Unmarshal([]byte(row.Proposal), &fp); err != nil {
-				return err
-			}
-			if adopts(after) {
-				if err := LinkFrames(tx, fp, now); err != nil {
-					return err
-				}
-			} else if err := tx.Where("object = ? AND method = ?", fp.Object, LinkReview).Delete(&app.FrameTarget{}).Error; err != nil {
-				return err
-			}
-		case mosaics.KindMosaic:
-			var panels []mosaics.AdoptedPanel
-			if err := json.Unmarshal([]byte(row.Proposal), &panels); err != nil {
-				return err
-			}
-			if !adopts(after) {
-				panels = nil
-			}
-			if err := WritePanels(tx, row.ProjectGUID, row.Project, panels, rig, now); err != nil {
-				return err
-			}
-		default:
-			if err := WritePanels(tx, row.ProjectGUID, row.Project, nil, rig, now); err != nil {
-				return err
-			}
+		if err := Apply(tx, row, after, rig, now); err != nil {
+			return err
 		}
 		row.Status, row.DecidedBy, row.DecidedAt = after, who, &now
-		if after == app.AdoptionProposed {
-			row.DecidedBy, row.DecidedAt = "", nil
-		}
 		return tx.Save(&row).Error
 	})
 	return row, err
+}
+
+func Apply(tx *gorm.DB, row app.MosaicAdoption, status string, rig mosaics.Rig, now time.Time) error {
+	switch row.Kind {
+	case KindFrames:
+		var fp FramesProposal
+		if err := json.Unmarshal([]byte(row.Proposal), &fp); err != nil {
+			return err
+		}
+		if adopts(status) {
+			return LinkFrames(tx, fp, now)
+		}
+		return tx.Where("object = ? AND method = ?", fp.Object, LinkReview).Delete(&app.FrameTarget{}).Error
+	case mosaics.KindMosaic:
+		var panels []mosaics.AdoptedPanel
+		if err := json.Unmarshal([]byte(row.Proposal), &panels); err != nil {
+			return err
+		}
+		if !adopts(status) {
+			panels = nil
+		}
+		return WritePanels(tx, row.ProjectGUID, row.Project, panels, rig, now)
+	}
+	return WritePanels(tx, row.ProjectGUID, row.Project, nil, rig, now)
 }
 
 func LinkFrames(tx *gorm.DB, fp FramesProposal, now time.Time) error {
