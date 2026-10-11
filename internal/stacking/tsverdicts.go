@@ -97,6 +97,8 @@ type verdictFrame struct {
 	Object  string
 	Filter  string
 	Status  string
+	// Source is the stack_frames metadata_source, "" when unknown.
+	Source string
 }
 
 // verdictSend is one write to stacker_verdict.
@@ -143,9 +145,12 @@ func planVerdicts(frames []verdictFrame, images []tsImage, known map[int]app.TSV
 	for _, f := range frames {
 		ims := byFile[key{f.Object, path.Base(f.Key)}]
 		if len(ims) != 1 {
-			if len(ims) == 0 {
+			switch {
+			case len(ims) == 0 && f.Source == app.MetadataSourceHeader:
+				out.Skipped["no_ts_record"]++
+			case len(ims) == 0:
 				out.Skipped["no_image"]++
-			} else {
+			default:
 				out.Skipped["ambiguous"]++
 			}
 			continue
@@ -256,7 +261,7 @@ func observeVerdict(v *app.TSVerdict, im tsImage, now *time.Time) {
 // score or moon, or stacked after all when a verdict was sent for them.
 func (p *Pipeline) verdictFrames(ctx context.Context, opts VerdictOptions) ([]verdictFrame, error) {
 	q := p.db.WithContext(ctx).Table("stack_frames sf").
-		Select("sf.frame_id, f.key, f.object, f.filter, sf.status").
+		Select("sf.frame_id, f.key, f.object, f.filter, sf.status, coalesce(sf.metadata_source, '') AS source").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
 		Where("sf.status IN ? OR (sf.status = ? AND EXISTS (SELECT 1 FROM ts_verdicts v WHERE v.frame_id = sf.frame_id))",
 			[]string{app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon}, app.StackStatusAdded)

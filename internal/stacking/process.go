@@ -150,6 +150,7 @@ func (p *Pipeline) addSubs(ctx context.Context, object, filter string, stack *ap
 			Score: a.c.c.score.Score, Weight: a.c.c.score.Score * exp, Exposure: exp,
 			RegisteredKey: &a.key, DarkScale: a.c.darkScale, NoDark: a.c.c.cal.Dark.Set == nil && !precalibrated(a.c.c.frame),
 			BiasMaster: optional(a.c.bias), DarkMaster: optional(a.c.dark), FlatMaster: optional(a.c.flat),
+			MetadataSource: optional(a.c.c.source),
 		}
 		if !rebuild {
 			sub, w, h, err := readSub(a.local)

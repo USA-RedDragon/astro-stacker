@@ -309,3 +309,25 @@ func BenchmarkLoadScores(b *testing.B) {
 		}
 	})
 }
+
+// A sub Target Scheduler has a record of is scored from it even when the
+// stacker measured it too; only a sub without one is marked Measured.
+func TestMeasuredMarksSubsWithoutRecord(t *testing.T) {
+	t.Parallel()
+	db := schedulerFixture(t, 20)
+	recorded := "2026-09-08_H-a_120.00s_00007.xisf"
+	measured := []quality.Measured{
+		{File: recorded, Target: targetM31, Filter: filterHa, Exposure: 120, SkyADU: 700, HFR: 1.9, Stars: 300},
+		{File: "own_1.fits", Target: targetM31, Filter: filterRed, Exposure: 120, SkyADU: 700, Offset: 50, HFR: 1.9, Stars: 300},
+	}
+	got, err := quality.LoadScores(t.Context(), db, quality.Pedestals{Configured: 506}, measured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := got[recorded]; !ok || s.Measured {
+		t.Errorf("recorded sub: %+v, present %v; want scored from its record", s, ok)
+	}
+	if s, ok := got["own_1.fits"]; !ok || !s.Measured {
+		t.Errorf("unrecorded sub: %+v, present %v; want Measured", s, ok)
+	}
+}
