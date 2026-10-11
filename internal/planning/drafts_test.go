@@ -60,7 +60,7 @@ func TestDraftApplySet(t *testing.T) {
 		t.Fatalf("O-III should be turned off: %+v", at)
 	}
 	d, _ = s.DraftApplySet(sho.ID, "add", []int{20}, 0, seq())
-	if d.Payload.Targets[0].Create[0].Desired != 40 {
+	if d.Payload.Targets[0].Create[0].Desired != 40 || d.Payload.Targets[0].Create[0].Exposure != TemplateLength {
 		t.Fatalf("desired should come from the set: %+v", d.Payload.Targets[0])
 	}
 	d, _ = s.DraftApplySet(hoo, "replace", []int{12}, 0, seq())
@@ -85,7 +85,7 @@ func TestDraftProjectMosaic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !p.Project.IsMosaic || p.Project.Priority != 2 || p.Targets[1].Name != "Gecko Nebula Panel 2" || len(p.Targets[0].Plans) != 2 || p.Targets[0].Plans[0].Desired != 300 {
+	if !p.Project.IsMosaic || p.Project.Priority != 2 || p.Targets[1].Name != "Gecko Nebula Panel 2" || len(p.Targets[0].Plans) != 2 || p.Targets[0].Plans[0].Desired != 300 || p.Targets[0].Plans[0].Exposure != TemplateLength {
 		t.Fatalf("%+v", p)
 	}
 	if len(p.Goals) != 4 || p.Goals[0].Setting.SNRGoal != 12 || !reflect.DeepEqual(p.RuleWeights, WeightsFor(s.GlobalWeights.Weights, true)) {
@@ -134,8 +134,8 @@ func TestDraftProjectFromPickedPlans(t *testing.T) {
 		t.Fatalf("unknown template: %v", err)
 	}
 	d.Plans = []PlanDraft{{TemplateID: 1}}
-	if _, err := s.DraftProject(d, seq()); !errors.Is(err, ErrNoExposure) {
-		t.Fatalf("no sub length: %v", err)
+	if p, err := s.DraftProject(d, seq()); err != nil || p.Targets[0].Plans[0].Exposure != TemplateLength {
+		t.Fatalf("no sub length uses the template: %+v %v", p, err)
 	}
 	if _, err := s.DraftProject(base, seq()); !errors.Is(err, ErrUnknownSet) {
 		t.Fatalf("neither a set nor plans: %v", err)

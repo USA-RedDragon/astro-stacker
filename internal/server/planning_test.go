@@ -103,6 +103,20 @@ func TestPlanningDraftsRoute(t *testing.T) {
 	if code != http.StatusOK || out["project"] == nil {
 		t.Fatalf("%d %v", code, out)
 	}
+	code, out = get(t, r, http.MethodPost, "/api/v1/planning/projects/draft", `{"name":"Gecko","plans":[{"templateId":1}],"desired":40,"minimumTime":60,"panels":[{"raHours":22.5,"dec":40.8}]}`)
+	targets, _ := out["targets"].([]any)
+	if code != http.StatusOK || len(targets) != 1 {
+		t.Fatalf("a plan without a sub length should draft: %d %v", code, out)
+	}
+	tgt, _ := targets[0].(map[string]any)
+	plans, _ := tgt["plans"].([]any)
+	var plan map[string]any
+	if len(plans) == 1 {
+		plan, _ = plans[0].(map[string]any)
+	}
+	if plan["exposure"] != -1.0 {
+		t.Fatalf("a plan without a sub length should use the template length (-1): %v", plans)
+	}
 	code, _ = get(t, r, http.MethodPost, "/api/v1/planning/projects/draft", `{"name":"Gecko","setId":"lrgb","minimumTime":60,"panels":[{"raHours":22.5,"dec":40.8}]}`)
 	if code != http.StatusUnprocessableEntity {
 		t.Fatalf("an unknown set should be 422, got %d", code)
