@@ -33,7 +33,7 @@ func TestPickOnPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := pickFixtureOn(t, db)
-	p, err := s.Pick(ctx, "M16", pickPlans())
+	p, err := s.Pick(ctx, "M16", pickPlans(), noGoal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestPickOnPostgres(t *testing.T) {
 	if ha.Exposure == nil || *ha.Exposure != 300 || ha.Subs != 7 || ha.Hours.Hours != nil || ha.Hours.Unknown == "" || ha.Hours.Points != 4 {
 		t.Errorf("H-α %+v", ha)
 	}
-	g, err := s.Pick(ctx, "M81", pickPlans())
+	g, err := s.Pick(ctx, "M81", pickPlans(), depthGoal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestPickOnPostgres(t *testing.T) {
 	if l.Hours.Hours == nil || math.IsNaN(*l.Hours.Hours) || l.Hours.Points != 1 || l.Subs != 13 {
 		t.Errorf("L %+v", l)
 	}
-	d, err := s.Pick(ctx, "B33", pickPlans())
+	d, err := s.Pick(ctx, "B33", pickPlans(), noGoal())
 	if err != nil {
 		t.Fatal(err)
 	}

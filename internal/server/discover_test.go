@@ -131,6 +131,11 @@ func TestPickRoute(t *testing.T) {
 	if p.Filters[0].Exposure != nil || p.Filters[0].ExposureBasis != "no subs in this filter yet" || p.Filters[0].Hours.Hours != nil {
 		t.Errorf("filter without data: %+v", p.Filters[0])
 	}
+	w = discoverGet(t, r, "/api/v1/catalog/objects/M42/pick?goal=depth&depth=26.2&snr=12")
+	if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil || p.Goal.Kind != "depth" || p.Goal.Depth != 26.2 || p.Goal.SNR != 12 ||
+		p.Filters[0].Hours.Goal != "26.2 mag/arcsec² at SNR 3" {
+		t.Errorf("pick for a typed depth goal: %s", w.Body.String())
+	}
 	if w := discoverGet(t, r, "/api/v1/catalog/objects/nope/pick"); w.Code != http.StatusNotFound {
 		t.Errorf("unknown object: %d", w.Code)
 	}

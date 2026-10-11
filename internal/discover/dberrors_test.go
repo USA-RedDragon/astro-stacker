@@ -60,7 +60,7 @@ func TestPickFailsWhenATableCheckFails(t *testing.T) {
 	t.Parallel()
 	s, db := pickFixture(t)
 	failQueries(t, db, "sqlite_master")
-	if _, err := s.Pick(context.Background(), "M51", pickPlans()); err == nil || !strings.Contains(err.Error(), injected) {
+	if _, err := s.Pick(context.Background(), "M51", pickPlans(), noGoal()); err == nil || !strings.Contains(err.Error(), injected) {
 		t.Fatalf("pick built from a failed table check: %v", err)
 	}
 }

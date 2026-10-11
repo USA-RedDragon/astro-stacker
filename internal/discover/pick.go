@@ -100,6 +100,25 @@ type PickSet struct {
 	Projects int    `json:"projects"`
 }
 
+type PickGoal struct {
+	Kind  goals.Kind `json:"kind"`
+	SNR   float64    `json:"snr"`
+	Depth float64    `json:"depth"`
+}
+
+func (g PickGoal) normal() PickGoal {
+	if g.Kind != goals.KindDepth {
+		g.Kind = goals.KindSNR
+	}
+	if !(g.SNR > 0) {
+		g.SNR = goals.DefaultSNRGoal
+	}
+	if !(g.Depth > 0) {
+		g.Depth = 0
+	}
+	return g
+}
+
 type ExposurePick struct {
 	Object     catalog.Object `json:"object"`
 	Class      string         `json:"class"`
@@ -115,6 +134,7 @@ type ExposurePick struct {
 	Set        *PickSet       `json:"set"`
 	Missing    []string       `json:"missing"`
 	GoalSNR    float64        `json:"goalSnr"`
+	Goal       PickGoal       `json:"goal"`
 	skybright.Value
 }
 
@@ -588,8 +608,12 @@ func meanSBContext(o catalog.Object, goal float64) string {
 		sbB, sbG, bv, gaiaRelation, verdict)
 }
 
-func (s *Service) depthHours(o catalog.Object, canon, goalFilter string, ms []app.GoalMeasurement, sky skybright.Value, skies map[skyKey]float64, scale float64) PickHours {
+func (s *Service) depthHours(o catalog.Object, canon, goalFilter string, typed float64, ms []app.GoalMeasurement, sky skybright.Value, skies map[skyKey]float64, scale float64) PickHours {
 	goal := goals.DefaultDepth(frameheader.NormalizeFilter(goalFilter))
+	goalWhy := fmt.Sprintf("the depth goal a new target gets for %s when its goal is depth and no depth is typed (the stacker's default, the same value a project's Goal tab sets when you switch it to depth; a set value, not fitted to your data)", filterLabel(canon))
+	if typed > 0 {
+		goal, goalWhy = typed, "the depth you typed for every filter"
+	}
 	out := PickHours{Goal: fmt.Sprintf("%.1f mag/arcsec² at SNR %g", goal, goals.DepthSNR)}
 	sbNote := meanSBContext(o, goal)
 	if sky.Mag == nil || sky.Basis.Source != skybright.SourceMeasured {
@@ -625,10 +649,10 @@ func (s *Service) depthHours(o catalog.Object, canon, goalFilter string, ms []ap
 	}
 	med, lo, hi := medianOf(d1), slices.Min(d1), slices.Max(d1)
 	out.Hours, out.Low, out.High = ptrf(hoursAt(med)), ptrf(hoursAt(hi)), ptrf(hoursAt(lo))
-	out.Basis = fmt.Sprintf("hours to the %.1f mag/arcsec² Gaia G depth goal at SNR %g, the depth goal a new target gets for %s when its goal is depth and no depth is typed (the stacker's default, the same value a project's Goal tab sets when you switch it to depth; a set value, not fitted to your data); "+
+	out.Basis = fmt.Sprintf("hours to the %.1f mag/arcsec² Gaia G depth goal at SNR %g, %s; "+
 		"your %s depth at SNR %g after 1 h, scaled to the %.2f mag/arcsec² Gaia G sky measured in %s over %d nights, is %.2f (%.2f to %.2f) from %d %s; depth grows 1.25 mag per decade of hours, so %s to %s; "+
 		"with the plateau stop on, the goal also ends when a master gains under %g%% per hour, which this does not predict; %s",
-		goal, goals.DepthSNR, filterLabel(canon), filterLabel(canon), goals.DepthSNR, now, filterLabel(canon), sky.Basis.Nights, med, lo, hi, len(d1), masters,
+		goal, goals.DepthSNR, goalWhy, filterLabel(canon), goals.DepthSNR, now, filterLabel(canon), sky.Basis.Nights, med, lo, hi, len(d1), masters,
 		hText(hoursAt(hi)), hText(hoursAt(lo)), goals.PlateauGainPct, sbNote)
 	return out
 }
@@ -686,22 +710,39 @@ type hoursInputs struct {
 	fit        hAlphaFit
 	ms         []app.GoalMeasurement
 	skies      map[skyKey]float64
-	scale, snr float64
+	scale      float64
+	goal       PickGoal
 }
 
 func (s *Service) filterHours(ctx context.Context, in hoursInputs) PickHours {
+	if in.goal.Kind == goals.KindDepth {
+		return s.depthGoalHours(ctx, in)
+	}
+	snrGoal := fmt.Sprintf("SNR %g", in.goal.SNR)
 	switch {
 	case in.canon == "H" && in.fam == FamilyBroadband:
-		return PickHours{Unknown: "unknown, the goal model will measure it: the map's H-α here is Milky Way foreground at 6′, not this object's own emission"}
+		return PickHours{Goal: snrGoal, Unknown: "unknown, the goal model will measure it: the map's H-α here is Milky Way foreground at 6′, not this object's own emission"}
 	case in.canon == "H" && in.ha == nil:
-		return PickHours{Unknown: "unknown: the H-α map has no value here"}
+		return PickHours{Goal: snrGoal, Unknown: "unknown: the H-α map has no value here"}
 	case in.canon == "H":
-		return in.fit.hours(in.ha.Rayleigh, in.snr)
+		return in.fit.hours(in.ha.Rayleigh, in.goal.SNR)
 	case in.fam == FamilyBroadband:
-		return s.depthHours(in.o, in.canon, in.goalFilter, in.ms, s.filterSky(ctx, in.canon), in.skies, in.scale)
+		return PickHours{Goal: snrGoal, Unknown: "unknown, the goal model will measure it: the SNR goal is set in this object's own faint band, and nothing catalogued predicts that signal"}
 	default:
-		return PickHours{Unknown: "unknown, the goal model will measure it"}
+		return PickHours{Goal: snrGoal, Unknown: "unknown, the goal model will measure it"}
 	}
+}
+
+func (s *Service) depthGoalHours(ctx context.Context, in hoursInputs) PickHours {
+	if skybright.Broadband(in.canon) {
+		return s.depthHours(in.o, in.canon, in.goalFilter, in.goal.Depth, in.ms, s.filterSky(ctx, in.canon), in.skies, in.scale)
+	}
+	goal := goals.DefaultDepth(frameheader.NormalizeFilter(in.goalFilter))
+	if in.goal.Depth > 0 {
+		goal = in.goal.Depth
+	}
+	return PickHours{Goal: fmt.Sprintf("%.1f mag/arcsec² at SNR %g", goal, goals.DepthSNR),
+		Unknown: fmt.Sprintf("unknown, the goal model will measure it: the depth model scales by the sky measured in the same filter, and only L, R, G and B sky is measured, not %s", filterLabel(in.canon))}
 }
 
 func (s *Service) choosePalette(out *ExposurePick, fam string, past []pastTarget, haText string) []string {
@@ -741,7 +782,8 @@ func (s *Service) choosePalette(out *ExposurePick, fam string, past []pastTarget
 	return canons
 }
 
-func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot) (ExposurePick, error) {
+func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot, goal PickGoal) (ExposurePick, error) {
+	goal = goal.normal()
 	o, ok := s.Catalog.Get(id)
 	if !ok {
 		return ExposurePick{}, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -752,7 +794,7 @@ func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot)
 	}
 	hmap, hst := s.halphaMap()
 	_, info := s.rig(ctx)
-	out := ExposurePick{Object: o, HAlphaMap: hst, Rules: []PickRule{}, Filters: []PickFilter{}, Missing: []string{}, GoalSNR: goals.DefaultSNRGoal, Value: s.skyValue(ctx)}
+	out := ExposurePick{Object: o, HAlphaMap: hst, Rules: []PickRule{}, Filters: []PickFilter{}, Missing: []string{}, GoalSNR: goal.SNR, Goal: goal, Value: s.skyValue(ctx)}
 	out.Class, out.ClassLabel = PickClass(o.Type)
 	if o.TypeBasis != "" {
 		out.ClassBasis = out.ClassLabel + ": " + o.TypeBasis
@@ -848,7 +890,7 @@ func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot)
 		if pf.Template != nil {
 			goalFilter = pf.Template.Filter
 		}
-		pf.Hours = s.filterHours(ctx, hoursInputs{o: o, class: out.Class, fam: fam, canon: c, goalFilter: goalFilter, ha: out.HAlpha, fit: fit, ms: ms, skies: skies, scale: scale, snr: out.GoalSNR})
+		pf.Hours = s.filterHours(ctx, hoursInputs{o: o, class: out.Class, fam: fam, canon: c, goalFilter: goalFilter, ha: out.HAlpha, fit: fit, ms: ms, skies: skies, scale: scale, goal: goal})
 		out.Filters = append(out.Filters, pf)
 	}
 	return out, nil
