@@ -25,6 +25,8 @@ const (
 	SourceSymmetric  = "symmetricds"
 
 	cacheTTL     = 15 * time.Second
+	historyTTL   = 5 * time.Minute
+	historySpan  = "30d"
 	queryTimeout = 5 * time.Second
 	mConnected   = "connected"
 )
@@ -90,14 +92,18 @@ type Rotator struct {
 
 type Power struct {
 	Source
-	Model            string   `json:"model,omitempty"`
-	Charge           *float64 `json:"charge,omitempty"`
-	InputVoltage     *float64 `json:"input_voltage,omitempty"`
-	RuntimeSeconds   *float64 `json:"runtime_seconds,omitempty"`
-	Flags            []string `json:"flags,omitempty"`
-	OnBattery        *bool    `json:"on_battery,omitempty"`
-	LowBattery       *bool    `json:"low_battery,omitempty"`
-	OnBatterySeconds *float64 `json:"on_battery_seconds,omitempty"`
+	Model              string     `json:"model,omitempty"`
+	Charge             *float64   `json:"charge,omitempty"`
+	InputVoltage       *float64   `json:"input_voltage,omitempty"`
+	RuntimeSeconds     *float64   `json:"runtime_seconds,omitempty"`
+	Flags              []string   `json:"flags,omitempty"`
+	OnBattery          *bool      `json:"on_battery,omitempty"`
+	LowBattery         *bool      `json:"low_battery,omitempty"`
+	OnBatterySeconds   *float64   `json:"on_battery_seconds,omitempty"`
+	ChargeLow          *float64   `json:"charge_low,omitempty"`
+	RuntimeLowSeconds  *float64   `json:"runtime_low_seconds,omitempty"`
+	LastOnBattery      *time.Time `json:"last_on_battery,omitempty"`
+	BatteryHistoryFrom *time.Time `json:"battery_history_from,omitempty"`
 }
 
 type Sync struct {
@@ -131,8 +137,15 @@ type Service struct {
 	sched  *gorm.DB
 	now    func() time.Time
 
-	mu     sync.Mutex
-	cached *Report
+	mu      sync.Mutex
+	cached  *Report
+	history *batteryHistory
+}
+
+type batteryHistory struct {
+	at   time.Time
+	last *time.Time
+	from *time.Time
 }
 
 func New(opts Options, sched *gorm.DB) *Service {
@@ -265,6 +278,42 @@ func (s *Service) fillMetrics(ctx context.Context, r *Report) {
 			r.Power.OnBatterySeconds = finite(v[0].value)
 		}
 	}
+	if r.Power.Source.Source == SourcePrometheus {
+		h := s.batteryHistory(ctx, r.At)
+		r.Power.LastOnBattery, r.Power.BatteryHistoryFrom = h.last, h.from
+	}
+}
+
+func (s *Service) batteryHistory(ctx context.Context, now time.Time) batteryHistory {
+	s.mu.Lock()
+	if s.history != nil && now.Sub(s.history.at) < historyTTL {
+		h := *s.history
+		s.mu.Unlock()
+		return h
+	}
+	s.mu.Unlock()
+	h := batteryHistory{at: now}
+	last, err := s.query(ctx, fmt.Sprintf(`max_over_time(timestamp(network_ups_tools_ups_status{flag="OB",ups=%q} == 1)[%s:1m])`, s.opts.UPS, historySpan))
+	if err != nil {
+		return h
+	}
+	from, err := s.query(ctx, fmt.Sprintf(`min_over_time(timestamp(network_ups_tools_ups_status{flag="OB",ups=%q})[%s:1m])`, s.opts.UPS, historySpan))
+	if err != nil {
+		return h
+	}
+	h.last, h.from = unixTime(last), unixTime(from)
+	s.mu.Lock()
+	s.history = &h
+	s.mu.Unlock()
+	return h
+}
+
+func unixTime(v []sample) *time.Time {
+	if len(v) == 0 || finite(v[0].value) == nil {
+		return nil
+	}
+	t := time.UnixMilli(int64(math.Round(v[0].value * 1000))).UTC()
+	return &t
 }
 
 func fillObservatory(r *Report, samples []sample) {
@@ -397,6 +446,10 @@ func fillPower(p *Power, samples []sample) {
 			p.InputVoltage = finite(sm.value)
 		case "battery_runtime":
 			p.RuntimeSeconds = finite(sm.value)
+		case "battery_charge_low":
+			p.ChargeLow = finite(sm.value)
+		case "battery_runtime_low":
+			p.RuntimeLowSeconds = finite(sm.value)
 		case "device_info":
 			p.Model = strings.TrimSpace(manufacturer(sm.labels["mfr"]) + " " + sm.labels["model"])
 		case "ups_status":

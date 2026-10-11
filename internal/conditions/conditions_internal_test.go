@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ const promBody = `{"status":"success","data":{"resultType":"vector","result":[
 const upsBody = `{"status":"success","data":{"resultType":"vector","result":[
 {"metric":{"__name__":"network_ups_tools_battery_charge","ups":"observatory"},"value":[1,"97"]},
 {"metric":{"__name__":"network_ups_tools_battery_runtime","ups":"observatory"},"value":[1,"4300"]},
+{"metric":{"__name__":"network_ups_tools_battery_charge_low","ups":"observatory"},"value":[1,"40"]},
+{"metric":{"__name__":"network_ups_tools_battery_runtime_low","ups":"observatory"},"value":[1,"300"]},
 {"metric":{"__name__":"network_ups_tools_device_info","mfr":"CPS","model":"EC450G","ups":"observatory"},"value":[1,"1"]},
 {"metric":{"__name__":"network_ups_tools_ups_status","flag":"OB","ups":"observatory"},"value":[1,"1"]},
 {"metric":{"__name__":"network_ups_tools_ups_status","flag":"OL","ups":"observatory"},"value":[1,"0"]}
@@ -41,6 +44,10 @@ func TestReportFromPrometheus(t *testing.T) {
 		switch {
 		case strings.HasPrefix(q, "time()"):
 			_, _ = w.Write([]byte(`{"status":"success","data":{"result":[{"metric":{},"value":[1,"95"]}]}}`))
+		case strings.HasPrefix(q, "max_over_time("):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"result":[{"metric":{},"value":[1,"1791700000.5"]}]}}`))
+		case strings.HasPrefix(q, "min_over_time("):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"result":[{"metric":{},"value":[1,"1791478785"]}]}}`))
 		case strings.Contains(q, "network_ups_tools"):
 			_, _ = w.Write([]byte(upsBody))
 		default:
@@ -75,6 +82,40 @@ func checkPower(t *testing.T, p Power) {
 	}
 	if p.RuntimeSeconds == nil || *p.RuntimeSeconds != 4300 {
 		t.Fatalf("runtime %+v", p.RuntimeSeconds)
+	}
+	if p.ChargeLow == nil || *p.ChargeLow != 40 || p.RuntimeLowSeconds == nil || *p.RuntimeLowSeconds != 300 {
+		t.Fatalf("low battery levels %+v %+v", p.ChargeLow, p.RuntimeLowSeconds)
+	}
+	if p.LastOnBattery == nil || !p.LastOnBattery.Equal(time.Unix(1791700000, 5e8)) || p.BatteryHistoryFrom == nil || p.BatteryHistoryFrom.Unix() != 1791478785 {
+		t.Fatalf("battery history %+v %+v", p.LastOnBattery, p.BatteryHistoryFrom)
+	}
+}
+
+func TestBatteryHistoryCachedAndEmpty(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("query")
+		if strings.HasPrefix(q, "max_over_time(") || strings.HasPrefix(q, "min_over_time(") {
+			calls.Add(1)
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"result":[]}}`))
+	}))
+	defer srv.Close()
+	s := New(Options{MetricsURL: srv.URL}, nil)
+	now := time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC)
+	for i := range 3 {
+		h := s.batteryHistory(context.Background(), now.Add(time.Duration(i)*time.Minute))
+		if h.last != nil || h.from != nil {
+			t.Fatalf("history %+v", h)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("history queried %d times, want 2", calls.Load())
+	}
+	s.batteryHistory(context.Background(), now.Add(historyTTL))
+	if calls.Load() != 4 {
+		t.Fatalf("history not refreshed after its TTL: %d queries", calls.Load())
 	}
 }
 
