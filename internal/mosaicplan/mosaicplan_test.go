@@ -641,3 +641,81 @@ func TestSeasonBoostsOnlyForBalancedMosaics(t *testing.T) {
 		t.Errorf("boosts are not scaled to the top panel: %v", boosts)
 	}
 }
+
+func setKit(t *testing.T, db *gorm.DB, object, camera, telescope string, pixel, focal float64) {
+	t.Helper()
+	if err := db.Model(&app.Frame{}).Where("object = ?", object).
+		Updates(map[string]any{"camera": camera, "telescope": telescope, "pixel_size": pixel, "focal_length": focal}).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunAdoptionKeepsOtherInstrumentsApartAndWithdrawsItsOwnAttachments(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	appDB := appFixture(t)
+	addUnmatchedSubs(t, appDB)
+	pt := func(v float64) *float64 { return &v }
+	extra := []app.Frame{
+		{ID: 20, Key: "own", ETag: "e", Type: light, Object: panel1},
+		{ID: 21, Key: "bat", ETag: "e", Type: light, Object: "Flying Bat", MountRA: pt(183.85), MountDec: pt(13.1)},
+	}
+	if err := appDB.Create(&extra).Error; err != nil {
+		t.Fatal(err)
+	}
+	setKit(t, appDB, panel1, "ZWO ASI2600MM Pro", "Apertura 75Q", 3.76, 405)
+	setKit(t, appDB, "Flying Bat", "FLI PL16083", "SPA-3", 9, 530)
+	if err := appDB.Create(&app.FrameTarget{FrameID: 20, Object: panel1, TargetGUID: "m1", ProjectGUID: "pm", Method: app.LinkHeader}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := mosaicplan.New(appDB, schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
+	first, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := adoptionsBySubject(t, first.Items)
+	if a := by["subs "+markarian]; a.Status != app.AdoptionAuto || a.Frames.Target != panel1 {
+		t.Fatalf("subs without instrument headers not attached %+v %+v", a, a.Frames)
+	}
+	if a := by["subs Flying Bat"]; a.Status != app.AdoptionAuto || a.Frames.Target != "" || a.Confidence != mosaics.ConfidenceLow ||
+		!strings.Contains(a.Suggestion, "FLI PL16083 on SPA-3") || !strings.Contains(a.Suggestion, panel2) {
+		t.Fatalf("other instrument near a target %+v %+v", a, a.Frames)
+	}
+	if _, err := mosaicstore.SetStatus(ctx, appDB, by["subs Sh2-1"].ID, app.AdoptionProposed, app.AdoptionAccepted, "web", svc.Rig); err != nil {
+		t.Fatal(err)
+	}
+
+	setKit(t, appDB, markarian, "FLI ProLine PL9000", "CHI-1", 12, 2280)
+	setKit(t, appDB, "Sh2-1", "FLI", "", 9, 0)
+	again, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by = adoptionsBySubject(t, again.Items)
+	mk := by["subs "+markarian]
+	if mk.Status != app.AdoptionAuto || mk.DecidedBy != mosaicplan.AutoDecider || mk.Frames.Target != "" || mk.Frames.Count != 2 ||
+		mk.Frames.Instrument != "FLI ProLine PL9000 on CHI-1" || mk.Frames.TargetRig != "ZWO ASI2600MM Pro on Apertura 75Q" ||
+		!strings.Contains(mk.Suggestion, panel1) {
+		t.Fatalf("automatic attachment not withdrawn %+v %+v", mk, mk.Frames)
+	}
+	var n int64
+	appDB.Model(&app.FrameTarget{}).Where("object = ?", markarian).Count(&n)
+	if n != 0 {
+		t.Errorf("%d links left after withdrawing", n)
+	}
+	if a := by["subs Sh2-1"]; a.Status != app.AdoptionAccepted || a.DecidedBy != "web" {
+		t.Errorf("a person's decision changed %+v", a)
+	}
+	appDB.Model(&app.FrameTarget{}).Where("object = ? AND target_guid = ?", "Sh2-1", "r1").Count(&n)
+	if n != 1 {
+		t.Errorf("a person's attachment lost: %d links", n)
+	}
+	third, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.Auto != 0 || third.Changed != 0 {
+		t.Errorf("third run not settled %+v", third)
+	}
+}

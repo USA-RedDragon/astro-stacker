@@ -94,6 +94,8 @@ type FramesProposal struct {
 	Separation  *float64 `json:"separationDeg"`
 	Nearest     string   `json:"nearest,omitempty"`
 	Within      int      `json:"within"`
+	Instrument  string   `json:"instrument,omitempty"`
+	TargetRig   string   `json:"targetRig,omitempty"`
 	Coords      bool     `json:"coords"`
 	NameMatch   bool     `json:"nameMatch"`
 	ProjectName string   `json:"projectNamed,omitempty"`
@@ -150,7 +152,7 @@ func (s *Service) candidates(ctx context.Context) ([]candidate, mosaics.Rig, err
 		}
 		projects = append(projects, tp)
 	}
-	rig, _, err := s.rig(ctx)
+	rig, info, err := s.rig(ctx)
 	if err != nil {
 		return nil, rig, err
 	}
@@ -166,14 +168,14 @@ func (s *Service) candidates(ctx context.Context) ([]candidate, mosaics.Rig, err
 			auto: p.Auto, panels: p.Panels,
 		})
 	}
-	frames, err := s.frameCandidates(ctx, targets)
+	frames, err := s.frameCandidates(ctx, targets, rigInstrument(info))
 	if err != nil {
 		return nil, rig, err
 	}
 	return append(out, frames...), rig, nil
 }
 
-func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target) ([]candidate, error) {
+func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target, rigKit instrument) ([]candidate, error) {
 	var rows []struct {
 		Object   string
 		N        int
@@ -183,7 +185,7 @@ func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target) 
 	if err := s.App.WithContext(ctx).Table("frames f").
 		Select("f.object, count(*) AS n, avg(f.mount_ra) AS mount_ra, avg(f.mount_dec) AS mount_dec").
 		Joins("LEFT JOIN frame_targets ft ON ft.frame_id = f.id").
-		Where("ft.id IS NULL AND f.type = ? AND f.index_error IS NULL AND f.object <> ''", "LIGHT").
+		Where("(ft.id IS NULL OR ft.method = ?) AND f.type = ? AND f.index_error IS NULL AND f.object <> ''", LinkReview, "LIGHT").
 		Group("f.object").Order("f.object").Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load unlinked lights: %w", err)
 	}
@@ -194,7 +196,15 @@ func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target) 
 		projects[t.Project] = true
 	}
 	var linked []string
-	if err := s.App.WithContext(ctx).Model(&app.FrameTarget{}).Distinct("object").Pluck("object", &linked).Error; err != nil {
+	if err := s.App.WithContext(ctx).Model(&app.FrameTarget{}).Where("method <> ?", LinkReview).Distinct("object").Pluck("object", &linked).Error; err != nil {
+		return nil, err
+	}
+	subsKit, err := subsInstruments(ctx, s.App)
+	if err != nil {
+		return nil, err
+	}
+	ownKit, err := targetInstruments(ctx, s.App)
+	if err != nil {
 		return nil, err
 	}
 	for _, o := range linked {
@@ -215,10 +225,22 @@ func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target) 
 			nearestFrames(fp, *r.MountRA, *r.MountDec, targets)
 		}
 		row.Confidence, row.Rule, row.Suggestion = framesVerdict(fp)
+		key := fp.TargetGUID
+		if row.Confidence == mosaics.ConfidenceLow {
+			key = ""
+		} else if own, ok := ownKit[fp.TargetGUID]; ok || rigKit.known() {
+			if !ok {
+				own = rigKit
+			}
+			if sub, ok := subsKit[r.Object]; ok && differentInstrument(sub, own) {
+				fp.Instrument, fp.TargetRig = sub.String(), own.String()
+				row.Confidence, row.Rule, row.Suggestion = instrumentVerdict(fp)
+			}
+		}
 		if row.Confidence == mosaics.ConfidenceLow {
 			fp.TargetGUID, fp.Target, fp.ProjectGUID = "", "", ""
 		}
-		row.Fingerprint = fingerprint(r.Object, fp.TargetGUID)
+		row.Fingerprint = fingerprint(r.Object, key)
 		body, err := json.Marshal(fp)
 		if err != nil {
 			return nil, err
@@ -286,6 +308,13 @@ func framesVerdict(fp *FramesProposal) (confidence, rule, suggestion string) {
 	return mosaics.ConfidenceMedium, fmt.Sprintf("Medium: a target within %.1f° of the subs' mount position, but the names don't match.", framesMaxSep), suggestion
 }
 
+func instrumentVerdict(fp *FramesProposal) (confidence, rule, suggestion string) {
+	return mosaics.ConfidenceLow,
+		fmt.Sprintf("Low: the subs come from a different instrument (%s) than the rig that images %s (%s).", fp.Instrument, fp.Target, fp.TargetRig),
+		fmt.Sprintf("%s is %.2f° from the subs' mount position, but the subs were taken with %s, not %s, the rig that images it. Keep them separate and count their hours on their own.",
+			fp.Target, *fp.Separation, fp.Instrument, fp.TargetRig)
+}
+
 func sameName(a, b string) bool {
 	norm := func(s string) string {
 		s = strings.ToLower(mosaics.PanelName.ReplaceAllString(s, ""))
@@ -328,25 +357,23 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 			switch {
 			case seen && old.Fingerprint == row.Fingerprint:
 				rep.Unchanged++
-				fresh := row
-				row = old
-				if reworded(&row, fresh) && !dryRun {
-					if err := tx.Model(&row).Select("confidence", "rule", "issue", "suggestion", "proposal", "updated_at").Updates(&row).Error; err != nil {
-						return err
-					}
+				kept, err := keep(tx, c, old, rig, now, dryRun)
+				if err != nil {
+					return err
 				}
+				row = kept
 				if row.Status == app.AdoptionProposed && row.Clean {
 					rep.Clean++
-				}
-				if c.frames != nil && (row.Status == app.AdoptionAccepted || row.Status == app.AdoptionAuto) && !dryRun {
-					if err := mosaicstore.LinkFrames(tx, c.frames.store(), now); err != nil {
-						return err
-					}
 				}
 			default:
 				if seen {
 					rep.Changed++
 					row.ID, row.CreatedAt = old.ID, old.CreatedAt
+					if autoByUs(old) {
+						if err := withdraw(tx, old, &row, rig, now, dryRun); err != nil {
+							return err
+						}
+					}
 				} else {
 					rep.New++
 				}
@@ -380,6 +407,53 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 		return nil
 	})
 	return rep, err
+}
+
+func keep(tx *gorm.DB, c candidate, old app.MosaicAdoption, rig mosaics.Rig, now time.Time, dryRun bool) (app.MosaicAdoption, error) {
+	row := old
+	if reworded(&row, c.row) && !dryRun {
+		if err := tx.Model(&row).Select("confidence", "rule", "issue", "suggestion", "proposal", "updated_at").Updates(&row).Error; err != nil {
+			return row, err
+		}
+	}
+	if autoByUs(old) && old.Kind == KindFrames && proposedTarget(old) != proposedTarget(row) {
+		if err := withdraw(tx, old, &row, rig, now, dryRun); err != nil {
+			return row, err
+		}
+		if !dryRun {
+			if err := tx.Model(&row).Select("status", "decided_by", "decided_at", "updated_at").Updates(&row).Error; err != nil {
+				return row, err
+			}
+		}
+	}
+	if c.frames != nil && (row.Status == app.AdoptionAccepted || row.Status == app.AdoptionAuto) && !dryRun {
+		if err := mosaicstore.LinkFrames(tx, c.frames.store(), now); err != nil {
+			return row, err
+		}
+	}
+	return row, nil
+}
+
+func autoByUs(r app.MosaicAdoption) bool {
+	return r.Status == app.AdoptionAuto && r.DecidedBy == AutoDecider
+}
+
+func proposedTarget(r app.MosaicAdoption) string {
+	var fp FramesProposal
+	if json.Unmarshal([]byte(r.Proposal), &fp) != nil {
+		return ""
+	}
+	return fp.TargetGUID
+}
+
+func withdraw(tx *gorm.DB, old app.MosaicAdoption, row *app.MosaicAdoption, rig mosaics.Rig, now time.Time, dryRun bool) error {
+	if !dryRun {
+		if err := mosaicstore.Apply(tx, old, app.AdoptionProposed, rig, now); err != nil {
+			return err
+		}
+	}
+	row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionProposed, "", nil
+	return nil
 }
 
 func (c candidate) settle(tx *gorm.DB, row *app.MosaicAdoption, rig mosaics.Rig, now time.Time, dryRun bool) (bool, error) {
