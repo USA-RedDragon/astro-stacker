@@ -48,6 +48,22 @@ func TestBiasBacklogMissingStaleAndThin(t *testing.T) {
 	checkBiasBacklogFields(t, b)
 }
 
+func TestBiasBacklogThinClearsAfterAFullSet(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 20, 7, 0, 0, 0, time.UTC)
+	d := func(s string) time.Time { v, _ := time.Parse(time.DateOnly, s); return v }
+	f := func(v float64) *float64 { return &v }
+	lights := []biasLightGroup{{Night: d("2026-10-07"), Gain: f(100), Offset: f(50), BinX: f(1), N: 5}}
+	short := biasSet(100, 50, d("2026-10-08"), 10)
+	if b := biasBacklog(lights, nil, []calmatch.Set{short}, now); len(b.Combos) != 1 || b.Combos[0].LightsThin != 5 {
+		t.Fatalf("a short set with no full set after it is thin: %+v", b.Combos)
+	}
+	full := biasSet(100, 50, d("2026-10-12"), BiasFramesTarget)
+	if b := biasBacklog(lights, nil, []calmatch.Set{short, full}, now); len(b.Combos) != 0 {
+		t.Fatalf("a full set taken after the short one ends the need: %+v", b.Combos)
+	}
+}
+
 func checkBiasCombos(t *testing.T, b BiasBacklog, mode string, recent time.Time) {
 	t.Helper()
 	if len(b.Combos) != 4 {
@@ -64,7 +80,7 @@ func checkBiasCombos(t *testing.T, b BiasBacklog, mode string, recent time.Time)
 	if stale240.ComboKey != "bias|0|240|1" || stale240.LightsStale != 8 || stale240.LightsThin != 0 {
 		t.Errorf("an imported master is never thin, and lights near it are not stale: %+v", stale240)
 	}
-	if thin.ComboKey != "bias|100|50|1" || thin.LightsThin != 5 || thin.FramesHave != 2 || thin.FramesNeeded != BiasFramesTarget ||
+	if thin.ComboKey != "bias|100|50|1" || thin.LightsThin != 11 || thin.FramesHave != 2 || thin.FramesNeeded != BiasFramesTarget ||
 		thin.ReadoutMode == nil || *thin.ReadoutMode != mode || thin.NewestBiasAt == nil || !thin.NewestBiasAt.Equal(recent) {
 		t.Errorf("thin %+v", thin)
 	}
