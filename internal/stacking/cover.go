@@ -15,6 +15,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
@@ -55,6 +56,19 @@ func (p palette) filters() []string {
 		out = append(out, filterOIII)
 	}
 	return out
+}
+
+// PaletteFilters lists the filters a cover of the named palette is composed
+// from, or nil for a name that isn't a palette.
+func PaletteFilters(name string) []string {
+	base, oiii := strings.CutSuffix(name, "+OIII")
+	for _, p := range palettes() {
+		if p.Name == base {
+			p.OIIIGB = oiii
+			return p.filters()
+		}
+	}
+	return nil
 }
 
 // shoSubject matches a target or project shot for the SHO palette.

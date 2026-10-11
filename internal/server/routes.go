@@ -380,9 +380,14 @@ func publicLightRoute(signer *previewer.Signer) gin.HandlerFunc {
 	}
 }
 
-func fewestPanels(mosaics []app.Mosaic) map[string]app.Mosaic {
+// fewestPanels is each project's mosaic with the fewest panels among the
+// filters its colour cover is composed from, given by project in palettes.
+func fewestPanels(mosaics []app.Mosaic, palettes map[string]string) map[string]app.Mosaic {
 	out := map[string]app.Mosaic{}
 	for _, m := range mosaics {
+		if fs := stacking.PaletteFilters(palettes[m.Project]); fs != nil && !slices.Contains(fs, m.Filter) {
+			continue
+		}
 		if f, ok := out[m.Project]; !ok || m.Panels < f.Panels {
 			out[m.Project] = m
 		}
@@ -443,7 +448,11 @@ func coversRoute(signer *previewer.Signer) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
 		}
-		fewest := fewestPanels(mosaics)
+		palettes := map[string]string{}
+		for project, cv := range out.Mosaics {
+			palettes[project] = cv.Palette
+		}
+		fewest := fewestPanels(mosaics, palettes)
 		for project, cv := range out.Mosaics {
 			if f, ok := fewest[project]; ok {
 				cv.Panels, cv.PanelsTotal = &f.Panels, &f.PanelsTotal
