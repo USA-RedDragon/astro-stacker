@@ -8,7 +8,7 @@ internal/catalog/classify.go	85	82
 internal/catalog/coords.go	32	30
 internal/catalog/curated.go	1	1
 internal/catalog/designation.go	80	75
-internal/catalog/embedded.go	190	174
+internal/catalog/embedded.go	190	175
 internal/catalog/gen/audit.go	145	0
 internal/catalog/gen/finalize.go	73	0
 internal/catalog/gen/groups.go	60	0
@@ -27,15 +27,15 @@ internal/darkcheck/darkcheck.go	121	115
 internal/darkcheck/pass.go	112	85
 internal/darkneed/darkneed.go	91	79
 internal/discover/adding.go	48	40
-internal/discover/collabs.go	318	247
+internal/discover/collabs.go	351	298
 internal/discover/completion.go	256	246
 internal/discover/evidence.go	114	109
 internal/discover/finder.go	193	188
 internal/discover/footprint.go	114	109
 internal/discover/match.go	175	162
 internal/discover/pick.go	458	419
-internal/discover/service.go	214	200
-internal/discover/subjects.go	251	220
+internal/discover/service.go	214	202
+internal/discover/subjects.go	251	221
 internal/events/events.go	104	79
 internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	108
@@ -82,7 +82,7 @@ internal/mosaics/sky.go	61	61
 internal/mosaicstore/mosaicstore.go	66	56
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	112	98
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	50
@@ -121,7 +121,7 @@ internal/schedcmd/planning.go	404	331
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	226	200
+internal/schedcmd/service.go	226	198
 internal/schedcmd/settings.go	84	78
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	20	14
