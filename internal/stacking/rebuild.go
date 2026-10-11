@@ -124,8 +124,14 @@ type storedSub struct {
 }
 
 // rejectMethod is how rebuilds reject pixels. 2: a pixel keeps all its
-// samples when rejection would drop most of them (keepMajority).
-const rejectMethod = 3
+// samples when rejection would drop most of them (keepMajority). 4: a
+// sub's shadows are filled in (shadowFill).
+const rejectMethod = 4
+
+// rejectMethodRestack is the newest rejectMethod whose older masters
+// markOldRejection restacks on its own. Shadows are rare, so masters built
+// before rejectMethod 4 are restacked only when asked.
+const rejectMethodRestack = 3
 
 const rejectMethodKeepMajority = 2
 
@@ -155,7 +161,7 @@ func (p *Pipeline) markMiscounted(ctx context.Context) {
 func (p *Pipeline) markOldRejection(ctx context.Context) {
 	res := p.db.WithContext(ctx).Model(&app.Stack{}).
 		Where("state_key IS NOT NULL AND ((subs < ? AND (reject_method IS NULL OR reject_method < ?)) OR (subs < ? AND (reject_method IS NULL OR reject_method < ?)))",
-			rejectMethodMaxSubs, rejectMethodKeepMajority, WarmUpSubs, rejectMethod).
+			rejectMethodMaxSubs, rejectMethodKeepMajority, WarmUpSubs, rejectMethodRestack).
 		UpdateColumn("needs_rebuild", true)
 	if res.Error != nil {
 		slog.Warn("Could not mark masters for restacking", "error", res.Error)
@@ -257,10 +263,12 @@ func dequantize(q uint16) float32 { return imagedata.Dequantize16(q) }
 
 // memSub is one sub held in memory for a median-anchored rebuild.
 type memSub struct {
+	key      string
 	px       []uint16 // quantize()d samples, 0 = empty
 	bg       float32  // background per second
 	noise    float32  // background noise per second
 	sky      skyModel
+	fill     *shadowFill
 	exposure float64
 	weight   float64
 }
@@ -282,7 +290,9 @@ func (p *Pipeline) rebuildMedian(ctx context.Context, cache *subCache, stack *ap
 		} else if sw != w || sh != h {
 			return nil, fmt.Errorf("sub %s is %dx%d, expected %dx%d", s.key, sw, sh, w, h)
 		}
-		all = append(all, toMemSub(sub, s.exposure, s.weight, sat))
+		l := toMemSub(sub, s.exposure, s.weight, sat)
+		l.key = s.key
+		all = append(all, l)
 	}
 	return medianAnchored(all, w, h, p.opts.Stack), nil
 }
@@ -325,6 +335,9 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 			l := &all[j]
 			l.sky = fitSky(func(i int) float32 { return dequantize(l.px[i]) }, w, h, l.exposure, ref, opts.SaturationLevel, float64(l.bg))
 		}
+	}
+	if opts.FillShadows {
+		fillShadowsMem(all, w, h, opts.SaturationLevel)
 	}
 	norms := make([]*normalizer, len(all))
 	// First mark each sub's outliers, so the rejection can be grown.
@@ -378,6 +391,39 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 	return acc
 }
 
+// fillShadowsMem finds each in-memory sub's shadows against the others,
+// normalized by their skies, for foldMem to fill in.
+func fillShadowsMem(all []memSub, w, h int, sat float32) {
+	cells := make([][]float32, len(all))
+	skies := make([]float64, len(all))
+	for j := range all {
+		l := &all[j]
+		norm := l.sky.normalizer(l.exposure)
+		cells[j] = cellMedians(w, h, func(i int) (float32, bool) {
+			q := l.px[i]
+			if q == 0 {
+				return 0, false
+			}
+			v := dequantize(q)
+			return norm.at(i, v), v < sat
+		})
+		skies[j] = l.sky.mean / l.sky.scale
+	}
+	for j, f := range findShadows(cells, skies, w, h) {
+		all[j].fill = f
+		logShadows(all[j].key, f)
+	}
+}
+
+func logShadows(key string, f *shadowFill) {
+	if f == nil {
+		return
+	}
+	for _, s := range f.shadows {
+		slog.Info("Filled in a shadow in a sub", "sub", key, "x", s.x, "y", s.y, "cells", s.cells, "depth", s.depth)
+	}
+}
+
 // keepMajorityMem clears a pixel's rejections in every sub when they would
 // leave fewer than half of its usable samples. Rejection is for the odd
 // outlier; on a star core, subs of different seeing all differ from the
@@ -412,6 +458,7 @@ func keepMajorityMem(all []memSub, reject [][]bool, sat float32) {
 // rejected, normalized by its sky, as fold does.
 func foldMem(acc *Accumulator, l memSub, reject []bool, sat float32) {
 	norm := l.sky.normalizer(l.exposure)
+	sky := l.sky.mean / l.sky.scale
 	weight := l.weight * l.sky.scale * l.sky.scale
 	wf := float32(weight)
 	for i, q := range l.px {
@@ -423,6 +470,9 @@ func foldMem(acc *Accumulator, l memSub, reject []bool, sat float32) {
 			continue
 		}
 		x := norm.at(i, v)
+		if l.fill != nil {
+			x += float32(l.fill.at(i) * sky)
+		}
 		wOld := acc.Weight[i]
 		wNew := wOld + wf
 		delta := x - acc.Mean[i]
@@ -526,9 +576,16 @@ func (p *Pipeline) reserveCache(n int64) bool {
 }
 
 // streamStack stacks subs from load in passes. The first pass has no
-// rejection; each later pass rejects against the previous one.
+// rejection; each later pass rejects against the previous one, with the
+// shadows the first pass found filled in.
 func streamStack(subs []storedSub, passes int, stackOpts Options, load func(int, storedSub) ([]float32, int, int, error)) (*Accumulator, error) {
 	var prev *Accumulator
+	var cells [][]float32
+	var skies []float64
+	var fills []*shadowFill
+	if stackOpts.FillShadows {
+		cells, skies = make([][]float32, len(subs)), make([]float64, len(subs))
+	}
 	for pass := range passes {
 		var acc, plain *Accumulator
 		for i, s := range subs {
@@ -551,7 +608,24 @@ func streamStack(subs []storedSub, passes int, stackOpts Options, load func(int,
 				if _, err := acc.Add(sub, s.exposure, s.weight, opts); err != nil {
 					return nil, err
 				}
+				if cells != nil {
+					bg := background(sub, stackOpts.SaturationLevel)
+					skies[i] = bg / s.exposure
+					inv := float32(1 / s.exposure)
+					cells[i] = cellMedians(w, h, func(j int) (float32, bool) {
+						v := sub[j]
+						return (v - float32(bg)) * inv, v != 0 && v < stackOpts.SaturationLevel
+					})
+				}
 				continue
+			}
+			if f := fills[i]; f != nil {
+				sub = slices.Clone(sub)
+				for j, v := range sub {
+					if v != 0 && v < stackOpts.SaturationLevel {
+						sub[j] = v + float32(f.at(j)*skies[i]*s.exposure)
+					}
+				}
 			}
 			// The second pass judges each sub against the others in the
 			// unrejected first pass; later ones against the cleaner pass
@@ -566,6 +640,15 @@ func streamStack(subs []storedSub, passes int, stackOpts Options, load func(int,
 		}
 		if plain != nil {
 			keepMajority(acc, plain)
+		}
+		if pass == 0 {
+			fills = make([]*shadowFill, len(subs))
+			if cells != nil {
+				fills = findShadows(cells, skies, acc.W, acc.H)
+				for i, f := range fills {
+					logShadows(subs[i].key, f)
+				}
+			}
 		}
 		prev = acc
 	}

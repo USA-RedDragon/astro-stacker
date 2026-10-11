@@ -62,6 +62,7 @@ func cometAccumulator(subs [][]float32, w, h int, exposure, weight float64, opts
 func cometOptions(opts Options) Options {
 	opts.RejectGrow = 0
 	opts.KeepMajority = false
+	opts.FillShadows = false
 	return opts
 }
 
@@ -501,6 +502,7 @@ func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, o
 			// and growing rejections catches the faint edges of its trail.
 			o := opts
 			o.KeepMajority = false
+			o.FillShadows = false
 			return streamStack(subs, 2, o, func(i int, _ storedSub) ([]float32, int, int, error) { return load(i) })
 		}
 		// When the comet moves little between subs, each star lands on the
