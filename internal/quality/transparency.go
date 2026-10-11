@@ -100,6 +100,10 @@ func Excess(aduMean, aduMedian float64) float64 {
 // ReferencePercentile of the measured ones, or NaN when there are too few or
 // they have too little light to tell haze from the noise.
 func TransparencyReference(excesses []float64) float64 {
+	return transparencyReference(excesses, transparencyMinExcess)
+}
+
+func transparencyReference(excesses []float64, floor float64) float64 {
 	vals := make([]float64, 0, len(excesses))
 	for _, e := range excesses {
 		if !math.IsNaN(e) {
@@ -110,7 +114,7 @@ func TransparencyReference(excesses []float64) float64 {
 		return math.NaN()
 	}
 	ref := Reference(vals)
-	if !(ref >= transparencyMinExcess) {
+	if !(ref >= floor) {
 		return math.NaN()
 	}
 	return ref

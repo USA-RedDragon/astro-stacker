@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 
@@ -67,6 +68,44 @@ type SubScore struct {
 type group struct {
 	filter   string
 	exposure float64
+	gain     float64
+}
+
+func medianOf(v []float64) float64 {
+	if len(v) == 0 {
+		return 1
+	}
+	s := slices.Clone(v)
+	slices.Sort(s)
+	return s[len(s)/2]
+}
+
+func groupOf(perSecond bool, filter string, exposure, gain float64) group {
+	if perSecond && exposure > 0 {
+		return group{filter: filter, gain: fieldGain(gain)}
+	}
+	if perSecond {
+		return group{filter: filter, gain: fieldGain(gain), exposure: -1}
+	}
+	return group{filter: filter, exposure: math.Round(exposure)}
+}
+
+func perSecondScale(perSecond bool, exposure float64) float64 {
+	if perSecond && exposure > 0 {
+		return exposure
+	}
+	return 1
+}
+
+func scaledPhotometry(p *measure.Photometry, scale float64) *measure.Photometry {
+	if p == nil || scale == 1 {
+		return p
+	}
+	out := &measure.Photometry{Noise: p.Noise / scale, Flux: make([]float64, len(p.Flux)), Saturated: p.Saturated}
+	for i, f := range p.Flux {
+		out.Flux[i] = f / scale
+	}
+	return out
 }
 
 // fieldGroup is the subs whose light above the sky compares: one target's
@@ -129,6 +168,8 @@ func LoadScores(ctx context.Context, db *gorm.DB, pedestal Pedestals, measured [
 // or changed images is read and parsed again. The zero value is ready to
 // use, and it is safe for concurrent use.
 type Scorer struct {
+	PerSecond bool
+
 	mu     sync.Mutex
 	images map[int]cachedImage // by acquiredimage Id
 }
@@ -222,7 +263,7 @@ func (s *Scorer) Load(ctx context.Context, db *gorm.DB, pedestal Pedestals, meas
 		rows = append(rows, row{GradingStatus: st.GradingStatus, Target: st.Target, meta: c.meta,
 			StackerRejected: st.GradingStatus == GradingRejected && strings.HasPrefix(st.Reason, StackerReasonPrefix)})
 	}
-	return score(rows, pedestal, measured), nil
+	return score(rows, pedestal, measured, s.PerSecond), nil
 }
 
 // listImages reads every acquired image's grading, target, reject reason and
@@ -255,7 +296,7 @@ func (s *Scorer) listImages(db *gorm.DB) ([]imageState, error) {
 }
 
 // score scores acquired images, in Id order, and measured subs.
-func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubScore {
+func score(rows []row, pedestal Pedestals, measured []Measured, perSecond bool) map[string]SubScore {
 	type item struct {
 		s      SubScore
 		raw    float64
@@ -279,19 +320,22 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 	items := make([]item, 0, len(rows)+len(measured))
 	byGroup := map[group][]float64{}
 	byField := map[fieldGroup][]float64{}
+	fieldExposures := map[fieldGroup][]float64{}
 	photsByField := map[fieldGroup][]*measure.Photometry{}
 	for _, r := range rows {
 		m := r.meta
-		g := group{filter: m.FilterName, exposure: math.Round(float64(m.ExposureDuration))}
+		exposure := math.Round(float64(m.ExposureDuration))
+		g := groupOf(perSecond, m.FilterName, exposure, float64(m.Gain))
+		scale := perSecondScale(perSecond, exposure)
 		pd := pedestal.At(float64(m.Gain), float64(m.Offset))
 		ped := pd.ADU
-		raw := RawWeight(Sky(float64(m.ADUMedian), ped), float64(m.HFR))
+		raw := RawWeight(Sky(float64(m.ADUMedian), ped), float64(m.HFR)) * scale
 		field := fieldGroup{target: r.Target, g: g, gain: fieldGain(float64(m.Gain)), framing: Framing(float64(m.RotatorPosition))}
 		it := item{
 			s: SubScore{
 				File:            m.FileName[strings.LastIndexAny(m.FileName, `\/`)+1:],
 				Filter:          g.filter,
-				Exposure:        g.exposure,
+				Exposure:        exposure,
 				GradingStatus:   r.GradingStatus,
 				StackerRejected: r.StackerRejected,
 				HFR:             float64(m.HFR),
@@ -304,15 +348,16 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 			raw:      raw,
 			g:        g,
 			target:   r.Target,
-			excess:   Excess(float64(m.ADUMean), float64(m.ADUMedian)),
+			excess:   Excess(float64(m.ADUMean), float64(m.ADUMedian)) / scale,
 			field:    field,
 			recorded: true,
 		}
-		it.phot = phots[it.s.File]
+		it.phot = scaledPhotometry(phots[it.s.File], scale)
 		items = append(items, it)
 		if r.GradingStatus != GradingRejected || r.StackerRejected {
 			byGroup[g] = append(byGroup[g], raw)
 			byField[field] = append(byField[field], it.excess)
+			fieldExposures[field] = append(fieldExposures[field], scale)
 			photsByField[field] = append(photsByField[field], it.phot)
 		}
 	}
@@ -325,30 +370,32 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 		if recorded[m.File] || !(m.HFR > 0) {
 			continue
 		}
-		g := group{filter: m.Filter, exposure: math.Round(m.Exposure)}
+		exposure := math.Round(m.Exposure)
+		g := groupOf(perSecond, m.Filter, exposure, m.Gain)
+		scale := perSecondScale(perSecond, exposure)
 		pd := pedestal.At(m.Gain, m.Offset)
 		if m.Calibrated {
 			pd = Pedestal{Source: PedestalCalibrated, Basis: "the sub came calibrated, its pedestal already taken off"}
 		}
 		ped := pd.ADU
-		raw := RawWeight(Sky(m.SkyADU, ped), m.HFR)
+		raw := RawWeight(Sky(m.SkyADU, ped), m.HFR) * scale
 		rot := math.NaN()
 		if m.Rotator != nil {
 			rot = *m.Rotator
 		}
 		field := fieldGroup{target: m.Target, g: g, gain: fieldGain(m.Gain), framing: Framing(rot)}
 		items = append(items, item{
-			s: SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars,
+			s: SubScore{File: m.File, Filter: g.filter, Exposure: exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars,
 				Missing: Missing(m.SkyADU, ped, m.HFR), Pedestal: pd, Sky: Sky(m.SkyADU, ped)},
 			raw:    raw,
 			g:      g,
 			target: m.Target,
 			excess: math.NaN(),
-			phot:   m.Photometry,
+			phot:   scaledPhotometry(m.Photometry, scale),
 			field:  field,
 		})
 		byGroup[g] = append(byGroup[g], raw)
-		photsByField[field] = append(photsByField[field], m.Photometry)
+		photsByField[field] = append(photsByField[field], scaledPhotometry(m.Photometry, scale))
 	}
 
 	refs := make(map[group]float64, len(byGroup))
@@ -363,7 +410,7 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 	}
 	fieldRefs := make(map[fieldGroup]float64, len(byField))
 	for f, es := range byField {
-		fieldRefs[f] = TransparencyReference(es)
+		fieldRefs[f] = transparencyReference(es, transparencyMinExcess/medianOf(fieldExposures[f]))
 	}
 	coreRefs := make(map[fieldGroup][]float64, len(photsByField))
 	for f, ps := range photsByField {
@@ -399,6 +446,9 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 		it.s.Reference, it.s.ReferenceSubs = refs[it.g], counts[it.g]
 		if it.s.Missing == "" && !(refs[it.g] > 0) {
 			it.s.Missing = fmt.Sprintf("no %s %gs sub with a measurable sky and HFR to score against", it.g.filter, it.g.exposure)
+			if perSecond {
+				it.s.Missing = fmt.Sprintf("no %s sub at gain %g with a measurable sky and HFR to score against", it.g.filter, it.g.gain)
+			}
 		}
 		// The stacker's own rejects count as they did before its verdict
 		// was applied: otherwise each verdict would move the references,
