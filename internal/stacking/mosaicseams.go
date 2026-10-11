@@ -443,7 +443,7 @@ func withColourProblem(problems string, c *float64) string {
 		}
 	}
 	if c != nil && math.Abs(*c) > colourWarn {
-		keep = append(keep, fmt.Sprintf("%s%+.0f%% from the other filters", colourProblem, *c*100))
+		keep = append(keep, fmt.Sprintf("%s%+.0f%% from the mean of every filter at this seam", colourProblem, *c*100))
 	}
 	return strings.Join(keep, "; ")
 }

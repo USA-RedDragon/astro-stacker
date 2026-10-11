@@ -232,3 +232,28 @@ func TestDropStaleMosaicsKeepsOnlyFiltersWithMasters(t *testing.T) {
 		t.Errorf("%d health rows left, want 3", health)
 	}
 }
+
+func TestSeamColourIsMeasuredAgainstTheMeanOfEveryFilter(t *testing.T) {
+	t.Parallel()
+	ratio := func(v float64) *float64 { return &v }
+	rows := []app.MosaicSeam{
+		{Filter: filterRed, StarMatches: 50, FluxRatio: ratio(1.32)},
+		{Filter: "Green", StarMatches: 50, FluxRatio: ratio(1)},
+		{Filter: "Blue", StarMatches: 50, FluxRatio: ratio(1)},
+	}
+	c := seamColours(rows, []int{0, 1, 2})
+	mean := math.Cbrt(1.32)
+	if want := 1.32/mean - 1; c[0] == nil || math.Abs(*c[0]-want) > 1e-9 {
+		t.Fatalf("red %v, want %v against the mean of all three", c[0], want)
+	}
+	if ref := colourReference(rows, []int{0, 1, 2}); ref != "Blue,Green,Red" {
+		t.Errorf("reference %q", ref)
+	}
+	got := withColourProblem("gradient step of 0.51σ across the seam", c[0])
+	if got != "gradient step of 0.51σ across the seam; star colour differs by +20% from the mean of every filter at this seam" {
+		t.Errorf("problems %q", got)
+	}
+	if again := withColourProblem(got, c[0]); again != got {
+		t.Errorf("rewording twice gave %q", again)
+	}
+}
