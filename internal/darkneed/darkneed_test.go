@@ -344,6 +344,7 @@ func TestExistingDarksAreRecordedOnly(t *testing.T) {
 	if !found {
 		t.Errorf("no -13 °C combo in %+v", b.Combos)
 	}
+	checkFlaggedSession(t, b)
 	after, err := coverage.Sets(ctx, db)
 	if err != nil {
 		t.Fatal(err)
@@ -362,5 +363,12 @@ func TestExistingDarksAreRecordedOnly(t *testing.T) {
 	db.Where("key = ?", "DARK/d13_1.fits").First(&lit)
 	if lit.LightLeak != nil {
 		t.Errorf("a recorded verdict was applied later: %v", lit.LightLeak)
+	}
+}
+
+func checkFlaggedSession(t *testing.T, b coverage.DarkBacklog) {
+	t.Helper()
+	if s := b.LastSession; s == nil || s.Frames != 2 || s.Clean != 1 || s.Leak != 0 || s.Flagged != 1 || s.Unchecked != 0 || b.Unchecked != 0 {
+		t.Errorf("a dark found lit but kept counted as not checked: session %+v, unchecked %d", s, b.Unchecked)
 	}
 }

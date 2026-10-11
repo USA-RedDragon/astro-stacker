@@ -62,6 +62,7 @@ type DarkSession struct {
 	Frames    int       `json:"frames"`
 	Clean     int       `json:"clean"`
 	Leak      int       `json:"leak"`
+	Flagged   int       `json:"flagged"`
 	Unchecked int       `json:"unchecked"`
 }
 
@@ -466,6 +467,8 @@ func darkHistory(darks []darkFrame) (*DarkSession, []RejectedDark, int) {
 			s.Leak++
 		case f.CalCheck != nil && *f.CalCheck == darkcheck.StateClean:
 			s.Clean++
+		case f.CalCheck != nil && (*f.CalCheck == darkcheck.StateLeak || *f.CalCheck == darkcheck.StateOffTemp):
+			s.Flagged++
 		default:
 			s.Unchecked++
 		}
