@@ -91,6 +91,8 @@ stacking:
   interval-seconds: 120
   # Lowest sub score (0-1) that goes into a master
   min-score: 0.3
+  # Score subs per second of exposure against every sub of the same filter and gain, instead of against subs of the same filter and exposure, so a target's subs of different lengths weigh fairly in one master; turning it on or off scores every master's subs again
+  score-per-second: false
   # Subs calibrated and registered per Siril run
   batch-size: 12
   # Scratch space for downloads, masters and Siril output
@@ -223,6 +225,14 @@ darks:
   reject-since: "2026-10-10"
   # Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on
   publish: "off"
+# Sub exposure lengths the system picks per target, filter and moon glare from the measured sky, read noise, overhead, star saturation, rejections and the dark library
+sub-length:
+  # Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second
+  publish: "off"
+  # Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals
+  new-lengths: false
+  # Minutes between recomputing the lengths
+  interval-minutes: 60
 # The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through
 calibration:
   # Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on
