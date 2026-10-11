@@ -48,9 +48,9 @@ internal/goals/image.go	124	120
 internal/goals/mask.go	42	35
 internal/goals/measure.go	257	240
 internal/goals/progress.go	103	90
-internal/goals/readiness.go	29	28
+internal/goals/readiness.go	29	29
 internal/goals/signals.go	51	46
-internal/goals/tsgoals.go	317	284
+internal/goals/tsgoals.go	317	286
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
@@ -62,11 +62,12 @@ internal/indexer/indexer.go	319	53
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	81
 internal/moon/moon.go	33	31
-internal/mosaicplan/adoption.go	236	206
+internal/mosaicplan/adoption.go	309	263
 internal/mosaicplan/clearnights.go	74	69
 internal/mosaicplan/detail.go	337	297
 internal/mosaicplan/framing.go	108	72
 internal/mosaicplan/history.go	32	29
+internal/mosaicplan/instrument.go	49	42
 internal/mosaicplan/seasons.go	291	236
 internal/mosaicplan/site.go	21	0
 internal/mosaics/adoption.go	212	201
@@ -74,7 +75,7 @@ internal/mosaics/framing.go	202	196
 internal/mosaics/geometry.go	165	161
 internal/mosaics/seasons.go	75	74
 internal/mosaics/sky.go	61	61
-internal/mosaicstore/mosaicstore.go	66	54
+internal/mosaicstore/mosaicstore.go	66	55
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	108	94
 internal/observatory/loops.go	59	44
