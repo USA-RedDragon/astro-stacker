@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/astrometry"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
@@ -101,6 +102,14 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	if cfg.Stacking.TSVerdictsSince != "" {
 		// Checked by config.Validate.
 		opts.Verdicts.Since, _ = time.Parse(time.DateOnly, cfg.Stacking.TSVerdictsSince)
+	}
+	if cfg.Stacking.AstrometryIndexDir != "" {
+		opts.Astrometry = &astrometry.Solver{
+			Command:    cfg.Stacking.AstrometryCommand,
+			IndexDir:   cfg.Stacking.AstrometryIndexDir,
+			CPUSeconds: cfg.Stacking.AstrometryCPU,
+			Timeout:    time.Duration(cfg.Stacking.AstrometryTimeout) * time.Second,
+		}
 	}
 	runner := siril.Runner{Command: cfg.Stacking.SirilCommand}
 	if filepath.Base(runner.Command) == "AppRun" {

@@ -39,6 +39,10 @@ type TargetReference struct {
 	WCS           *string `gorm:"type:text"`
 	SolveAttempts int
 	SolveError    *string `gorm:"type:text"`
+	// SolveInputs names what the last plate solve started from (position,
+	// optics, solver); a target given up on is tried again once they
+	// change.
+	SolveInputs string `gorm:"not null;default:''"`
 	// Registration is how subs are registered to it (see
 	// stacking.registrationStars); "" for references from before it was
 	// recorded, all registered by matching stars.

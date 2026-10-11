@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/astrometry"
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
@@ -71,6 +72,9 @@ type PipelineOptions struct {
 	// starlight (measure.Photometry), which their transparency is scored
 	// from; off, they are scored without it.
 	Photometry bool
+	// Astrometry, when set, plate solves masters Siril can't with a local
+	// astrometry.net.
+	Astrometry *astrometry.Solver
 	// Verdicts tell Target Scheduler which subs were left out (see
 	// sendVerdicts).
 	Verdicts VerdictOptions
@@ -248,6 +252,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		// Recropping re-renders covers of the masters it touches.
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
+		p.prepareAstrometry(ctx)
 		p.republishMasters(ctx)
 		p.requeueStackerRejected(ctx)
 		p.markOldRejection(ctx)

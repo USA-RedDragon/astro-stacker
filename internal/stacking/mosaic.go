@@ -831,11 +831,8 @@ func (p *Pipeline) optics(ctx context.Context, object, filter string) (focal, pi
 	if err != nil {
 		return 0, 0, fmt.Errorf("read %s: %w", f.Key, err)
 	}
-	focal, pixel = kw.Float("FOCALLEN"), kw.Float("XPIXSZ")
-	if bin := kw.Float("XBINNING"); bin > 1 {
-		pixel *= bin
-	}
-	if !(focal > 0) || !(pixel > 0) { // also false for NaN, a missing keyword
+	focal, pixel, _ = frameOptics(kw, f.Key)
+	if !(focal > 0) || !(pixel > 0) {
 		return 0, 0, fmt.Errorf("%s has no FOCALLEN or XPIXSZ", f.Key)
 	}
 	return focal, pixel, nil
