@@ -42,7 +42,12 @@ const coverWeightMax = 3.0
 // raw are the channels without narrowband added; the balance and stretch
 // come from them, so where no line is added the cover is as without it.
 // Pixels empty (0) in raw red stay black.
-func colourStretch(chans, raw [3][]float32, w, h int) [3][]float32 {
+//
+// lumIn, when not nil, is a luminance master's linear preview: the
+// lightness then also comes from it (lrgbLight), where it lines up with
+// the colour and lowers the noise, and the colour still from the
+// channels' ratios.
+func colourStretch(chans, raw [3][]float32, lumIn []float32, w, h int) ([3][]float32, lrgbReport) {
 	s := max(4, int(math.Round(float64(max(w, h))/200)))
 	var blocks [3][]float64
 	var gw, gh int
@@ -96,11 +101,15 @@ func colourStretch(chans, raw [3][]float32, w, h int) [3][]float32 {
 	balance := func(c, i int, v float32) float64 { return float64(v-sky[c][i]) * weight[c] }
 
 	// The stretch, from the mean of the balanced raw channels.
-	lum := make([]float32, w*h)
-	for i := range lum {
+	synth := make([]float32, w*h)
+	for i := range synth {
 		if raw[0][i] != 0 {
-			lum[i] = float32((balance(0, i, raw[0][i]) + balance(1, i, raw[1][i]) + balance(2, i, raw[2][i])) / 3)
+			synth[i] = float32((balance(0, i, raw[0][i]) + balance(1, i, raw[1][i]) + balance(2, i, raw[2][i])) / 3)
 		}
+	}
+	lum, rep := synth, lrgbReport{}
+	if lumIn != nil {
+		lum, rep = lrgbLight(lumIn, raw, synth, among, w, h, s, gw, gh)
 	}
 	out := [3][]float32{make([]float32, w*h), make([]float32, w*h), make([]float32, w*h)}
 	var hi float64
@@ -113,7 +122,7 @@ func colourStretch(chans, raw [3][]float32, w, h int) [3][]float32 {
 	c0 := med + preview.ShadowsClip*sigma
 	level, spread, ok := darkSky(lum, raw[0], w, h, s)
 	if !ok {
-		return out
+		return out, rep
 	}
 	// Never above the darkest sky less its spread: in a field full of
 	// stars (the Milky Way), the median is star-rich sky and a dark cloud
@@ -138,43 +147,60 @@ func colourStretch(chans, raw [3][]float32, w, h int) [3][]float32 {
 		blur[c] = gaussPlane(bal[c], w, h, 1)
 	}
 	ped := coverPedestal * spread
+	if rep.Used {
+		// The colour is the channels' own, so its pedestal is their noise.
+		if _, cs, ok := darkSky(synth, raw[0], w, h, s); ok {
+			ped = coverPedestal * cs
+		}
+	}
 	for i := range lum {
 		if raw[0][i] == 0 {
 			continue
 		}
 		y := (float64(bal[0][i]) + float64(bal[1][i]) + float64(bal[2][i])) / 3
+		if rep.Used {
+			// The lines' share of the lightness kept on the luminance's.
+			y += float64(lum[i]) - float64(synth[i])
+		}
 		ls := preview.MTF(m, math.Max(0, math.Min(1, (y-c0)/span)))
 		var q [3]float64
-		var qm float64
 		for c := range 3 {
 			q[c] = math.Max(0, float64(blur[c][i])) + ped
-			qm += q[c] / 3
 		}
-		// Where a channel would pass 1, the colour goes part of the way
-		// toward white at the same lightness (the geometric mean of none and
-		// all the way), and what still passes 1 is scaled down. Dividing by
-		// the brightest channel alone kept full saturation in bright stars
-		// and cores (periwinkle stars, neon H-a, a dark ring round Alnitak);
-		// going all the way to white blew out M31's and M42's cores.
-		f := 1.0
+		rgb := colourAt(ls, q)
 		for c := range 3 {
-			q[c] = ls * math.Pow(q[c]/qm, 1/2.2)
-			if q[c] > 1 && q[c] > ls {
-				f = min(f, (1-ls)/(q[c]-ls))
-			}
-		}
-		f = math.Sqrt(f)
-		top := 1.0
-		for c := range 3 {
-			q[c] = ls + f*(q[c]-ls)
-			top = max(top, q[c])
-		}
-		for c := range 3 {
-			out[c][i] = float32(q[c] / top)
+			out[c][i] = rgb[c]
 		}
 	}
 	slog.Debug("Cover stretch", "sky", skyMean, "weight", weight, "stars", n, "median", med, "sigma", sigma, "hi", hi)
-	return out
+	return out, rep
+}
+
+// colourAt is a pixel's colour at lightness ls from its channels' linear
+// values q, in display (gamma 2.2) form.
+//
+// Where a channel would pass 1, the colour goes part of the way toward
+// white at the same lightness (the geometric mean of none and all the
+// way), and what still passes 1 is scaled down. Dividing by the brightest
+// channel alone kept full saturation in bright stars and cores (periwinkle
+// stars, neon H-a, a dark ring round Alnitak); going all the way to white
+// blew out M31's and M42's cores.
+func colourAt(ls float64, q [3]float64) [3]float32 {
+	qm := q[0]/3 + q[1]/3 + q[2]/3
+	f := 1.0
+	for c := range 3 {
+		q[c] = ls * math.Pow(q[c]/qm, 1/2.2)
+		if q[c] > 1 && q[c] > ls {
+			f = min(f, (1-ls)/(q[c]-ls))
+		}
+	}
+	f = math.Sqrt(f)
+	top := 1.0
+	for c := range 3 {
+		q[c] = ls + f*(q[c]-ls)
+		top = max(top, q[c])
+	}
+	return [3]float32{float32(q[0] / top), float32(q[1] / top), float32(q[2] / top)}
 }
 
 // darkSky is the level and spread (MAD σ) of p's pixels in its darkest

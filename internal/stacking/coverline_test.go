@@ -177,11 +177,11 @@ func TestCoverKeepsBackgroundColour(t *testing.T) {
 		filterBlue:  {W: f.w, H: f.h, Data: f.b},
 		filterHa:    {W: f.w, H: f.h, Data: f.ha},
 	}
-	withHa, err := composeCover(palettes()[0], planes, f.w, f.h)
+	withHa, _, err := composeCover(palettes()[0], planes, f.w, f.h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, err := composeCover(palettes()[1], planes, f.w, f.h)
+	plain, _, err := composeCover(palettes()[1], planes, f.w, f.h)
 	if err != nil {
 		t.Fatal(err)
 	}
