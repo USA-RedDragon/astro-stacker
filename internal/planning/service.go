@@ -12,6 +12,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/ruleweights"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
@@ -163,6 +164,7 @@ type Project struct {
 	LastSub         *time.Time   `json:"lastSub,omitempty"`
 	RuleWeights     []RuleWeight `json:"ruleWeights"`
 	FilterSteering  RuleWeight   `json:"filterSteering"`
+	WeightDiffs     []WeightDiff `json:"weightDiffs"`
 	GoalDriven      bool         `json:"goalDriven"`
 	Grader          bool         `json:"grader"`
 	Completion      Prefs        `json:"completion"`
@@ -239,8 +241,11 @@ type Snapshot struct {
 	Rules     []Rule          `json:"rules"`
 	Defaults  Defaults        `json:"defaults"`
 
+	GlobalWeights GlobalWeights `json:"globalWeights"`
+
 	projectRows      []projectRow
 	templateProfiles map[int]string
+	weightsBy        map[int]map[string]float64
 }
 
 func twilightName(v *int) *string {
@@ -289,6 +294,7 @@ type rows struct {
 	plans     []planRow
 	templates []templateRow
 	weights   []ruleWeightRow
+	saved     ruleweights.Saved
 	seasons   map[string]Season
 	lastBy    map[int]time.Time
 	meas      map[goals.Key]app.GoalMeasurement
@@ -370,6 +376,9 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 	if r.prefs, err = loadPrefs(ctx, db); err != nil {
 		return nil, err
 	}
+	if r.saved, err = ruleweights.Load(ctx, appDB); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
@@ -428,8 +437,14 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 	}
 	x := r.index()
 	out := &Snapshot{Rules: Rules(), projectRows: r.projects, templateProfiles: map[int]string{}}
+	out.weightsBy = x.weightsBy
 	for _, pr := range r.projects {
 		out.Projects = append(out.Projects, buildProject(pr, r, x, in))
+	}
+	out.GlobalWeights = buildGlobalWeights(r.saved, r.projects, x.weightsBy)
+	out.GlobalWeights.compare(out.Projects, x.weightsBy)
+	for i := range out.Projects {
+		out.Projects[i].WeightDiffs = ProjectDiffs(out.GlobalWeights.Weights, x.weightsBy[out.Projects[i].ID], out.Projects[i].IsMosaic)
 	}
 	for _, t := range r.templates {
 		out.templateProfiles[t.ID] = t.ProfileID
@@ -442,6 +457,7 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 		})
 	}
 	out.Sets, out.Defaults = DeriveSets(out.Projects), defaultsFor(out.Templates)
+	out.Defaults.PanelDeficitWeight = out.GlobalWeights.Weights[ruleweights.PanelDeficit]
 	out.Defaults.ProjectSettings = out.ProjectSettingsFor(defaultProfile(r.projects))
 	return out, nil
 }

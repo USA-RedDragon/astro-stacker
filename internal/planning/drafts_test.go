@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
@@ -87,7 +88,7 @@ func TestDraftProjectMosaic(t *testing.T) {
 	if !p.Project.IsMosaic || p.Project.Priority != 2 || p.Targets[1].Name != "Gecko Nebula Panel 2" || len(p.Targets[0].Plans) != 2 || p.Targets[0].Plans[0].Desired != 300 {
 		t.Fatalf("%+v", p)
 	}
-	if len(p.Goals) != 4 || p.Goals[0].Setting.SNRGoal != 12 || p.RuleWeights["Panel Deficit"] != 75 || p.RuleWeights["Mosaic Completion"] != 0 || p.RuleWeights["Rarity"] != 20 {
+	if len(p.Goals) != 4 || p.Goals[0].Setting.SNRGoal != 12 || !reflect.DeepEqual(p.RuleWeights, WeightsFor(s.GlobalWeights.Weights, true)) {
 		t.Fatalf("%+v", p.Goals)
 	}
 	if _, err := s.DraftProject(ProjectDraft{Name: "garlic nebula", SetID: hoo, MinimumTime: 60, Panels: []PanelDraft{{}}}, seq()); err == nil {

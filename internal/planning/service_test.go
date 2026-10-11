@@ -214,7 +214,7 @@ func TestDeriveSetsFromProjects(t *testing.T) {
 	if len(hoo.Items) != 2 || hoo.Items[0].Exposure != 600 || hoo.Items[0].Desired != 300 {
 		t.Fatalf("%+v", hoo.Items)
 	}
-	if s.Defaults.Goal.SNR != goals.DefaultSNRGoal || s.Defaults.PanelDeficitWeight != 75 || len(s.Defaults.Goal.Depths) != 3 {
+	if s.Defaults.Goal.SNR != goals.DefaultSNRGoal || s.Defaults.PanelDeficitWeight != s.GlobalWeights.Weights["Panel Deficit"] || len(s.Defaults.Goal.Depths) != 3 {
 		t.Fatalf("%+v", s.Defaults)
 	}
 	for _, d := range s.Defaults.Goal.Depths {
