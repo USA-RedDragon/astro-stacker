@@ -45,6 +45,7 @@ type Monitor struct {
 	PollInterval time.Duration
 	Now          func() time.Time
 
+	publishMu  sync.Mutex
 	mu         sync.Mutex
 	status     *Status
 	reachable  Reachability
@@ -103,6 +104,8 @@ func (m *Monitor) publish() {
 	if m.Broker == nil {
 		return
 	}
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
 	m.Broker.Broadcast(eventScheduler, m.View(), true)
 }
 
