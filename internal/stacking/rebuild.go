@@ -134,6 +134,22 @@ const rejectMethodKeepMajority = 2
 // next rebuild.
 const rejectMethodMaxSubs = 40
 
+// markMiscounted marks for the moon sweep to restack the masters whose
+// stacked sub count differs from their added subs: a batch that published
+// a master loaded before a sweep took subs out of it cleared the sweep's
+// mark, and left those subs in it.
+func (p *Pipeline) markMiscounted(ctx context.Context) {
+	res := p.db.WithContext(ctx).Model(&app.Stack{}).
+		Where("state_key IS NOT NULL AND needs_rebuild IS NOT TRUE AND subs <> (SELECT COUNT(*) FROM stack_frames sf "+
+			"WHERE sf.stack_id = stacks.id AND sf.status = ? AND sf.registered_key IS NOT NULL)", app.StackStatusAdded).
+		UpdateColumn("needs_rebuild", true)
+	if res.Error != nil {
+		slog.Warn("Could not mark miscounted masters for restacking", "error", res.Error)
+	} else if res.RowsAffected > 0 {
+		slog.Info("Marked masters holding subs taken out of them for restacking", "masters", res.RowsAffected)
+	}
+}
+
 // markOldRejection marks masters rebuilt with an older rejectMethod for the
 // moon sweep to restack.
 func (p *Pipeline) markOldRejection(ctx context.Context) {
