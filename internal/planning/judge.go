@@ -36,12 +36,14 @@ func AppInputs(ctx context.Context, appDB, sched *gorm.DB) (Inputs, error) {
 		return in, err
 	}
 	in.Goals = gs
-	if byObject, err := goals.ObjectLinks(ctx, appDB, sched); err == nil {
-		for obj, l := range byObject {
-			in.ObjectsByGUID[l.TargetGUID] = append(in.ObjectsByGUID[l.TargetGUID], obj)
-		}
-		in.Links = byObject
+	byObject, err := goals.ObjectLinks(ctx, appDB, sched)
+	if err != nil {
+		return in, err
 	}
+	for obj, l := range byObject {
+		in.ObjectsByGUID[l.TargetGUID] = append(in.ObjectsByGUID[l.TargetGUID], obj)
+	}
+	in.Links = byObject
 	return in, nil
 }
 

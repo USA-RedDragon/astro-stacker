@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
 
@@ -70,5 +71,37 @@ func TestProfilePreferencesBeforeDelayGrading(t *testing.T) {
 	p, _ := s.Project(5)
 	if c := p.Completion; c.Source != "profile" || c.ExposureThrottle != 150 || c.DelayGrading != pluginDelayGrading {
 		t.Fatalf("completion %+v", c)
+	}
+}
+
+func TestAppInputsFailWhenObjectLinksFail(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	if err := appDB.AutoMigrate(&app.FrameTarget{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := appDB.Create(&app.FrameTarget{FrameID: 1, Object: "Garlic", TargetGUID: "g12", Method: app.LinkHeader}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	fail := func(tx *gorm.DB) {
+		if tx.Statement.Table != "frame_targets" {
+			return
+		}
+		if seen++; seen == 2 {
+			tx.Statement.SQL.Reset()
+			tx.Statement.SQL.WriteString("SELECT 1 FROM " + injected)
+			tx.Statement.Vars = nil
+		}
+	}
+	if err := appDB.Callback().Query().Before("gorm:query").Register("test:fail", fail); err != nil {
+		t.Fatal(err)
+	}
+	if err := appDB.Callback().Row().Before("gorm:row").Register("test:fail", fail); err != nil {
+		t.Fatal(err)
+	}
+	in, err := AppInputs(context.Background(), appDB, sched)
+	if err == nil || !strings.Contains(err.Error(), injected) {
+		t.Fatalf("inputs without object links: %v, links %+v", err, in.Links)
 	}
 }
