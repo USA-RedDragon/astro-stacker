@@ -26,6 +26,13 @@ const (
 		"Bias frames take seconds each, so a monthly set is cheap."
 )
 
+const (
+	reasonNoExposure   = "the lights have no exposure time in their header"
+	reasonNoGainOffset = "the lights have no GAIN or OFFSET in their header"
+	reasonNoSetTemp    = "the lights have no SET-TEMP in their header"
+	reasonNoBinning    = "the lights have no XBINNING in their header"
+)
+
 type BiasBacklog struct {
 	ComputedAt        time.Time         `json:"computed_at"`
 	FramesNeeded      int               `json:"frames_needed"`
@@ -163,10 +170,10 @@ func biasBacklog(lights []biasLightGroup, frames []biasFrame, sets []calmatch.Se
 	for _, l := range lights {
 		switch {
 		case l.Gain == nil || l.Offset == nil:
-			unsched["the lights have no GAIN or OFFSET in their header"] += l.N
+			unsched[reasonNoGainOffset] += l.N
 			continue
 		case l.BinX == nil:
-			unsched["the lights have no XBINNING in their header"] += l.N
+			unsched[reasonNoBinning] += l.N
 			continue
 		}
 		g := calmatch.Group{Night: l.Night, Exposure: math.NaN(), Gain: *l.Gain, Offset: *l.Offset,

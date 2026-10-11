@@ -45,15 +45,16 @@ const (
 type Category string
 
 const (
-	CategoryControl   Category = "control"
-	CategoryPriority  Category = "priority"
-	CategoryGoals     Category = "goals"
-	CategoryRules     Category = "rules"
-	CategoryPlans     Category = "plans"
-	CategoryTemplates Category = "templates"
-	CategoryCreated   Category = "created"
-	CategoryMatching  Category = "matching"
-	CategoryAdoption  Category = "adoption"
+	CategoryControl     Category = "control"
+	CategoryPriority    Category = "priority"
+	CategoryGoals       Category = "goals"
+	CategoryRules       Category = "rules"
+	CategoryPlans       Category = "plans"
+	CategoryTemplates   Category = "templates"
+	CategoryCreated     Category = "created"
+	CategoryMatching    Category = "matching"
+	CategoryAdoption    Category = "adoption"
+	CategoryCalibration Category = "calibration"
 )
 
 type Envelope struct {

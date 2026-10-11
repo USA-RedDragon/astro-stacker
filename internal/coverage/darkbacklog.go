@@ -263,13 +263,13 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 		reason := ""
 		switch {
 		case l.Exposure == nil || !(*l.Exposure > 0):
-			reason = "the lights have no exposure time in their header"
+			reason = reasonNoExposure
 		case l.Gain == nil || l.Offset == nil:
-			reason = "the lights have no GAIN or OFFSET in their header"
+			reason = reasonNoGainOffset
 		case l.SetTemp == nil:
-			reason = "the lights have no SET-TEMP in their header"
+			reason = reasonNoSetTemp
 		case l.BinX == nil:
-			reason = "the lights have no XBINNING in their header"
+			reason = reasonNoBinning
 		}
 		if reason != "" {
 			k := fmt.Sprintf("%v|%v|%s", fptr(l.Exposure), fptr(l.SetTemp), reason)
