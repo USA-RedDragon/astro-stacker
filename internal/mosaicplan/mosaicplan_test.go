@@ -830,3 +830,26 @@ func TestListLoadsGoalsOnce(t *testing.T) {
 		t.Errorf("List of %d mosaics loaded Target Scheduler's targets %d times", len(list), n)
 	}
 }
+
+func TestSeasonBoostsSkipBuildingUnbalancedMosaics(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	appDB := appFixture(t)
+	var seamLoads atomic.Int64
+	if err := appDB.Callback().Query().After("gorm:query").Register("count:seams", func(db *gorm.DB) {
+		if db.Statement.Table == "mosaic_seams" {
+			seamLoads.Add(1)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := mosaicplan.New(appDB, schedFixture(t))
+	svc.Site = func(context.Context) (mosaics.Site, bool) { return mosaics.Site{Lat: 32, Lon: -97}, true }
+	boosts, err := svc.SeasonBoosts(ctx, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil || len(boosts) != 2 {
+		t.Fatalf("boosts %v %v", boosts, err)
+	}
+	if n := seamLoads.Load(); n != 1 {
+		t.Errorf("season boosts built %d mosaics for the one that balances panels", n)
+	}
+}

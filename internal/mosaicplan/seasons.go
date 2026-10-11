@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
@@ -538,17 +539,25 @@ func (s *Service) SeasonBoosts(ctx context.Context, now time.Time) (map[string]f
 		return nil, err
 	}
 	out := map[string]float64{}
-	gs, err := s.loadGoals(ctx)
-	if err != nil {
-		return nil, err
-	}
+	var gs map[goals.Key]goals.Goal
+	loaded := false
 	for _, g := range groups {
+		ts := Detail{ProjectGUID: g.ProjectGUID}
+		if err := s.loadTS(ctx, &ts); err != nil {
+			return nil, err
+		}
+		if !ts.Balancing.On {
+			continue
+		}
+		if !loaded {
+			if gs, err = s.loadGoals(ctx); err != nil {
+				return nil, err
+			}
+			loaded = true
+		}
 		d, err := s.build(ctx, g, gs)
 		if err != nil {
 			return nil, err
-		}
-		if !d.Balancing.On {
-			continue
 		}
 		for guid, b := range seasonBoosts(d, s.panelPriorities(ctx, d, now)) {
 			out[guid] = b
