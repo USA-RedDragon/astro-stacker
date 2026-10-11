@@ -1,4 +1,4 @@
-cmd/discover.go	50	0
+cmd/discover.go	52	0
 cmd/mosaics.go	8	0
 cmd/root.go	164	1
 cmd/stack.go	59	0
@@ -12,9 +12,10 @@ internal/catalog/embedded.go	190	174
 internal/catalog/gen/audit.go	145	0
 internal/catalog/gen/finalize.go	73	0
 internal/catalog/gen/groups.go	60	0
-internal/catalog/gen/main.go	631	0
-internal/catalog/gen/names.go	103	0
+internal/catalog/gen/main.go	633	0
+internal/catalog/gen/names.go	106	0
 internal/catalog/gen/nina.go	193	0
+internal/catalog/gen/shapes.go	27	0
 internal/catalog/notcatalogue.go	29	28
 internal/conditions/conditions.go	213	160
 internal/conditions/moon.go	45	45
@@ -29,10 +30,10 @@ internal/discover/adding.go	48	40
 internal/discover/collabs.go	318	247
 internal/discover/completion.go	240	230
 internal/discover/evidence.go	114	109
-internal/discover/finder.go	181	178
+internal/discover/finder.go	193	188
 internal/discover/footprint.go	114	109
 internal/discover/match.go	175	162
-internal/discover/pick.go	438	399
+internal/discover/pick.go	458	419
 internal/discover/service.go	214	200
 internal/discover/subjects.go	251	220
 internal/events/events.go	104	79
@@ -64,9 +65,9 @@ internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/moon/moon.go	33	31
 internal/mosaicplan/adoption.go	334	294
-internal/mosaicplan/clearnights.go	74	69
+internal/mosaicplan/clearnights.go	74	70
 internal/mosaicplan/detail.go	343	303
-internal/mosaicplan/framing.go	108	72
+internal/mosaicplan/framing.go	121	92
 internal/mosaicplan/history.go	32	29
 internal/mosaicplan/instrument.go	49	42
 internal/mosaicplan/seasons.go	300	243
@@ -80,7 +81,7 @@ internal/mosaicstore/mosaicstore.go	66	56
 internal/observatory/client.go	91	75
 internal/observatory/grader.go	112	98
 internal/observatory/loops.go	59	44
-internal/observatory/monitor.go	199	170
+internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	50	45
 internal/planning/completion.go	63	47
 internal/planning/defaults.go	9	8
@@ -119,7 +120,7 @@ internal/schedcmd/service.go	198	172
 internal/schedcmd/settings.go	84	78
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	20	14
-internal/server/discover.go	145	124
+internal/server/discover.go	148	127
 internal/server/goalmask.go	84	72
 internal/server/middleware/di.go	8	8
 internal/server/mosaicplan.go	58	2
