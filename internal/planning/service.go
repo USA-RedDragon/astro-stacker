@@ -207,6 +207,8 @@ type Inputs struct {
 	ObjectsByGUID map[string][]string
 	Links         map[string]tslink.ObjectLink
 	Now           time.Time
+
+	settings goals.Settings
 }
 
 func (in Inputs) linksFor(tr targetRow) []tslink.ObjectLink {
@@ -445,6 +447,7 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 	}
 	x := r.index()
 	out := &Snapshot{Rules: Rules(), projectRows: r.projects, templateProfiles: map[int]string{}, goalSettings: settings}
+	in.settings = settings
 	out.weightsBy = x.weightsBy
 	for _, pr := range r.projects {
 		out.Projects = append(out.Projects, buildProject(pr, r, x, in))
@@ -744,6 +747,14 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 		t.Goals = append(t.Goals, *g)
 	}
 	t.Least = leastOfGoals(t.Name, t.Goals)
+	if in.settings != nil {
+		t.Least.CountBased = []string{}
+		for _, g := range t.Goals {
+			if _, ok := in.settings.For(t.GUID, g.Filter); !ok {
+				t.Least.CountBased = append(t.Least.CountBased, g.Filter)
+			}
+		}
+	}
 	if len(enabledPlans) > 0 {
 		t.Percent = sum / float64(len(enabledPlans)) / 100
 		t.Progress = minPct / 100

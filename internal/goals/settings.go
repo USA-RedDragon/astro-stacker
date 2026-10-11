@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"gorm.io/gorm"
 )
 
@@ -26,8 +25,10 @@ func (s Settings) For(guid, filter string) (Setting, bool) {
 	return g, ok
 }
 
+func FilterKey(filter string) string { return stackKey(filter) }
+
 func stackKey(filter string) string {
-	return strings.ToLower(frameheader.NormalizeFilter(strings.TrimSpace(filter)))
+	return strings.ToUpper(strings.TrimSpace(filter))
 }
 
 func LoadSettings(ctx context.Context, sched *gorm.DB) (Settings, error) {
