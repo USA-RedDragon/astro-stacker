@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -797,5 +798,35 @@ func TestRunAdoptionClosesRowsForRemovedOrPlannedProjects(t *testing.T) {
 	}
 	if again.Review != 0 {
 		t.Errorf("report %+v", again)
+	}
+}
+
+func TestListLoadsGoalsOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sched := schedFixture(t)
+	var targetLoads atomic.Int64
+	if err := sched.Callback().Row().After("gorm:row").Register("count:targets", func(db *gorm.DB) {
+		if strings.Contains(db.Statement.SQL.String(), "JOIN project ON target.projectid") {
+			targetLoads.Add(1)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sched.Callback().Query().After("gorm:query").Register("count:targets", func(db *gorm.DB) {
+		if strings.Contains(db.Statement.SQL.String(), "JOIN project ON target.projectid") {
+			targetLoads.Add(1)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := mosaicplan.New(appFixture(t), sched)
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
+	list, err := svc.List(ctx)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("list %+v %v", list, err)
+	}
+	if n := targetLoads.Load(); n > 2 {
+		t.Errorf("List of %d mosaics loaded Target Scheduler's targets %d times", len(list), n)
 	}
 }

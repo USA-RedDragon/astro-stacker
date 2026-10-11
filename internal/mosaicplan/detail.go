@@ -218,8 +218,12 @@ func (s *Service) List(ctx context.Context) ([]Summary, error) {
 		return nil, err
 	}
 	out := make([]Summary, 0, len(groups))
+	gs, err := s.loadGoals(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, g := range groups {
-		d, err := s.build(ctx, g)
+		d, err := s.build(ctx, g, gs)
 		if err != nil {
 			return nil, err
 		}
@@ -242,13 +246,22 @@ func (s *Service) Detail(ctx context.Context, key string) (Detail, error) {
 	}
 	for _, g := range groups {
 		if g.ProjectGUID == key || g.Project == key {
-			return s.build(ctx, g)
+			gs, err := s.loadGoals(ctx)
+			if err != nil {
+				return Detail{}, err
+			}
+			return s.build(ctx, g, gs)
 		}
 	}
 	return Detail{}, ErrNotFound
 }
 
-func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, error) {
+func (s *Service) loadGoals(ctx context.Context) (map[goals.Key]goals.Goal, error) {
+	gs, _, err := goals.LoadGoals(ctx, s.App, s.Sched)
+	return gs, err
+}
+
+func (s *Service) build(ctx context.Context, g stacking.MosaicGroup, gs map[goals.Key]goals.Goal) (Detail, error) {
 	d := Detail{Project: g.Project, ProjectGUID: g.ProjectGUID, Seams: []app.MosaicSeam{}, Health: []app.MosaicPanelHealth{}, Needs: []string{},
 		Noise: []MosaicNoise{}, SeamStatus: []SeamStatus{}, Balancing: Balancing{OnWeight: mosaics.PanelDeficitOnWeight},
 		SeamLimits: stacking.Limits()}
@@ -286,10 +299,6 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	slices.SortFunc(d.Filters, compareFilters)
 
 	best, keys := bestStacks(g, stacks)
-	gs, _, err := goals.LoadGoals(ctx, s.App, s.Sched)
-	if err != nil {
-		return d, err
-	}
 	progress, err := goals.Lookup(ctx, s.App, gs, keys)
 	if err != nil {
 		return d, err

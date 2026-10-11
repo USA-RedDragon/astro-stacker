@@ -538,8 +538,12 @@ func (s *Service) SeasonBoosts(ctx context.Context, now time.Time) (map[string]f
 		return nil, err
 	}
 	out := map[string]float64{}
+	gs, err := s.loadGoals(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, g := range groups {
-		d, err := s.build(ctx, g)
+		d, err := s.build(ctx, g, gs)
 		if err != nil {
 			return nil, err
 		}
