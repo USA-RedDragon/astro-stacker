@@ -276,6 +276,7 @@ func TestDetailUsesWeakestPanelAndFallsBackToScheduler(t *testing.T) {
 		t.Errorf("filters %v", d.Filters)
 	}
 	checkPanels(t, d)
+	checkLeast(t, d)
 	checkList(ctx, t, svc)
 }
 
@@ -290,7 +291,7 @@ func checkPanels(t *testing.T, d mosaicplan.Detail) {
 	if ha.Source != mosaicplan.SourceTS || ha.Progress != 1 || !ha.Done || ha.HoursNeeded != 0 {
 		t.Errorf("panel 1 H-a %+v", ha)
 	}
-	if p1.Progress != 0.25 || p1.Weakest != filterRed {
+	if p1.Progress == nil || *p1.Progress != 0.25 || p1.Weakest != filterRed || p1.PastGoal {
 		t.Errorf("panel 1 %+v", p1)
 	}
 	p2ha := p2.Filters[1]
@@ -303,11 +304,19 @@ func checkPanels(t *testing.T, d mosaicplan.Detail) {
 	if red.HoursBasis != mosaicplan.HoursEffective || p2ha.HoursBasis != mosaicplan.HoursRaw {
 		t.Errorf("hours basis %q %q", red.HoursBasis, p2ha.HoursBasis)
 	}
-	if d.Complete != 0.1 || d.WeakestPanel != 2 || d.WeakestFilter != filterRed {
-		t.Errorf("complete %v panel %d filter %s", d.Complete, d.WeakestPanel, d.WeakestFilter)
-	}
 	if len(d.Needs) != 2 || !strings.Contains(d.Needs[0], "Panel 2 needs about +12.0 h effective H-a") || !strings.Contains(d.Needs[1], "NE corner") {
 		t.Errorf("needs %v", d.Needs)
+	}
+}
+
+func checkLeast(t *testing.T, d mosaicplan.Detail) {
+	t.Helper()
+	p2 := d.Panels[1]
+	if p2ha := p2.Filters[1]; p2.Progress != nil || p2.Weakest != filterRed || p2ha.Measured || p2ha.NotMeasured != mosaicplan.NoGoalMeasurement {
+		t.Errorf("panel 2 on counts only %+v", p2)
+	}
+	if d.Complete != nil || d.Average != nil || d.WeakestPanel != 2 || d.WeakestFilter != filterRed || d.NotMeasured != mosaicplan.NoGoalMeasurement {
+		t.Errorf("complete %v panel %d filter %s %q", d.Complete, d.WeakestPanel, d.WeakestFilter, d.NotMeasured)
 	}
 }
 

@@ -13,17 +13,54 @@ import (
 func TestPlateauKeepsItsProgress(t *testing.T) {
 	t.Parallel()
 	gp := goals.Progress{Kind: goals.KindSNR, Goal: 10, Achieved: 6, SNR: 6, Progress: 0.36, Plateau: true, Done: true, HoursNeeded: 20, EffectiveHours: 3}
-	pf, ok := panelFilter("Red", app.Stack{Object: "P1", EffectiveSeconds: 3 * 3600}, true, nil, gp, true)
+	pf, ok := panelFilter(fRed, app.Stack{Object: "P1", EffectiveSeconds: 3 * 3600}, true, nil, gp, true)
 	if !ok || pf.Progress != 0.36 || !pf.Done || pf.DoneReason != DonePlateau {
 		t.Fatalf("plateau %+v", pf)
 	}
-	reached, _ := panelFilter("Red", app.Stack{Object: "P1"}, true, nil, goals.Progress{Progress: 1.2, Done: true}, true)
+	reached, _ := panelFilter(fRed, app.Stack{Object: "P1"}, true, nil, goals.Progress{Progress: 1.2, Done: true}, true)
 	if reached.Progress != 1.2 || reached.DoneReason != DoneGoal {
 		t.Errorf("goal reached %+v", reached)
 	}
-	p := Panel{Filters: []PanelFilter{pf, {Filter: "Green", Progress: 0.5}}}
+	p := Panel{Filters: []PanelFilter{pf, {Filter: fGreen, Progress: 0.5}}}
 	if got := schedulingProgress(p); got != 0.5 {
 		t.Errorf("scheduling progress %v", got)
+	}
+}
+
+const (
+	fRed   = "Red"
+	fGreen = "Green"
+	fBlue  = "Blue"
+)
+
+func TestPanelLeastCountsPlateauAsCompleteAndCountsAsUnmeasured(t *testing.T) {
+	t.Parallel()
+	plateau := PanelFilter{Filter: fRed, Progress: 0.36, Done: true, Measured: true}
+	green := PanelFilter{Filter: fGreen, Progress: 0.5, Measured: true}
+	v, w, past := panelLeast([]PanelFilter{plateau, green})
+	if v == nil || *v != 0.5 || w != fGreen || past {
+		t.Fatalf("%v %q %v", v, w, past)
+	}
+	v, _, past = panelLeast([]PanelFilter{plateau})
+	if v == nil || *v != 1 || !past {
+		t.Fatalf("plateau only %v %v", v, past)
+	}
+	counts := PanelFilter{Filter: fBlue, Progress: 0.9, Source: SourceTS, NotMeasured: NoGoalMeasurement}
+	v, w, _ = panelLeast([]PanelFilter{green, counts})
+	if v != nil || w != fBlue {
+		t.Fatalf("count-only filter must read as not measured: %v %q", v, w)
+	}
+	half, tenth := 0.5, 0.1
+	panels := make([]Panel, 0, 3)
+	panels = append(panels, Panel{Number: 1, Progress: &half, Weakest: fGreen}, Panel{Number: 2, Progress: &tenth, Weakest: fRed})
+	c, n, f, avg := Completion(panels)
+	if c == nil || *c != 0.1 || n != 2 || f != fRed || avg == nil || *avg != 0.3 {
+		t.Fatalf("%v %d %s %v", c, n, f, avg)
+	}
+	panels = append(panels, Panel{Number: 3, Weakest: fBlue, Filters: []PanelFilter{counts}})
+	c, n, f, avg = Completion(panels)
+	if c != nil || n != 3 || f != fBlue || avg != nil || notMeasuredOf(panels, n, f) != NoGoalMeasurement {
+		t.Fatalf("%v %d %s %v", c, n, f, avg)
 	}
 }
 
