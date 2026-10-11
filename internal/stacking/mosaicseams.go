@@ -474,7 +474,7 @@ func (p *Pipeline) stacking() bool {
 
 func (p *Pipeline) measureSeamsOnly(ctx context.Context, g mosaicGroup, filter string, masters []app.Stack, mosaic *app.Mosaic, sig string) error {
 	if len(masters) < 2 {
-		return p.db.WithContext(ctx).Model(mosaic).Update("seam_signature", seamSignature(sig)).Error
+		return p.db.WithContext(ctx).Model(mosaic).UpdateColumn("seam_signature", seamSignature(sig)).Error
 	}
 	name := "Mosaic seams: " + g.Project
 	p.progress(name, filter, StageAssembling, 0, len(masters)+1)
@@ -485,7 +485,7 @@ func (p *Pipeline) measureSeamsOnly(ctx context.Context, g mosaicGroup, filter s
 	}
 	defer os.RemoveAll(dir)
 	if err := p.preparePanels(ctx, dir, g, filter, masters); err != nil {
-		return p.db.WithContext(ctx).Model(mosaic).Update("seam_signature", seamSignature(sig)).Error
+		return p.db.WithContext(ctx).Model(mosaic).UpdateColumn("seam_signature", seamSignature(sig)).Error
 	}
 	res, err := p.registerAndMeasure(ctx, dir, len(masters), false)
 	if err != nil {
@@ -498,7 +498,7 @@ func (p *Pipeline) measureSeamsOnly(ctx context.Context, g mosaicGroup, filter s
 	}
 	cols := noise.columns(now)
 	cols["seam_signature"] = seamSignature(sig)
-	if err := p.db.WithContext(ctx).Model(mosaic).Updates(cols).Error; err != nil {
+	if err := p.db.WithContext(ctx).Model(mosaic).UpdateColumns(cols).Error; err != nil {
 		return err
 	}
 	if p.Events != nil {
