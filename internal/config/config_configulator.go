@@ -148,6 +148,7 @@ type goalsShadow struct {
 	MaxSubs         *int    `json:"max-subs"         toml:"max-subs"         yaml:"max-subs"`
 	Workers         *int    `json:"workers"          toml:"workers"          yaml:"workers"`
 	Publish         *string `json:"publish"          toml:"publish"          yaml:"publish"`
+	DepthSwitch     *string `json:"depth-switch"     toml:"depth-switch"     yaml:"depth-switch"`
 }
 
 type darksShadow struct {
@@ -306,6 +307,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("goals.workers", configulator.LayerDefault, "default tag")
 	cfg.Goals.Publish = "off"
 	set("goals.publish", configulator.LayerDefault, "default tag")
+	cfg.Goals.DepthSwitch = "on"
+	set("goals.depth-switch", configulator.LayerDefault, "default tag")
 	cfg.Darks.RejectSince = "2026-10-10"
 	set("darks.reject-since", configulator.LayerDefault, "default tag")
 	cfg.Darks.Publish = "off"
@@ -714,6 +717,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Goals.Publish != nil {
 			cfg.Goals.Publish = *s.Goals.Publish
 			set("goals.publish", configulator.LayerFile, file)
+		}
+		if s.Goals.DepthSwitch != nil {
+			cfg.Goals.DepthSwitch = *s.Goals.DepthSwitch
+			set("goals.depth-switch", configulator.LayerFile, file)
 		}
 	}
 	if s.Darks != nil {
@@ -1639,6 +1646,10 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Goals.Publish = v
 		set("goals.publish", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "goals", "depth-switch"); ok {
+		cfg.Goals.DepthSwitch = v
+		set("goals.depth-switch", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "darks", "reject-since"); ok {
 		cfg.Darks.RejectSince = v
 		set("darks.reject-since", configulator.LayerEnv, n)
@@ -1751,6 +1762,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"goals" + o.Separator + "max-subs",
 		"goals" + o.Separator + "workers",
 		"goals" + o.Separator + "publish",
+		"goals" + o.Separator + "depth-switch",
 		"darks" + o.Separator + "reject-since",
 		"darks" + o.Separator + "publish",
 	}
@@ -1859,8 +1871,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(200), names[88], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
 	fs.Var(impl.NewInt(3), names[89], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
 	fs.String(names[90], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
-	fs.String(names[91], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
-	fs.String(names[92], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[91], "on", "Every hour, move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
+	fs.String(names[92], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
+	fs.String(names[93], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -2957,6 +2970,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Goals.Publish = v
 		set("goals.publish", configulator.LayerCLI, "--"+n)
+	}
+	if n := "goals" + o.Separator + "depth-switch"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "goals.depth-switch",
+				Source: "--" + n,
+			}
+		}
+		cfg.Goals.DepthSwitch = v
+		set("goals.depth-switch", configulator.LayerCLI, "--"+n)
 	}
 	if n := "darks" + o.Separator + "reject-since"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -5083,6 +5108,19 @@ func (s *goalsShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".publish", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
+		case "depth-switch":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.DepthSwitch = &str
+			default:
+				return configJSONError(path+".depth-switch", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -5252,6 +5290,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "goals.max-subs = %v\n", c.Goals.MaxSubs)
 	fmt.Fprintf(&b, "goals.workers = %v\n", c.Goals.Workers)
 	fmt.Fprintf(&b, "goals.publish = %v\n", c.Goals.Publish)
+	fmt.Fprintf(&b, "goals.depth-switch = %v\n", c.Goals.DepthSwitch)
 	fmt.Fprintf(&b, "darks.reject-since = %v\n", c.Darks.RejectSince)
 	fmt.Fprintf(&b, "darks.publish = %v\n", c.Darks.Publish)
 	return b.String()

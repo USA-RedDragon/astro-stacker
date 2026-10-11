@@ -207,6 +207,8 @@ goals:
   workers: 3
   # Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on
   publish: "off"
+  # Every hour, move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on
+  depth-switch: "on"
 # The dark backlog the observatory's Target Scheduler Darks instruction works through
 darks:
   # Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only

@@ -98,6 +98,14 @@ func TestGoals(t *testing.T) {
 			t.Errorf("publish %q: %v", mode, err)
 		}
 	}
+	if defConfig.Goals.DepthSwitch != config.GoalsPublishOn {
+		t.Errorf("depth switch default %q", defConfig.Goals.DepthSwitch)
+	}
+	bad := defConfig
+	bad.Goals.DepthSwitch = "always"
+	if err := bad.Validate(); !errors.Is(err, config.ErrInvalidGoalsDepthSwitch) {
+		t.Errorf("depth switch always: %v", err)
+	}
 	cfg := defConfig
 	cfg.Goals.Publish = "yes"
 	if err := cfg.Validate(); !errors.Is(err, config.ErrInvalidGoalsPublish) {

@@ -88,6 +88,7 @@ type Goals struct {
 	MaxSubs         int    `name:"max-subs" description:"Most registered subs read per measurement; a master with more uses a fixed random subset of this many" default:"200"`
 	Workers         int    `name:"workers" description:"Masters measured at once, each using about one core; measurement waits while the stacker is working" default:"3"`
 	Publish         string `name:"publish" description:"Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on" default:"off"`
+	DepthSwitch     string `name:"depth-switch" description:"Every hour, move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on" default:"on"`
 }
 
 type PublicFrames struct {
@@ -214,6 +215,7 @@ var (
 	ErrInvalidTSVerdictsSince       = errors.New("stacking.ts-verdicts-since must be a date, YYYY-MM-DD")
 	ErrInvalidGoalsPublish          = errors.New("goals.publish must be off, dry-run or on")
 	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
+	ErrInvalidGoalsDepthSwitch      = errors.New("goals.depth-switch must be off, dry-run or on")
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
 	ErrInvalidDarksRejectSince      = errors.New("darks.reject-since must be a date, YYYY-MM-DD")
 )
@@ -254,6 +256,11 @@ func (c Config) Validate() error {
 	}
 	if c.Goals.Enabled && c.Goals.IntervalMinutes <= 0 {
 		return ErrInvalidGoalsInterval
+	}
+	switch c.Goals.DepthSwitch {
+	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
+	default:
+		return ErrInvalidGoalsDepthSwitch
 	}
 
 	switch c.Darks.Publish {
