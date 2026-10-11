@@ -38,7 +38,7 @@ import (
 // they are assembled builds them all again. 2: panels flattened first.
 // 3: panels matched on their overlaps; the FITS marked bottom-up, and an
 // XISF copy for PixInsight. 4: panels that share no overlap levelled on
-// their sky.
+// their sky; uncovered parts of the preview sky grey.
 const mosaicMethod = 4
 
 // StageAssembling is reported while a mosaic is being built.

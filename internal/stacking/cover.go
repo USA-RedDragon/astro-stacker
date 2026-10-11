@@ -294,6 +294,7 @@ func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte
 	// off the colour is exactly the broadband's.
 	rgb := colourStretch([3][]float32{red, green, blue}, [3][]float32{rawR, rawG, rawB}, w, h)
 	r, g, b := rgb[0], rgb[1], rgb[2]
+	fillUncovered([][]float32{r, g, b}, rawR, w, h)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for i := range r {
 		img.Pix[4*i] = to8(r[i])
@@ -512,8 +513,9 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // from the continuum-subtracted line is on (addLine), and the channels
 // balanced on the sky and the stars and stretched together (colourStretch).
 // 6: black point no higher than the darkest sky, over-bright colour taken
-// partway to white, and less H-a (lineGain 1.5, none into blue).
-const CoverVersion = 6
+// partway to white, and less H-a (lineGain 1.5, none into blue). 7: what
+// no channel covers is sky grey, not black.
+const CoverVersion = 7
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or

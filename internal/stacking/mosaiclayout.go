@@ -232,8 +232,9 @@ func (l layout) bounds(g wcs) (minC, maxC, minR, maxR int) {
 }
 
 // outlines draws the frames of panels without masters onto a stretched
-// canvas, so the missing panels show where they go.
-func (l layout) outlines(img []float32, panels []layoutPanel, value float32) {
+// canvas, where canvas (the linear one) has no data, so the missing panels
+// show where they go.
+func (l layout) outlines(img, canvas []float32, panels []layoutPanel, value float32) {
 	for _, p := range panels {
 		if p.Data != nil {
 			continue
@@ -252,7 +253,7 @@ func (l layout) outlines(img []float32, panels []layoutPanel, value float32) {
 				col, row := int(math.Round(ac+t*(bc-ac))), int(math.Round(ar+t*(br-ar)))
 				for _, d := range [][2]int{{0, 0}, {1, 0}, {0, 1}} {
 					cc, rr := col+d[0], row+d[1]
-					if cc >= 0 && cc < l.W && rr >= 0 && rr < l.H && img[rr*l.W+cc] == 0 {
+					if cc >= 0 && cc < l.W && rr >= 0 && rr < l.H && canvas[rr*l.W+cc] == 0 {
 						img[rr*l.W+cc] = value
 					}
 				}
@@ -338,12 +339,54 @@ func binImage(data []float32, w, h, factor int) ([]float32, int, int) {
 	return out, bw, bh
 }
 
-// stretchedWithOutlines stretches a canvas for a preview and draws where
-// missing panels go.
+// stretchedWithOutlines stretches a canvas for a preview, paints what no
+// panel covers the grey of the darkest sky (fillUncovered) and draws where
+// missing panels go, lighter than that grey.
 func (l layout) stretchedWithOutlines(canvas []float32, panels []layoutPanel) []float32 {
 	s := stretchNonZero(canvas)
-	l.outlines(s, panels, 0.35)
+	sky := fillUncovered([][]float32{s}, canvas, l.W, l.H)
+	l.outlines(s, canvas, panels, min(1, sky+outlineLift))
 	return s
+}
+
+// outlineLift is how much lighter than the sky grey a missing panel's
+// outline is drawn.
+const outlineLift = 0.2
+
+// fillUncovered paints the pixels of stretched (0-1) planes where have is
+// empty (0), a missing mosaic panel or the wedges round its edges, one
+// neutral grey: the level of the darkest sky (darkSky) of the planes'
+// mean, so they read as sky rather than black. It returns the grey.
+func fillUncovered(planes [][]float32, have []float32, w, h int) float32 {
+	lum := make([]float32, w*h)
+	empty := false
+	for i := range lum {
+		if have[i] == 0 {
+			empty = true
+			continue
+		}
+		var s float32
+		for _, p := range planes {
+			s += p[i]
+		}
+		lum[i] = max(s/float32(len(planes)), 1e-6) // 0 marks no data
+	}
+	level, _, ok := darkSky(lum, have, w, h, max(4, int(math.Round(float64(max(w, h))/200))))
+	if !ok {
+		return 0
+	}
+	grey := float32(level)
+	if !empty {
+		return grey
+	}
+	for i, v := range have {
+		if v == 0 {
+			for _, p := range planes {
+				p[i] = grey
+			}
+		}
+	}
+	return grey
 }
 
 // panelCrop is the largest rectangle of the canvas that panels fill:

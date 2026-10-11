@@ -2,6 +2,7 @@ package stacking
 
 import (
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -44,7 +45,7 @@ func synthPanel(ra, dec float64, h int) layoutPanel {
 	return layoutPanel{WCS: g, Data: data, W: w, H: h, Bin: 1}
 }
 
-func TestLayoutPlacesPanelsAndLeavesMissingOnesBlack(t *testing.T) {
+func TestLayoutPlacesPanelsAndFillsMissingOnesWithSky(t *testing.T) {
 	t.Parallel()
 	const w, h, scale = synthPanelW, 80, synthPanelScale // 1.2° x 0.8° panels
 	// Three panels in a row along declination; the middle one has no
@@ -86,14 +87,9 @@ func TestLayoutPlacesPanelsAndLeavesMissingOnesBlack(t *testing.T) {
 	if v := canvas[int(r)*l.W+int(c)]; v != 0 {
 		t.Errorf("missing panel's centre is %v, want 0", v)
 	}
-	// Its outline is drawn onto a stretched copy.
+	// On a stretched copy it is sky grey, with its outline drawn lighter.
 	img := l.stretchedWithOutlines(canvas, panels)
-	edges := 0
-	for _, v := range img {
-		if v == 0.35 {
-			edges++
-		}
-	}
+	edges := checkMissingPanel(t, img, canvas, int(r)*l.W+int(c))
 	if edges < 2*(w+h)/2 {
 		t.Errorf("drew %d outline pixels for the missing panel", edges)
 	}
@@ -210,16 +206,39 @@ func TestMosaicPreviewShowsTheMosaic(t *testing.T) {
 	if v := canvas[int(r)*cw+int(c)]; v != 0 {
 		t.Errorf("missing panel's centre is %v", v)
 	}
-	edges := 0
-	for _, v := range img {
-		if v == 0.35 {
-			edges++
-		}
-	}
+	edges := checkMissingPanel(t, img, canvas, int(r)*cw+int(c))
 	if edges < w+h {
 		t.Errorf("drew %d outline pixels for the missing panel", edges)
 	}
 	if crop.H < 2*h {
 		t.Errorf("crop %+v dropped the missing panel's gap", crop)
 	}
+}
+
+// checkMissingPanel checks that the stretched preview img shows the missing
+// panel at pixel centre as the sky's grey, never black, and returns how
+// many of its outline pixels, lighter than that grey, were drawn.
+func checkMissingPanel(t *testing.T, img, canvas []float32, centre int) int {
+	t.Helper()
+	grey := img[centre]
+	var sky []float64
+	for i, v := range canvas {
+		if v != 0 {
+			sky = append(sky, float64(img[i]))
+		}
+	}
+	slices.Sort(sky)
+	if lo, med := sky[len(sky)/20], sky[len(sky)/2]; float64(grey) < lo || float64(grey) > med {
+		t.Errorf("missing panel is %v in the preview, the covered sky from %v (5%%) to %v (median)", grey, lo, med)
+	}
+	edges := 0
+	for i, v := range img {
+		if canvas[i] == 0 && v == min(1, grey+outlineLift) {
+			edges++
+		}
+		if canvas[i] == 0 && v != grey && v != min(1, grey+outlineLift) {
+			t.Fatalf("uncovered pixel %d is %v, neither the sky grey %v nor the outline", i, v, grey)
+		}
+	}
+	return edges
 }
