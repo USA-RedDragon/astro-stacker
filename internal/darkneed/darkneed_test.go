@@ -372,3 +372,32 @@ func checkFlaggedSession(t *testing.T, b coverage.DarkBacklog) {
 		t.Errorf("a dark found lit but kept counted as not checked: session %+v, unchecked %d", s, b.Unchecked)
 	}
 }
+
+func TestPublishReportsAFailedTableCheck(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sched, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sched.Exec(darkneed.Schema).Error; err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sched.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p := &darkneed.Publisher{App: db, Sched: sched, Mode: darkneed.PublishOn}
+	if s, err := p.Publish(context.Background()); err == nil || s.Skipped == darkneed.SkipNoTable {
+		t.Errorf("publish with the scheduler database down: %+v %v", s, err)
+	}
+	if s := p.Status(); s.Error == "" || s.Skipped == darkneed.SkipNoTable {
+		t.Errorf("status hides the failure: %+v", s)
+	}
+}

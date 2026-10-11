@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -94,6 +95,7 @@ type Status struct {
 	Changed     int        `json:"changed"`
 	Deleted     int        `json:"deleted"`
 	Skipped     string     `json:"skipped"`
+	Error       string     `json:"error,omitempty"`
 }
 
 type Publisher struct {
@@ -142,6 +144,14 @@ func (p *Publisher) finish(s Status) Status {
 	return s
 }
 
+func (p *Publisher) fail(err error) (Status, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.status.Mode = p.Mode
+	p.status.Error = err.Error()
+	return p.status, err
+}
+
 func (p *Publisher) Publish(ctx context.Context) (Status, error) {
 	if p.Mode != PublishOn && p.Mode != PublishDryRun {
 		return p.finish(Status{Skipped: SkipOff}), nil
@@ -149,17 +159,21 @@ func (p *Publisher) Publish(ctx context.Context) (Status, error) {
 	if p.Sched == nil {
 		return p.finish(Status{Skipped: SkipNoScheduler}), nil
 	}
-	if !p.Sched.Migrator().HasTable(Table) {
+	has, err := tables.Has(ctx, p.Sched, Table)
+	if err != nil {
+		return p.fail(fmt.Errorf("check %s: %w", Table, err))
+	}
+	if !has {
 		return p.finish(Status{Skipped: SkipNoTable}), nil
 	}
 	b, err := coverage.BuildDarkBacklog(ctx, p.App, p.now())
 	if err != nil {
-		return p.Status(), err
+		return p.fail(err)
 	}
 	want := FromBacklog(b)
 	var have []Row
 	if err := p.Sched.WithContext(ctx).Table(Table).Find(&have).Error; err != nil {
-		return p.Status(), fmt.Errorf("load %s: %w", Table, err)
+		return p.fail(fmt.Errorf("load %s: %w", Table, err))
 	}
 	old := make(map[string]Row, len(have))
 	for _, r := range have {
@@ -184,7 +198,7 @@ func (p *Publisher) Publish(ctx context.Context) (Status, error) {
 				"set_temp", "frames_needed", "frames_have", "frames_rejected", "lights_blocked", "lights_scaled", "newest_dark_at",
 				"session_gap_hours", "basis", "computed_at"}),
 		}).Create(&r).Error; err != nil {
-			return p.Status(), fmt.Errorf("publish dark need %s: %w", r.ComboKey, err)
+			return p.fail(fmt.Errorf("publish dark need %s: %w", r.ComboKey, err))
 		}
 	}
 	for k := range old {
@@ -197,7 +211,7 @@ func (p *Publisher) Publish(ctx context.Context) (Status, error) {
 			continue
 		}
 		if err := p.Sched.WithContext(ctx).Table(Table).Where("combo_key = ?", k).Delete(nil).Error; err != nil {
-			return p.Status(), fmt.Errorf("remove dark need %s: %w", k, err)
+			return p.fail(fmt.Errorf("remove dark need %s: %w", k, err))
 		}
 	}
 	if s.Changed == 0 && s.Deleted == 0 {
