@@ -20,6 +20,7 @@ const (
 	filterRed = "Red"
 	typeFlat  = "FLAT"
 	typeDark  = "DARK"
+	typeBias  = "BIAS"
 )
 
 func lights() calmatch.Group {
@@ -148,12 +149,28 @@ func TestDarkBeyondScaleRangeOrOtherGainIsMissing(t *testing.T) {
 func TestBiasIgnoresTemperatureAndExposure(t *testing.T) {
 	t.Parallel()
 	sets := []calmatch.Set{
-		{Type: "BIAS", Night: night("2025-02-05"), Gain: 0, Offset: 50, BinX: 1, SetTemp: 0, Exposure: 0.000032},
-		{Type: "BIAS", Night: night("2025-02-05"), Gain: 100, Offset: 50, BinX: 1, SetTemp: 0},
+		{Type: typeBias, Night: night("2025-02-05"), Gain: 0, Offset: 50, BinX: 1, SetTemp: 0, Exposure: 0.000032},
+		{Type: typeBias, Night: night("2025-02-05"), Gain: 100, Offset: 50, BinX: 1, SetTemp: 0},
 	}
 	m := calmatch.Choose(lights(), sets).Bias
 	if m.Quality != calmatch.Fallback || m.Set.Gain != 0 {
 		t.Fatalf("got %+v", m)
+	}
+}
+
+func TestBiasUsesTheNearestSetOfItsSetupHoweverOld(t *testing.T) {
+	t.Parallel()
+	g := lights()
+	g.Night = night("2026-10-09")
+	sets := []calmatch.Set{
+		{Type: typeBias, Night: night("2025-02-05"), Gain: 0, Offset: 50, BinX: 1, Count: 30},
+		{Type: typeBias, Night: night("2024-06-01"), Gain: 0, Offset: 50, BinX: 1, Count: 30},
+		{Type: typeBias, Night: night("2026-10-09"), Gain: 0, Offset: 60, BinX: 1, Count: 30},
+		{Type: typeBias, Night: night("2026-10-09"), Gain: 0, Offset: 50, BinX: 2, Count: 30},
+	}
+	m := calmatch.Choose(g, sets).Bias
+	if m.Set == nil || !m.Set.Night.Equal(night("2025-02-05")) || m.Quality != calmatch.Fallback || m.AgeDays != 611 {
+		t.Fatalf("got %+v (%s, %d days)", m.Set, m.Quality, m.AgeDays)
 	}
 }
 
