@@ -21,6 +21,7 @@ type DarkBacklog struct {
 	FramesNeededBasis string            `json:"frames_needed_basis"`
 	SetTempExactC     float64           `json:"set_temp_exact_c"`
 	SessionGapHours   float64           `json:"session_gap_hours"`
+	RankingBasis      string            `json:"ranking_basis"`
 	Combos            []DarkCombo       `json:"combos"`
 	Unschedulable     []DarkUnscheduled `json:"unschedulable"`
 	LastSession       *DarkSession      `json:"last_session"`
@@ -45,6 +46,10 @@ type DarkCombo struct {
 	LightsBlocked   int          `json:"lights_blocked"`
 	LightsScaled    int          `json:"lights_scaled"`
 	LightsThin      int          `json:"lights_thin"`
+	LightsRecent    int          `json:"lights_recent"`
+	LightsActive    int          `json:"lights_active"`
+	Score           float64      `json:"score"`
+	ScoreParts      ScoreParts   `json:"score_parts"`
 	Nights          int          `json:"nights"`
 	LatestNight     string       `json:"latest_night"`
 	NewestDarkAt    *time.Time   `json:"newest_dark_at"`
@@ -161,6 +166,7 @@ func fullChosenDark(chosen calmatch.Set, sets []calmatch.Set, counts map[int]int
 
 type darkLightGroup struct {
 	Night       time.Time
+	Object      string
 	Exposure    *float64
 	Gain        *float64
 	Offset      *float64
@@ -206,21 +212,23 @@ func ComboKey(exposure, gain, offset, bin, setTemp float64) string {
 
 type tempTally struct {
 	blocked, scaled, thin int
+	recent, active        int
+	score                 ScoreParts
 	nights                map[string]bool
 	latest                string
 	readout               map[string]int
 }
 
-func BuildDarkBacklog(ctx context.Context, db *gorm.DB, now time.Time) (DarkBacklog, error) {
+func BuildDarkBacklog(ctx context.Context, db, sched *gorm.DB, now time.Time) (DarkBacklog, error) {
 	sets, _, err := loadSets(ctx, db)
 	if err != nil {
 		return DarkBacklog{}, err
 	}
 	var lights []darkLightGroup
 	if err := db.WithContext(ctx).Table("frames").
-		Select(`night, exposure, gain, "offset", set_temp, bin_x, readout_mode, COUNT(*) as n`).
+		Select(`night, object, exposure, gain, "offset", set_temp, bin_x, readout_mode, COUNT(*) as n`).
 		Where("type = ? AND night IS NOT NULL AND index_error IS NULL", "LIGHT").
-		Group(`night, exposure, gain, "offset", set_temp, bin_x, readout_mode`).
+		Group(`night, object, exposure, gain, "offset", set_temp, bin_x, readout_mode`).
 		Scan(&lights).Error; err != nil {
 		return DarkBacklog{}, fmt.Errorf("load lights for the dark backlog: %w", err)
 	}
@@ -228,7 +236,11 @@ func BuildDarkBacklog(ctx context.Context, db *gorm.DB, now time.Time) (DarkBack
 	if err != nil {
 		return DarkBacklog{}, err
 	}
-	b := darkBacklog(lights, darks, sets, now)
+	active, err := ActiveTargets(ctx, sched)
+	if err != nil {
+		return DarkBacklog{}, err
+	}
+	b := darkBacklog(lights, darks, sets, active, now)
 	needs, err := openNeeds(ctx, db, app.CalibrationDarks, requestFrames{darks: darks})
 	if err != nil {
 		return DarkBacklog{}, err
@@ -258,11 +270,12 @@ func RejectedDarks(ctx context.Context, db *gorm.DB) ([]RejectedDark, error) {
 	return rejectedDarks(darks, len(darks)), nil
 }
 
-func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set, now time.Time) DarkBacklog {
+func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set, active map[string]bool, now time.Time) DarkBacklog {
 	counts, measured := measureCleanSets(sets, darks)
+	r := newDarkRank(lights, active, now)
 	b := DarkBacklog{
 		ComputedAt: now.UTC(), FramesNeeded: DarkFramesTarget, FramesNeededBasis: FramesNeededBasis(measured),
-		SetTempExactC: calmatch.SetTempExactC, SessionGapHours: SessionGap.Hours(),
+		SetTempExactC: calmatch.SetTempExactC, SessionGapHours: SessionGap.Hours(), RankingBasis: RankingBasis(),
 		Combos: []DarkCombo{}, Unschedulable: []DarkUnscheduled{}, Rejected: []RejectedDark{},
 	}
 	tallies := map[darkSetup]map[float64]*tempTally{}
@@ -312,6 +325,7 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 		case calmatch.Fallback:
 			t.scaled += l.N
 		}
+		r.add(t, l, m.Quality)
 		night := l.Night.Format(time.DateOnly)
 		t.nights[night] = true
 		if night > t.latest {
@@ -337,6 +351,9 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 	}
 	sort.SliceStable(b.Combos, func(i, j int) bool {
 		a, c := b.Combos[i], b.Combos[j]
+		if a.Score != c.Score {
+			return a.Score > c.Score
+		}
 		if a.LightsBlocked != c.LightsBlocked {
 			return a.LightsBlocked > c.LightsBlocked
 		}
@@ -373,19 +390,22 @@ func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
 	}
 	var out []DarkCombo
 	for len(left) > 0 {
-		var best float64
+		var best, bestScore float64
 		bestBlocked, bestScaled, bestThin, found := -1, -1, -1, false
 		for cand := range left {
-			bl, sc, th := 0, 0, 0
+			bl, sc, th, score := 0, 0, 0, 0.0
 			for t := range left {
 				if math.Abs(t-cand) <= calmatch.SetTempExactC {
 					bl += temps[t].blocked
 					sc += temps[t].scaled
 					th += temps[t].thin
+					score += temps[t].score.total()
 				}
 			}
-			if !found || bl > bestBlocked || (bl == bestBlocked && (sc > bestScaled || (sc == bestScaled && (th > bestThin || (th == bestThin && cand > best))))) {
-				best, bestBlocked, bestScaled, bestThin, found = cand, bl, sc, th, true
+			score = math.Round(score*1e6) / 1e6
+			if !found || score > bestScore || (score == bestScore && (bl > bestBlocked || (bl == bestBlocked && (sc > bestScaled ||
+				(sc == bestScaled && (th > bestThin || (th == bestThin && cand > best))))))) {
+				best, bestScore, bestBlocked, bestScaled, bestThin, found = cand, score, bl, sc, th, true
 			}
 		}
 		c := DarkCombo{SetTemp: best, SetTempsCovered: []float64{}, Requests: []RequestRef{}}
@@ -404,6 +424,11 @@ func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
 			c.LightsBlocked += tt.blocked
 			c.LightsScaled += tt.scaled
 			c.LightsThin += tt.thin
+			c.LightsRecent += tt.recent
+			c.LightsActive += tt.active
+			c.ScoreParts.Blocked += tt.score.Blocked
+			c.ScoreParts.Scaled += tt.score.Scaled
+			c.ScoreParts.Thin += tt.score.Thin
 			for n := range tt.nights {
 				nights[n] = true
 			}
@@ -434,6 +459,9 @@ func pickSetTemps(temps map[float64]*tempTally) []DarkCombo {
 			"and %d have an exact dark set with fewer than %d clean darks. "+
 			"A dark at %s °C is an exact match for lights within %s °C of it (calmatch.SetTempExactC).",
 			c.LightsBlocked, strings.Join(temps, ", "), c.LightsScaled, c.LightsThin, DarkFramesTarget, numText(best), numText(calmatch.SetTempExactC))
+		c.ScoreParts = c.ScoreParts.rounded()
+		c.Score = roundScore(c.ScoreParts.Blocked + c.ScoreParts.Scaled + c.ScoreParts.Thin)
+		c.Basis += " " + scoreNote(c)
 		out = append(out, c)
 	}
 	return out

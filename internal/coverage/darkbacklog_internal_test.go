@@ -34,7 +34,7 @@ func TestBacklogKeepsLightsOnAShortSetUntilAFullOneMatches(t *testing.T) {
 	}
 	lights := []darkLightGroup{{Night: night, Exposure: f(300), Gain: f(0), Offset: f(50), SetTemp: f(-10), BinX: f(1), N: 7}}
 	thin := func(darks []darkFrame, sets []calmatch.Set) int {
-		b := darkBacklog(lights, darks, sets, now)
+		b := darkBacklog(lights, darks, sets, nil, now)
 		n := 0
 		for _, c := range b.Combos {
 			n += c.LightsThin
