@@ -52,10 +52,11 @@ func dropName(o *catalog.Object, name string) {
 
 func setName(o *catalog.Object, name string) {
 	dropName(o, name)
-	if o.Name != "" {
-		addAlias(o, o.Name)
-	}
+	old := o.Name
 	o.Name = name
+	if old != "" {
+		addAlias(o, old)
+	}
 }
 
 func addName(o *catalog.Object, name string) {

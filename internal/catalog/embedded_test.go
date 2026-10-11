@@ -296,6 +296,19 @@ func TestLyndsBrightnessZeroMeansNotGiven(t *testing.T) {
 	}
 }
 
+func TestRenamedObjectsKeepTheirOldName(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct{ id, old string }{{"M 11", "Amas de l'Ecu de Sobieski"}, {"NGC 2070", "30 Dor Cluster"}, {"ACO 426", "Per Cluster"}} {
+		if o, _ := ix.Get(p.id); !slices.Contains(o.Aliases, p.old) {
+			t.Errorf("%s lost %q: %q %v", p.id, p.old, o.Name, o.Aliases)
+		}
+	}
+}
+
 const (
 	ic434       = "IC 434"
 	b33         = "B 33"
