@@ -456,8 +456,18 @@ func (p *Pipeline) leftOut(c candidate, status string) app.StackFrame {
 			sf.NextAttemptAt = &next
 		}
 	}
+	if status == app.StackStatusNoMetadata && time.Since(f.LastModified) < MetadataGrace {
+		next := time.Now().Add(time.Minute)
+		sf.NextAttemptAt = &next
+	}
 	return sf
 }
+
+// MetadataGrace is how long after its upload a light without a Target
+// Scheduler record is looked at again every minute rather than after
+// RetryAfter: the record can reach the scheduler database after the light
+// reaches the bucket.
+const MetadataGrace = 30 * time.Minute
 
 func (p *Pipeline) runBatch(ctx context.Context, first *app.Frame, batch []candidate, sets []calmatch.Set,
 	scores map[string]quality.SubScore, positions map[string][2]float64,
