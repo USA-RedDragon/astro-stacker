@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -116,5 +117,49 @@ func TestGetCachesRateLimitsAndFailsGracefully(t *testing.T) {
 	}
 	if _, err := (&skycutout.Service{Off: true}).Get(ctx, p); !errors.Is(err, skycutout.ErrOff) {
 		t.Errorf("off %v", err)
+	}
+}
+
+type viewerKey struct{}
+
+func TestAnEndedRequestDoesNotFailOthersWaitingOnTheSameCutout(t *testing.T) {
+	t.Parallel()
+	arrived, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(arrived) })
+		<-release
+		_, _ = w.Write(jpeg())
+	}))
+	defer srv.Close()
+	db := openDB(t)
+	second := context.WithValue(context.Background(), viewerKey{}, "second")
+	queried := make(chan struct{})
+	if err := db.Callback().Query().After("gorm:query").Register("test:second_viewer", func(tx *gorm.DB) {
+		if tx.Statement.Context.Value(viewerKey{}) != nil {
+			select {
+			case <-queried:
+			default:
+				close(queried)
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := &skycutout.Service{DB: db, Endpoint: srv.URL}
+	p, _ := skycutout.Parse("83.82", "-5.39", "1.5", "30", "300", "200")
+	first, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Go(func() { _, _ = s.Get(first, p) })
+	<-arrived
+	var err error
+	wg.Go(func() { _, err = s.Get(second, p) })
+	<-queried
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	close(release)
+	wg.Wait()
+	if err != nil {
+		t.Fatalf("a viewer waiting on a cutout another viewer asked for got that viewer's ending: %v", err)
 	}
 }

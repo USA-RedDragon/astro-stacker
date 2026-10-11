@@ -216,25 +216,33 @@ func (s *Service) Get(ctx context.Context, p Params) (Cutout, error) {
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return Cutout{}, err
 	}
-	v, err, _ := s.group.Do(key, func() (any, error) {
-		if row, err := s.cached(ctx, key); err == nil {
+	flight := s.group.DoChan(key, func() (any, error) {
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
+		defer cancel()
+		if row, err := s.cached(fctx, key); err == nil {
 			return Cutout{Data: row.Data, ETag: row.ETag}, nil
 		}
 		if ok, wait := s.allow(); !ok {
 			return Cutout{}, &RateLimitError{RetryAfter: wait}
 		}
-		data, err := s.fetch(ctx, p)
+		data, err := s.fetch(fctx, p)
 		if err != nil {
 			return Cutout{}, err
 		}
 		c := Cutout{Data: data, ETag: etag(data)}
-		s.store(ctx, key, c)
+		s.store(fctx, key, c)
 		return c, nil
 	})
-	if err != nil {
-		return Cutout{}, err
+	var res singleflight.Result
+	select {
+	case <-ctx.Done():
+		return Cutout{}, ctx.Err()
+	case res = <-flight:
 	}
-	c, ok := v.(Cutout)
+	if res.Err != nil {
+		return Cutout{}, res.Err
+	}
+	c, ok := res.Val.(Cutout)
 	if !ok {
 		return Cutout{}, ErrUpstream
 	}
