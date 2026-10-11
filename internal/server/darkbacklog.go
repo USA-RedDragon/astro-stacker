@@ -30,4 +30,16 @@ func applyDarkBacklogRoutes(g *gin.RouterGroup, p *darkneed.Publisher, now func(
 		}
 		c.JSON(http.StatusOK, darkBacklogResponse{DarkBacklog: b, Publish: p.Status()})
 	})
+	g.GET("/coverage/dark-backlog/rejected", func(c *gin.Context) {
+		di, ok := depInjection(c)
+		if !ok {
+			return
+		}
+		r, err := coverage.RejectedDarks(c.Request.Context(), di.AppStore.DB())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, r)
+	})
 }
