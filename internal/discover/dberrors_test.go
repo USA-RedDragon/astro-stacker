@@ -80,7 +80,7 @@ func TestCollabPracticeStatesATableCheckFailure(t *testing.T) {
 		t.Fatalf("%v %+v", err, v)
 	}
 	for _, c := range v.Closed[0].Criteria {
-		if (c.Name == "Frames per visit" || c.Name == "Calibration") && !strings.Contains(c.You, injected) {
+		if (c.Name == visitName || c.Name == "Calibration") && !strings.Contains(c.You, injected) {
 			t.Errorf("%s hides the database error: %+v", c.Name, c)
 		}
 	}

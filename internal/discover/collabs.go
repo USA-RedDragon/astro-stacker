@@ -26,6 +26,7 @@ const (
 
 	ScopeRig     = "rig"
 	ScopeTonight = "tonight"
+	ScopeInfo    = "info"
 
 	VerdictFits      = "fits"
 	VerdictNoFit     = "no"
@@ -241,7 +242,21 @@ func criteria(p starfront.Project, rig Rig, info rigsource.Rig, ev evidence) []C
 		out = append(out, ev.practice.calibrationCriterion())
 	}
 	if r.MinFramesPerVisit != nil {
-		out = append(out, ev.practice.visitCriterion(*r.MinFramesPerVisit))
+		out = append(out, ev.practice.visitInfo(*r.MinFramesPerVisit, dealtFilters(r, rig), rig.Exposures))
+	}
+	return out
+}
+
+func dealtFilters(r starfront.Requirements, rig Rig) []string {
+	if len(r.Filters) == 0 {
+		return rigFilters(rig)
+	}
+	want, _ := wantedFilters(r)
+	var out []string
+	for _, f := range want {
+		if _, ok := rig.Filters[f]; ok {
+			out = append(out, f)
+		}
 	}
 	return out
 }
@@ -591,8 +606,8 @@ func (s *Service) practice(ctx context.Context) practice {
 		return pr
 	}
 	if err := db.Model(&app.Frame{}).Select("COUNT(*)").
-		Where("type = ? AND index_error IS NULL AND date_obs >= ? AND ts_target IS NOT NULL AND night IS NOT NULL", "LIGHT", since).
-		Group("ts_target, night").Pluck("COUNT(*)", &pr.visits).Error; err != nil {
+		Where("type = ? AND index_error IS NULL AND date_obs >= ? AND night IS NOT NULL AND COALESCE(NULLIF(ts_target, ''), NULLIF(object, '')) IS NOT NULL", "LIGHT", since).
+		Group("COALESCE(NULLIF(ts_target, ''), NULLIF(object, '')), filter, night").Pluck("COUNT(*)", &pr.visits).Error; err != nil {
 		pr.err = err.Error()
 		return pr
 	}
@@ -618,23 +633,50 @@ func (s *Service) practice(ctx context.Context) practice {
 	return pr
 }
 
-func (pr practice) visitCriterion(minFrames int) Criterion {
-	c := Criterion{Name: "Frames per visit", Rule: fmt.Sprintf("at least %d", minFrames), Scope: ScopeRig}
+func (pr practice) visitInfo(minFrames int, filters []string, exposures map[string]float64) Criterion {
+	c := Criterion{Name: "Frames per visit", Rule: fmt.Sprintf("the deal asks at least %d frames of a filter per visit; not a requirement", minFrames), Result: CriterionNone, Scope: ScopeInfo}
+	var you []string
+	byExp := map[float64][]string{}
+	var exps []float64
+	for _, f := range filters {
+		e := exposures[f]
+		if e <= 0 {
+			continue
+		}
+		if _, ok := byExp[e]; !ok {
+			exps = append(exps, e)
+		}
+		byExp[e] = append(byExp[e], f)
+	}
+	slices.Sort(exps)
+	if len(exps) > 0 {
+		at := make([]string, 0, len(exps))
+		for _, e := range exps {
+			at = append(at, fmt.Sprintf("%s (%s at %gs)", minutesText(float64(minFrames)*e), strings.Join(byExp[e], " "), e))
+		}
+		you = append(you, fmt.Sprintf("%d frames at your usual sub lengths take %s", minFrames, strings.Join(at, ", ")))
+	}
 	switch {
 	case pr.err != "":
-		c.You, c.Result = "not checked: "+pr.err, CriterionOpen
+		you = append(you, "your typical visit not checked: "+pr.err)
 	case len(pr.visits) == 0:
-		c.You, c.Result = "not measured: no Target Scheduler lights in the last 60 days", CriterionOpen
+		you = append(you, "your typical visit not measured: no lights with a target and a night in the last 60 days")
 	default:
 		v := make([]float64, len(pr.visits))
 		for i, n := range pr.visits {
 			v[i] = float64(n)
 		}
-		med := medianOf(v)
-		c.You = fmt.Sprintf("median %g lights per target per night over %d target-nights, last 60 days", med, len(v))
-		c.Result = passIf(med >= float64(minFrames))
+		you = append(you, fmt.Sprintf("your typical visit: median %g lights of one filter per target per night over %d target-filter-nights, last 60 days", medianOf(v), len(v)))
 	}
+	c.You = strings.Join(you, "; ")
 	return c
+}
+
+func minutesText(sec float64) string {
+	if sec >= 3600 && math.Mod(sec, 3600) == 0 {
+		return fmt.Sprintf("%g h", sec/3600)
+	}
+	return fmt.Sprintf("%g min", math.Round(sec/60))
 }
 
 func (pr practice) calibrationCriterion() Criterion {
