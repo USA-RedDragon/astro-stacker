@@ -286,10 +286,31 @@ func tonightSince(ctx context.Context, site *siteMemo, now time.Time) nightSince
 
 var errNoTomorrowSunset = errors.New("the sun does not set at the observatory site tomorrow")
 
-func tomorrowSunset(ctx context.Context, site *siteMemo, now time.Time) (time.Time, error) {
+func previewSunrise(data json.RawMessage) (time.Time, bool) {
+	var v struct {
+		Twilight struct {
+			Sunrise *time.Time `json:"sunrise"`
+		} `json:"twilight"`
+	}
+	if json.Unmarshal(data, &v) != nil || v.Twilight.Sunrise == nil || v.Twilight.Sunrise.IsZero() {
+		return time.Time{}, false
+	}
+	return *v.Twilight.Sunrise, true
+}
+
+func tomorrowSunset(ctx context.Context, site *siteMemo, now time.Time, tonightPlan func(context.Context) (json.RawMessage, error)) (time.Time, error) {
 	s, err := site.get(ctx)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("tomorrow's plan starts at tomorrow's sunset, which needs the observatory site: %w", err)
+	}
+	if tonightPlan != nil {
+		if data, err := tonightPlan(ctx); err == nil {
+			if sunrise, ok := previewSunrise(data); ok {
+				if next, ok := s.NextSunset(sunrise); ok {
+					return next.UTC(), nil
+				}
+			}
+		}
 	}
 	tonight, ok := s.TonightSunset(now)
 	if !ok {
@@ -302,11 +323,15 @@ func tomorrowSunset(ctx context.Context, site *siteMemo, now time.Time) (time.Ti
 	return next.UTC(), nil
 }
 
-func previewStart(c *gin.Context, site *siteMemo, night string, now time.Time) (*time.Time, bool) {
+func previewStart(c *gin.Context, site *siteMemo, cache *PreviewCache, night string, now time.Time) (*time.Time, bool) {
 	if night != nightTomorrow {
 		return nil, true
 	}
-	start, err := tomorrowSunset(c.Request.Context(), site, now)
+	var tonightPlan func(context.Context) (json.RawMessage, error)
+	if cache != nil {
+		tonightPlan = func(ctx context.Context) (json.RawMessage, error) { return cache.Get(ctx, nil, false) }
+	}
+	start, err := tomorrowSunset(c.Request.Context(), site, now, tonightPlan)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
 		return nil, false
@@ -342,7 +367,7 @@ func applyPreviewRoutes(g *gin.RouterGroup, src PreviewSource, cache *PreviewCac
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: "night must be tonight or tomorrow"})
 			return
 		}
-		start, ok := previewStart(c, site, night, now())
+		start, ok := previewStart(c, site, cache, night, now())
 		if !ok {
 			return
 		}
@@ -368,7 +393,7 @@ func applyPreviewRoutes(g *gin.RouterGroup, src PreviewSource, cache *PreviewCac
 		}
 		req := observatory.PreviewRequest{Start: body.Start, Overrides: body.Overrides}
 		if req.Start == nil {
-			start, ok := previewStart(c, site, body.Night, now())
+			start, ok := previewStart(c, site, cache, body.Night, now())
 			if !ok {
 				return
 			}

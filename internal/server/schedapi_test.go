@@ -194,6 +194,51 @@ func TestPreviewProxyAndCache(t *testing.T) {
 	}
 }
 
+type twilightPreviews struct {
+	fakePreviews
+	sunrise time.Time
+}
+
+func (f *twilightPreviews) Preview(ctx context.Context, start *time.Time) (json.RawMessage, error) {
+	if _, err := f.fakePreviews.Preview(ctx, start); err != nil {
+		return nil, err
+	}
+	if start != nil {
+		return json.RawMessage(`{"night":"tomorrow"}`), nil
+	}
+	return json.RawMessage(`{"twilight":{"sunrise":"` + f.sunrise.Format(time.RFC3339) + `"}}`), nil
+}
+
+func TestPreviewTomorrowAfterSunriseIsTheComingNight(t *testing.T) {
+	t.Parallel()
+	f := &twilightPreviews{sunrise: time.Date(2026, 10, 10, 12, 1, 0, 0, time.UTC)}
+	now := time.Date(2026, 10, 10, 14, 30, 0, 0, time.UTC)
+	chicago := func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 41.88, Longitude: -87.63}, nil }
+	h := newHandler(t, memDB(t, "s"), memDB(t, "a"), server.Extras{Previews: f, Site: chicago, Now: func() time.Time { return now }})
+
+	if code, body := do(t, h, http.MethodGet, pathPreview+"?night=tomorrow", ""); code != http.StatusOK || string(body) != `{"night":"tomorrow"}` {
+		t.Fatalf("tomorrow: %d %s", code, body)
+	}
+	if code, _ := do(t, h, http.MethodPost, pathPreview, `{"night":"tomorrow","overrides":[]}`); code != http.StatusOK {
+		t.Fatalf("what-if tomorrow: %d", code)
+	}
+	sunset := time.Date(2026, 10, 10, 23, 17, 0, 0, time.UTC)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var tomorrow *time.Time
+	for _, s := range f.starts {
+		if s != nil {
+			tomorrow = s
+		}
+	}
+	if tomorrow == nil || tomorrow.Sub(sunset).Abs() > 4*time.Minute {
+		t.Errorf("tomorrow starts at %v, want the coming sunset near %v", tomorrow, sunset)
+	}
+	if len(f.posted) != 1 || f.posted[0].Start == nil || f.posted[0].Start.Sub(sunset).Abs() > 4*time.Minute {
+		t.Errorf("what-if posted %+v, want the coming sunset near %v", f.posted, sunset)
+	}
+}
+
 func schedulerTables(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	exec(t, db,
