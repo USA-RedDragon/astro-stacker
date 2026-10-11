@@ -283,6 +283,19 @@ func TestPrimaryNamesAreCommonNames(t *testing.T) {
 	}
 }
 
+func TestLyndsBrightnessZeroMeansNotGiven(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"IC 443", "NGC 6960"} {
+		if o, _ := ix.Get(id); o.Brightness != "" || o.BrightScore != nil {
+			t.Errorf("%s has an LBN brightness class Lynds did not give: %q", id, o.Brightness)
+		}
+	}
+}
+
 const (
 	ic434       = "IC 434"
 	b33         = "B 33"
