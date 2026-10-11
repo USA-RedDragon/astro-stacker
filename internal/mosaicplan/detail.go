@@ -288,7 +288,7 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	best, keys := bestStacks(g, stacks)
 	gs, _, err := goals.LoadGoals(ctx, s.App, s.Sched)
 	if err != nil {
-		gs = nil
+		return d, err
 	}
 	progress, err := goals.Lookup(ctx, s.App, gs, keys)
 	if err != nil {
