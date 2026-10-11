@@ -128,22 +128,31 @@ type candidate struct {
 	frames *FramesProposal
 }
 
-func (s *Service) candidates(ctx context.Context) ([]candidate, mosaics.Rig, error) {
+type pool struct {
+	cands    []candidate
+	rig      mosaics.Rig
+	projects map[string]bool
+	planned  map[string]bool
+}
+
+func (s *Service) candidates(ctx context.Context) (pool, error) {
 	targets, err := tslink.Targets(ctx, s.Sched)
 	if err != nil {
-		return nil, mosaics.Rig{}, err
+		return pool{}, err
 	}
 	var wizard []string
 	if err := s.App.WithContext(ctx).Model(&app.MosaicPanel{}).Where("source = ?", app.MosaicSourceWizard).
 		Distinct("project_guid").Pluck("project_guid", &wizard).Error; err != nil {
-		return nil, mosaics.Rig{}, err
+		return pool{}, err
 	}
 	planned := map[string]bool{}
 	for _, g := range wizard {
 		planned[g] = true
 	}
+	inTS := map[string]bool{}
 	var projects []mosaics.TSProject
 	for _, p := range tslink.GroupProjects(targets) {
+		inTS[p.GUID] = true
 		if p.GUID == "" || planned[p.GUID] {
 			continue
 		}
@@ -155,13 +164,13 @@ func (s *Service) candidates(ctx context.Context) ([]candidate, mosaics.Rig, err
 	}
 	rig, info, err := s.rig(ctx)
 	if err != nil {
-		return nil, rig, err
+		return pool{}, err
 	}
 	var out []candidate
 	for _, p := range mosaics.Propose(projects, rig) {
 		body, err := json.Marshal(p.Panels)
 		if err != nil {
-			return nil, rig, err
+			return pool{}, err
 		}
 		out = append(out, candidate{
 			row: app.MosaicAdoption{Subject: "project:" + p.ProjectGUID, ProjectGUID: p.ProjectGUID, Project: p.Project, Kind: p.Kind,
@@ -171,9 +180,9 @@ func (s *Service) candidates(ctx context.Context) ([]candidate, mosaics.Rig, err
 	}
 	frames, err := s.frameCandidates(ctx, targets, rigInstrument(info))
 	if err != nil {
-		return nil, rig, err
+		return pool{}, err
 	}
-	return append(out, frames...), rig, nil
+	return pool{cands: append(out, frames...), rig: rig, projects: inTS, planned: planned}, nil
 }
 
 func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target, rigKit instrument) ([]candidate, error) {
@@ -337,10 +346,11 @@ func separation(ra1, dec1, ra2, dec2 float64) float64 {
 
 func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) {
 	rep := Report{DryRun: dryRun}
-	cands, rig, err := s.candidates(ctx)
+	pl, err := s.candidates(ctx)
 	if err != nil {
 		return rep, err
 	}
+	cands, rig := pl.cands, pl.rig
 	var existing []app.MosaicAdoption
 	if err := s.App.WithContext(ctx).Find(&existing).Error; err != nil {
 		return rep, err
@@ -410,12 +420,15 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 			live[c.row.Subject] = true
 		}
 		for _, old := range existing {
-			if live[old.Subject] || old.Kind != KindFrames || old.Status != app.AdoptionProposed || old.DecidedAt != nil {
+			if live[old.Subject] || old.Status != app.AdoptionProposed || old.DecidedAt != nil {
 				continue
 			}
-			row, err := settleMoot(tx, old, now, dryRun)
+			row, ok, err := settleMoot(tx, old, pl, now, dryRun)
 			if err != nil {
 				return err
+			}
+			if !ok {
+				continue
 			}
 			rep.Auto++
 			item := toAdoption(row)
@@ -427,12 +440,25 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 	return rep, err
 }
 
-func settleMoot(tx *gorm.DB, row app.MosaicAdoption, now time.Time, dryRun bool) (app.MosaicAdoption, error) {
+func settleMoot(tx *gorm.DB, row app.MosaicAdoption, pl pool, now time.Time, dryRun bool) (app.MosaicAdoption, bool, error) {
+	if row.Kind != KindFrames {
+		switch {
+		case !pl.projects[row.ProjectGUID]:
+			row.Rule = "High: the project was removed from Target Scheduler, so nothing is left to adopt."
+			row.Suggestion = "Nothing to do: the project was removed from Target Scheduler."
+		case pl.planned[row.ProjectGUID]:
+			row.Rule = "High: the project's mosaic was planned in Add target, so it needs no adoption."
+			row.Suggestion = "Nothing to do: the mosaic was planned in Add target."
+		default:
+			return row, false, nil
+		}
+		return closeAuto(tx, row, now, dryRun)
+	}
 	var fp FramesProposal
 	_ = json.Unmarshal([]byte(row.Proposal), &fp)
 	var linked int64
 	if err := tx.Model(&app.FrameTarget{}).Where("object = ? AND method <> ?", fp.Object, LinkReview).Count(&linked).Error; err != nil {
-		return row, err
+		return row, false, err
 	}
 	fp.TargetGUID, fp.Target, fp.ProjectGUID = "", "", ""
 	if linked > 0 {
@@ -445,15 +471,20 @@ func settleMoot(tx *gorm.DB, row app.MosaicAdoption, now time.Time, dryRun bool)
 	}
 	body, err := json.Marshal(fp)
 	if err != nil {
-		return row, err
+		return row, false, err
 	}
+	row.Proposal = string(body)
+	return closeAuto(tx, row, now, dryRun)
+}
+
+func closeAuto(tx *gorm.DB, row app.MosaicAdoption, now time.Time, dryRun bool) (app.MosaicAdoption, bool, error) {
 	at := now
-	row.Confidence, row.Proposal = mosaics.ConfidenceHigh, string(body)
+	row.Confidence = mosaics.ConfidenceHigh
 	row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionAuto, AutoDecider, &at
 	if dryRun {
-		return row, nil
+		return row, true, nil
 	}
-	return row, tx.Model(&row).Select("confidence", "rule", "suggestion", "proposal", "status", "decided_by", "decided_at", "updated_at").Updates(&row).Error
+	return row, true, tx.Model(&row).Select("confidence", "rule", "suggestion", "proposal", "status", "decided_by", "decided_at", "updated_at").Updates(&row).Error
 }
 
 func keep(tx *gorm.DB, c candidate, old app.MosaicAdoption, rig mosaics.Rig, now time.Time, dryRun bool) (app.MosaicAdoption, error) {
