@@ -25,6 +25,8 @@ const (
 	DoneGoal             = "goal"
 	DonePlateau          = "plateau"
 	DonePlan             = "plan"
+	NoGoalMeasurement    = "no goal measurement yet"
+	NoPanelData          = "no data yet"
 	HoursEffective       = "effective"
 	HoursRaw             = "raw"
 )
@@ -48,6 +50,8 @@ type PanelFilter struct {
 	Done           bool    `json:"done,omitempty"`
 	DoneReason     string  `json:"doneReason,omitempty"`
 	LowConfidence  bool    `json:"lowConfidence,omitempty"`
+	Measured       bool    `json:"measured"`
+	NotMeasured    string  `json:"notMeasured,omitempty"`
 }
 
 type Panel struct {
@@ -64,7 +68,7 @@ type Panel struct {
 	Rotation   float64             `json:"rotation"`
 	Footprint  *mosaics.Footprint  `json:"footprint"`
 	Filters    []PanelFilter       `json:"filters"`
-	Progress   float64             `json:"progress"`
+	Progress   *float64            `json:"progress"`
 	Weakest    string              `json:"weakest"`
 	PastGoal   bool                `json:"pastGoal"`
 }
@@ -97,10 +101,11 @@ type Detail struct {
 	RigKnown       bool                    `json:"rigKnown"`
 	Filters        []string                `json:"filters"`
 	Panels         []Panel                 `json:"panels"`
-	Complete       float64                 `json:"complete"`
-	Average        float64                 `json:"average"`
+	Complete       *float64                `json:"complete"`
+	Average        *float64                `json:"average"`
 	WeakestPanel   int                     `json:"weakestPanel"`
 	WeakestFilter  string                  `json:"weakestFilter"`
+	NotMeasured    string                  `json:"notMeasured,omitempty"`
 	EffectiveHours float64                 `json:"effectiveHours"`
 	HoursLeft      HoursLeft               `json:"hoursLeft"`
 	Balancing      Balancing               `json:"balancing"`
@@ -180,16 +185,17 @@ func NoiseAndStatus(ms []app.Mosaic, seams []app.MosaicSeam) ([]MosaicNoise, []S
 }
 
 type Summary struct {
-	Project       string  `json:"project"`
-	ProjectGUID   string  `json:"projectGuid"`
-	Panels        int     `json:"panels"`
-	Adopted       bool    `json:"adopted"`
-	Complete      float64 `json:"complete"`
-	Average       float64 `json:"average"`
-	WeakestPanel  int     `json:"weakestPanel"`
-	WeakestFilter string  `json:"weakestFilter"`
-	SeamWarnings  int     `json:"seamWarnings"`
-	Balancing     bool    `json:"balancing"`
+	Project       string   `json:"project"`
+	ProjectGUID   string   `json:"projectGuid"`
+	Panels        int      `json:"panels"`
+	Adopted       bool     `json:"adopted"`
+	Complete      *float64 `json:"complete"`
+	Average       *float64 `json:"average"`
+	WeakestPanel  int      `json:"weakestPanel"`
+	WeakestFilter string   `json:"weakestFilter"`
+	NotMeasured   string   `json:"notMeasured,omitempty"`
+	SeamWarnings  int      `json:"seamWarnings"`
+	Balancing     bool     `json:"balancing"`
 }
 
 type planRow struct {
@@ -218,7 +224,7 @@ func (s *Service) List(ctx context.Context) ([]Summary, error) {
 			return nil, err
 		}
 		sum := Summary{Project: d.Project, ProjectGUID: d.ProjectGUID, Panels: len(d.Panels), Adopted: d.Adopted, Complete: d.Complete,
-			Average: d.Average, WeakestPanel: d.WeakestPanel, WeakestFilter: d.WeakestFilter, Balancing: d.Balancing.On}
+			Average: d.Average, WeakestPanel: d.WeakestPanel, WeakestFilter: d.WeakestFilter, NotMeasured: d.NotMeasured, Balancing: d.Balancing.On}
 		for _, sm := range d.Seams {
 			if !sm.OK {
 				sum.SeamWarnings++
@@ -308,7 +314,7 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	}
 	for i, pn := range g.Panels {
 		p := Panel{Number: pn.Number, TargetID: ids[pn.TargetGUID], TargetGUID: pn.TargetGUID, Target: pn.Object, Objects: pn.Objects, Links: pn.Links,
-			RA: pn.RA, Dec: pn.Dec, Rotation: pn.Rotation, Progress: 1}
+			RA: pn.RA, Dec: pn.Dec, Rotation: pn.Rotation}
 		p.Footprint = footprints[i]
 		if rigKnown {
 			r, c := rows[i], cols[i]
@@ -323,19 +329,14 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 				continue
 			}
 			p.Filters = append(p.Filters, pf)
-			if c := math.Min(1, pf.Progress); p.Weakest == "" || c < p.Progress {
-				p.Progress, p.Weakest = c, f
-			}
 			d.EffectiveHours += pf.EffectiveHours
 			d.HoursLeft.add(pf)
 		}
-		if len(p.Filters) == 0 {
-			p.Progress = 0
-		}
-		p.PastGoal = len(p.Filters) > 0 && p.Progress >= 1
+		p.Progress, p.Weakest, p.PastGoal = panelLeast(p.Filters)
 		d.Panels = append(d.Panels, p)
 	}
 	d.Complete, d.WeakestPanel, d.WeakestFilter, d.Average = Completion(d.Panels)
+	d.NotMeasured = notMeasuredOf(d.Panels, d.WeakestPanel, d.WeakestFilter)
 	d.Layout = layoutText(d)
 
 	db := s.App.WithContext(ctx)
@@ -420,6 +421,7 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 	case hasGoal:
 		pf.Source, pf.Kind, pf.Goal, pf.Achieved, pf.SNR = SourceGoal, string(gp.Kind), gp.Goal, gp.Achieved, gp.SNR
 		pf.Progress, pf.Plateau, pf.Done, pf.LowConfidence = gp.Progress, gp.Plateau, gp.Done, gp.LowConfidence
+		pf.Measured, pf.NotMeasured = gp.Unmeasured == "", gp.Unmeasured
 		switch {
 		case gp.Progress >= 1:
 			pf.DoneReason = DoneGoal
@@ -433,7 +435,7 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 			pf.EffectiveHours = gp.EffectiveHours
 		}
 	case pf.Desired > 0:
-		pf.Source = SourceTS
+		pf.Source, pf.NotMeasured = SourceTS, NoGoalMeasurement
 		pf.Progress = float64(pf.Accepted) / float64(pf.Desired)
 		pf.Done = pf.Accepted >= pf.Desired
 		if pf.Done {
@@ -443,22 +445,85 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 	case !have:
 		return pf, false
 	}
+	if !pf.Measured && pf.NotMeasured == "" {
+		pf.NotMeasured = NoGoalMeasurement
+	}
 	return pf, true
 }
 
-func Completion(panels []Panel) (complete float64, weakestPanel int, weakestFilter string, average float64) {
-	if len(panels) == 0 {
-		return 0, 0, "", 0
+func filterValue(f PanelFilter) (bool, float64) {
+	switch {
+	case f.Done:
+		return true, 1
+	case f.Measured:
+		return true, math.Min(math.Max(0, f.Progress), 0.999)
 	}
-	complete = math.Inf(1)
+	return false, 0
+}
+
+func lessValue(ma bool, va float64, mb bool, vb float64) bool {
+	if ma != mb {
+		return !ma
+	}
+	return va < vb
+}
+
+func panelLeast(fs []PanelFilter) (*float64, string, bool) {
+	if len(fs) == 0 {
+		return nil, "", false
+	}
+	wm, wv, weakest, done := true, 0.0, "", true
+	for i, f := range fs {
+		m, v := filterValue(f)
+		done = done && f.Done
+		if i == 0 || lessValue(m, v, wm, wv) {
+			wm, wv, weakest = m, v, f.Filter
+		}
+	}
+	if !wm {
+		return nil, weakest, false
+	}
+	return &wv, weakest, done
+}
+
+func Completion(panels []Panel) (complete *float64, weakestPanel int, weakestFilter string, average *float64) {
+	if len(panels) == 0 {
+		return nil, 0, "", nil
+	}
 	var sum float64
-	for _, p := range panels {
-		sum += p.Progress
-		if p.Progress < complete {
+	all := true
+	for i, p := range panels {
+		if p.Progress == nil {
+			all = false
+		} else {
+			sum += *p.Progress
+		}
+		if i == 0 || lessValue(p.Progress != nil, deref(p.Progress), complete != nil, deref(complete)) {
 			complete, weakestPanel, weakestFilter = p.Progress, p.Number, p.Weakest
 		}
 	}
-	return complete, weakestPanel, weakestFilter, sum / float64(len(panels))
+	if all {
+		avg := sum / float64(len(panels))
+		average = &avg
+	}
+	return complete, weakestPanel, weakestFilter, average
+}
+
+func notMeasuredOf(panels []Panel, number int, filter string) string {
+	for _, p := range panels {
+		if p.Number != number || p.Progress != nil {
+			continue
+		}
+		if len(p.Filters) == 0 {
+			return NoPanelData
+		}
+		for _, f := range p.Filters {
+			if f.Filter == filter {
+				return f.NotMeasured
+			}
+		}
+	}
+	return ""
 }
 
 func layoutText(d Detail) *string {
