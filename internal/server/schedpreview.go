@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -14,12 +15,19 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const (
-	previewCacheTTL = time.Minute
-	nightTonight    = "tonight"
-	nightTomorrow   = "tomorrow"
+	previewCacheTTL   = time.Minute
+	previewStableTTL  = 5 * time.Minute
+	previewAheadTTL   = 30 * time.Minute
+	previewWarmEvery  = 15 * time.Second
+	previewWarmLead   = 20 * time.Second
+	previewRetryAfter = time.Minute
+	previewWatchFor   = time.Hour
+	nightTonight      = "tonight"
+	nightTomorrow     = "tomorrow"
 )
 
 type PreviewSource interface {
@@ -27,33 +35,211 @@ type PreviewSource interface {
 	PreviewWith(ctx context.Context, req observatory.PreviewRequest) (json.RawMessage, error)
 }
 
-type previewCache struct {
+// PreviewStamp summarizes the scheduler inputs a preview depends on. It
+// reports false when the inputs cannot be observed.
+type PreviewStamp func(ctx context.Context) (string, bool)
+
+// PreviewCache keeps scheduler previews ready. An entry stays valid while the
+// input stamp is unchanged: for previewAheadTTL while its start is ahead,
+// otherwise for previewStableTTL.
+// A changed or unknown stamp limits an entry to previewCacheTTL. Run refreshes
+// due entries in the background so requests do not wait on the observatory.
+type PreviewCache struct {
+	Source PreviewSource
+	Stamp  PreviewStamp
+
+	now     func() time.Time
+	wake    chan struct{}
 	mu      sync.Mutex
-	entries map[string]cachedPreview
+	gen     uint64
+	entries map[string]*previewEntry
 }
 
-type cachedPreview struct {
-	at   time.Time
+type previewEntry struct {
+	start    *time.Time
+	data     json.RawMessage
+	at       time.Time
+	planFrom time.Time
+	stamp    string
+	stamped  bool
+	gen      uint64
+	asked    time.Time
+	failedAt time.Time
+	run      *previewRun
+}
+
+type previewRun struct {
+	done chan struct{}
 	data json.RawMessage
+	err  error
 }
 
-func (p *previewCache) get(key string, now time.Time) (json.RawMessage, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func NewPreviewCache(src PreviewSource, now func() time.Time) *PreviewCache {
+	if now == nil {
+		now = time.Now
+	}
+	return &PreviewCache{Source: src, now: now, wake: make(chan struct{}, 1), entries: map[string]*previewEntry{}}
+}
+
+func previewKey(start *time.Time) string {
+	if start == nil {
+		return nightTonight
+	}
+	return start.UTC().Format(time.RFC3339)
+}
+
+func (e *previewEntry) fresh(gen uint64, stamp string, stamped bool, at time.Time) bool {
+	if e.data == nil || e.gen != gen {
+		return false
+	}
+	age := at.Sub(e.at)
+	if !stamped || !e.stamped || stamp != e.stamp {
+		return age < previewCacheTTL
+	}
+	if e.planFrom.After(at) {
+		return age < previewAheadTTL
+	}
+	return age < previewStableTTL
+}
+
+func (p *PreviewCache) stamp(ctx context.Context) (string, bool) {
+	if p.Stamp == nil {
+		return "", false
+	}
+	return p.Stamp(ctx)
+}
+
+func (p *PreviewCache) entry(start *time.Time) *previewEntry {
+	key := previewKey(start)
 	e, ok := p.entries[key]
-	if !ok || now.Sub(e.at) >= previewCacheTTL {
-		return nil, false
+	if !ok {
+		e = &previewEntry{start: start}
+		p.entries[key] = e
 	}
-	return e.data, true
+	return e
 }
 
-func (p *previewCache) put(key string, data json.RawMessage, now time.Time) {
+// Invalidate drops every cached preview, for example after a command changed
+// the scheduler, and asks Run to refresh them at once.
+func (p *PreviewCache) Invalidate() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.entries == nil {
-		p.entries = map[string]cachedPreview{}
+	p.gen++
+	p.mu.Unlock()
+	select {
+	case p.wake <- struct{}{}:
+	default:
 	}
-	p.entries[key] = cachedPreview{at: now, data: data}
+}
+
+// Notice invalidates the cache when a command was applied on the observatory.
+func (p *PreviewCache) Notice(r schedcmd.Record) {
+	if r.Status == schedcmd.StatusApplied {
+		p.Invalidate()
+	}
+}
+
+// Get returns the preview that starts at start, or tonight's when start is
+// nil. force skips the cache.
+func (p *PreviewCache) Get(ctx context.Context, start *time.Time, force bool) (json.RawMessage, error) {
+	stamp, stamped := p.stamp(ctx)
+	now := p.now()
+	p.mu.Lock()
+	e := p.entry(start)
+	e.asked = now
+	if !force && e.fresh(p.gen, stamp, stamped, now) {
+		data := e.data
+		p.mu.Unlock()
+		return data, nil
+	}
+	run := p.launch(ctx, e, stamp, stamped, now)
+	p.mu.Unlock()
+	select {
+	case <-run.done:
+		return run.data, run.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (p *PreviewCache) launch(ctx context.Context, e *previewEntry, stamp string, stamped bool, now time.Time) *previewRun {
+	if e.run != nil {
+		return e.run
+	}
+	run := &previewRun{done: make(chan struct{})}
+	e.run = run
+	gen := p.gen
+	go func() {
+		data, err := p.Source.Preview(context.WithoutCancel(ctx), e.start)
+		p.mu.Lock()
+		e.run = nil
+		if err != nil {
+			e.failedAt = p.now()
+		} else {
+			e.data, e.at, e.stamp, e.stamped, e.gen = data, now, stamp, stamped, gen
+			e.planFrom = previewPlanStart(data)
+			e.failedAt = time.Time{}
+		}
+		p.mu.Unlock()
+		run.data, run.err = data, err
+		close(run.done)
+	}()
+	return run
+}
+
+func previewPlanStart(data json.RawMessage) time.Time {
+	var v struct {
+		Start time.Time `json:"start"`
+	}
+	_ = json.Unmarshal(data, &v)
+	return v.Start
+}
+
+// Run keeps tonight's preview, and any other preview asked for in the last
+// previewWatchFor, refreshed ahead of requests until ctx ends.
+func (p *PreviewCache) Run(ctx context.Context) {
+	t := time.NewTicker(previewWarmEvery)
+	defer t.Stop()
+	for {
+		p.Warm(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-p.wake:
+		}
+	}
+}
+
+// Warm starts a refresh of every watched preview that would expire before the
+// next tick and waits for them.
+func (p *PreviewCache) Warm(ctx context.Context) {
+	stamp, stamped := p.stamp(ctx)
+	now := p.now()
+	lead := now.Add(previewWarmLead)
+	p.mu.Lock()
+	p.entry(nil)
+	var runs []*previewRun
+	for key, e := range p.entries {
+		if key != nightTonight && now.Sub(e.asked) > previewWatchFor {
+			delete(p.entries, key)
+			continue
+		}
+		if e.run != nil || e.fresh(p.gen, stamp, stamped, lead) {
+			continue
+		}
+		if !e.failedAt.IsZero() && now.Sub(e.failedAt) < previewRetryAfter {
+			continue
+		}
+		runs = append(runs, p.launch(ctx, e, stamp, stamped, now))
+	}
+	p.mu.Unlock()
+	for _, r := range runs {
+		select {
+		case <-r.done:
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 type SiteSource func(ctx context.Context) (sky.Site, error)
@@ -136,8 +322,10 @@ func observatoryError(c *gin.Context, err error) {
 	c.JSON(http.StatusBadGateway, gin.H{errorKey: err.Error()})
 }
 
-func applyPreviewRoutes(g *gin.RouterGroup, src PreviewSource, site *siteMemo, now func() time.Time) {
-	cache := &previewCache{}
+func applyPreviewRoutes(g *gin.RouterGroup, src PreviewSource, cache *PreviewCache, site *siteMemo, now func() time.Time) {
+	if cache == nil && src != nil {
+		cache = NewPreviewCache(src, now)
+	}
 	unavailable := func(c *gin.Context) bool {
 		if src == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "The scheduler is not configured."})
@@ -154,23 +342,15 @@ func applyPreviewRoutes(g *gin.RouterGroup, src PreviewSource, site *siteMemo, n
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: "night must be tonight or tomorrow"})
 			return
 		}
-		t := now()
-		if c.Query("fresh") == "" {
-			if data, ok := cache.get(night, t); ok {
-				c.Data(http.StatusOK, gin.MIMEJSON, data)
-				return
-			}
-		}
-		start, ok := previewStart(c, site, night, t)
+		start, ok := previewStart(c, site, night, now())
 		if !ok {
 			return
 		}
-		data, err := src.Preview(c.Request.Context(), start)
+		data, err := cache.Get(c.Request.Context(), start, c.Query("fresh") != "")
 		if err != nil {
 			observatoryError(c, err)
 			return
 		}
-		cache.put(night, data, t)
 		c.Data(http.StatusOK, gin.MIMEJSON, data)
 	})
 	g.POST("/scheduler/preview", func(c *gin.Context) {
@@ -204,4 +384,31 @@ func applyPreviewRoutes(g *gin.RouterGroup, src PreviewSource, site *siteMemo, n
 		}
 		c.Data(http.StatusOK, gin.MIMEJSON, data)
 	})
+}
+
+const syncStampQuery = `SELECT
+	(SELECT COALESCE(MAX(batch_id), 0) FROM sym_incoming_batch WHERE channel_id <> 'heartbeat' AND status = 'OK') AS incoming,
+	(SELECT COALESCE(MAX(batch_id), 0) FROM sym_outgoing_batch WHERE channel_id <> 'heartbeat' AND status = 'OK') AS outgoing`
+
+// SyncStamp stamps preview inputs with the newest SymmetricDS batches the
+// scheduler database exchanged with the observatory, plus live state from
+// the plugin that is not in the database.
+func SyncStamp(db *gorm.DB, live func() string) PreviewStamp {
+	return func(ctx context.Context) (string, bool) {
+		if db == nil {
+			return "", false
+		}
+		var row struct {
+			Incoming int64
+			Outgoing int64
+		}
+		if err := db.WithContext(ctx).Raw(syncStampQuery).Scan(&row).Error; err != nil {
+			return "", false
+		}
+		s := strconv.FormatInt(row.Incoming, 10) + "/" + strconv.FormatInt(row.Outgoing, 10)
+		if live != nil {
+			s += "/" + live()
+		}
+		return s, true
+	}
 }

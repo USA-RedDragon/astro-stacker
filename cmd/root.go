@@ -179,16 +179,22 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 
 	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill)
+	previews := server.NewPreviewCache(nil, nil)
 	commands, monitor, obs := newScheduler(indexCtx, cfg, appStore, schedulerDBStore, broker, func(r schedcmd.Record) {
 		if disc != nil && discover.Affects(r) {
 			disc.Invalidate()
 		}
+		previews.Notice(r)
 	})
 	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {
 		extras.Previews = obs
+		previews.Source = obs
+		previews.Stamp = server.SyncStamp(schedulerDBStore.DB(), monitor.PreviewInputs)
+		extras.PreviewCache = previews
+		go previews.Run(indexCtx)
 		extras.Grader = &observatory.GraderCache{Client: obs, Monitor: monitor}
 	}
 
