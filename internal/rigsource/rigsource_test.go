@@ -34,6 +34,22 @@ func TestMeasureReadsTheRigFromRecentLights(t *testing.T) {
 	checkMeasured(t, r)
 }
 
+func TestSourceDoesNotKeepARigFromACancelledRequest(t *testing.T) {
+	t.Parallel()
+	appDB, sched, now := rigFixture(t)
+	reqCtx, cancel := context.WithCancel(context.Background())
+	if err := sched.Callback().Query().Before("gorm:query").Register("test:end_request", func(tx *gorm.DB) {
+		if tx.Statement.Context == reqCtx {
+			cancel()
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	src := &rigsource.Source{App: appDB, Sched: sched, Now: func() time.Time { return now }}
+	src.Get(reqCtx)
+	checkMeasured(t, src.Get(context.Background()))
+}
+
 func rigFixture(t *testing.T) (*gorm.DB, *gorm.DB, time.Time) {
 	t.Helper()
 	appDB, sched := open(t), open(t)

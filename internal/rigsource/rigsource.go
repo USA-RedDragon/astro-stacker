@@ -290,7 +290,7 @@ func Measure(ctx context.Context, appDB, sched *gorm.DB, now time.Time) (Rig, er
 	if err := measureGuiding(ctx, sched, now, &out, used); err != nil {
 		return Empty(), err
 	}
-	return out, nil
+	return out, ctx.Err()
 }
 
 type filterRow struct {
