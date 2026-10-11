@@ -16,6 +16,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -124,8 +125,8 @@ func ObjectLinks(ctx context.Context, appDB, sched *gorm.DB) (map[string]tslink.
 }
 
 func loadGoalRows(ctx context.Context, sched *gorm.DB) ([]goalRow, bool, error) {
-	if !sched.Migrator().HasTable(GoalTable) {
-		return nil, false, nil
+	if has, err := tables.Has(ctx, sched, GoalTable); err != nil || !has {
+		return nil, false, err
 	}
 	var rows []goalRow
 	if err := sched.WithContext(ctx).Table(GoalTable).
@@ -138,9 +139,10 @@ func loadGoalRows(ctx context.Context, sched *gorm.DB) ([]goalRow, bool, error) 
 
 func loadPlanFilters(ctx context.Context, sched *gorm.DB, tm targetMap) (map[Key]string, error) {
 	out := map[Key]string{}
-	m := sched.Migrator()
-	if !m.HasTable("exposureplan") || !m.HasTable("exposuretemplate") {
-		return out, nil
+	for _, t := range []string{"exposureplan", "exposuretemplate"} {
+		if has, err := tables.Has(ctx, sched, t); err != nil || !has {
+			return out, err
+		}
 	}
 	var rows []struct {
 		GUID       string
@@ -420,7 +422,11 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	if !ok {
 		return p.skip(sum, SkipNoGoalTable, true, "Scheduler database table is missing; goal progress is not published", "table", GoalTable), nil
 	}
-	if !p.Sched.Migrator().HasTable(ProgressTable) {
+	hasProgress, err := tables.Has(ctx, p.Sched, ProgressTable)
+	if err != nil {
+		return sum, err
+	}
+	if !hasProgress {
 		return p.skip(sum, SkipNoProgress, true, "Scheduler database table is missing; goal progress is not published", "table", ProgressTable), nil
 	}
 	tm, err := loadTargetMap(ctx, p.App, p.Sched)
@@ -436,7 +442,10 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 		return p.skip(sum, SkipNoGoals, len(rows) > 0, "No goal progress to publish",
 			"goal_rows", len(rows), "known_targets", len(tm.known), "linked_objects", len(tm.guids)), nil
 	}
-	withReadiness := HasReadinessColumns(p.Sched)
+	withReadiness, err := HasReadinessColumns(ctx, p.Sched)
+	if err != nil {
+		return sum, err
+	}
 	want, err := p.progressRows(ctx, byGUID, tm, filters, withReadiness)
 	if err != nil {
 		return sum, err
@@ -449,7 +458,10 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	if err != nil {
 		return sum, err
 	}
-	withSignals := HasSignalColumns(p.Sched)
+	withSignals, err := HasSignalColumns(ctx, p.Sched)
+	if err != nil {
+		return sum, err
+	}
 	var sig Signals
 	if withSignals {
 		if sig, err = p.signals(ctx); err != nil {

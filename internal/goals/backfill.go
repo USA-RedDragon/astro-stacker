@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -49,8 +50,8 @@ func CountBackfill(ctx context.Context, db *gorm.DB, live BackfillLive) (Backfil
 		return out, err
 	}
 	out.Total = len(stacks)
-	if !db.Migrator().HasTable(&app.GoalMeasurement{}) {
-		return out, nil
+	if has, err := tables.Has(ctx, db, &app.GoalMeasurement{}); err != nil || !has {
+		return out, err
 	}
 	var ms []app.GoalMeasurement
 	if err := db.WithContext(ctx).Select("object", "filter", "method_revision", "error").Find(&ms).Error; err != nil {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -32,9 +33,13 @@ type Signals struct {
 	Boosts         map[string]float64
 }
 
-func HasSignalColumns(sched *gorm.DB) bool {
-	m := sched.Migrator()
-	return m.HasColumn(ProgressTable, ColumnNightQuality) && m.HasColumn(ProgressTable, ColumnNightQualityAt) && m.HasColumn(ProgressTable, ColumnSeasonBoost)
+func HasSignalColumns(ctx context.Context, sched *gorm.DB) (bool, error) {
+	for _, c := range []string{ColumnNightQuality, ColumnNightQualityAt, ColumnSeasonBoost} {
+		if has, err := tables.HasColumn(ctx, sched, ProgressTable, c); err != nil || !has {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func quantize(v, step float64) float64 {
