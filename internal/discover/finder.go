@@ -279,7 +279,11 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, []Exclu
 		return nil, nil, nil
 	}
 	now := s.now()
-	day := site.LocalNoon(now)
+	n, err := s.night(ctx, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	day := n.Start
 	hmap, hst := s.halphaMap()
 	key := fmt.Sprintf("%+v|%s|%v", rig.Frame, hst.State, hst.FetchedAt)
 	s.mu.Lock()
@@ -289,10 +293,6 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, []Exclu
 		return cached.rows, cached.excluded, nil
 	}
 	yr, err := s.year(ctx, now.Year())
-	if err != nil {
-		return nil, nil, err
-	}
-	n, err := s.night(ctx, now)
 	if err != nil {
 		return nil, nil, err
 	}

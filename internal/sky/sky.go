@@ -103,6 +103,21 @@ func (s Site) NightOf(t time.Time, step time.Duration) Night {
 	return n
 }
 
+// Ended reports whether the night's darkness is over at t.
+func (n Night) Ended(t time.Time) bool {
+	return n.Dawn != nil && !t.Before(n.Dawn.Add(n.Step))
+}
+
+// Tonight is the night NightOf gives for t, or the next one once its
+// darkness is over, so from dawn to local noon it is the coming night.
+func (s Site) Tonight(t time.Time, step time.Duration) Night {
+	n := s.NightOf(t, step)
+	if n.Ended(t) {
+		return s.NightOf(n.Start.Add(24*time.Hour), step)
+	}
+	return n
+}
+
 func Illumination(age float64) float64 {
 	return (1 - math.Cos(2*math.Pi*age/29.530588)) / 2
 }

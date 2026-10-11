@@ -197,3 +197,26 @@ func TestSunsets(t *testing.T) {
 		t.Error("midnight sun has a next sunset")
 	}
 }
+
+func TestTonightAfterDawn(t *testing.T) {
+	t.Parallel()
+	s := testSite()
+	for _, c := range []struct {
+		now     time.Time
+		sameDay bool
+	}{
+		{time.Date(2026, 11, 1, 15, 0, 0, 0, time.UTC), false},
+		{time.Date(2026, 3, 8, 14, 0, 0, 0, time.UTC), false},
+		{time.Date(2026, 3, 8, 5, 0, 0, 0, time.UTC), true},
+		{time.Date(2026, 11, 2, 0, 30, 0, 0, time.UTC), true},
+	} {
+		n := s.Tonight(c.now, 0)
+		if n.Dusk == nil || n.Dawn == nil || n.Ended(c.now) || !n.Dawn.After(c.now) {
+			t.Errorf("at %v tonight %v to %v", c.now, n.Dusk, n.Dawn)
+			continue
+		}
+		if same := n.Start.Equal(s.NightOf(c.now, 0).Start); same != c.sameDay {
+			t.Errorf("at %v tonight starts %v", c.now, n.Start)
+		}
+	}
+}

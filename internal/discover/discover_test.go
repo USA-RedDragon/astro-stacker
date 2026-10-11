@@ -750,3 +750,26 @@ func TestProjectBeingAdded(t *testing.T) {
 		t.Errorf("cancelled create %+v", e)
 	}
 }
+
+func TestTonightAfterDawnIsTheComingNight(t *testing.T) {
+	t.Parallel()
+	for _, now := range []time.Time{
+		time.Date(2026, 10, 11, 14, 0, 0, 0, time.UTC),
+		time.Date(2026, 11, 1, 15, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 8, 14, 0, 0, 0, time.UTC),
+		time.Date(2026, 10, 11, 3, 0, 0, 0, time.UTC),
+	} {
+		t.Run(now.Format(time.RFC3339), func(t *testing.T) {
+			t.Parallel()
+			s := newService(t)
+			s.Now = func() time.Time { return now }
+			ov, err := s.Overview(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ov.Night == nil || ov.Night.Dusk == nil || ov.Night.Dawn == nil || !ov.Night.Dawn.After(now) || ov.Night.Dusk.Sub(now) > 14*time.Hour {
+				t.Errorf("tonight is %+v", ov.Night)
+			}
+		})
+	}
+}
