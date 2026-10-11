@@ -15,9 +15,8 @@ import (
 
 func SiteFromLights(client *minio.Client, bucket string, db *gorm.DB) SiteSource {
 	return CachedSite(func(ctx context.Context) (mosaics.Site, bool) {
-		var frames []app.Frame
-		if err := db.WithContext(ctx).Select("key", "size").Where("type = ? AND index_error IS NULL", "LIGHT").
-			Order("date_obs DESC").Limit(5).Find(&frames).Error; err != nil {
+		frames, err := newestLights(ctx, db)
+		if err != nil {
 			return mosaics.Site{}, false
 		}
 		for _, f := range frames {
@@ -32,6 +31,13 @@ func SiteFromLights(client *minio.Client, bucket string, db *gorm.DB) SiteSource
 		}
 		return mosaics.Site{}, false
 	})
+}
+
+func newestLights(ctx context.Context, db *gorm.DB) ([]app.Frame, error) {
+	var frames []app.Frame
+	err := db.WithContext(ctx).Select("key", "size").Where("type = ? AND index_error IS NULL", "LIGHT").
+		Order("date_obs IS NULL, date_obs DESC").Limit(5).Find(&frames).Error
+	return frames, err
 }
 
 func (s *Service) SiteFallback(src SiteSource) {
