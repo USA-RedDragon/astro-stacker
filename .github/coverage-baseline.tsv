@@ -52,7 +52,7 @@ internal/goals/plateau.go	21	20
 internal/goals/progress.go	104	91
 internal/goals/readiness.go	28	27
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	330	298
+internal/goals/tsgoals.go	330	300
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
