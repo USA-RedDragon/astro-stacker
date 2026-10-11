@@ -146,10 +146,21 @@ func (m *Monitor) PreviewInputs() string {
 	if m.status == nil {
 		return ""
 	}
+	var running struct {
+		TargetID  int64      `json:"target_id,omitempty"`
+		StartedAt *time.Time `json:"started_at,omitempty"`
+	}
+	if m.status.State == "imaging" && m.status.Target != nil {
+		running.TargetID = m.status.Target.TargetID
+		if m.status.Exposure != nil {
+			running.StartedAt = m.status.Exposure.StartedAt
+		}
+	}
 	b, err := json.Marshal(struct {
 		Version string `json:"version"`
 		Skips   []Skip `json:"skips"`
-	}{m.status.Version, m.status.Skips})
+		Running any    `json:"running"`
+	}{m.status.Version, m.status.Skips, running})
 	if err != nil {
 		return ""
 	}
