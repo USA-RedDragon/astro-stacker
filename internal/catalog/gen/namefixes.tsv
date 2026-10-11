@@ -15,3 +15,11 @@ drop	M 44	MANGER
 alias	M 44	Manger
 drop	NGC 4898	Z Coma Coma
 drop	Blanco 1	Dze Scl Cluster
+drop	M 86	FAUST V051
+drop	IC 2087	IC 2087 IR
+drop	NGC 2170	Mon R2 IRS3
+rename	B 72	Snake Nebula
+drop	B 72	Snake DCld
+rename	M 11	Wild Duck Cluster
+rename	NGC 2362	Tau Canis Majoris Cluster
+rename	NGC 2070	Tarantula Nebula

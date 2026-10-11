@@ -266,6 +266,23 @@ func TestNicknamesBelongToTheirObjects(t *testing.T) {
 	}
 }
 
+func TestPrimaryNamesAreCommonNames(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct{ id, name string }{
+		{"M 86", ""}, {"IC 2087", ""}, {"NGC 2170", ""}, {"B 72", "Snake Nebula"}, {"M 11", "Wild Duck Cluster"},
+		{"NGC 2362", "Tau Canis Majoris Cluster"}, {"NGC 2070", "Tarantula Nebula"},
+	} {
+		o, ok := ix.Get(p.id)
+		if !ok || o.Name != p.name {
+			t.Errorf("%s is named %q, want %q", p.id, o.Name, p.name)
+		}
+	}
+}
+
 const (
 	ic434       = "IC 434"
 	b33         = "B 33"
