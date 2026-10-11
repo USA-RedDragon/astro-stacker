@@ -118,10 +118,12 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
 			ix.Events = broker
 			ix.Wake = newFrames
+			ix.RecentTargets = indexer.ScheduledTargets(schedulerDBStore.DB())
 			ix.AfterScan = darkNeed.Run
 			ix.RejectDarksSince = cfg.Darks.RejectSinceTime()
-			go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second)
-			slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds)
+			go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second, time.Duration(cfg.Indexer.RecentSeconds)*time.Second)
+			slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds,
+				"recent_seconds", cfg.Indexer.RecentSeconds)
 		}
 		if cfg.Previews.Enabled {
 			pv := previewer.New(s3, cfg.S3.Bucket, cfg.S3.ProcessedBucket, appStore.DB(), cfg.Previews.Concurrency,
