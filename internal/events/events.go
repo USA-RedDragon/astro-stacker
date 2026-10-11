@@ -169,7 +169,7 @@ func frame(e Event) ([]byte, bool) {
 
 // Subscribe returns the messages a listener that saw event after has
 // missed, starting with the latest status, and a channel of new ones until
-// cancel is called.
+// cancel is called. A new listener, with after 0, misses nothing.
 func (b *Broker) Subscribe(after uint64) (backlog [][]byte, ch <-chan []byte, cancel func()) {
 	c := make(chan []byte, 64)
 	b.mu.Lock()
@@ -180,7 +180,10 @@ func (b *Broker) Subscribe(after uint64) (backlog [][]byte, ch <-chan []byte, ca
 		backlog = append(backlog, m)
 	}
 	for _, e := range b.recent {
-		if e.ID <= after {
+		// A listener with no Last-Event-ID is new and has loaded the
+		// current state itself; replaying old events would only make it
+		// reload again.
+		if after == 0 || e.ID <= after {
 			continue
 		}
 		if msg, ok := frame(e); ok {
