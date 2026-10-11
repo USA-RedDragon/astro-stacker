@@ -55,6 +55,8 @@ type Progress struct {
 	LeastFilter string   `json:"leastFilter,omitempty"`
 	NotMeasured string   `json:"notMeasured,omitempty"`
 	Enough      bool     `json:"enough"`
+
+	Plateau planning.LeastPlateau `json:"plateau"`
 }
 
 type Tonight struct {
@@ -535,7 +537,31 @@ func progressOf(judged map[string]planning.Judgement, targets []string) *Progres
 		return nil
 	}
 	l := weakest.Least
-	return &Progress{Percent: l.Progress, Target: weakest.Target, LeastFilter: l.Filter, NotMeasured: l.NotMeasured, Enough: l.Enough}
+	return &Progress{Percent: l.Progress, Target: weakest.Target, LeastFilter: l.Filter, NotMeasured: l.NotMeasured, Enough: l.Enough,
+		Plateau: plateauOf(judged, targets)}
+}
+
+func plateauOf(judged map[string]planning.Judgement, targets []string) planning.LeastPlateau {
+	var w *planning.LeastPlateau
+	unmeasured, filters := 0, 0
+	for _, name := range withPlans(judged, targets) {
+		j, ok := judged[name]
+		if !ok || j.Least.Filters == 0 {
+			continue
+		}
+		unmeasured += j.Least.Plateau.Unmeasured
+		filters += j.Least.Plateau.Filters
+		if w == nil || planning.PlateauLess(j.Least.Plateau, *w) {
+			p := j.Least.Plateau
+			w = &p
+		}
+	}
+	if w == nil {
+		return planning.LeastPlateau{NotMeasured: planning.NoPlansReason, GainPct: goals.PlateauGainPct}
+	}
+	out := *w
+	out.Unmeasured, out.Filters = unmeasured, filters
+	return out
 }
 
 func plural(n int, one, many string) string {

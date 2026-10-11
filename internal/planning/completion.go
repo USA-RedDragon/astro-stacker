@@ -51,6 +51,7 @@ type Measurement struct {
 	HeldOutErrPct  *float64          `json:"heldOutErrPct"`
 	GainPerHourPct *float64          `json:"gainPerHourPct"`
 	Plateau        bool              `json:"plateau"`
+	PlateauAt      goals.Plateau     `json:"plateauAt"`
 	Depth          *float64          `json:"depth"`
 	DepthBand      string            `json:"depthBand,omitempty"`
 	DepthApprox    bool              `json:"depthApprox"`
@@ -84,6 +85,7 @@ func measurementOf(m app.GoalMeasurement) *Measurement {
 		out.GainPerHourPct = &g
 		out.Plateau = goals.IsPlateau(m)
 	}
+	out.PlateauAt = goals.PlateauOf(m)
 	if m.Points != "" {
 		_ = json.Unmarshal([]byte(m.Points), &out.Points)
 	}

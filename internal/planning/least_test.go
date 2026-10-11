@@ -110,3 +110,50 @@ func TestLeastOfTargetsSkipsTargetsWithoutEnabledPlans(t *testing.T) {
 		t.Fatalf("%+v", l)
 	}
 }
+
+func plateauGoal(f string, progress, plateau float64) FilterGoal {
+	h := 20.0
+	g := FilterGoal{Filter: f, Goal: &goals.Goal{}, Status: StatusMeasured, Progress: &goals.Progress{Progress: progress, Done: progress >= 1}, Enough: progress >= 1,
+		Measurement: &Measurement{EffectiveHours: plateau * h, PlateauAt: goals.Plateau{Hours: &h, Progress: &plateau}}}
+	finishFilter(&g)
+	return g
+}
+
+func TestLeastPlateauIsTheFilterFurthestFromItsPlateau(t *testing.T) {
+	t.Parallel()
+	gs := make([]FilterGoal, 0, 5)
+	gs = append(gs, plateauGoal("Luminance", 1, 0.3), plateauGoal(filterHa, 1, 0.1), plateauGoal("Red", 0.5, 0.6))
+	l := leastOfGoals("NA 1", gs)
+	if l.Filter != "Red" || l.Plateau.Filter != filterHa || l.Plateau.Progress == nil || *l.Plateau.Progress != 0.1 ||
+		l.Plateau.Hours == nil || *l.Plateau.Hours != 20 || l.Plateau.EffectiveHours != 2 || l.Plateau.Filters != 3 || l.Plateau.Unmeasured != 0 {
+		t.Fatalf("%+v", l.Plateau)
+	}
+	noFloor := FilterGoal{Filter: filterO3, Goal: &goals.Goal{}, Status: StatusMeasured, Measurement: &Measurement{PlateauAt: goals.Plateau{Unmeasured: goals.FloorReason(2)}}}
+	finishFilter(&noFloor)
+	noStack := FilterGoal{Filter: "SII", Status: StatusNoMaster}
+	finishFilter(&noStack)
+	if noStack.PlateauAt.Unmeasured != NoStackReason || noStack.PlateauAt.GainPct != goals.PlateauGainPct {
+		t.Fatalf("%+v", noStack.PlateauAt)
+	}
+	l = leastOfGoals("x", append(gs, noFloor, noStack))
+	if l.Plateau.Progress != nil || l.Plateau.Filter != filterO3 || l.Plateau.NotMeasured != goals.FloorReason(2) || l.Plateau.Unmeasured != 2 {
+		t.Fatalf("%+v", l.Plateau)
+	}
+	if e := leastOfGoals("x", nil); e.Plateau.NotMeasured != NoPlansReason {
+		t.Fatalf("%+v", e.Plateau)
+	}
+}
+
+func TestLeastOfTargetsRollsUpThePlateauSeparately(t *testing.T) {
+	t.Parallel()
+	a := Target{Name: "a", Active: true, Least: leastOfGoals("a", []FilterGoal{plateauGoal("L", 0.4, 0.9)})}
+	b := Target{Name: "b", Active: true, Least: leastOfGoals("b", []FilterGoal{plateauGoal("L", 1, 0.05), plateauGoal("R", 1, 0.5)})}
+	c := Target{Name: "c", Active: false, Least: leastOfGoals("c", []FilterGoal{plateauGoal("L", 0.01, 0.01)})}
+	l := leastOfTargets([]Target{a, b, c})
+	if l.Target != "a" || l.Plateau.Target != "b" || *l.Plateau.Progress != 0.05 || l.Plateau.Filters != 3 {
+		t.Fatalf("%+v %+v", l, l.Plateau)
+	}
+	if l := leastOfTargets([]Target{c}); l.Plateau.NotMeasured != NoPlansReason {
+		t.Fatalf("%+v", l.Plateau)
+	}
+}

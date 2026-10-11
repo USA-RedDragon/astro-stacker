@@ -141,6 +141,7 @@ func Evaluate(m app.GoalMeasurement, g Goal) Progress {
 		p.HoursNeeded = -1
 	}
 	p.Plateau = IsPlateau(m)
+	p.PlateauAt = PlateauOf(m)
 	p.Done = p.Progress >= 1 || (g.PlateauStop && p.Plateau)
 	return p
 }
