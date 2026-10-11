@@ -23,6 +23,7 @@ import (
 const (
 	KindFrames    = "frames"
 	LinkReview    = "review"
+	AutoDecider   = "astro-stacker"
 	framesMaxSep  = 0.5
 	framesHighSep = 0.2
 )
@@ -92,6 +93,7 @@ type FramesProposal struct {
 	ProjectGUID string   `json:"projectGuid,omitempty"`
 	Separation  *float64 `json:"separationDeg"`
 	Nearest     string   `json:"nearest,omitempty"`
+	Within      int      `json:"within"`
 	Coords      bool     `json:"coords"`
 	NameMatch   bool     `json:"nameMatch"`
 	ProjectName string   `json:"projectNamed,omitempty"`
@@ -110,6 +112,7 @@ type Report struct {
 	Clean     int        `json:"clean"`
 	New       int        `json:"new"`
 	Review    int        `json:"review"`
+	Auto      int        `json:"auto"`
 	Unchanged int        `json:"unchanged"`
 	Changed   int        `json:"changed"`
 	Items     []Adoption `json:"items"`
@@ -122,15 +125,15 @@ type candidate struct {
 	frames *FramesProposal
 }
 
-func (s *Service) candidates(ctx context.Context) ([]candidate, error) {
+func (s *Service) candidates(ctx context.Context) ([]candidate, mosaics.Rig, error) {
 	targets, err := tslink.Targets(ctx, s.Sched)
 	if err != nil {
-		return nil, err
+		return nil, mosaics.Rig{}, err
 	}
 	var wizard []string
 	if err := s.App.WithContext(ctx).Model(&app.MosaicPanel{}).Where("source = ?", app.MosaicSourceWizard).
 		Distinct("project_guid").Pluck("project_guid", &wizard).Error; err != nil {
-		return nil, err
+		return nil, mosaics.Rig{}, err
 	}
 	planned := map[string]bool{}
 	for _, g := range wizard {
@@ -149,13 +152,13 @@ func (s *Service) candidates(ctx context.Context) ([]candidate, error) {
 	}
 	rig, _, err := s.rig(ctx)
 	if err != nil {
-		return nil, err
+		return nil, rig, err
 	}
 	var out []candidate
 	for _, p := range mosaics.Propose(projects, rig) {
 		body, err := json.Marshal(p.Panels)
 		if err != nil {
-			return nil, err
+			return nil, rig, err
 		}
 		out = append(out, candidate{
 			row: app.MosaicAdoption{Subject: "project:" + p.ProjectGUID, ProjectGUID: p.ProjectGUID, Project: p.Project, Kind: p.Kind,
@@ -165,9 +168,9 @@ func (s *Service) candidates(ctx context.Context) ([]candidate, error) {
 	}
 	frames, err := s.frameCandidates(ctx, targets)
 	if err != nil {
-		return nil, err
+		return nil, rig, err
 	}
-	return append(out, frames...), nil
+	return append(out, frames...), rig, nil
 }
 
 func (s *Service) frameCandidates(ctx context.Context, targets []tslink.Target) ([]candidate, error) {
@@ -231,7 +234,11 @@ func nearestFrames(fp *FramesProposal, ra, dec float64, targets []tslink.Target)
 		if t.GUID == "" {
 			continue
 		}
-		if d := separation(ra, dec, t.RA, t.Dec); fp.Separation == nil || d < *fp.Separation {
+		d := separation(ra, dec, t.RA, t.Dec)
+		if d <= framesMaxSep {
+			fp.Within++
+		}
+		if fp.Separation == nil || d < *fp.Separation {
 			fp.Separation, fp.TargetGUID, fp.Target, fp.ProjectGUID, fp.Nearest = &d, t.GUID, t.Name, t.ProjectGUID, t.Name
 			fp.NameMatch = sameName(fp.Object, t.Name) || sameName(fp.Object, t.Project)
 		}
@@ -260,6 +267,10 @@ func framesVerdict(fp *FramesProposal) (confidence, rule, suggestion string) {
 	case *fp.Separation > framesMaxSep:
 		return mosaics.ConfidenceLow, fmt.Sprintf("Low: no target within %.1f° of the subs' mount position.", framesMaxSep),
 			fmt.Sprintf("The nearest Target Scheduler target, %s, is %.2f° from the subs' mount position, beyond the %.1f° limit. %s", fp.Nearest, *fp.Separation, framesMaxSep, keep)
+	}
+	if fp.Within > 1 {
+		return mosaics.ConfidenceMedium, fmt.Sprintf("Medium: %d targets are within %.1f° of the subs' mount position, so the nearest may not be the right one.", fp.Within, framesMaxSep),
+			fmt.Sprintf("Attach them to %s, the nearest of %d targets within %.1f° (%.2f° away), or to whichever of them they were taken for.", fp.Target, fp.Within, framesMaxSep, *fp.Separation)
 	}
 	names := "the names don't match, so check it is the same object"
 	if fp.NameMatch {
@@ -296,7 +307,7 @@ func separation(ra1, dec1, ra2, dec2 float64) float64 {
 
 func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) {
 	rep := Report{DryRun: dryRun}
-	cands, err := s.candidates(ctx)
+	cands, rig, err := s.candidates(ctx)
 	if err != nil {
 		return rep, err
 	}
@@ -324,13 +335,10 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 						return err
 					}
 				}
-				if row.Status == app.AdoptionProposed {
-					rep.Review++
-					if row.Clean {
-						rep.Clean++
-					}
+				if row.Status == app.AdoptionProposed && row.Clean {
+					rep.Clean++
 				}
-				if c.frames != nil && row.Status == app.AdoptionAccepted && !dryRun {
+				if c.frames != nil && (row.Status == app.AdoptionAccepted || row.Status == app.AdoptionAuto) && !dryRun {
 					if err := mosaicstore.LinkFrames(tx, c.frames.store(), now); err != nil {
 						return err
 					}
@@ -344,7 +352,6 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 				}
 				row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionProposed, "", nil
 				row.Clean = c.auto
-				rep.Review++
 				action = "review"
 				if c.auto {
 					rep.Clean++
@@ -355,6 +362,17 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 					}
 				}
 			}
+			decided, err := c.settle(tx, &row, rig, now, dryRun)
+			if err != nil {
+				return err
+			}
+			switch {
+			case decided:
+				action = "auto"
+				rep.Auto++
+			case row.Status == app.AdoptionProposed:
+				rep.Review++
+			}
 			item := toAdoption(row)
 			item.Action = action
 			rep.Items = append(rep.Items, item)
@@ -362,6 +380,31 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 		return nil
 	})
 	return rep, err
+}
+
+func (c candidate) settle(tx *gorm.DB, row *app.MosaicAdoption, rig mosaics.Rig, now time.Time, dryRun bool) (bool, error) {
+	if row.Status != app.AdoptionProposed || row.DecidedAt != nil || !c.decidable() {
+		return false, nil
+	}
+	at := now
+	row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionAuto, AutoDecider, &at
+	if dryRun {
+		return true, nil
+	}
+	if err := mosaicstore.Apply(tx, *row, app.AdoptionAuto, rig, now); err != nil {
+		return false, err
+	}
+	return true, tx.Model(row).Select("status", "decided_by", "decided_at", "updated_at").Updates(row).Error
+}
+
+func (c candidate) decidable() bool {
+	if c.frames == nil {
+		return c.row.Kind == mosaics.KindMosaic && c.auto
+	}
+	if c.frames.TargetGUID == "" {
+		return true
+	}
+	return c.frames.NameMatch && c.frames.Within == 1 && c.frames.Separation != nil && *c.frames.Separation <= framesMaxSep
 }
 
 func reworded(row *app.MosaicAdoption, fresh app.MosaicAdoption) bool {

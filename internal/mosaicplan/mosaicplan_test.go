@@ -11,6 +11,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaicstore"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -110,27 +111,136 @@ func appFixture(t *testing.T) *gorm.DB {
 	return db
 }
 
+func addUnmatchedSubs(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	pt := func(v float64) *float64 { return &v }
+	frames := []app.Frame{
+		{ID: 10, Key: "mk1", ETag: "e", Type: light, Object: markarian, MountRA: pt(186.75 + 0.3/math.Cos(13*math.Pi/180)), MountDec: pt(13)},
+		{ID: 11, Key: "mk2", ETag: "e", Type: light, Object: markarian, MountRA: pt(186.75 + 0.3/math.Cos(13*math.Pi/180)), MountDec: pt(13)},
+		{ID: 12, Key: "sh1", ETag: "e", Type: light, Object: "Sh2-1", MountRA: pt(246), MountDec: pt(-24.3)},
+		{ID: 13, Key: "ros", ETag: "e", Type: light, Object: "NGC 2244", MountRA: pt(97.95), MountDec: pt(5.2)},
+	}
+	if err := db.Create(&frames).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunAdoptionDryRunWritesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	appDB := appFixture(t)
+	addUnmatchedSubs(t, appDB)
 	svc := mosaicplan.New(appDB, schedFixture(t))
 	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
 	rep, err := svc.RunAdoption(ctx, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rep.DryRun || rep.Clean != 1 || rep.Review != 4 || rep.New != 4 {
+	if !rep.DryRun || rep.Clean != 1 || rep.Review != 4 || rep.Auto != 3 || rep.New != 7 {
 		t.Errorf("report %+v", rep)
 	}
-	var n int64
-	appDB.Model(&app.MosaicAdoption{}).Count(&n)
-	if n != 0 {
-		t.Errorf("dry run wrote %d adoptions", n)
+	for _, m := range []any{&app.MosaicAdoption{}, &app.MosaicPanel{}, &app.FrameTarget{}} {
+		var n int64
+		appDB.Model(m).Count(&n)
+		if n != 0 {
+			t.Errorf("dry run wrote %d %T", n, m)
+		}
 	}
-	appDB.Model(&app.MosaicPanel{}).Count(&n)
-	if n != 0 {
-		t.Errorf("dry run wrote %d panels", n)
+}
+
+func adoptionsBySubject(t *testing.T, items []mosaicplan.Adoption) map[string]mosaicplan.Adoption {
+	t.Helper()
+	out := map[string]mosaicplan.Adoption{}
+	for _, it := range items {
+		key := it.Project
+		if it.Kind == mosaicplan.KindFrames {
+			key = "subs " + key
+		}
+		out[key] = it
+	}
+	return out
+}
+
+func TestRunAdoptionDecidesWhatTheEvidenceSettles(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	appDB := appFixture(t)
+	addUnmatchedSubs(t, appDB)
+	svc := mosaicplan.New(appDB, schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
+	rep, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := adoptionsBySubject(t, rep.Items)
+	want := map[string]string{
+		markarian: app.AdoptionAuto, "subs " + markarian: app.AdoptionAuto, "subs Dolphin Head": app.AdoptionAuto, "Rho": app.AdoptionProposed,
+		"Rosette": app.AdoptionProposed, "subs Sh2-1": app.AdoptionProposed, "subs NGC 2244": app.AdoptionProposed,
+	}
+	for project, status := range want {
+		if a := by[project]; a.Status != status {
+			t.Errorf("%s is %s, want %s", project, a.Status, status)
+		}
+	}
+	if by[markarian].Kind != mosaics.KindMosaic || by[markarian].DecidedBy != mosaicplan.AutoDecider || by[markarian].DecidedAt == nil {
+		t.Errorf("markarian mosaic %+v", by[markarian])
+	}
+	if by["subs NGC 2244"].Frames.Within != 2 || !strings.HasPrefix(by["subs NGC 2244"].Rule, "Medium: 2 targets") {
+		t.Errorf("two candidates %+v %+v", by["subs NGC 2244"], by["subs NGC 2244"].Frames)
+	}
+	if f := by["subs Sh2-1"].Frames; f.Within != 1 || f.NameMatch || f.Target != "IC 4604 Panel 1" {
+		t.Errorf("name mismatch %+v", f)
+	}
+	var panels []app.MosaicPanel
+	appDB.Order("panel").Find(&panels)
+	if len(panels) != 2 || panels[0].ProjectGUID != "pm" || panels[0].Source != app.MosaicSourceAdopted || panels[1].Neighbours != `["m1"]` {
+		t.Fatalf("panels %+v", panels)
+	}
+	var links []app.FrameTarget
+	appDB.Order("frame_id").Find(&links)
+	if len(links) != 2 || links[0].FrameID != 10 || links[0].TargetGUID != "m1" || links[0].Method != mosaicplan.LinkReview {
+		t.Fatalf("links %+v", links)
+	}
+	checkAdoptionRules(t, by)
+
+	again, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Auto != 0 || again.Review != 4 || again.New != 0 {
+		t.Errorf("second run %+v", again)
+	}
+	checkUndoSticks(ctx, t, svc, appDB, by)
+}
+
+func checkUndoSticks(ctx context.Context, t *testing.T, svc *mosaicplan.Service, appDB *gorm.DB, by map[string]mosaicplan.Adoption) {
+	t.Helper()
+	undo := func(id int) {
+		if _, err := mosaicstore.SetStatus(ctx, appDB, id, app.AdoptionAuto, app.AdoptionProposed, "web", svc.Rig); err != nil {
+			t.Fatal(err)
+		}
+	}
+	undo(by[markarian].ID)
+	undo(by["subs Dolphin Head"].ID)
+	undo(by["subs "+markarian].ID)
+	for _, m := range []any{&app.MosaicPanel{}, &app.FrameTarget{}} {
+		var n int64
+		appDB.Model(m).Count(&n)
+		if n != 0 {
+			t.Errorf("%d %T left after undoing", n, m)
+		}
+	}
+	rep, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Auto != 0 || rep.Review != 7 {
+		t.Errorf("run after undo %+v", rep)
+	}
+	var row app.MosaicAdoption
+	appDB.First(&row, by[markarian].ID)
+	if row.Status != app.AdoptionProposed || row.DecidedBy != "web" {
+		t.Errorf("undone row %+v", row)
 	}
 }
 
@@ -144,38 +254,17 @@ func TestRunAdoptionThenDecide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Clean != 1 || rep.Review != 4 || rep.Changed != 0 {
+	if rep.Clean != 1 || rep.Review != 2 || rep.Auto != 2 || rep.Changed != 0 {
 		t.Fatalf("report %+v", rep)
 	}
-	byKind := map[string]mosaicplan.Adoption{}
-	for _, it := range rep.Items {
-		byKind[it.Project] = it
-	}
-	if a := byKind[markarian]; a.Status != app.AdoptionProposed || !a.Clean || len(a.Panels) != 2 {
-		t.Errorf("markarian %+v", a)
-	}
-	var none int64
-	appDB.Model(&app.MosaicPanel{}).Count(&none)
-	if none != 0 {
-		t.Fatalf("adoption wrote %d panels before any decision", none)
-	}
-	if _, err := svc.Decide(ctx, byKind[markarian].ID, "accept", "test"); err != nil {
-		t.Fatal(err)
-	}
+	byKind := adoptionsBySubject(t, rep.Items)
 	if a := byKind["Rho"]; a.Status != app.AdoptionProposed || a.Confidence != mosaics.ConfidenceHigh {
 		t.Errorf("rho %+v", a)
 	}
 	if a := byKind["Rosette"]; a.Kind != mosaics.KindNotMosaic {
 		t.Errorf("rosette %+v", a)
 	}
-	dol := byKind["Dolphin Head"]
-	checkAdoptionRules(t, byKind)
-	var panels []app.MosaicPanel
-	appDB.Order("panel").Find(&panels)
-	if len(panels) != 2 || panels[0].ProjectGUID != "pm" || panels[0].Source != app.MosaicSourceAdopted || panels[1].Neighbours != `["m1"]` {
-		t.Fatalf("panels %+v", panels)
-	}
-
+	dol := byKind["subs Dolphin Head"]
 	if err := appDB.Model(&app.MosaicAdoption{}).Where("id = ?", dol.ID).Updates(map[string]any{"issue": "stale", "rule": ""}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +272,7 @@ func TestRunAdoptionThenDecide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Unchanged != 4 || again.New != 0 || again.Review != 3 {
+	if again.Unchanged != 4 || again.New != 0 || again.Review != 2 || again.Auto != 0 {
 		t.Errorf("second run %+v", again)
 	}
 
@@ -198,7 +287,7 @@ func TestRunAdoptionThenDecide(t *testing.T) {
 
 func checkAdoptionRules(t *testing.T, byKind map[string]mosaicplan.Adoption) {
 	t.Helper()
-	dol := byKind["Dolphin Head"]
+	dol := byKind["subs Dolphin Head"]
 	if dol.Kind != mosaicplan.KindFrames || dol.Frames == nil || dol.Frames.Count != 1 || dol.Confidence != mosaics.ConfidenceLow {
 		t.Fatalf("dolphin %+v %+v", dol, dol.Frames)
 	}
@@ -216,7 +305,7 @@ func checkDecisions(ctx context.Context, t *testing.T, svc *mosaicplan.Service, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 4 || list[0].Status != app.AdoptionProposed || list[3].Status != app.AdoptionAccepted {
+	if len(list) != 4 || list[0].Status != app.AdoptionProposed || list[3].Status != app.AdoptionAuto {
 		t.Errorf("order %+v", list)
 	}
 	rho, err := svc.Decide(ctx, rhoID, "accept", "test")
@@ -230,6 +319,13 @@ func checkDecisions(ctx context.Context, t *testing.T, svc *mosaicplan.Service, 
 	appDB.Model(&app.MosaicPanel{}).Where("project_guid = ?", "pr").Count(&n)
 	if n != 2 {
 		t.Errorf("%d rho panels", n)
+	}
+	rep, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if by := adoptionsBySubject(t, rep.Items); by["Rho"].Status != app.AdoptionAccepted || by["Rho"].DecidedBy != "test" {
+		t.Errorf("run changed a person's decision %+v", by["Rho"])
 	}
 	if _, err := svc.Decide(ctx, rhoID, "reject", "test"); err != nil {
 		t.Fatal(err)
