@@ -1,7 +1,5 @@
 package stacking
 
-const filterLuminance = "Luminance"
-
 const (
 	objectM31         = "M31"
 	objectM81         = "M81"
