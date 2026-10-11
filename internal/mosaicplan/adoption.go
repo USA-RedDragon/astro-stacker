@@ -429,7 +429,7 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 			live[c.row.Subject] = true
 		}
 		for _, old := range existing {
-			if live[old.Subject] || old.Status != app.AdoptionProposed || old.DecidedAt != nil {
+			if live[old.Subject] || !moot(old, pl) {
 				continue
 			}
 			row, ok, err := settleMoot(tx, old, pl, now, dryRun)
@@ -447,6 +447,13 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 		return nil
 	})
 	return rep, err
+}
+
+func moot(r app.MosaicAdoption, pl pool) bool {
+	if r.Kind != KindFrames && !pl.projects[r.ProjectGUID] {
+		return !autoByUs(r)
+	}
+	return r.Status == app.AdoptionProposed && r.DecidedAt == nil
 }
 
 func settleMoot(tx *gorm.DB, row app.MosaicAdoption, pl pool, now time.Time, dryRun bool) (app.MosaicAdoption, bool, error) {
