@@ -3,7 +3,6 @@ package discover
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"math"
 	"slices"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 )
 
 const (
@@ -162,14 +162,17 @@ func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject,
 	if s.SchedDB != nil {
 		const null = "NULL"
 		rotation, minAlt, guid := null, null, null
-		if s.SchedDB.Migrator().HasColumn("target", "rotation") {
-			rotation = "target.rotation"
-		}
-		if s.SchedDB.Migrator().HasColumn("project", "minimumaltitude") {
-			minAlt = "project.minimumaltitude"
-		}
-		if s.SchedDB.Migrator().HasColumn("project", "guid") {
-			guid = "project.guid"
+		for _, c := range []struct {
+			table, column string
+			sel           *string
+		}{{"target", "rotation", &rotation}, {"project", "minimumaltitude", &minAlt}, {"project", "guid", &guid}} {
+			has, err := tables.HasColumn(ctx, s.SchedDB, c.table, c.column)
+			if err != nil {
+				return nil, nil, fmt.Errorf("check scheduler column %s.%s: %w", c.table, c.column, err)
+			}
+			if has {
+				*c.sel = c.table + "." + c.column
+			}
 		}
 		if err := s.SchedDB.WithContext(ctx).Table("project").
 			Select(`project."Id" AS id, project.name AS name, project.state AS state, project."isMosaic" AS mosaic, target.name AS target, target.ra AS ra, target.dec AS dec, ` + rotation + ` AS rotation, ` + minAlt + ` AS min_alt, ` + guid + ` AS guid`).
@@ -179,8 +182,7 @@ func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject,
 		}
 		var err error
 		if judged, err = planning.Judge(ctx, s.SchedDB, s.AppDB); err != nil {
-			slog.Warn("Could not judge catalogue completion the way Target Scheduler does", "error", err)
-			judged = map[int]map[string]planning.Judgement{}
+			return nil, nil, fmt.Errorf("judge catalogue completion the way Target Scheduler does: %w", err)
 		}
 	}
 	var stacks []stackRow
@@ -197,7 +199,11 @@ func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject,
 		return nil, nil, fmt.Errorf("load light positions: %w", err)
 	}
 	var refs []refRow
-	if s.AppDB.Migrator().HasTable("target_references") {
+	hasRefs, err := tables.Has(ctx, s.AppDB, "target_references")
+	if err != nil {
+		return nil, nil, fmt.Errorf("check plate solutions: %w", err)
+	}
+	if hasRefs {
 		if err := s.AppDB.WithContext(ctx).Table("target_references").Select("object, wcs").Where("wcs IS NOT NULL AND wcs <> ''").
 			Scan(&refs).Error; err != nil {
 			return nil, nil, fmt.Errorf("load plate solutions: %w", err)
@@ -223,7 +229,11 @@ func (s *Service) loadSubjects(ctx context.Context, frame sky.Frame) ([]Subject,
 
 func (s *Service) measuredKeys(ctx context.Context) (map[goals.Key]bool, map[goals.Key]bool, error) {
 	measured, short := map[goals.Key]bool{}, map[goals.Key]bool{}
-	if !s.AppDB.Migrator().HasTable("goal_measurements") {
+	has, err := tables.Has(ctx, s.AppDB, "goal_measurements")
+	if err != nil {
+		return nil, nil, fmt.Errorf("check goal measurements: %w", err)
+	}
+	if !has {
 		return measured, short, nil
 	}
 	var rows []struct {
