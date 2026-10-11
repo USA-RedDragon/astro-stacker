@@ -59,7 +59,7 @@ linters:
       - path: internal/(stacking/.*|server/(covers|public|subs|webui|discover|stacks)|publicframe/render(er)?|events/events|indexer/(indexer|runloop|recent)|siril/maincommand)_test\.go$
         linters:
           - testpackage
-      - path: internal/(goals|goalmeasure|planning)/.*_test\.go$
+      - path: internal/(goals|goalmeasure|planning|astrometry)/.*_test\.go$
         linters:
           - testpackage
       - path: internal/server/(planning|goalmask|objects|darkbacklog|calibration)_test\.go$
@@ -81,6 +81,14 @@ linters:
         linters:
           - gosec
         text: G204
+      - path: internal/astrometry/solvefield\.go$
+        linters:
+          - gosec
+        text: G204|G703
+      - path: internal/(astrometry/solvefield|stacking/telescopes)_test\.go$
+        linters:
+          - gosec
+        text: G306
       - path: internal/stacking/(header|outputs|process)\.go$
         linters:
           - gosec
