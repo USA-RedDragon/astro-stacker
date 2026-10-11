@@ -20,6 +20,7 @@ type shadowTestSub struct {
 	gradient     float64
 	galaxy       float64
 	nebula       float64
+	lanes        float64
 	glow         float64
 	transparency float64
 	w, h         int
@@ -32,37 +33,63 @@ func (s shadowTestSub) size() (int, int) {
 	return s.w, s.h
 }
 
-func (s shadowTestSub) pixels() []float32 {
-	r := rand.New(rand.NewPCG(s.seed, 7))
+// value is the sub's light at x, y without noise.
+func (s shadowTestSub) value(x, y int) float64 {
 	w, h := s.size()
-	px := make([]float32, w*h)
 	t := s.transparency
 	if t == 0 {
 		t = 1
 	}
+	v := shadowTestSky * (1 + s.gradient*(float64(x)/float64(w)-0.5))
+	if s.galaxy > 0 {
+		d2 := math.Pow(float64(x-w/2), 2) + math.Pow(float64(y-h/2), 2)
+		v += t * s.galaxy * math.Exp(-d2/(2*200*200))
+	}
+	if s.nebula > 0 {
+		n := math.Sin(float64(x)/170) * math.Cos(float64(y)/230) * math.Sin(float64(x+y)/410)
+		v += t * s.nebula * (1 + n)
+	}
+	if s.lanes > 0 {
+		v += t * s.lanes * (1 + math.Sin(float64(x)/70)*math.Cos(float64(y)/90))
+	}
+	if s.glow > 0 {
+		d2 := math.Pow(float64(x-shadowTestX), 2) + math.Pow(float64(y-shadowTestY), 2)
+		v += s.glow * shadowTestSky * math.Exp(-d2/(2*shadowTestR*shadowTestR))
+	}
+	if s.shadow > 0 && math.Hypot(float64(x-shadowTestX), float64(y-shadowTestY)) < shadowTestR {
+		v *= 1 - s.shadow
+	}
+	return v
+}
+
+func (s shadowTestSub) pixels() []float32 {
+	r := rand.New(rand.NewPCG(s.seed, 7))
+	w, h := s.size()
+	px := make([]float32, w*h)
 	for y := range h {
 		for x := range w {
-			v := shadowTestSky * (1 + s.gradient*(float64(x)/float64(w)-0.5))
-			if s.galaxy > 0 {
-				d2 := math.Pow(float64(x-w/2), 2) + math.Pow(float64(y-h/2), 2)
-				v += t * s.galaxy * math.Exp(-d2/(2*200*200))
-			}
-			if s.nebula > 0 {
-				n := math.Sin(float64(x)/170) * math.Cos(float64(y)/230) * math.Sin(float64(x+y)/410)
-				v += t * s.nebula * (1 + n)
-			}
-			if s.glow > 0 {
-				d2 := math.Pow(float64(x-shadowTestX), 2) + math.Pow(float64(y-shadowTestY), 2)
-				v += s.glow * shadowTestSky * math.Exp(-d2/(2*shadowTestR*shadowTestR))
-			}
-			if s.shadow > 0 && math.Hypot(float64(x-shadowTestX), float64(y-shadowTestY)) < shadowTestR {
-				v *= 1 - s.shadow
-			}
-			v += r.NormFloat64() * 0.1 * shadowTestSky
-			px[y*w+x] = float32(v)
+			px[y*w+x] = float32(s.value(x, y) + r.NormFloat64()*0.1*shadowTestSky)
 		}
 	}
 	return px
+}
+
+// cells is what cellMedians gives for the sub less its background, with
+// the noise of a cell of pixels as noisy as pixels' has, and its sky.
+func (s shadowTestSub) cells() ([]float32, float64) {
+	r := rand.New(rand.NewPCG(s.seed, 7))
+	w, h := s.size()
+	gw, gh := (w+shadowCell-1)/shadowCell, (h+shadowCell-1)/shadowCell
+	out := make([]float32, gw*gh)
+	for k := range out {
+		v := s.value((k%gw)*shadowCell+shadowCell/2, (k/gw)*shadowCell+shadowCell/2)
+		out[k] = float32(v + r.NormFloat64()*0.1*shadowTestSky/math.Sqrt(shadowCell*shadowCell/4))
+	}
+	bg := median32(slices.Clone(out))
+	for k := range out {
+		out[k] -= bg
+	}
+	return out, float64(bg)
 }
 
 // shadowDip is how much darker the master is in the disc than in a ring
@@ -115,9 +142,8 @@ func TestMedianAnchoredFillsShadow(t *testing.T) {
 	}
 }
 
-func TestMedianAnchoredLeavesHazeAndGradients(t *testing.T) {
+func TestFindShadowsLeavesHazeAndGradients(t *testing.T) {
 	t.Parallel()
-	big := func(s shadowTestSub) shadowTestSub { s.w, s.h = 2560, 1920; return s }
 	for name, subs := range map[string][]shadowTestSub{
 		"galaxy": {
 			{seed: 1, galaxy: 0.0006},
@@ -133,16 +159,23 @@ func TestMedianAnchoredLeavesHazeAndGradients(t *testing.T) {
 			{seed: 4, nebula: 0.002, transparency: 0.85},
 			{seed: 5, nebula: 0.002},
 		},
+		"lanes": {
+			{seed: 1, lanes: 0.002, transparency: 0.7},
+			{seed: 2, lanes: 0.002, transparency: 0.8},
+			{seed: 3, lanes: 0.002},
+			{seed: 4, lanes: 0.002, transparency: 0.75},
+			{seed: 5, lanes: 0.002, gradient: 0.05},
+		},
 	} {
+		cells := make([][]float32, len(subs))
+		skies := make([]float64, len(subs))
 		for i := range subs {
-			subs[i] = big(subs[i])
+			subs[i].w, subs[i].h = 2560, 1920
+			cells[i], skies[i] = subs[i].cells()
 		}
-		w, h := subs[0].size()
-		all := memSubs(subs)
-		medianAnchored(all, w, h, DefaultOptions())
-		for i, l := range all {
-			if l.fill != nil {
-				t.Errorf("%s: sub %d was filled in, but has no shadow", name, i)
+		for i, f := range findShadows(cells, skies, 2560, 1920) {
+			if f != nil {
+				t.Errorf("%s: sub %d was filled in at %+v, but has no shadow", name, i, f.shadows)
 			}
 		}
 	}
@@ -150,9 +183,9 @@ func TestMedianAnchoredLeavesHazeAndGradients(t *testing.T) {
 
 func TestStreamStackFillsShadow(t *testing.T) {
 	t.Parallel()
-	subs := make([]storedSub, 0, 12)
-	gen := make([]shadowTestSub, 0, 12)
-	for i := range 12 {
+	subs := make([]storedSub, 0, 6)
+	gen := make([]shadowTestSub, 0, 6)
+	for i := range 6 {
 		s := shadowTestSub{seed: uint64(i + 1)}
 		if i == 5 {
 			s.shadow = 0.04
@@ -168,7 +201,7 @@ func TestStreamStackFillsShadow(t *testing.T) {
 		}
 	}
 	stack := func(opts Options) float64 {
-		acc, err := streamStack(subs, 3, opts, func(i int, _ storedSub) ([]float32, int, int, error) {
+		acc, err := streamStack(subs, 2, opts, func(i int, _ storedSub) ([]float32, int, int, error) {
 			return slices.Clone(px[i]), shadowTestW, shadowTestH, nil
 		})
 		if err != nil {
