@@ -134,6 +134,7 @@ type NewProject struct {
 	MinimumTime     int     `json:"minimumtime"`
 	MinimumAltitude float64 `json:"minimumaltitude"`
 	IsMosaic        bool    `json:"is_mosaic"`
+	ProjectSettings
 }
 
 type NewTarget struct {
@@ -754,6 +755,9 @@ func decodeProjectCreate(p json.RawMessage) (ProjectCreatePayload, error) {
 	if v.Project.Priority < 0 || v.Project.Priority > 2 || v.Project.State < 0 || v.Project.State > 3 {
 		return v, fmt.Errorf("%w: priority or state out of range", ErrInvalid)
 	}
+	if err := v.Project.Validate(v.Project.MinimumAltitude); err != nil {
+		return v, err
+	}
 	if len(v.Targets) == 0 {
 		return v, fmt.Errorf("%w: at least one target", ErrInvalid)
 	}
@@ -812,6 +816,9 @@ func projectCreateDescription(v ProjectCreatePayload, deleting bool) Description
 	if len(v.Goals) > 0 {
 		g := v.Goals[0].Setting
 		notes = append(notes, "Goal: "+goalText(&g)+" per filter.")
+	}
+	if n := projectSettingsNote(v.Project.ProjectSettings); n != "" {
+		notes = append(notes, n)
 	}
 	d.Note = strings.Join(notes, " ")
 	return d

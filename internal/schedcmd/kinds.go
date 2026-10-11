@@ -3,6 +3,7 @@ package schedcmd
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 )
 
 const (
@@ -37,17 +38,19 @@ func ProjectPriorities() map[int]string {
 }
 
 func ProjectEdit() EditSpec {
+	fields := map[string]FieldSpec{
+		"state":           {Label: fieldState, Format: EnumFormat(ProjectStates())},
+		"priority":        {Label: "Priority", Format: EnumFormat(ProjectPriorities())},
+		"minimumtime":     {Label: "Minimum time", Format: SuffixFormat(" min")},
+		"minimumaltitude": {Label: "Minimum altitude", Format: SuffixFormat("°")},
+	}
+	maps.Copy(fields, projectSettingFields())
 	return EditSpec{
 		KindName:     KindProjectEdit,
 		Entity:       entityProject,
 		EntityLabel:  labelProject,
 		CategoryName: CategoryPriority,
-		Fields: map[string]FieldSpec{
-			"state":           {Label: fieldState, Format: EnumFormat(ProjectStates())},
-			"priority":        {Label: "Priority", Format: EnumFormat(ProjectPriorities())},
-			"minimumtime":     {Label: "Minimum time", Format: SuffixFormat(" min")},
-			"minimumaltitude": {Label: "Minimum altitude", Format: SuffixFormat("°")},
-		},
+		Fields:       fields,
 	}
 }
 

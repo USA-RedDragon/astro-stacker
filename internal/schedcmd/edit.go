@@ -25,6 +25,7 @@ type EditPayload struct {
 type FieldSpec struct {
 	Label  string
 	Format func(json.RawMessage) string
+	Check  func(json.RawMessage) error
 }
 
 type EditSpec struct {
@@ -66,7 +67,8 @@ func (s EditSpec) Validate(payload json.RawMessage) error {
 	}
 	seen := map[string]bool{}
 	for _, c := range p.Changes {
-		if _, ok := s.Fields[c.Field]; !ok {
+		f, ok := s.Fields[c.Field]
+		if !ok {
 			return fmt.Errorf("%w: %s.%s is not editable", ErrInvalid, s.Entity, c.Field)
 		}
 		if seen[c.Field] {
@@ -78,6 +80,11 @@ func (s EditSpec) Validate(payload json.RawMessage) error {
 		}
 		if bytes.Equal(bytes.TrimSpace(c.Before), bytes.TrimSpace(c.After)) {
 			return fmt.Errorf("%w: %s is unchanged", ErrInvalid, c.Field)
+		}
+		if f.Check != nil {
+			if err := f.Check(c.After); err != nil {
+				return fmt.Errorf("%s: %w", c.Field, err)
+			}
 		}
 	}
 	return nil
