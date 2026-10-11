@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -367,4 +368,54 @@ func TestServiceSharedAcrossGoroutines(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestListPagesWithoutSkippingTies(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	ctx := context.Background()
+	at := time.Date(2026, 10, 10, 2, 0, 0, 123456000, time.UTC)
+	for i, r := range []schedcmd.Record{
+		{ID: "a", CreatedAt: at.Add(-48 * time.Hour), Destination: schedcmd.DestinationObservatory},
+		{ID: "b", CreatedAt: at, Destination: schedcmd.DestinationApp},
+		{ID: "c", CreatedAt: at, Destination: schedcmd.DestinationObservatory},
+		{ID: "d", CreatedAt: at, Destination: schedcmd.DestinationObservatory},
+		{ID: "e", CreatedAt: at.Add(time.Minute), Destination: schedcmd.DestinationObservatory},
+	} {
+		r.Kind, r.Author, r.Title, r.Category, r.Status = schedcmd.KindReplan, author, fmt.Sprint("r", i), schedcmd.CategoryControl, schedcmd.StatusApplied
+		if err := s.Log.Create(ctx, &r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var ids []string
+	f := schedcmd.Filter{Limit: 2}
+	for range 5 {
+		page, err := s.Log.List(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, r := range page {
+			ids = append(ids, r.ID)
+		}
+		last := page[len(page)-1]
+		f.Before, f.BeforeID = last.CreatedAt, last.ID
+	}
+	if got := strings.Join(ids, ""); got != "edcba" {
+		t.Fatalf("paged %q, want edcba", got)
+	}
+	got, _ := s.Log.List(ctx, schedcmd.Filter{Destination: schedcmd.DestinationApp})
+	if len(got) != 1 || got[0].ID != "b" {
+		t.Fatalf("destination %+v", got)
+	}
+	got, _ = s.Log.List(ctx, schedcmd.Filter{Since: at.Add(-24 * time.Hour)})
+	if len(got) != 4 || got[len(got)-1].ID != "b" {
+		t.Fatalf("since %+v", got)
+	}
+	got, _ = s.Log.List(ctx, schedcmd.Filter{Limit: 10000})
+	if len(got) != 5 {
+		t.Fatalf("limit %d", len(got))
+	}
 }

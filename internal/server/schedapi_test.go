@@ -599,3 +599,22 @@ func TestPreviewWhatIfWeights(t *testing.T) {
 		t.Fatalf("unknown rule: %d", code)
 	}
 }
+
+func TestCommandListRefusesBadPaging(t *testing.T) {
+	t.Parallel()
+	appDB := memDB(t, "a")
+	if err := appDB.AutoMigrate(&schedcmd.Record{}); err != nil {
+		t.Fatal(err)
+	}
+	h := newHandler(t, memDB(t, "s"), appDB, server.Extras{Commands: &schedcmd.Service{Log: schedcmd.NewGormLog(appDB)}})
+	for _, q := range []string{"limit=501", "limit=0", "limit=all", "before=yesterday", "since=soon", "before_id=x"} {
+		if code, body := do(t, h, http.MethodGet, "/api/v1/commands?"+q, ""); code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", q, code, body)
+		}
+	}
+	for _, q := range []string{"limit=500", "before=2026-10-10T02:00:00.123456Z&before_id=x", "since=2026-10-10T02:00:00Z&destination=app"} {
+		if code, body := do(t, h, http.MethodGet, "/api/v1/commands?"+q, ""); code != http.StatusOK || string(body) != "[]" {
+			t.Errorf("%s: %d %s", q, code, body)
+		}
+	}
+}
