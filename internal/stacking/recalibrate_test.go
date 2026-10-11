@@ -74,6 +74,9 @@ func TestRecalReason(t *testing.T) {
 		{"likely 8 °C off", darkHistory{likely: dark(0, 30)}, recalCloser},
 		// Unrecorded lights are never taken back for a set that grew.
 		{"likely the same setup", darkHistory{likely: dark(-5, 8)}, ""},
+		{"a short set 1 °C further, now a full one", darkHistory{used: dark(-4, 14)}, recalFull},
+		{"likely a short set, now a full one", darkHistory{likely: dark(-4, 14)}, recalFull},
+		{"a full set 1 °C further", darkHistory{used: dark(-4, 30)}, ""},
 		{"frames no set has now", darkHistory{used: dark(-5, 25), gone: true}, recalChanged},
 		{"an imported master", darkHistory{used: &calmatch.Set{Type: frameTypeDark, Exposure: 600, Gain: 0, Offset: 50, SetTemp: -5,
 			BinX: 1, Master: "m.xisf"}, gone: true}, ""},
