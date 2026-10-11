@@ -50,10 +50,11 @@ type SubjectRef struct {
 }
 
 type Progress struct {
-	Percent      float64 `json:"percent"`
-	Target       string  `json:"target"`
-	LeastFilter  string  `json:"leastFilter,omitempty"`
-	LeastPercent float64 `json:"leastPercent"`
+	Percent     *float64 `json:"percent"`
+	Target      string   `json:"target"`
+	LeastFilter string   `json:"leastFilter,omitempty"`
+	NotMeasured string   `json:"notMeasured,omitempty"`
+	Enough      bool     `json:"enough"`
 }
 
 type Tonight struct {
@@ -235,7 +236,7 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 			Basis: l.Basis, Coverage: l.Coverage, Why: l.Why, Tally: t, Completion: completion, Judged: basis,
 			Hours: math.Round(t.Hours*100) / 100}
 		ref.Done = completion == CompletionDone
-		if completion == CompletionInProgress || ref.Done {
+		if completion == CompletionInProgress || completion == CompletionMeasuring || ref.Done {
 			ref.Progress = progressOf(subj.judged, targets)
 		}
 		ref.DoneByGoal = ref.Done && byGoal
@@ -463,44 +464,26 @@ func (t *Tally) add(d *objectData) {
 	}
 }
 
-func basisPhrase(b string) string {
-	switch b {
-	case planning.BasisGoal:
-		return "by its goal"
-	case planning.BasisAccepted:
-		return "by accepted subs against desired"
-	case planning.BasisProvisional:
-		return "by acquired subs against desired, grading delayed"
-	case planning.BasisThrottle:
-		return "by acquired subs against the exposure throttle, no grading"
-	}
-	return "with no enabled exposure plan"
-}
-
 func describeJudgement(j planning.Judgement) (string, bool) {
-	var order []string
-	byBasis := map[string][]string{}
 	byGoal := len(j.Filters) > 0
 	for _, f := range j.Filters {
-		if _, ok := byBasis[f.Basis]; !ok {
-			order = append(order, f.Basis)
-		}
-		byBasis[f.Basis] = append(byBasis[f.Basis], f.Filter)
 		byGoal = byGoal && f.Basis == planning.BasisGoal
 	}
-	parts := make([]string, 0, len(order))
-	for _, b := range order {
-		parts = append(parts, strings.Join(byBasis[b], ", ")+" "+basisPhrase(b))
+	return j.Target + " " + j.Least.Text(), byGoal
+}
+
+func weakestJudgement(judged map[string]planning.Judgement, targets []string) *planning.Judgement {
+	var weakest *planning.Judgement
+	for _, name := range targets {
+		j, ok := judged[name]
+		if ok && (weakest == nil || planning.LeastLess(j.Least, weakest.Least)) {
+			weakest = &j
+		}
 	}
-	text := fmt.Sprintf("Target Scheduler judges %s %.0f%% complete", j.Target, math.Floor(j.Percent*100))
-	if len(parts) > 0 {
-		text += ": " + strings.Join(parts, "; ")
-	}
-	return text, byGoal
+	return weakest
 }
 
 func judge(t Tally, judged map[string]planning.Judgement, targets []string) (string, string, bool) {
-	var weakest *planning.Judgement
 	done, unmeasured, byGoal, n := true, 0, true, 0
 	for _, name := range targets {
 		j, ok := judged[name]
@@ -512,9 +495,6 @@ func judge(t Tally, judged map[string]planning.Judgement, targets []string) (str
 		unmeasured += j.Unmeasured
 		_, g := describeJudgement(j)
 		byGoal = byGoal && g
-		if weakest == nil || j.Percent < weakest.Percent {
-			weakest = &j
-		}
 	}
 	if n == 0 {
 		if t.Filters == 0 {
@@ -522,6 +502,7 @@ func judge(t Tally, judged map[string]planning.Judgement, targets []string) (str
 		}
 		return CompletionInProgress, "Frames but no Target Scheduler goal or exposure plan, so nothing to judge it done against.", false
 	}
+	weakest := weakestJudgement(judged, targets)
 	text, _ := describeJudgement(*weakest)
 	text += "."
 	switch {
@@ -529,33 +510,19 @@ func judge(t Tally, judged map[string]planning.Judgement, targets []string) (str
 		return CompletionDone, text, byGoal
 	case unmeasured > 0:
 		return CompletionMeasuring, text + fmt.Sprintf(" %d %s with a goal not measured yet.", unmeasured, plural(unmeasured, "filter", "filters")), false
-	case t.Filters == 0 && weakest.Percent <= 0:
+	case t.Filters == 0 && (weakest.Least.Progress == nil || *weakest.Least.Progress <= 0):
 		return CompletionNotStarted, text, false
 	}
 	return CompletionInProgress, text, false
 }
 
 func progressOf(judged map[string]planning.Judgement, targets []string) *Progress {
-	var weakest *planning.Judgement
-	for _, name := range targets {
-		j, ok := judged[name]
-		if ok && (weakest == nil || j.Percent < weakest.Percent) {
-			weakest = &j
-		}
-	}
+	weakest := weakestJudgement(judged, targets)
 	if weakest == nil {
 		return nil
 	}
-	p := &Progress{Percent: math.Max(0, math.Min(1, weakest.Percent)), Target: weakest.Target}
-	for _, f := range weakest.Filters {
-		if f.Basis == "" {
-			continue
-		}
-		if pct := math.Max(0, math.Min(1, f.Percent/100)); p.LeastFilter == "" || pct < p.LeastPercent {
-			p.LeastFilter, p.LeastPercent = f.Filter, pct
-		}
-	}
-	return p
+	l := weakest.Least
+	return &Progress{Percent: l.Progress, Target: weakest.Target, LeastFilter: l.Filter, NotMeasured: l.NotMeasured, Enough: l.Enough}
 }
 
 func plural(n int, one, many string) string {
