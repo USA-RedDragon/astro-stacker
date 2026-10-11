@@ -145,8 +145,25 @@ func TestLoadBuildsProjects(t *testing.T) {
 		t.Fatalf("%+v", garlic)
 	}
 	checkGarlicPlans(t, tg)
+	checkLeast(t, cyg, tg)
 	if tg.Plans[2].Exposure != 300 || tg.Plans[0].Exposure != 600 {
 		t.Fatalf("%+v", tg.Plans)
+	}
+}
+
+func checkLeast(t *testing.T, cyg Project, tg Target) {
+	t.Helper()
+	if tg.Least.Filter != filterO3 || tg.Least.Progress == nil || math.Abs(*tg.Least.Progress-(4.4/5)*(4.4/5)) > 1e-9 || tg.Least.Unmeasured != 0 || tg.Least.Enough {
+		t.Fatalf("least %+v", tg.Least)
+	}
+	if ha := tg.Goals[0]; ha.GoalProgress == nil || *ha.GoalProgress != 1 || ha.Enough {
+		t.Fatalf("H-a past its default goal but still finishing on counts %+v", ha)
+	}
+	if o3 := tg.Goals[1]; o3.GoalProgress == nil || math.Abs(*o3.GoalProgress-(4.4/5)*(4.4/5)) > 1e-9 || o3.Enough {
+		t.Fatalf("o3 %+v", o3)
+	}
+	if cyg.Least.Progress != nil || cyg.Least.Enough || cyg.Least.NotMeasured != NoGoalReason {
+		t.Fatalf("cygnus least %+v", cyg.Least)
 	}
 }
 
