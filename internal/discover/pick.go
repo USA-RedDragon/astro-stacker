@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
+	"github.com/USA-RedDragon/astro-stacker/internal/sublength"
 )
 
 const (
@@ -86,12 +87,22 @@ type PickTemplate struct {
 	Filter string `json:"filter"`
 }
 
+type PickLength struct {
+	Gain     int     `json:"gain"`
+	Bucket   string  `json:"bucket"`
+	Exposure float64 `json:"exposure"`
+	Basis    string  `json:"basis"`
+}
+
 type PickFilter struct {
 	Filter        string        `json:"filter"`
 	Template      *PickTemplate `json:"template"`
 	TemplateBasis string        `json:"templateBasis"`
 	Exposure      *float64      `json:"exposure"`
 	ExposureBasis string        `json:"exposureBasis"`
+	Automatic     bool          `json:"automatic"`
+	Lengths       []PickLength  `json:"lengths"`
+	LengthBasis   string        `json:"lengthBasis"`
 	Subs          int           `json:"subs"`
 	Hours         PickHours     `json:"hours"`
 }
@@ -1040,6 +1051,7 @@ func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot,
 			out.Missing = append(out.Missing, pf.Filter)
 		}
 		pf.Exposure, pf.Subs, pf.ExposureBasis = s.subLength(c, rows, dustObjects, fam == FamilyDust)
+		s.automaticLength(&pf, c, plans)
 		goalFilter := c
 		if pf.Template != nil {
 			goalFilter = pf.Template.Filter
@@ -1048,4 +1060,43 @@ func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot,
 		out.Filters = append(out.Filters, pf)
 	}
 	return out, nil
+}
+
+func (s *Service) automaticLength(pf *PickFilter, canon string, plans *planning.Snapshot) {
+	pf.Lengths = []PickLength{}
+	var gain *int
+	if pf.Template != nil && plans != nil {
+		for _, t := range plans.Templates {
+			if t.ID == pf.Template.ID {
+				gain = t.Gain
+			}
+		}
+	}
+	var res *sublength.Result
+	if s.SubLengths != nil {
+		res = s.SubLengths()
+	}
+	rows := res.SiteLengths(canon, gain)
+	if gain == nil && len(rows) > 0 {
+		g := rows[0].Gain
+		gain = &g
+		rows = res.SiteLengths(canon, gain)
+	}
+	var parts []string
+	for _, r := range rows {
+		if !(r.Exposure > 0) {
+			continue
+		}
+		pf.Lengths = append(pf.Lengths, PickLength{Gain: r.Gain, Bucket: string(r.Bucket), Exposure: r.Exposure, Basis: r.Basis})
+		parts = append(parts, fmt.Sprintf("%s %g s", r.Bucket, r.Exposure))
+	}
+	pf.Automatic = res != nil && res.Mode == sublength.ModeOn
+	switch {
+	case len(parts) == 0:
+		pf.LengthBasis = "Picked per moon glare once the sky in this filter is measured; not measured yet, so the template's length is used until then."
+	case pf.Automatic:
+		pf.LengthBasis = fmt.Sprintf("Chosen automatically per moon glare from the sky measured at this site: %s. Once the target has its own subs, its own sky is used.", strings.Join(parts, ", "))
+	default:
+		pf.LengthBasis = fmt.Sprintf("Would be chosen per moon glare from the sky measured at this site: %s. Publishing the lengths to the scheduler is off, so the template's length is used.", strings.Join(parts, ", "))
+	}
 }
