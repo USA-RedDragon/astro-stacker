@@ -492,6 +492,9 @@ func TestPassWaitsWhileStacking(t *testing.T) {
 	r.poll = 5 * time.Millisecond
 	done := make(chan error, 1)
 	go func() { done <- r.Pass(context.Background()) }()
+	for deadline := time.Now().Add(10 * time.Second); r.Live().State != goals.BackfillPaused && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
 	time.Sleep(50 * time.Millisecond)
 	e.objects.mu.Lock()
 	gets := e.objects.gets
