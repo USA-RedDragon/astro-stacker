@@ -8,6 +8,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 )
 
 const SubjectAdding = "adding"
@@ -38,7 +39,11 @@ type createPayload struct {
 }
 
 func (s *Service) addingSubjects(ctx context.Context, frame sky.Frame, existing map[string]bool) ([]Subject, error) {
-	if !s.AppDB.Migrator().HasTable(&schedcmd.Record{}) {
+	has, err := tables.Has(ctx, s.AppDB, &schedcmd.Record{})
+	if err != nil {
+		return nil, fmt.Errorf("check project creates: %w", err)
+	}
+	if !has {
 		return nil, nil
 	}
 	var recs []schedcmd.Record

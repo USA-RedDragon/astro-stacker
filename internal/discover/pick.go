@@ -16,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 )
 
 const (
@@ -342,8 +343,8 @@ type frameExp struct {
 
 func (s *Service) frameExposures(ctx context.Context, camera string) ([]frameExp, error) {
 	var rows []frameExp
-	if !s.AppDB.Migrator().HasTable(&app.Frame{}) {
-		return rows, nil
+	if has, err := tables.Has(ctx, s.AppDB, &app.Frame{}); err != nil || !has {
+		return rows, err
 	}
 	q := s.AppDB.WithContext(ctx).Model(&app.Frame{}).Select("object, filter, exposure, COUNT(*) AS n").
 		Where("type = ? AND index_error IS NULL AND exposure > 0", "LIGHT")
@@ -526,8 +527,8 @@ type skyKey struct{ object, canon string }
 
 func (s *Service) skyByMaster(ctx context.Context) (map[skyKey]float64, error) {
 	out := map[skyKey]float64{}
-	if !s.AppDB.Migrator().HasTable(&app.SkySample{}) {
-		return out, nil
+	if has, err := tables.Has(ctx, s.AppDB, &app.SkySample{}); err != nil || !has {
+		return out, err
 	}
 	var rows []struct {
 		Object string
@@ -799,7 +800,11 @@ func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot)
 		}
 	}
 	var ms []app.GoalMeasurement
-	if s.AppDB.Migrator().HasTable(&app.GoalMeasurement{}) {
+	hasMs, err := tables.Has(ctx, s.AppDB, &app.GoalMeasurement{})
+	if err != nil {
+		return out, err
+	}
+	if hasMs {
 		if err := s.AppDB.WithContext(ctx).Model(&app.GoalMeasurement{}).
 			Select("object, filter, snr, effective_hours, depth, depth_system, pixel_scale, low_confidence").
 			Where("error IS NULL").Find(&ms).Error; err != nil {

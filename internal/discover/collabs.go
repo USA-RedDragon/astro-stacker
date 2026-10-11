@@ -15,6 +15,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 )
 
 const (
@@ -582,8 +583,11 @@ func (s *Service) practice(ctx context.Context) practice {
 	}
 	since := s.now().Add(-practiceWindow)
 	db := s.AppDB.WithContext(ctx)
-	if !db.Migrator().HasTable(&app.Frame{}) {
+	if has, err := tables.Has(ctx, db, &app.Frame{}); err != nil || !has {
 		pr.err = "no lights indexed yet"
+		if err != nil {
+			pr.err = err.Error()
+		}
 		return pr
 	}
 	if err := db.Model(&app.Frame{}).Select("COUNT(*)").
@@ -592,7 +596,12 @@ func (s *Service) practice(ctx context.Context) practice {
 		pr.err = err.Error()
 		return pr
 	}
-	if db.Migrator().HasTable(&app.StackFrame{}) {
+	hasStack, err := tables.Has(ctx, db, &app.StackFrame{})
+	if err != nil {
+		pr.err = err.Error()
+		return pr
+	}
+	if hasStack {
 		var row struct {
 			Lights     int
 			Calibrated int
