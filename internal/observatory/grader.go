@@ -14,6 +14,7 @@ import (
 const (
 	pathGrader     = "/os/v1/grader"
 	GraderFreshFor = time.Minute
+	GraderFetches  = 4
 
 	GraderOK           = "ok"
 	GraderUnsupported  = "unsupported"
@@ -167,12 +168,15 @@ func (g *GraderCache) Limits(ctx context.Context, targetIDs []int) GraderSummary
 	results := make([]GraderTarget, len(ids))
 	errs := make([]error, len(ids))
 	var wg sync.WaitGroup
+	slots := make(chan struct{}, GraderFetches)
 	for i, id := range ids {
 		if t, ok := g.fresh(id, now); ok {
 			results[i] = t
 			continue
 		}
+		slots <- struct{}{}
 		wg.Go(func() {
+			defer func() { <-slots }()
 			r, err := g.Client.Grader(ctx, id)
 			if err != nil {
 				errs[i] = err

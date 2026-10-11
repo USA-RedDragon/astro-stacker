@@ -87,3 +87,37 @@ func TestGraderCacheUnconfigured(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestGraderCacheAsksThePluginAFewTargetsAtATime(t *testing.T) {
+	t.Parallel()
+	var inFlight, most atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			m := most.Load()
+			if n <= m || most.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		_, _ = io.WriteString(w, graderJSON)
+	}))
+	defer srv.Close()
+	m := observatory.NewMonitor(observatory.NewClient(srv.URL, token), nil, nil)
+	m.SetStatus(observatory.Status{Version: pluginVersion}, true)
+	g := &observatory.GraderCache{Client: observatory.NewClient(srv.URL, token), Monitor: m}
+	ids := make([]int, 40)
+	for i := range ids {
+		ids[i] = i + 1
+	}
+	if got := g.Limits(context.Background(), ids); got.State != observatory.GraderOK || len(got.Targets) != len(ids) {
+		t.Fatalf("%+v", got.State)
+	}
+	if n := most.Load(); n > observatory.GraderFetches {
+		t.Fatalf("%d grader requests at once on the observatory PC", n)
+	}
+}
