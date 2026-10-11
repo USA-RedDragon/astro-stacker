@@ -79,7 +79,8 @@ func (p *Previewer) Run(ctx context.Context, interval time.Duration) {
 }
 
 // RenderBatch renders previews for up to batchSize lights that lack one and
-// returns how many it attempted.
+// returns how many it settled: rendered, or recorded as unrenderable. Lights
+// left for a retry, as when uploads fail, are not counted.
 func (p *Previewer) RenderBatch(ctx context.Context) (int, error) {
 	var frames []app.Frame
 	if err := p.db.WithContext(ctx).
@@ -95,16 +96,22 @@ func (p *Previewer) RenderBatch(ctx context.Context) (int, error) {
 	work := make(chan app.Frame)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	failed := 0
+	failed, left := 0, 0
 	for range p.concurrency {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for f := range work {
-				if err := p.renderOne(ctx, f); err != nil {
-					mu.Lock()
+				settled, err := p.renderOne(ctx, f)
+				mu.Lock()
+				if err != nil {
 					failed++
-					mu.Unlock()
+				}
+				if !settled {
+					left++
+				}
+				mu.Unlock()
+				if err != nil {
 					slog.Warn("Could not render preview", "key", f.Key, "error", err)
 				}
 			}
@@ -122,10 +129,10 @@ func (p *Previewer) RenderBatch(ctx context.Context) (int, error) {
 	close(work)
 	wg.Wait()
 	slog.Info("Rendered previews", "frames", len(frames), "failed", failed, "duration", time.Since(start).Round(time.Millisecond))
-	return len(frames), ctx.Err()
+	return len(frames) - left, ctx.Err()
 }
 
-func (p *Previewer) renderOne(ctx context.Context, f app.Frame) error {
+func (p *Previewer) renderOne(ctx context.Context, f app.Frame) (bool, error) {
 	jpg, err := p.render(ctx, f.Key)
 	if ctx.Err() == nil {
 		metrics.PreviewsRendered.WithLabelValues(map[bool]string{true: "ok", false: "failed"}[err == nil]).Inc()
@@ -134,7 +141,7 @@ func (p *Previewer) renderOne(ctx context.Context, f app.Frame) error {
 	updates := map[string]any{"preview_at": now}
 	if err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return false, ctx.Err()
 		}
 		msg := err.Error()
 		updates["preview_error"] = msg
@@ -143,19 +150,19 @@ func (p *Previewer) renderOne(ctx context.Context, f app.Frame) error {
 		if _, putErr := p.client.PutObject(ctx, p.dest, key, bytes.NewReader(jpg), int64(len(jpg)),
 			minio.PutObjectOptions{ContentType: "image/jpeg", CacheControl: "private, max-age=86400"}); putErr != nil {
 			// Upload failures are transient; leave the row untouched to retry.
-			return fmt.Errorf("upload: %w", putErr)
+			return false, fmt.Errorf("upload: %w", putErr)
 		}
 		updates["preview_key"] = key
 	}
 	// Only update the row if the frame hasn't changed meanwhile.
 	if dbErr := p.db.WithContext(ctx).Model(&app.Frame{}).
 		Where("id = ? AND e_tag = ?", f.ID, f.ETag).Updates(updates).Error; dbErr != nil {
-		return fmt.Errorf("save preview: %w", dbErr)
+		return false, fmt.Errorf("save preview: %w", dbErr)
 	}
 	if err == nil && f.Type == "LIGHT" {
 		p.Events.Publish(events.Event{Type: events.TypePreview, Object: f.Object, Filter: f.Filter, Key: f.Key})
 	}
-	return err
+	return true, err
 }
 
 func (p *Previewer) render(ctx context.Context, key string) ([]byte, error) {
