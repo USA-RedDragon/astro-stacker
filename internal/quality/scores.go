@@ -101,6 +101,9 @@ type Measured struct {
 	Calibrated bool
 	HFR        float64
 	Stars      int
+	// Rotator is the rotator angle the sub was taken at, in degrees, nil
+	// when its header has none. It frames the sub's field for transparency.
+	Rotator *float64
 	// Photometry is the stacker's photometry of the light's stars, for its
 	// transparency; nil until measured. A light Target Scheduler has a
 	// record of is listed for this alone, its HFR and sky left 0.
@@ -264,6 +267,8 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 		excess float64
 		phot   *measure.Photometry
 		field  fieldGroup
+		// recorded is whether Target Scheduler has a record of the sub.
+		recorded bool
 	}
 	phots := make(map[string]*measure.Photometry, len(measured))
 	for _, m := range measured {
@@ -281,7 +286,7 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 		pd := pedestal.At(float64(m.Gain), float64(m.Offset))
 		ped := pd.ADU
 		raw := RawWeight(Sky(float64(m.ADUMedian), ped), float64(m.HFR))
-		field := fieldGroup{target: r.Target, g: g, gain: float64(m.Gain), framing: Framing(float64(m.RotatorPosition))}
+		field := fieldGroup{target: r.Target, g: g, gain: fieldGain(float64(m.Gain)), framing: Framing(float64(m.RotatorPosition))}
 		it := item{
 			s: SubScore{
 				File:            m.FileName[strings.LastIndexAny(m.FileName, `\/`)+1:],
@@ -296,11 +301,12 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 				Pedestal:        pd,
 				Sky:             Sky(float64(m.ADUMedian), ped),
 			},
-			raw:    raw,
-			g:      g,
-			target: r.Target,
-			excess: Excess(float64(m.ADUMean), float64(m.ADUMedian)),
-			field:  field,
+			raw:      raw,
+			g:        g,
+			target:   r.Target,
+			excess:   Excess(float64(m.ADUMean), float64(m.ADUMedian)),
+			field:    field,
+			recorded: true,
 		}
 		it.phot = phots[it.s.File]
 		items = append(items, it)
@@ -326,6 +332,11 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 		}
 		ped := pd.ADU
 		raw := RawWeight(Sky(m.SkyADU, ped), m.HFR)
+		rot := math.NaN()
+		if m.Rotator != nil {
+			rot = *m.Rotator
+		}
+		field := fieldGroup{target: m.Target, g: g, gain: fieldGain(m.Gain), framing: Framing(rot)}
 		items = append(items, item{
 			s: SubScore{File: m.File, Filter: g.filter, Exposure: g.exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars,
 				Missing: Missing(m.SkyADU, ped, m.HFR), Pedestal: pd, Sky: Sky(m.SkyADU, ped)},
@@ -333,8 +344,11 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 			g:      g,
 			target: m.Target,
 			excess: math.NaN(),
+			phot:   m.Photometry,
+			field:  field,
 		})
 		byGroup[g] = append(byGroup[g], raw)
+		photsByField[field] = append(photsByField[field], m.Photometry)
 	}
 
 	refs := make(map[group]float64, len(byGroup))
@@ -379,7 +393,7 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 			it.s.TransparencySource = TransparencySkyExcess
 			if math.IsNaN(it.excess) || !(ref > 0) {
 				it.s.TransparencySource = ""
-				it.s.TransparencyMissing = transparencyMissing(it.phot != nil, coreRefs[it.field] != nil, !math.IsNaN(it.excess))
+				it.s.TransparencyMissing = transparencyMissing(it.phot != nil, coreRefs[it.field] != nil, !math.IsNaN(it.excess), it.recorded)
 			}
 		}
 		it.s.Reference, it.s.ReferenceSubs = refs[it.g], counts[it.g]
@@ -405,4 +419,13 @@ func score(rows []row, pedestal Pedestals, measured []Measured) map[string]SubSc
 		out[it.s.File] = it.s
 	}
 	return out
+}
+
+// fieldGain is a gain as a fieldGroup holds it: -1 when unknown, as NaN would
+// make every such sub a field of its own.
+func fieldGain(gain float64) float64 {
+	if math.IsNaN(gain) {
+		return -1
+	}
+	return gain
 }

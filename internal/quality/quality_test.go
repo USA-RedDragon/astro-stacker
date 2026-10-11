@@ -13,6 +13,7 @@ const (
 	targetCrescent = "Crescent"
 	filterHa       = "H-a"
 	filterRed      = "Red"
+	filterLum      = "Luminance"
 )
 
 func TestParseMetadataHandlesNaNStrings(t *testing.T) {
