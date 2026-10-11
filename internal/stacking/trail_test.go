@@ -363,3 +363,101 @@ func MTF(m, x float64) float64 {
 	}
 	return (m - 1) * x / ((2*m-1)*x - m)
 }
+
+// TestSatelliteTrailFixture is TestSatelliteTrail on a 128×128 crop of the
+// same real subs (Abell 85 Red, trail sub 0066 and 11 clean ones), small
+// enough to run on every build.
+func TestSatelliteTrailFixture(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join("testdata", "trail")
+	load := func(_ int, s storedSub) ([]float32, int, int, error) { return readSub(s.key) }
+	opts := DefaultOptions()
+	var clean []storedSub
+	for i := 1; i <= 11; i++ {
+		clean = append(clean, storedSub{key: filepath.Join(dir, fmt.Sprintf("clean%02d.xisf", i)), exposure: 300, weight: 300})
+	}
+	trail := storedSub{key: filepath.Join(dir, "trail.xisf"), exposure: 300, weight: 300}
+	truth, err := streamStack(clean, 3, opts, load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, _, _, err := readSub(trail.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The trail's line in the crop, fitted on the full frame by
+	// TestSatelliteTrail; stars of the clean master are left out.
+	star := float32(masterMedian(truth) + 10*masterSigma(truth))
+	var band []int
+	for y := range truth.H {
+		for x := range truth.W {
+			i := y*truth.W + x
+			if math.Abs(-0.9603*float64(x)-0.2788*float64(y)+79.5) < 3 && truth.Mean[i] < star {
+				band = append(band, i)
+			}
+		}
+	}
+	leftover := func(a, ref *Accumulator) (mean, worst float64) {
+		sig := masterSigma(ref)
+		for _, i := range band {
+			d := float64(a.Mean[i]-ref.Mean[i]) / sig
+			mean += d
+			worst = max(worst, d)
+		}
+		return mean / float64(len(band)), worst
+	}
+	check := func(name string, a, ref *Accumulator) {
+		mean, worst := leftover(a, ref)
+		t.Logf("%-20s mean leftover on the trail %+.3fσ, worst pixel %+.2fσ", name, mean, worst)
+		if mean > 0.05 || worst > 1.5 {
+			t.Errorf("%s left the trail in: mean %+.3fσ, worst %+.2fσ", name, mean, worst)
+		}
+	}
+	all := append(slices.Clone(clean), trail)
+	plain, err := streamStack(all, 1, opts, load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mean, worst := leftover(plain, truth)
+	t.Logf("%-20s mean leftover on the trail %+.3fσ, worst pixel %+.2fσ, %d trail pixels", "no rejection", mean, worst, len(band))
+	if mean < 0.3 {
+		t.Fatalf("without rejection the trail leaves only %+.3fσ; the fixture has no trail to reject", mean)
+	}
+	full, err := streamStack(all, 3, opts, load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("full rebuild", full, truth)
+	inc, err := streamStack(clean, 3, opts, load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inc.Add(sub, trail.exposure, trail.weight, opts); err != nil {
+		t.Fatal(err)
+	}
+	check("incremental add", inc, truth)
+	for _, k := range []int{2, 4, 9} {
+		var mem, cmem []memSub
+		for _, s := range clean[:k] {
+			p, _, _, err := readSub(s.key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mem = append(mem, toMemSub(p, s.exposure, s.weight, opts.SaturationLevel))
+			cmem = append(cmem, toMemSub(p, s.exposure, s.weight, opts.SaturationLevel))
+		}
+		mem = append(mem, toMemSub(sub, trail.exposure, trail.weight, opts.SaturationLevel))
+		check(fmt.Sprintf("warm-up %d subs", k+1), medianAnchored(mem, truth.W, truth.H, opts), medianAnchored(cmem, truth.W, truth.H, opts))
+	}
+}
+
+func masterMedian(a *Accumulator) float64 {
+	var d []float64
+	for i := 0; i < len(a.Mean); i += 97 {
+		if a.Weight[i] > 0 {
+			d = append(d, float64(a.Mean[i]))
+		}
+	}
+	slices.Sort(d)
+	return d[len(d)/2]
+}
