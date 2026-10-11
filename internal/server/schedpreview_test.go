@@ -310,3 +310,73 @@ func TestSyncStamp(t *testing.T) {
 		t.Fatalf("stamp after a delivered batch %q", s)
 	}
 }
+
+type versionedPreviews struct {
+	mu      sync.Mutex
+	version int
+	started chan struct{}
+	gate    chan struct{}
+}
+
+func (s *versionedPreviews) Preview(context.Context, *time.Time) (json.RawMessage, error) {
+	s.mu.Lock()
+	v := s.version
+	s.mu.Unlock()
+	if s.started != nil {
+		s.started <- struct{}{}
+	}
+	if s.gate != nil {
+		<-s.gate
+	}
+	return json.RawMessage(fmt.Sprintf(`{"version":%d}`, v)), nil
+}
+
+func (s *versionedPreviews) PreviewWith(context.Context, observatory.PreviewRequest) (json.RawMessage, error) {
+	return nil, errors.New("unused")
+}
+
+func TestPreviewCacheDoesNotJoinARunStartedBeforeInvalidate(t *testing.T) {
+	t.Parallel()
+	src := &versionedPreviews{started: make(chan struct{}, 4), gate: make(chan struct{})}
+	p := server.NewPreviewCache(src, nil)
+	first := make(chan error, 1)
+	go func() {
+		_, err := p.Get(context.Background(), nil, false)
+		first <- err
+	}()
+	<-src.started
+	src.mu.Lock()
+	src.version = 1
+	src.mu.Unlock()
+	p.Invalidate()
+	second := make(chan json.RawMessage, 1)
+	go func() {
+		data, err := p.Get(context.Background(), nil, false)
+		if err != nil {
+			t.Error(err)
+		}
+		second <- data
+	}()
+	select {
+	case <-src.started:
+	case <-time.After(time.Second):
+	}
+	close(src.gate)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	var v struct{ Version int }
+	if err := json.Unmarshal(<-second, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Version != 1 {
+		t.Fatalf("a request after Invalidate got the plan from before it: version %d", v.Version)
+	}
+	data, err := p.Get(context.Background(), nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &v); err != nil || v.Version != 1 {
+		t.Fatalf("cached after both runs: %s %v", data, err)
+	}
+}
