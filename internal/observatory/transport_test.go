@@ -232,3 +232,14 @@ func TestRedelivererSendsAndReconciles(t *testing.T) {
 	defer cancel()
 	rd.Run(runCtx, 10*time.Millisecond)
 }
+
+func TestQueueTransportDefersDelivery(t *testing.T) {
+	t.Parallel()
+	var d schedcmd.Deferring = observatory.NewQueueTransport(nil)
+	if !d.Defers() {
+		t.Fatal("the database queue must count as deferred delivery")
+	}
+	if _, ok := any(observatory.NewAPITransport(nil)).(schedcmd.Deferring); ok {
+		t.Fatal("the API transport delivers at once")
+	}
+}

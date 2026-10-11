@@ -285,6 +285,7 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		schedcmd.KindPause:             `{"mount":"park","resume_after_minutes":30}`,
 		schedcmd.KindResume:            `{}`,
 		schedcmd.KindReplan:            `{}`,
+		schedcmd.KindAbortExposure:     abortPayload,
 		schedcmd.KindGoalEdit:          samples()[schedcmd.KindGoalEdit],
 		schedcmd.KindRuleWeightEdit:    samples()[schedcmd.KindRuleWeightEdit],
 		"exposuretemplate.edit":        samples()["exposuretemplate.edit"],

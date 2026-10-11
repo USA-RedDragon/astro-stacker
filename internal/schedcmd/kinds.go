@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 )
 
 const (
@@ -15,6 +16,7 @@ const (
 	KindPause            Kind = "scheduler.pause"
 	KindResume           Kind = "scheduler.resume"
 	KindReplan           Kind = "scheduler.replan"
+	KindAbortExposure    Kind = "exposure.abort"
 )
 
 const (
@@ -292,6 +294,72 @@ func ReplanSpec() Spec {
 	}
 }
 
+type AbortExposurePayload struct {
+	PlanID     int64     `json:"plan_id"`
+	StartedAt  time.Time `json:"started_at"`
+	TargetName string    `json:"target_name,omitempty"`
+	Filter     string    `json:"filter,omitempty"`
+}
+
+func decodeAbortExposure(p json.RawMessage) (AbortExposurePayload, error) {
+	var s AbortExposurePayload
+	if len(p) == 0 || string(p) == "null" {
+		return s, fmt.Errorf("%w: missing plan_id", ErrInvalid)
+	}
+	if err := json.Unmarshal(p, &s); err != nil {
+		return s, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	if s.PlanID <= 0 {
+		return s, fmt.Errorf("%w: missing plan_id", ErrInvalid)
+	}
+	if s.StartedAt.IsZero() {
+		return s, fmt.Errorf("%w: missing started_at", ErrInvalid)
+	}
+	return s, nil
+}
+
+func abortedExposure(s AbortExposurePayload) string {
+	what := "Exposure"
+	if s.Filter != "" {
+		what = s.Filter + " exposure"
+	}
+	if s.TargetName != "" {
+		what += " on " + s.TargetName
+	}
+	return what + ", started " + s.StartedAt.UTC().Format("2006-01-02 15:04:05 UTC")
+}
+
+type abortExposureSpec struct {
+	controlSpec
+}
+
+func (abortExposureSpec) UnsentMessage() string {
+	return "The observatory PC did not answer, so nothing was aborted. An abort is not queued or retried, because it only applies to the exposure running when you sent it."
+}
+
+func AbortExposureSpec() Spec {
+	return abortExposureSpec{controlSpec{
+		kind:     KindAbortExposure,
+		validate: func(p json.RawMessage) error { _, err := decodeAbortExposure(p); return err },
+		describe: func(p json.RawMessage) (Description, error) {
+			s, err := decodeAbortExposure(p)
+			if err != nil {
+				return Description{}, err
+			}
+			title := "Abort the exposure"
+			if s.TargetName != "" {
+				title += " on " + s.TargetName
+			}
+			return Description{
+				Title:   title,
+				Objects: []ObjectRef{schedulerObject()},
+				Diffs:   []Diff{{Object: schedulerObject(), Field: "Exposure", Before: quote(abortedExposure(s)), After: quote("Aborted, partial frame discarded")}},
+				Note:    "Applies at once. The partial frame is not saved and cannot be recovered.",
+			}, nil
+		},
+	}}
+}
+
 func Builtin() []Spec {
 	return append([]Spec{
 		ProjectEdit(),
@@ -302,6 +370,7 @@ func Builtin() []Spec {
 		PauseSpec(),
 		ResumeSpec(),
 		ReplanSpec(),
+		AbortExposureSpec(),
 		MosaicAdoptSpec(),
 	}, append(PlanningSpecs(), MatchingSpecs()...)...)
 }
