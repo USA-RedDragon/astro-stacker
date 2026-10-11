@@ -719,3 +719,39 @@ func TestRunAdoptionKeepsOtherInstrumentsApartAndWithdrawsItsOwnAttachments(t *t
 		t.Errorf("third run not settled %+v", third)
 	}
 }
+
+func TestRunAdoptionSettlesSubsTargetSchedulerLinkedSince(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	appDB := appFixture(t)
+	addUnmatchedSubs(t, appDB)
+	svc := mosaicplan.New(appDB, schedFixture(t))
+	svc.Rig = mosaics.Rig{WidthDeg: 3.32, HeightDeg: 2.22, ScaleArcsec: 1.915}
+	first, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh := adoptionsBySubject(t, first.Items)["subs Sh2-1"]
+	if sh.Status != app.AdoptionProposed {
+		t.Fatalf("sh2-1 %+v", sh)
+	}
+	if err := appDB.Create(&app.FrameTarget{FrameID: 12, Object: "Sh2-1", TargetGUID: "r1", ProjectGUID: "pr", Method: app.LinkAcquiredImage}).Error; err != nil {
+		t.Fatal(err)
+	}
+	again, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := adoptionsBySubject(t, again.Items)["subs Sh2-1"]
+	if a.Status != app.AdoptionAuto || a.DecidedBy != mosaicplan.AutoDecider || a.Frames == nil || !a.Frames.LinkedByTS || a.Frames.Target != "" ||
+		!strings.HasPrefix(a.Suggestion, "Nothing to do") || again.Review != 3 {
+		t.Fatalf("moot row %+v %+v report %+v", a, a.Frames, again)
+	}
+	third, err := svc.RunAdoption(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.Auto != 0 {
+		t.Errorf("third run %+v", third)
+	}
+}

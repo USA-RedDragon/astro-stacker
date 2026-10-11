@@ -99,6 +99,7 @@ type FramesProposal struct {
 	Coords      bool     `json:"coords"`
 	NameMatch   bool     `json:"nameMatch"`
 	ProjectName string   `json:"projectNamed,omitempty"`
+	LinkedByTS  bool     `json:"linkedByTs,omitempty"`
 }
 
 func (fp FramesProposal) store() mosaicstore.FramesProposal {
@@ -404,9 +405,55 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 			item.Action = action
 			rep.Items = append(rep.Items, item)
 		}
+		live := map[string]bool{}
+		for _, c := range cands {
+			live[c.row.Subject] = true
+		}
+		for _, old := range existing {
+			if live[old.Subject] || old.Kind != KindFrames || old.Status != app.AdoptionProposed || old.DecidedAt != nil {
+				continue
+			}
+			row, err := settleMoot(tx, old, now, dryRun)
+			if err != nil {
+				return err
+			}
+			rep.Auto++
+			item := toAdoption(row)
+			item.Action = "auto"
+			rep.Items = append(rep.Items, item)
+		}
 		return nil
 	})
 	return rep, err
+}
+
+func settleMoot(tx *gorm.DB, row app.MosaicAdoption, now time.Time, dryRun bool) (app.MosaicAdoption, error) {
+	var fp FramesProposal
+	_ = json.Unmarshal([]byte(row.Proposal), &fp)
+	var linked int64
+	if err := tx.Model(&app.FrameTarget{}).Where("object = ? AND method <> ?", fp.Object, LinkReview).Count(&linked).Error; err != nil {
+		return row, err
+	}
+	fp.TargetGUID, fp.Target, fp.ProjectGUID = "", "", ""
+	if linked > 0 {
+		fp.LinkedByTS = true
+		row.Rule = fmt.Sprintf("High: Target Scheduler's own records now link %d subs named %q to a target, so nothing is left to decide.", linked, fp.Object)
+		row.Suggestion = "Nothing to do: Target Scheduler's own records already link these subs to a target."
+	} else {
+		row.Rule = fmt.Sprintf("High: no unlinked subs named %q are left, so nothing is left to decide.", fp.Object)
+		row.Suggestion = "Nothing to do: no unlinked subs of this name are left."
+	}
+	body, err := json.Marshal(fp)
+	if err != nil {
+		return row, err
+	}
+	at := now
+	row.Confidence, row.Proposal = mosaics.ConfidenceHigh, string(body)
+	row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionAuto, AutoDecider, &at
+	if dryRun {
+		return row, nil
+	}
+	return row, tx.Model(&row).Select("confidence", "rule", "suggestion", "proposal", "status", "decided_by", "decided_at", "updated_at").Updates(&row).Error
 }
 
 func keep(tx *gorm.DB, c candidate, old app.MosaicAdoption, rig mosaics.Rig, now time.Time, dryRun bool) (app.MosaicAdoption, error) {
