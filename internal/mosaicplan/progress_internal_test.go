@@ -69,18 +69,18 @@ func TestNightsLeftCountsNightsAboveTheThreshold(t *testing.T) {
 	site := mosaics.Site{Lat: 32, Lon: -97}
 	pts := []mosaics.Point{{RA: 186, Dec: 13}}
 	now := time.Date(2026, 3, 1, 3, 0, 0, 0, time.UTC)
-	n := nightsLeft(now, site, pts, 20)
+	n := nightsLeft(now, site, pts, mosaics.Flat(20))
 	if n == 0 || n > 200 {
 		t.Fatalf("nights left %d", n)
 	}
 	first := time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC)
-	if h := mosaics.DarkHours(first.AddDate(0, 0, n-1), site, pts, 20); h < usableMonthly {
+	if h := mosaics.DarkHours(first.AddDate(0, 0, n-1), site, pts, mosaics.Flat(20)); h < usableMonthly {
 		t.Errorf("last counted night has %v dark hours", h)
 	}
-	if h := mosaics.DarkHours(first.AddDate(0, 0, n), site, pts, 20); h >= usableMonthly {
+	if h := mosaics.DarkHours(first.AddDate(0, 0, n), site, pts, mosaics.Flat(20)); h >= usableMonthly {
 		t.Errorf("first uncounted night has %v dark hours", h)
 	}
-	if nightsLeft(time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC), site, pts, 20) != 0 {
+	if nightsLeft(time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC), site, pts, mosaics.Flat(20)) != 0 {
 		t.Error("an autumn night counted for a spring target")
 	}
 }

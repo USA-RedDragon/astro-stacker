@@ -133,7 +133,7 @@ func SeasonHours(season *planning.Season, site mosaics.Site, pt mosaics.Point, m
 	for i := 0; i < n; i += boostSampleNights {
 		w := min(boostSampleNights, n-i)
 		night := first.AddDate(0, 0, i+w/2)
-		h := mosaics.DarkHours(night, site, []mosaics.Point{pt}, minAlt)
+		h := mosaics.DarkHours(night, site, []mosaics.Point{pt}, mosaics.Flat(minAlt))
 		if h*60 < float64(minMinutes) {
 			continue
 		}

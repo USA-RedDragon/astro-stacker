@@ -32,11 +32,24 @@ func Sun(t time.Time) (ra, dec float64) {
 	return ra, dec
 }
 
-func Altitude(t time.Time, site Site, ra, dec float64) float64 {
+func hourAngle(t time.Time, site Site, ra float64) float64 {
 	gmst := 280.46061837 + 360.98564736629*(julianDay(t)-2451545)
-	ha := gmst + site.Lon - ra
+	return gmst + site.Lon - ra
+}
+
+func Altitude(t time.Time, site Site, ra, dec float64) float64 {
+	ha := hourAngle(t, site, ra)
 	s := sinD(site.Lat)*sinD(dec) + cosD(site.Lat)*cosD(dec)*cosD(ha)
 	return math.Asin(math.Max(-1, math.Min(1, s))) / deg
+}
+
+// AltAz returns the altitude and the azimuth in degrees, with the azimuth
+// measured from north through east as NINA and Target Scheduler do.
+func AltAz(t time.Time, site Site, ra, dec float64) (alt, az float64) {
+	ha := hourAngle(t, site, ra)
+	alt = Altitude(t, site, ra, dec)
+	az = wrap360(math.Atan2(-sinD(ha)*cosD(dec), sinD(dec)*cosD(site.Lat)-cosD(dec)*sinD(site.Lat)*cosD(ha)) / deg)
+	return alt, az
 }
 
 func localNoon(night time.Time, site Site) time.Time {
@@ -44,7 +57,7 @@ func localNoon(night time.Time, site Site) time.Time {
 	return time.Date(y, m, d, 12, 0, 0, 0, time.UTC).Add(time.Duration(-site.Lon / 15 * float64(time.Hour)))
 }
 
-func DarkHours(night time.Time, site Site, points []Point, minAltDeg float64) float64 {
+func DarkHours(night time.Time, site Site, points []Point, limit Limit) float64 {
 	start := localNoon(night, site)
 	steps := int(24 * time.Hour / darkStep)
 	dark := 0
@@ -53,29 +66,35 @@ func DarkHours(night time.Time, site Site, points []Point, minAltDeg float64) fl
 		if sunRA, sunDec := Sun(t); Altitude(t, site, sunRA, sunDec) >= darkSunAlt {
 			continue
 		}
-		if allAbove(t, site, points, minAltDeg) {
+		if allAbove(t, site, points, limit) {
 			dark++
 		}
 	}
 	return float64(dark) * darkStep.Hours()
 }
 
-func allAbove(t time.Time, site Site, points []Point, minAltDeg float64) bool {
+func allAbove(t time.Time, site Site, points []Point, limit Limit) bool {
 	for _, p := range points {
-		if Altitude(t, site, p.RA, p.Dec) <= minAltDeg {
+		if limit.Horizon == nil {
+			if Altitude(t, site, p.RA, p.Dec) <= limit.Min {
+				return false
+			}
+			continue
+		}
+		if alt, az := AltAz(t, site, p.RA, p.Dec); alt <= limit.At(az) {
 			return false
 		}
 	}
 	return true
 }
 
-func MonthlyDarkHours(year int, site Site, points []Point, minAltDeg float64) [12]float64 {
+func MonthlyDarkHours(year int, site Site, points []Point, limit Limit) [12]float64 {
 	var out [12]float64
 	days := []int{1, 8, 15, 22}
 	for m := range 12 {
 		sum := 0.0
 		for _, d := range days {
-			sum += DarkHours(time.Date(year, time.Month(m+1), d, 0, 0, 0, 0, time.UTC), site, points, minAltDeg)
+			sum += DarkHours(time.Date(year, time.Month(m+1), d, 0, 0, 0, 0, time.UTC), site, points, limit)
 		}
 		out[m] = sum / float64(len(days))
 	}
