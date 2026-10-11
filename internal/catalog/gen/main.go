@@ -594,7 +594,7 @@ func (b *builder) sharpless(ctx context.Context) error {
 		}
 		o := &catalog.Object{Designation: pSh2 + n, Type: catalog.TypeEmission, RA: ra, Dec: dec, Source: "vii-20-catalog"}
 		o.MajorArcmin, _ = num(t.get(r, "Diam"))
-		if br, ok := num(t.get(r, "Bright")); ok {
+		if br, ok := num(t.get(r, "Bright")); ok && br >= 1 && br <= 3 {
 			o.Brightness = fmt.Sprintf("Sharpless brightness %d of 3 (3 brightest)", int(br))
 			o.BrightScore = classScore(br, 3, 1)
 		}
@@ -617,7 +617,7 @@ func (b *builder) lbn(ctx context.Context) error {
 		o := &catalog.Object{Designation: pLBN + n, Type: catalog.TypeNebula, RA: ra, Dec: dec, Source: "vii-9-catalog"}
 		o.MajorArcmin, _ = num(t.get(r, "Diam1"))
 		o.MinorArcmin = axis(t.get(r, "Diam2"))
-		if br, ok := num(t.get(r, "Bright")); ok {
+		if br, ok := num(t.get(r, "Bright")); ok && br >= 1 && br <= 6 {
 			o.Brightness = fmt.Sprintf("LBN brightness %d of 6 (1 brightest)", int(br))
 			o.BrightScore = classScore(br, 1, 6)
 		}
