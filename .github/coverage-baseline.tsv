@@ -41,7 +41,7 @@ internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	108
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	397	337
+internal/goalmeasure/runner.go	397	338
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -51,7 +51,7 @@ internal/goals/measure.go	257	240
 internal/goals/progress.go	103	90
 internal/goals/readiness.go	28	27
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	330	299
+internal/goals/tsgoals.go	330	298
 internal/goals/zeropoint.go	143	127
 internal/halpha/halpha.go	177	154
 internal/imagedata/fits.go	62	51
@@ -82,7 +82,7 @@ internal/observatory/client.go	91	75
 internal/observatory/grader.go	112	98
 internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	204	175
-internal/observatory/transport.go	50	45
+internal/observatory/transport.go	51	46
 internal/planning/completion.go	63	47
 internal/planning/defaults.go	9	8
 internal/planning/drafts.go	211	190
@@ -108,7 +108,7 @@ internal/schedcmd/altitude.go	59	52
 internal/schedcmd/before.go	69	41
 internal/schedcmd/command.go	5	4
 internal/schedcmd/edit.go	89	75
-internal/schedcmd/kinds.go	95	75
+internal/schedcmd/kinds.go	122	101
 internal/schedcmd/log.go	47	38
 internal/schedcmd/matching.go	57	53
 internal/schedcmd/mosaics.go	51	44
@@ -116,7 +116,7 @@ internal/schedcmd/planning.go	404	331
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	198	172
+internal/schedcmd/service.go	226	198
 internal/schedcmd/settings.go	84	78
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	20	14
