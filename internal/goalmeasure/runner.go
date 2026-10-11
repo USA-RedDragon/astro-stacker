@@ -198,7 +198,10 @@ func (r *Runner) Pass(ctx context.Context) error {
 	if err := r.refitStored(ctx); err != nil && ctx.Err() == nil {
 		slog.Warn("Could not refit stored goal measurements", "error", err)
 	}
-	goalsByKey, guids := r.loadGoals(ctx)
+	goalsByKey, guids, err := r.loadGoals(ctx)
+	if err != nil {
+		return err
+	}
 	todo, fresh, err := r.due(ctx, goalsByKey)
 	if err != nil {
 		return err
@@ -310,21 +313,19 @@ func (r *Runner) Publish(ctx context.Context) (goals.PublishSummary, error) {
 	return r.pub.Publish(ctx)
 }
 
-func (r *Runner) loadGoals(ctx context.Context) (map[goals.Key]goals.Goal, map[string]string) {
+func (r *Runner) loadGoals(ctx context.Context) (map[goals.Key]goals.Goal, map[string]string, error) {
 	if r.sched == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	gs, _, err := goals.LoadGoals(ctx, r.db, r.sched)
 	if err != nil {
-		slog.Warn("Could not load goals from the scheduler database", "error", err)
-		gs = nil
+		return nil, nil, fmt.Errorf("load goals from the scheduler database: %w", err)
 	}
 	guids, err := goals.ObjectGUIDs(ctx, r.db, r.sched)
 	if err != nil {
-		slog.Warn("Could not map objects to Target Scheduler targets", "error", err)
-		guids = nil
+		return nil, nil, fmt.Errorf("map objects to Target Scheduler targets: %w", err)
 	}
-	return gs, guids
+	return gs, guids, nil
 }
 
 func needsMeasurement(s app.Stack, m *app.GoalMeasurement, regionHash string, hasMask bool) bool {
