@@ -69,10 +69,8 @@ func wcsCards(t *testing.T, ra, dec, arcsec float64, w, h int) string {
 	return string(b)
 }
 
-func newService(t *testing.T) *discover.Service {
-	t.Helper()
-	sched := openDB(t, "sched")
-	for _, q := range []string{
+func schedSchema() []string {
+	return []string{
 		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, "profileId" TEXT, name TEXT, description TEXT, state INTEGER, priority INTEGER, minimumtime INTEGER,
 			minimumaltitude REAL, "maximumAltitude" REAL, "isMosaic" INTEGER, enablegrader INTEGER, guid TEXT)`,
 		`CREATE TABLE target ("Id" INTEGER PRIMARY KEY, name TEXT, active INTEGER, ra REAL, dec REAL, rotation REAL, projectid INTEGER, guid TEXT)`,
@@ -82,6 +80,13 @@ func newService(t *testing.T) *discover.Service {
 			twilightlevel INTEGER, moonavoidanceenabled INTEGER, moonavoidanceseparation REAL, moonavoidancewidth INTEGER, maximumhumidity REAL,
 			defaultexposure REAL, moonrelaxscale REAL, moondownenabled INTEGER, ditherevery INTEGER, guid TEXT)`,
 		`CREATE TABLE ruleweight ("Id" INTEGER PRIMARY KEY, name TEXT, weight REAL, projectid INTEGER)`,
+	}
+}
+
+func newService(t *testing.T) *discover.Service {
+	t.Helper()
+	sched := openDB(t, "sched")
+	for _, q := range append(schedSchema(),
 		`INSERT INTO project ("Id", "profileId", name, state, minimumaltitude, "isMosaic", enablegrader, guid) VALUES
 			(1, 'p', 'Garlic Nebula', 1, 30, 0, 1, 'pg'), (2, 'p', 'Cygnis Loop', 1, 30, 1, 1, 'pc'), (3, 'p', 'M13', 1, 42, 0, 1, 'pm'),
 			(4, 'p', 'C/2025 R2', 1, 30, 0, 1, 'pk'), (5, 'p', 'Andromeda Galaxy', 1, 30, 0, 1, 'pa'), (6, 'p', 'Pleiades', 0, 30, 0, 1, 'pp')`,
@@ -93,7 +98,7 @@ func newService(t *testing.T) *discover.Service {
 			(3, 'p', 'L', 'L', 300)`,
 		`INSERT INTO exposureplan ("Id", "profileId", exposure, desired, acquired, accepted, targetid, "exposureTemplateId", enabled) VALUES
 			(1, 'p', 600, 120, 130, 120, 1, 1, 1), (2, 'p', 600, 80, 60, 60, 1, 2, 1), (3, 'p', 300, 40, 50, 40, 4, 3, 1), (4, 'p', 300, 10, 0, 0, 4, 1, 0)`,
-	} {
+	) {
 		if err := sched.Exec(q).Error; err != nil {
 			t.Fatal(err)
 		}

@@ -37,7 +37,7 @@ func TestPickOnPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Palette != "HOO + S-II" || len(p.Rules) != 1 || !p.Rules[0].Derived {
+	if p.Palette != hooSII || len(p.Rules) != 1 || !p.Rules[0].Derived {
 		t.Fatalf("pick %+v", p)
 	}
 	ha := filterOf(p, "H-α")
