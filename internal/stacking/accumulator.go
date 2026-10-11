@@ -52,11 +52,16 @@ type Accumulator struct {
 	BackgroundSum float64
 	WeightSum     float64
 	Subs          int
+
+	LocalNorm LocalNormRecord
 }
 
 func NewAccumulator(w, h int) *Accumulator {
 	n := w * h
-	return &Accumulator{W: w, H: h, Weight: make([]float32, n), Mean: make([]float32, n), M2: make([]float32, n), Count: make([]float32, n)}
+	return &Accumulator{
+		W: w, H: h, Weight: make([]float32, n), Mean: make([]float32, n), M2: make([]float32, n), Count: make([]float32, n),
+		LocalNorm: LocalNormRecord{Known: true},
+	}
 }
 
 // AddResult reports what happened to one sub's pixels.
@@ -75,7 +80,7 @@ func (a *Accumulator) Add(sub []float32, exposure, weight float64, opts Options)
 	if !(exposure > 0) || !(weight > 0) {
 		return AddResult{}, fmt.Errorf("exposure %v and weight %v must be positive", exposure, weight)
 	}
-	sky := skyFor(sub, a.W, a.H, exposure, a, opts)
+	sky := a.skyFor(sub, exposure, a, opts)
 	norm := sky.normalizer(exposure)
 	k2 := opts.RejectSigma * opts.RejectSigma
 	// Pixels are independent, so judging all of them before folding any in
@@ -94,14 +99,21 @@ func (a *Accumulator) Add(sub []float32, exposure, weight float64, opts Options)
 	return a.fold(sub, exposure, weight, sky, reject, opts), nil
 }
 
-// skyFor is a sub's sky: fitted against ref with LocalNorm, otherwise its
-// background level.
-func skyFor(sub []float32, w, h int, exposure float64, ref *Accumulator, opts Options) skyModel {
+// skyFor is a sub's sky for a: fitted against ref with LocalNorm,
+// otherwise its background level. The coverage share that decided it is
+// recorded on a.
+func (a *Accumulator) skyFor(sub []float32, exposure float64, ref *Accumulator, opts Options) skyModel {
 	flat := background(sub, opts.SaturationLevel) / exposure
-	if !opts.LocalNorm || !needsLocalNorm(ref) {
-		return flatSky(w, h, flat)
+	if !opts.LocalNorm {
+		return flatSky(a.W, a.H, flat)
 	}
-	return fitSky(func(i int) float32 { return sub[i] }, w, h, exposure, ref, opts.SaturationLevel, flat)
+	if share, ok := unevenShare(ref); ok {
+		a.LocalNorm.Uneven, a.LocalNorm.Measured = share, true
+	}
+	if !needsLocalNorm(ref) {
+		return flatSky(a.W, a.H, flat)
+	}
+	return fitSky(func(i int) float32 { return sub[i] }, a.W, a.H, exposure, ref, opts.SaturationLevel, flat)
 }
 
 // fold adds a sub's pixels that aren't empty, saturated or rejected (after
@@ -142,6 +154,9 @@ func (a *Accumulator) fold(sub []float32, exposure, weight float64, sky skyModel
 	a.BackgroundSum += weight * res.Background
 	a.WeightSum += weight
 	a.Subs++
+	if sky.fitted {
+		a.LocalNorm.Subs++
+	}
 	return res
 }
 
