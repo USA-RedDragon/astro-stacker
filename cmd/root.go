@@ -16,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/goalmeasure"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/goalswitch"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
@@ -205,6 +206,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		extras.Grader = &observatory.GraderCache{Client: obs, Monitor: monitor}
 	}
 
+	startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
+
 	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], extras)
 	if err := server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
@@ -252,6 +255,15 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 			slog.Warn("Goal measurement still busy at shutdown")
 		}
 	}, r.Live
+}
+
+func startDepthSwitch(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, commands *schedcmd.Service, disc *discover.Service) {
+	if !cfg.Goals.Enabled || disc == nil {
+		return
+	}
+	sw := &goalswitch.Switcher{App: appStore.DB(), Sched: schedStore.DB(), Commands: commands, Classes: disc.ProjectClasses, Mode: cfg.Goals.DepthSwitch}
+	go sw.Run(ctx, time.Hour)
+	slog.Info("Depth goal switch started", "mode", cfg.Goals.DepthSwitch)
 }
 
 func goalOptions(cfg *config.Config, boosts goals.SeasonBoostSource, busy func() bool) goalmeasure.Options {

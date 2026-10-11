@@ -51,6 +51,7 @@ func TestProductionEnv(t *testing.T) {
 		"PUBLIC_FRAMES_ENABLED":        envTrue,
 		"GOALS_ENABLED":                envTrue,
 		"GOALS_PUBLISH":                "on",
+		"GOALS_DEPTH_SWITCH":           "dry-run",
 	}
 
 	cfg, err := configulator.New(config.ConfigSchema()).
@@ -94,6 +95,7 @@ func TestProductionEnv(t *testing.T) {
 		{"PUBLIC_FRAMES_ENABLED", cfg.PublicFrames.Enabled, true},
 		{"GOALS_ENABLED", cfg.Goals.Enabled, true},
 		{"GOALS_PUBLISH", cfg.Goals.Publish, config.GoalsPublishOn},
+		{"GOALS_DEPTH_SWITCH", cfg.Goals.DepthSwitch, config.GoalsPublishDryRun},
 	}
 	if len(checks) != len(env) {
 		t.Fatalf("%d checks for %d variables", len(checks), len(env))
