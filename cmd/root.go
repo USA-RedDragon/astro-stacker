@@ -27,6 +27,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
+	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	"github.com/lmittmann/tint"
 	"github.com/minio/minio-go/v7"
@@ -104,6 +105,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	var stackBusy func() bool
 	var backfill func() goals.BackfillLive
 	broker := events.NewBroker()
+	newFrames := &wake.Signal{}
 	darkNeed := &darkneed.Publisher{App: appStore.DB(), Sched: schedulerDBStore.DB(), Mode: cfg.Darks.Publish}
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
 		creds := credentials(cfg)
@@ -115,6 +117,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if cfg.Indexer.Enabled {
 			ix := indexer.New(s3, cfg.S3.Bucket, appStore.DB(), cfg.Indexer.Concurrency)
 			ix.Events = broker
+			ix.Wake = newFrames
 			ix.AfterScan = darkNeed.Run
 			ix.RejectDarksSince = cfg.Darks.RejectSinceTime()
 			go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second)
@@ -124,6 +127,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			pv := previewer.New(s3, cfg.S3.Bucket, cfg.S3.ProcessedBucket, appStore.DB(), cfg.Previews.Concurrency,
 				preview.Options{MaxWidth: cfg.Previews.MaxWidth, Quality: cfg.Previews.Quality})
 			pv.Events = broker
+			pv.Wake = newFrames
 			go pv.Run(indexCtx, time.Duration(cfg.Previews.IntervalSeconds)*time.Second)
 			slog.Info("Preview renderer started", "bucket", cfg.S3.ProcessedBucket, "concurrency", cfg.Previews.Concurrency)
 		}
@@ -143,6 +147,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if cfg.Stacking.Enabled {
 			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
 			p.Events = broker
+			p.Wake = newFrames
 			restacker = p
 			// Its own context: on shutdown it drains first, and is only
 			// cancelled if that takes too long.
