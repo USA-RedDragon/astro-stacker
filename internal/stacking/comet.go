@@ -108,7 +108,7 @@ func (e ephemeris) at(t time.Time) (ra, dec float64, ok bool) {
 
 // horizons fetches a comet's positions each minute between from and to, seen
 // from the site (east longitude and latitude in degrees, elevation in m).
-func horizons(ctx context.Context, designation string, from, to time.Time, lon, lat, elev float64) (ephemeris, error) {
+func horizons(ctx context.Context, base, designation string, from, to time.Time, lon, lat, elev float64) (ephemeris, error) {
 	q := url.Values{}
 	for k, v := range map[string]string{
 		"format": "json", "COMMAND": fmt.Sprintf("'DES=%s;CAP;NOFRAG'", designation),
@@ -133,7 +133,7 @@ func horizons(ctx context.Context, designation string, from, to time.Time, lon, 
 			case <-time.After(time.Duration(attempt*attempt) * 5 * time.Second):
 			}
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, horizonsURL+"?"+q.Encode(), nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?"+q.Encode(), nil)
 		if err != nil {
 			return ephemeris{}, err
 		}
@@ -162,6 +162,38 @@ func horizons(ctx context.Context, designation string, from, to time.Time, lon, 
 		return ephemeris{}, fmt.Errorf("horizons: %s", r.Error)
 	}
 	return parseEphemeris(r.Result)
+}
+
+const (
+	ephemerisGap  = 6 * time.Hour
+	ephemerisSpan = 7 * 24 * time.Hour
+)
+
+// cometEphemeris fetches the comet's positions around each of times, one
+// Horizons request per run of times, since Horizons refuses a table of more
+// than 90024 rows, about 62 days at one per minute.
+func cometEphemeris(ctx context.Context, base, designation string, times []time.Time, lon, lat, elev float64) (ephemeris, error) {
+	sorted := slices.SortedFunc(slices.Values(times), time.Time.Compare)
+	var out ephemeris
+	for i := 0; i < len(sorted); {
+		from, to := sorted[i], sorted[i]
+		for i++; i < len(sorted) && sorted[i].Sub(to) <= ephemerisGap && sorted[i].Sub(from) <= ephemerisSpan; i++ {
+			to = sorted[i]
+		}
+		e, err := horizons(ctx, base, designation, from, to, lon, lat, elev)
+		if err != nil {
+			return ephemeris{}, err
+		}
+		for j, at := range e.times {
+			if n := len(out.times); n > 0 && !at.After(out.times[n-1]) {
+				continue
+			}
+			out.times = append(out.times, at)
+			out.ra = append(out.ra, e.ra[j])
+			out.dec = append(out.dec, e.dec[j])
+		}
+	}
+	return out, nil
 }
 
 // parseEphemeris reads the CSV rows between $$SOE and $$EOE:
@@ -318,15 +350,15 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 	}
 	subs := make([]cometSub, len(rows))
 	scales := decodeGainTable(stack.GainScales)
-	from, to := refTime, refTime
+	times := []time.Time{refTime}
 	for i, r := range rows {
 		mid := r.DateObs.Add(time.Duration(r.Exposure / 2 * float64(time.Second)))
 		// On the star master's gain (see gainScales).
 		exp := r.Exposure * scales.scale(r.Gain)
 		subs[i] = cometSub{stored: storedSub{key: r.RegisteredKey, exposure: exp, weight: r.Weight}, mid: mid}
-		from, to = minTime(from, mid), maxTime(to, mid)
+		times = append(times, mid)
 	}
-	eph, err := horizons(ctx, designation, from, to, lon, lat, elev)
+	eph, err := cometEphemeris(ctx, horizonsURL, designation, times, lon, lat, elev)
 	if err != nil {
 		return err
 	}
@@ -895,20 +927,6 @@ func shiftImage(src []float32, w, h int, dx, dy float64) []float32 {
 		}
 	}
 	return out
-}
-
-func minTime(a, b time.Time) time.Time {
-	if b.Before(a) {
-		return b
-	}
-	return a
-}
-
-func maxTime(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
 }
 
 // publishComet writes the comet master beside the star-aligned one: FITS,
