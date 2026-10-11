@@ -17,6 +17,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/sublength"
 	"gorm.io/gorm"
 )
 
@@ -44,6 +45,7 @@ type Service struct {
 	Sky        func(ctx context.Context) skybright.Value
 	HAlpha     func() (*halpha.Map, halpha.Status)
 	Catalog    *catalog.Index
+	SubLengths func() *sublength.Result
 	AppDB      *gorm.DB
 	SchedDB    *gorm.DB
 	Site       SiteFunc
