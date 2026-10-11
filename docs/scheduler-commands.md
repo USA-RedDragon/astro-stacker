@@ -55,6 +55,8 @@ ts_command_result (command_id text primary key, status text, message text, detai
 
 What-if: `POST /api/v1/scheduler/preview` takes `weights` (global keys) beside `overrides`. The stacker sends each as an override with entity `ruleweight`, the rule name as the field and id 0 for every project, or one override per project for a key only some projects take. A plugin that does not list `ruleweight` in the preview's `override_kinds` ignores them.
 
+`POST /api/v1/planning/applyset/draft` returns the `exposureplan.applyset` payload and `goals`: one `goal.edit` payload per project for each filter of the set that has no `ts_goal` row on a target. The new goal copies the kind, SNR and plateau stop that most of the target's goals in the same family (broadband or narrowband) use, then its other goals, then the default goal; a depth goal takes the filter's default depth. Submit the applyset, then each goal edit, so no plan runs on counts.
+
 A spec may also change the app database when it is submitted (`AppSideEffect`). `project.create` writes a wizard mosaic's planned panels; its inverse removes them, and so does a cancelled, rejected or failed create.
 
 ## Adding a command kind

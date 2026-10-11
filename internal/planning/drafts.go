@@ -28,9 +28,10 @@ type TargetEffect struct {
 }
 
 type ApplySetDraft struct {
-	Payload *schedcmd.ApplySetPayload `json:"payload,omitempty"`
-	Effects []TargetEffect            `json:"effects"`
-	Missing []string                  `json:"missing,omitempty"`
+	Payload *schedcmd.ApplySetPayload  `json:"payload,omitempty"`
+	Goals   []schedcmd.GoalEditPayload `json:"goals,omitempty"`
+	Effects []TargetEffect             `json:"effects"`
+	Missing []string                   `json:"missing,omitempty"`
 }
 
 func (s *Snapshot) templateByName(name string) (Template, bool) {
@@ -95,6 +96,7 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 		return out, fmt.Errorf("%w: %s", ErrMissingTemplate, strings.Join(out.Missing, ", "))
 	}
 	payload := &schedcmd.ApplySetPayload{SetID: set.ID, SetName: set.Name, Mode: mode}
+	gc := &goalCollector{edits: map[int]*schedcmd.GoalEditPayload{}}
 	for _, id := range targetIDs {
 		t, p, ok := s.target(id)
 		if !ok {
@@ -128,6 +130,11 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 				adds = append(adds, w.tmpl.Name)
 			}
 		}
+		filters := make([]string, 0, len(wants))
+		for _, w := range wants {
+			filters = append(filters, w.tmpl.Filter)
+		}
+		goalParts := gc.add(s, t, p, filters)
 		if mode == "replace" {
 			for _, pl := range t.Plans {
 				if pl.Enabled && !inSet[pl.ID] {
@@ -136,20 +143,17 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 				}
 			}
 		}
-		var parts []string
-		if len(adds) > 0 {
-			parts = append(parts, "adds "+strings.Join(adds, ", "))
-		}
-		if len(ons) > 0 {
-			parts = append(parts, "turns on "+strings.Join(ons, ", "))
-		}
-		if len(offs) > 0 {
-			parts = append(parts, "turns off "+strings.Join(offs, ", ")+" (counts kept)")
+		parts := effectParts(adds, ons, offs)
+		planChanges := len(parts) > 0
+		if len(goalParts) > 0 {
+			parts = append(parts, "sets the "+strings.Join(goalParts, "; the "))
 		}
 		eff := TargetEffect{TargetID: t.ID, Name: t.Name, Project: p.Name, Current: t.SetName, Changes: len(parts) > 0}
+		if planChanges {
+			payload.Targets = append(payload.Targets, at)
+		}
 		if eff.Changes {
 			eff.Effect = joinOr(parts, "")
-			payload.Targets = append(payload.Targets, at)
 		} else {
 			eff.Effect = "Already has this set; nothing changes"
 		}
@@ -158,7 +162,61 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 	if len(payload.Targets) > 0 {
 		out.Payload = payload
 	}
+	out.Goals = gc.payloads()
 	return out, nil
+}
+
+func effectParts(adds, ons, offs []string) []string {
+	var parts []string
+	if len(adds) > 0 {
+		parts = append(parts, "adds "+strings.Join(adds, ", "))
+	}
+	if len(ons) > 0 {
+		parts = append(parts, "turns on "+strings.Join(ons, ", "))
+	}
+	if len(offs) > 0 {
+		parts = append(parts, "turns off "+strings.Join(offs, ", ")+" (counts kept)")
+	}
+	return parts
+}
+
+type goalCollector struct {
+	edits map[int]*schedcmd.GoalEditPayload
+	order []int
+}
+
+func (gc *goalCollector) add(s *Snapshot, t Target, p Project, filters []string) []string {
+	if !s.GoalsSetUp() {
+		return nil
+	}
+	var parts []string
+	seen := map[string]bool{}
+	for _, f := range filters {
+		key := frameheader.NormalizeFilter(f)
+		if f == "" || seen[key] || s.HasGoal(t.GUID, f) {
+			continue
+		}
+		seen[key] = true
+		ng := s.GoalForNewFilter(t.GUID, f)
+		setting := ng.Setting
+		ge, ok := gc.edits[p.ID]
+		if !ok {
+			ge = &schedcmd.GoalEditPayload{ProjectID: int64(p.ID), ProjectName: p.Name}
+			gc.edits[p.ID] = ge
+			gc.order = append(gc.order, p.ID)
+		}
+		ge.Goals = append(ge.Goals, schedcmd.GoalChange{TargetID: int64(t.ID), TargetGUID: t.GUID, TargetName: t.Name, Filter: f, After: &setting})
+		parts = append(parts, fmt.Sprintf("%s goal %s (%s)", f, GoalText(setting), ng.Basis))
+	}
+	return parts
+}
+
+func (gc *goalCollector) payloads() []schedcmd.GoalEditPayload {
+	out := make([]schedcmd.GoalEditPayload, 0, len(gc.order))
+	for _, id := range gc.order {
+		out = append(out, *gc.edits[id])
+	}
+	return out
 }
 
 type PanelDraft struct {
