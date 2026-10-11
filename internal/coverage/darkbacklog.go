@@ -24,6 +24,7 @@ type DarkBacklog struct {
 	Unschedulable     []DarkUnscheduled `json:"unschedulable"`
 	LastSession       *DarkSession      `json:"last_session"`
 	Rejected          []RejectedDark    `json:"rejected"`
+	RejectedTotal     int               `json:"rejected_total"`
 	Unchecked         int               `json:"unchecked"`
 }
 
@@ -220,15 +221,32 @@ func BuildDarkBacklog(ctx context.Context, db *gorm.DB, now time.Time) (DarkBack
 		Scan(&lights).Error; err != nil {
 		return DarkBacklog{}, fmt.Errorf("load lights for the dark backlog: %w", err)
 	}
+	darks, err := loadDarks(ctx, db)
+	if err != nil {
+		return DarkBacklog{}, err
+	}
+	return darkBacklog(lights, darks, sets, now), nil
+}
+
+func loadDarks(ctx context.Context, db *gorm.DB) ([]darkFrame, error) {
 	var darks []darkFrame
 	if err := db.WithContext(ctx).Table("frames").
 		Select(`key, exposure, gain, "offset", set_temp, bin_x, date_obs, night, light_leak, cal_check, cal_check_reason, cal_median_adu, dark_spread`).
 		Where("type = ? AND index_error IS NULL", darkType).
 		Scan(&darks).Error; err != nil {
-		return DarkBacklog{}, fmt.Errorf("load darks for the dark backlog: %w", err)
+		return nil, fmt.Errorf("load darks for the dark backlog: %w", err)
 	}
 	sort.SliceStable(darks, func(i, j int) bool { return darks[i].at().Before(darks[j].at()) })
-	return darkBacklog(lights, darks, sets, now), nil
+	return darks, nil
+}
+
+// RejectedDarks lists every dark left out of its master, newest first.
+func RejectedDarks(ctx context.Context, db *gorm.DB) ([]RejectedDark, error) {
+	darks, err := loadDarks(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return rejectedDarks(darks, len(darks)), nil
 }
 
 func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set, now time.Time) DarkBacklog {
@@ -328,6 +346,7 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 		b.Combos[i].Priority = i + 1
 	}
 	b.LastSession, b.Rejected, b.Unchecked = darkHistory(darks)
+	b.RejectedTotal = rejectedCount(darks)
 	return b
 }
 
@@ -454,7 +473,6 @@ func fillDarkProgress(c *DarkCombo, su darkSetup, darks []darkFrame, now time.Ti
 func darkHistory(darks []darkFrame) (*DarkSession, []RejectedDark, int) {
 	var s *DarkSession
 	unchecked := 0
-	rejected := []RejectedDark{}
 	for _, f := range darks {
 		at := f.at()
 		if s == nil || at.Sub(s.To) > SessionGap {
@@ -476,7 +494,22 @@ func darkHistory(darks []darkFrame) (*DarkSession, []RejectedDark, int) {
 			unchecked++
 		}
 	}
-	for i := len(darks) - 1; i >= 0 && len(rejected) < RejectedListed; i-- {
+	return s, rejectedDarks(darks, RejectedListed), unchecked
+}
+
+func rejectedCount(darks []darkFrame) int {
+	n := 0
+	for _, f := range darks {
+		if f.LightLeak != nil {
+			n++
+		}
+	}
+	return n
+}
+
+func rejectedDarks(darks []darkFrame, limit int) []RejectedDark {
+	rejected := []RejectedDark{}
+	for i := len(darks) - 1; i >= 0 && len(rejected) < limit; i-- {
 		f := darks[i]
 		if f.LightLeak == nil {
 			continue
@@ -495,5 +528,5 @@ func darkHistory(darks []darkFrame) (*DarkSession, []RejectedDark, int) {
 		}
 		rejected = append(rejected, r)
 	}
-	return s, rejected, unchecked
+	return rejected
 }
