@@ -169,3 +169,20 @@ func TestSwitcherSubmitsOnceAndRespectsTheMode(t *testing.T) {
 		t.Fatalf("off does nothing: %+v %v", changes, err)
 	}
 }
+
+func TestPlanSkipsARowThatIsNotAValidGoalEdit(t *testing.T) {
+	t.Parallel()
+	sched, appDB := fixture(t)
+	if err := sched.Exec(`update ts_goal set region = '[]' where target_guid = 'g10' and filter = 'Red'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	s, err := planning.Load(context.Background(), sched, appDB, planning.Inputs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cls, _ := classes(context.Background())
+	edits, _ := goalswitch.Plan(s, cls, nil)
+	if len(edits) != 1 || len(edits[0].Goals) != 1 || edits[0].Goals[0].Filter != lum {
+		t.Fatalf("R with a broken region stays on SNR and does not block L: %+v", edits)
+	}
+}

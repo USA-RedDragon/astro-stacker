@@ -80,7 +80,12 @@ func Plan(s *planning.Snapshot, classes map[int]string, skip map[string]bool) ([
 				before := settingOf(row)
 				after := before
 				after.Kind, after.DepthGoal = schedcmd.GoalKindDepth, &depth
-				edit.Goals = append(edit.Goals, schedcmd.GoalChange{TargetID: int64(t.ID), TargetGUID: t.GUID, TargetName: t.Name, Filter: row.Filter, Before: &before, After: &after})
+				change := schedcmd.GoalChange{TargetID: int64(t.ID), TargetGUID: t.GUID, TargetName: t.Name, Filter: row.Filter, Before: &before, After: &after}
+				if err := valid(edit, change); err != nil {
+					slog.Warn("Leaving a goal on SNR: its stored row does not make a valid goal edit", "project", p.Name, "target", t.Name, "filter", row.Filter, "error", err)
+					continue
+				}
+				edit.Goals = append(edit.Goals, change)
 				changes = append(changes, Change{Project: p.Name, Target: t.Name, Filter: row.Filter, SNR: before.SNRGoal, Depth: depth, Now: *g.Measurement.Depth, Basis: basis})
 			}
 		}
@@ -89,6 +94,19 @@ func Plan(s *planning.Snapshot, classes map[int]string, skip map[string]bool) ([
 		}
 	}
 	return out, changes
+}
+
+func valid(edit schedcmd.GoalEditPayload, c schedcmd.GoalChange) error {
+	edit.Goals = []schedcmd.GoalChange{c}
+	raw, err := json.Marshal(edit)
+	if err != nil {
+		return err
+	}
+	spec, err := schedcmd.Default().Get(schedcmd.KindGoalEdit)
+	if err != nil {
+		return err
+	}
+	return spec.Validate(raw)
 }
 
 func settingOf(r goals.Setting) schedcmd.GoalSetting {

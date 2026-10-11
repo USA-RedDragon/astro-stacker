@@ -148,3 +148,34 @@ func TestGoalForNewFilterMajority(t *testing.T) {
 		t.Fatal(GoalText(g.Setting))
 	}
 }
+
+func TestGoalRowsMatchTheWayThePluginDoes(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	for _, q := range []string{
+		goalTable,
+		`insert into ts_goal values ('g20','Ha',0,12,null,1,null,null),('g20','o-iii',0,12,null,1,null,null),('g12','H-a',0,10,null,1,null,null),('g12','O-III',0,10,null,1,null,null)`,
+		`update target set guid = null where "Id" = 13`,
+	} {
+		if err := sched.Exec(q).Error; err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	s, _ := Load(context.Background(), sched, appDB, Inputs{})
+	d, err := s.DraftApplySet(setNamed(t, s, setHOO).ID, "add", []int{20, 12, 13}, 0, seq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := goalsByTarget(d)
+	if len(got) != 1 || len(got["g20"]) != 1 || got["g20"][filterHa].After == nil {
+		t.Fatalf("only Garlic H-a lacks a row the plugin reads (Ha is not H-a; o-iii matches O-III); a target with no guid is skipped: %+v", got)
+	}
+	p, _ := s.Project(7)
+	if c := p.Targets[0].Least.CountBased; len(c) != 1 || c[0] != filterHa {
+		t.Fatalf("count-based follows the target's own rows: %v", c)
+	}
+	p, _ = s.Project(5)
+	if c := p.Targets[0].Least.CountBased; len(c) != 0 {
+		t.Fatalf("panel 1 has both rows: %v", c)
+	}
+}

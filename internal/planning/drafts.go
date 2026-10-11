@@ -186,13 +186,13 @@ type goalCollector struct {
 }
 
 func (gc *goalCollector) add(s *Snapshot, t Target, p Project, filters []string) []string {
-	if !s.GoalsSetUp() {
+	if !s.GoalsSetUp() || t.GUID == "" {
 		return nil
 	}
 	var parts []string
 	seen := map[string]bool{}
 	for _, f := range filters {
-		key := frameheader.NormalizeFilter(f)
+		key := goals.FilterKey(f)
 		if f == "" || seen[key] || s.HasGoal(t.GUID, f) {
 			continue
 		}
