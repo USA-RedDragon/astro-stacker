@@ -23,6 +23,7 @@ type Judgement struct {
 	GoalDriven bool              `json:"goalDriven"`
 	Unmeasured int               `json:"unmeasured"`
 	Filters    []FilterJudgement `json:"filters"`
+	Least      Least             `json:"least"`
 }
 
 func AppInputs(ctx context.Context, appDB, sched *gorm.DB) (Inputs, error) {
@@ -57,7 +58,7 @@ func Judge(ctx context.Context, sched, appDB *gorm.DB) (map[int]map[string]Judge
 	for _, p := range s.Projects {
 		byTarget := map[string]Judgement{}
 		for _, t := range p.Targets {
-			j := Judgement{Project: p.Name, Target: t.Name, Percent: t.Percent, GoalDriven: t.Driven}
+			j := Judgement{Project: p.Name, Target: t.Name, Percent: t.Percent, GoalDriven: t.Driven, Least: t.Least}
 			enabled, complete := 0, true
 			for _, pl := range t.Plans {
 				if pl.Enabled {

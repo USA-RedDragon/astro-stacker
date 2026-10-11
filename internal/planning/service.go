@@ -32,7 +32,7 @@ func Rules() []Rule {
 	return []Rule{
 		{Name: "Project Priority", DefaultWeight: 50, Description: "High 1.0, Normal 0.5, Low 0."},
 		{Name: "Setting Soonest", DefaultWeight: 50, Description: "Higher the sooner the target sets tonight."},
-		{Name: "Percent Complete", DefaultWeight: 50, Description: "Average completion of the target's enabled exposure plans: the goal where the stacker publishes one, otherwise accepted (or acquired) against desired."},
+		{Name: "Percent Complete", DefaultWeight: 50, Description: "Scoring input only, not shown as progress: average completion of the target's enabled exposure plans: the goal where the stacker publishes one, otherwise accepted (or acquired) against desired."},
 		{Name: "Target Switch Penalty", DefaultWeight: 67, Description: "1.0 for the target already running."},
 		{Name: "Mosaic Completion", DefaultWeight: 0, Description: "Stock rule: favours a panel behind the mosaic's average."},
 		{Name: "Panel Deficit", DefaultWeight: 0, Description: "Steers time to the panel and filter furthest behind its goal."},
@@ -84,22 +84,25 @@ type Plan struct {
 }
 
 type FilterGoal struct {
-	Filter      string           `json:"filter"`
-	StackKey    string           `json:"stackFilter"`
-	Goal        *goals.Goal      `json:"goal"`
-	GoalSet     bool             `json:"goalSet"`
-	DefaultGoal goals.Goal       `json:"defaultGoal"`
-	Measured    bool             `json:"measured"`
-	Status      string           `json:"status"`
-	Measurement *Measurement     `json:"measurement,omitempty"`
-	Progress    *goals.Progress  `json:"progress,omitempty"`
-	Readiness   *goals.Readiness `json:"readiness,omitempty"`
-	Error       string           `json:"error,omitempty"`
-	Percent     float64          `json:"percentComplete"`
-	Basis       string           `json:"completionBasis"`
-	Accepted    int              `json:"accepted"`
-	Desired     int              `json:"desired"`
-	ExposureHr  float64          `json:"acceptedHours"`
+	Filter       string           `json:"filter"`
+	StackKey     string           `json:"stackFilter"`
+	Goal         *goals.Goal      `json:"goal"`
+	GoalSet      bool             `json:"goalSet"`
+	DefaultGoal  goals.Goal       `json:"defaultGoal"`
+	Measured     bool             `json:"measured"`
+	Status       string           `json:"status"`
+	Measurement  *Measurement     `json:"measurement,omitempty"`
+	Progress     *goals.Progress  `json:"progress,omitempty"`
+	Readiness    *goals.Readiness `json:"readiness,omitempty"`
+	Error        string           `json:"error,omitempty"`
+	Percent      float64          `json:"percentComplete"`
+	Basis        string           `json:"completionBasis"`
+	Accepted     int              `json:"accepted"`
+	Desired      int              `json:"desired"`
+	ExposureHr   float64          `json:"acceptedHours"`
+	Enough       bool             `json:"enough"`
+	GoalProgress *float64         `json:"goalProgress"`
+	NotMeasured  string           `json:"notMeasured,omitempty"`
 }
 
 type Season struct {
@@ -121,6 +124,7 @@ type Target struct {
 	Plans    []Plan              `json:"plans"`
 	Goals    []FilterGoal        `json:"goals"`
 	Weakest  *FilterGoal         `json:"weakest,omitempty"`
+	Least    Least               `json:"least"`
 	Progress float64             `json:"progress"`
 	Percent  float64             `json:"percentComplete"`
 	EffHours float64             `json:"effectiveHours"`
@@ -150,6 +154,7 @@ type Project struct {
 	Progress        float64      `json:"progress"`
 	WeakestTarget   string       `json:"weakestTarget,omitempty"`
 	Weakest         *FilterGoal  `json:"weakest,omitempty"`
+	Least           Least        `json:"least"`
 	Season          *Season      `json:"season,omitempty"`
 	Novelty         float64      `json:"novelty"`
 	Rarity          float64      `json:"rarity"`
@@ -471,6 +476,7 @@ func finishProject(p *Project, bestSeason *Season, anySeason bool, projSets []st
 	}
 	p.Rarity = Rarity(p.Season)
 	p.SetName = commonSet(projSets)
+	p.Least = leastOfTargets(p.Targets)
 }
 
 func commonSet(names []string) string {
@@ -612,7 +618,7 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 		f := tm.FilterName
 		g, ok := byFilter[f]
 		if !ok {
-			g = &FilterGoal{Filter: f, StackKey: frameheader.NormalizeFilter(f), Percent: math.Inf(1)}
+			g = &FilterGoal{Filter: f, StackKey: frameheader.NormalizeFilter(f), Percent: math.Inf(1), Enough: true}
 			byFilter[f] = g
 			order = append(order, f)
 		}
@@ -645,6 +651,7 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 		if g.Readiness != nil {
 			pl.Complete = !g.Readiness.Open
 		}
+		g.Enough = g.Enough && pl.Complete
 		sum += pl.Percent
 		minPct = math.Min(minPct, pl.Percent)
 		if pl.Percent < g.Percent {
@@ -671,11 +678,13 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 		if math.IsInf(g.Percent, 1) {
 			g.Percent = 0
 		}
+		finishFilter(g)
 		if t.Weakest == nil || g.Percent < t.Weakest.Percent {
 			t.Weakest = g
 		}
 		t.Goals = append(t.Goals, *g)
 	}
+	t.Least = leastOfGoals(t.Name, t.Goals)
 	if len(enabledPlans) > 0 {
 		t.Percent = sum / float64(len(enabledPlans)) / 100
 		t.Progress = minPct / 100
