@@ -172,6 +172,9 @@ func (p *publisher[R]) Status() Status {
 	if s.Mode == "" {
 		s.Mode = p.Mode
 	}
+	if s.Mode != darkneed.PublishOn && s.Mode != darkneed.PublishDryRun && s.Skipped == "" {
+		s.Skipped = darkneed.SkipOff
+	}
 	return s
 }
 

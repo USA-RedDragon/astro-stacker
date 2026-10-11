@@ -227,3 +227,57 @@ func Refresh(ctx context.Context, db *gorm.DB, now time.Time) ([]app.Calibration
 	}
 	return done, nil
 }
+
+// Publish is where a request's frames are asked for and how that went.
+type Publish struct {
+	Table       string     `json:"table"`
+	Mode        string     `json:"mode"`
+	PublishedAt *time.Time `json:"published_at"`
+	Skipped     string     `json:"skipped"`
+	Error       string     `json:"error,omitempty"`
+}
+
+// View is a request with its progress, for the API.
+type View struct {
+	ID          string                 `json:"id"`
+	Type        string                 `json:"type"`
+	Object      string                 `json:"object"`
+	TargetID    *int                   `json:"target_id"`
+	Night       string                 `json:"night"`
+	Status      string                 `json:"status"`
+	CreatedAt   time.Time              `json:"created_at"`
+	CreatedBy   string                 `json:"created_by"`
+	DoneAt      *time.Time             `json:"done_at"`
+	CancelledAt *time.Time             `json:"cancelled_at"`
+	CancelledBy *string                `json:"cancelled_by"`
+	Items       []coverage.RequestItem `json:"items"`
+	Publish     Publish                `json:"publish"`
+	Basis       string                 `json:"basis"`
+}
+
+// Views measures each request's progress from the frames index.
+func Views(ctx context.Context, db *gorm.DB, reqs []app.CalibrationRequest, publish func(typ string) Publish) ([]View, error) {
+	prog, err := coverage.MeasureRequests(ctx, db, reqs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]View, 0, len(reqs))
+	for i, r := range reqs {
+		v := View{ID: r.ID, Type: r.Type, Object: r.Object, TargetID: r.TargetID, Night: r.Night.Format(time.DateOnly), Status: r.Status,
+			CreatedAt: r.CreatedAt.UTC(), CreatedBy: r.CreatedBy, DoneAt: utc(r.DoneAt), CancelledAt: utc(r.CancelledAt), CancelledBy: r.CancelledBy,
+			Items: prog[i].Items, Basis: coverage.RequestBasis(r.Type)}
+		if publish != nil {
+			v.Publish = publish(r.Type)
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func utc(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
+}
