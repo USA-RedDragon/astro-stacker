@@ -3,11 +3,8 @@ package stacking
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"math"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 
@@ -165,7 +162,7 @@ func gainRatio(cells []skyCell) (float64, bool) {
 // gainScales measures the gains of a master's subs (see measureGains) when
 // they mix, reading every sub once and stacking each gain flat. It returns
 // nil for a single gain.
-func (p *Pipeline) gainScales(ctx context.Context, dir string, stack *app.Stack, subs []storedSub, gains []*float64) (gainTable, error) {
+func (p *Pipeline) gainScales(ctx context.Context, cache *subCache, stack *app.Stack, subs []storedSub, gains []*float64) (gainTable, error) {
 	distinct := map[float64]bool{}
 	for _, g := range gains {
 		if g != nil {
@@ -184,12 +181,7 @@ func (p *Pipeline) gainScales(ctx context.Context, dir string, stack *app.Stack,
 			continue
 		}
 		p.progress(stack.Object, stack.Filter, StageRebuilding, i, len(subs))
-		local := filepath.Join(dir, fmt.Sprintf("g%04d.fit", i))
-		if err := p.download(ctx, p.dest, s.key, local); err != nil {
-			return nil, err
-		}
-		sub, w, h, err := readSub(local)
-		os.Remove(local)
+		sub, w, h, err := cache.load(ctx, s.key)
 		if err != nil {
 			return nil, err
 		}
