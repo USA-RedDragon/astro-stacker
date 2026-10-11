@@ -255,7 +255,7 @@ func strategyInForce(b Balancing) mosaics.Strategy {
 	switch {
 	case !b.On:
 		return mosaics.StrategyOff
-	case b.EvenPanels:
+	case b.EvenSpreads:
 		return mosaics.StrategyEven
 	}
 	return mosaics.StrategyWeakest

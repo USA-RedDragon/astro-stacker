@@ -12,6 +12,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/ruleweights"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
@@ -37,7 +38,7 @@ func Rules() []Rule {
 		{Name: "Percent Complete", DefaultWeight: 50, Description: "Scoring input only, not shown as progress: average completion of the target's enabled exposure plans: the goal where the stacker publishes one, otherwise accepted (or acquired) against desired."},
 		{Name: "Target Switch Penalty", DefaultWeight: 67, Description: "1.0 for the target already running."},
 		{Name: "Mosaic Completion", DefaultWeight: 0, Description: "Stock rule: favours a panel behind the mosaic's average."},
-		{Name: "Panel Deficit", DefaultWeight: 0, Description: "Steers time to the panel and filter furthest behind its goal."},
+		{Name: "Panel Deficit", DefaultWeight: 0, Description: fmt.Sprintf("Steers time to the panel and filter furthest behind its goal. With Even Panels on, a mosaic with %d or more enabled panels instead steers time to the panel furthest below its fair share of this season's imaging hours.", mosaics.EvenPanelsMinPanels)},
 		{Name: "Meridian Window Priority", DefaultWeight: 75, Description: "Favours targets inside their meridian window."},
 		{Name: "Meridian Flip Penalty", DefaultWeight: 0, Description: "Avoids targets about to need a flip."},
 		{Name: "Smart Exposure Order", DefaultWeight: 0, Description: "Favours filters that suit tonight's moon. Scores 0 unless the project has Smart Exposure Order turned on."},
