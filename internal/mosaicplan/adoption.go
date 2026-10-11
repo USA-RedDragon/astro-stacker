@@ -489,7 +489,8 @@ func closeAuto(tx *gorm.DB, row app.MosaicAdoption, now time.Time, dryRun bool) 
 
 func keep(tx *gorm.DB, c candidate, old app.MosaicAdoption, rig mosaics.Rig, now time.Time, dryRun bool) (app.MosaicAdoption, error) {
 	row := old
-	if reworded(&row, c.row) && !dryRun {
+	byPerson := old.Status == app.AdoptionAccepted || old.Status == app.AdoptionRejected
+	if !byPerson && reworded(&row, c.row) && !dryRun {
 		if err := tx.Model(&row).Select("confidence", "rule", "issue", "suggestion", "proposal", "updated_at").Updates(&row).Error; err != nil {
 			return row, err
 		}

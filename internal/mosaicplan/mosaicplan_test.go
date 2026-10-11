@@ -23,6 +23,7 @@ const (
 	panel1    = "Markarian Chain Panel 1"
 	panel2    = "Markarian Chain Panel 2"
 	markarian = "Markarian Chain"
+	icPanel1  = "IC 4604 Panel 1"
 	filterHa  = "H-a"
 	filterRed = "Red"
 	filterLum = "Luminance"
@@ -188,7 +189,7 @@ func TestRunAdoptionDecidesWhatTheEvidenceSettles(t *testing.T) {
 	if by["subs NGC 2244"].Frames.Within != 2 || !strings.HasPrefix(by["subs NGC 2244"].Rule, "Medium: 2 targets") {
 		t.Errorf("two candidates %+v %+v", by["subs NGC 2244"], by["subs NGC 2244"].Frames)
 	}
-	if f := by["subs Sh2-1"].Frames; f.Within != 1 || f.NameMatch || f.Target != "IC 4604 Panel 1" {
+	if f := by["subs Sh2-1"].Frames; f.Within != 1 || f.NameMatch || f.Target != icPanel1 {
 		t.Errorf("name mismatch %+v", f)
 	}
 	var panels []app.MosaicPanel
@@ -704,7 +705,7 @@ func TestRunAdoptionKeepsOtherInstrumentsApartAndWithdrawsItsOwnAttachments(t *t
 	if n != 0 {
 		t.Errorf("%d links left after withdrawing", n)
 	}
-	if a := by["subs Sh2-1"]; a.Status != app.AdoptionAccepted || a.DecidedBy != "web" {
+	if a := by["subs Sh2-1"]; a.Status != app.AdoptionAccepted || a.DecidedBy != "web" || a.Confidence != mosaics.ConfidenceMedium || a.Frames.Target != icPanel1 {
 		t.Errorf("a person's decision changed %+v %+v", a, a.Frames)
 	}
 	appDB.Model(&app.FrameTarget{}).Where("object = ? AND target_guid = ?", "Sh2-1", "r1").Count(&n)
@@ -776,7 +777,7 @@ func TestRunAdoptionClosesRowsForRemovedOrPlannedProjects(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := appDB.Create(&app.MosaicPanel{ProjectGUID: "pr", TargetGUID: "r1", Project: "Rho", Target: "IC 4604 Panel 1", Panel: 1, Source: app.MosaicSourceWizard}).Error; err != nil {
+	if err := appDB.Create(&app.MosaicPanel{ProjectGUID: "pr", TargetGUID: "r1", Project: "Rho", Target: icPanel1, Panel: 1, Source: app.MosaicSourceWizard}).Error; err != nil {
 		t.Fatal(err)
 	}
 	again, err := svc.RunAdoption(ctx, false)
