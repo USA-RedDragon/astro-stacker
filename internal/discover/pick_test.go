@@ -373,7 +373,7 @@ func TestPickGalaxyWithoutColourStatesBothBands(t *testing.T) {
 func TestPickDustUsesLFromDustTargets(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "B33", pickPlans(), discover.PickGoal{})
+	p, err := s.Pick(context.Background(), "B33", pickPlans(), snrGoal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func TestBandToGaiaG(t *testing.T) {
 func TestPickGalaxyAddsHAlphaWithoutForegroundHours(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "NGC891", pickPlans(), discover.PickGoal{})
+	p, err := s.Pick(context.Background(), "NGC891", pickPlans(), snrGoal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,10 +494,33 @@ func depthGoal() discover.PickGoal { return discover.PickGoal{Kind: goals.KindDe
 
 func noGoal() discover.PickGoal { return discover.PickGoal{} }
 
+func snrGoal() discover.PickGoal { return discover.PickGoal{Kind: goals.KindSNR} }
+
+func TestPickDefaultsGalaxiesClustersAndDustToDepth(t *testing.T) {
+	t.Parallel()
+	s, _ := pickFixture(t)
+	for id, want := range map[string]goals.Kind{"M81": goals.KindDepth, "M13": goals.KindDepth, "B33": goals.KindDepth, "NGC 7023": goals.KindDepth, "M16": goals.KindSNR, "M27": goals.KindSNR} {
+		p, err := s.Pick(context.Background(), id, pickPlans(), noGoal())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Goal.Kind != want || !strings.Contains(p.GoalBasis, "by default for a "+p.ClassLabel) {
+			t.Errorf("%s (%s): goal %+v basis %q", id, p.ClassLabel, p.Goal, p.GoalBasis)
+		}
+		p, err = s.Pick(context.Background(), id, pickPlans(), snrGoal())
+		if err != nil || p.Goal.Kind != goals.KindSNR || p.GoalBasis != "chosen" {
+			t.Errorf("%s: a chosen SNR goal stays: %+v %q %v", id, p.Goal, p.GoalBasis, err)
+		}
+	}
+	if !discover.DepthClass(discover.ClassCluster) || discover.DepthClass(discover.ClassEmission) || discover.DepthClass("") {
+		t.Error("depth classes are galaxies, clusters and dust")
+	}
+}
+
 func TestPickHoursFollowTheChosenGoal(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "M81", pickPlans(), discover.PickGoal{})
+	p, err := s.Pick(context.Background(), "M81", pickPlans(), snrGoal())
 	if err != nil {
 		t.Fatal(err)
 	}

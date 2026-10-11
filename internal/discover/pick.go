@@ -106,9 +106,28 @@ type PickGoal struct {
 	Depth float64    `json:"depth"`
 }
 
-func (g PickGoal) normal() PickGoal {
-	if g.Kind != goals.KindDepth {
-		g.Kind = goals.KindSNR
+func DepthClass(class string) bool {
+	switch class {
+	case ClassGalaxy, ClassCluster, ClassReflection, ClassDark:
+		return true
+	}
+	return false
+}
+
+func DefaultGoalKind(class, label string) (goals.Kind, string) {
+	if DepthClass(class) {
+		return goals.KindDepth, fmt.Sprintf("depth by default for a %s: its broadband light is set by depth, not by one faint band", label)
+	}
+	if class == "" {
+		return goals.KindSNR, "faint-signal SNR by default: no class for this object"
+	}
+	return goals.KindSNR, fmt.Sprintf("faint-signal SNR by default for a %s", label)
+}
+
+func (g PickGoal) normal(class, label string) (PickGoal, string) {
+	basis := "chosen"
+	if g.Kind != goals.KindDepth && g.Kind != goals.KindSNR {
+		g.Kind, basis = DefaultGoalKind(class, label)
 	}
 	if !(g.SNR > 0) {
 		g.SNR = goals.DefaultSNRGoal
@@ -116,7 +135,7 @@ func (g PickGoal) normal() PickGoal {
 	if !(g.Depth > 0) {
 		g.Depth = 0
 	}
-	return g
+	return g, basis
 }
 
 type ExposurePick struct {
@@ -135,6 +154,7 @@ type ExposurePick struct {
 	Missing    []string       `json:"missing"`
 	GoalSNR    float64        `json:"goalSnr"`
 	Goal       PickGoal       `json:"goal"`
+	GoalBasis  string         `json:"goalBasis"`
 	skybright.Value
 }
 
@@ -783,19 +803,20 @@ func (s *Service) choosePalette(out *ExposurePick, fam string, past []pastTarget
 }
 
 func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot, goal PickGoal) (ExposurePick, error) {
-	goal = goal.normal()
 	o, ok := s.Catalog.Get(id)
 	if !ok {
 		return ExposurePick{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
+	class, label := PickClass(o.Type)
+	goal, goalBasis := goal.normal(class, label)
 	snap, err := s.snapshot(ctx)
 	if err != nil {
 		return ExposurePick{}, err
 	}
 	hmap, hst := s.halphaMap()
 	_, info := s.rig(ctx)
-	out := ExposurePick{Object: o, HAlphaMap: hst, Rules: []PickRule{}, Filters: []PickFilter{}, Missing: []string{}, GoalSNR: goal.SNR, Goal: goal, Value: s.skyValue(ctx)}
-	out.Class, out.ClassLabel = PickClass(o.Type)
+	out := ExposurePick{Object: o, HAlphaMap: hst, Rules: []PickRule{}, Filters: []PickFilter{}, Missing: []string{}, GoalSNR: goal.SNR, Goal: goal, GoalBasis: goalBasis, Value: s.skyValue(ctx)}
+	out.Class, out.ClassLabel = class, label
 	if o.TypeBasis != "" {
 		out.ClassBasis = out.ClassLabel + ": " + o.TypeBasis
 	}
