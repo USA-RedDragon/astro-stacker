@@ -165,6 +165,7 @@ type S3 struct {
 type Indexer struct {
 	Enabled         bool `name:"enabled" description:"Index frame headers from the bucket"`
 	IntervalSeconds int  `name:"interval-seconds" description:"Seconds between bucket scans" default:"600"`
+	RecentSeconds   int  `name:"recent-seconds" description:"Seconds between listings of the folders of targets imaged in the last two days, so new lights are indexed, previewed and scored soon after upload; 0 waits for the bucket scan" default:"15"`
 	Concurrency     int  `name:"concurrency" description:"Headers to fetch in parallel" default:"8"`
 }
 

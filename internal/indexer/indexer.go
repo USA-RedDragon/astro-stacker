@@ -44,10 +44,17 @@ type Indexer struct {
 	// Wake, if set, is notified when new frames are indexed and when new
 	// lights' starlight is measured, so previews and stacking start at once.
 	Wake *wake.Signal
+	// RecentTargets, if set, names targets imaged lately whose folders
+	// IndexRecent lists besides those of lights indexed in RecentWindow.
+	RecentTargets func(context.Context) ([]string, error)
 
 	AfterScan        func(context.Context)
 	RejectDarksSince time.Time
 }
+
+// RecentWindow is how lately a light must have been taken for its folder to
+// be listed between bucket scans.
+const RecentWindow = 48 * time.Hour
 
 func New(client *minio.Client, bucket string, db *gorm.DB, concurrency int) *Indexer {
 	if concurrency < 1 {
@@ -61,8 +68,38 @@ func New(client *minio.Client, bucket string, db *gorm.DB, concurrency int) *Ind
 // a backlog remains, so a backfill takes hours rather than days, but never
 // holding up the next scan for longer than one batch, so new lights are
 // indexed on time. With no backlog it waits out the interval.
-func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
+//
+// With recent above zero it also lists the folders of targets imaged lately
+// every recent, so a new light is indexed seconds after it is uploaded
+// rather than at the next scan.
+func (ix *Indexer) Run(ctx context.Context, interval, recent time.Duration) {
+	if recent > 0 {
+		go ix.runRecent(ctx, recent)
+	}
 	runLoop(ctx, interval, ix.scan, ix.photometryPass)
+}
+
+func (ix *Indexer) runRecent(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		start := time.Now()
+		n, err := ix.IndexRecent(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Error("Indexing recent folders failed", "error", err)
+			}
+			continue
+		}
+		if n > 0 {
+			slog.Info("Indexed new frames in recent folders", "indexed", n, "duration", time.Since(start).Round(time.Millisecond))
+		}
+	}
 }
 
 // runLoop calls scan every interval, and pass between scans: again at once
@@ -318,9 +355,12 @@ func photometryPending(db *gorm.DB) *gorm.DB {
 // back until it has. Each is downloaded whole once. A light that can't be
 // decoded is recorded as measured, with the error, so it isn't waited on.
 func (ix *Indexer) MeasurePhotometry(ctx context.Context) (int, error) {
+	return ix.measurePhotometry(ctx, photometryPending(ix.db.WithContext(ctx)).Order("date_obs DESC").Limit(photometryBatch))
+}
+
+func (ix *Indexer) measurePhotometry(ctx context.Context, pending *gorm.DB) (int, error) {
 	var frames []app.Frame
-	if err := photometryPending(ix.db.WithContext(ctx)).Select("id", "key").
-		Order("date_obs DESC").Limit(photometryBatch).Find(&frames).Error; err != nil {
+	if err := pending.Select("id", "key").Find(&frames).Error; err != nil {
 		return 0, err
 	}
 	work := make(chan app.Frame)
@@ -402,6 +442,9 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 		go func() {
 			defer wg.Done()
 			for obj := range work {
+				if ix.current(ctx, obj) {
+					continue
+				}
 				err := ix.indexObject(ctx, obj)
 				mu.Lock()
 				if err != nil {
@@ -461,6 +504,16 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 		stats.Removed = len(gone)
 	}
 	return stats, nil
+}
+
+// current reports whether obj is already indexed at its ETag, as when
+// IndexRecent indexed it while the scan listed the bucket.
+func (ix *Indexer) current(ctx context.Context, obj minio.ObjectInfo) bool {
+	var etags []string
+	if err := ix.db.WithContext(ctx).Model(&app.Frame{}).Where("key = ?", obj.Key).Limit(1).Pluck("e_tag", &etags).Error; err != nil {
+		return false
+	}
+	return len(etags) == 1 && etags[0] == obj.ETag
 }
 
 func (ix *Indexer) indexObject(ctx context.Context, obj minio.ObjectInfo) error {

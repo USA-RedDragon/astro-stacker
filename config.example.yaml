@@ -65,6 +65,8 @@ indexer:
   enabled: false
   # Seconds between bucket scans
   interval-seconds: 600
+  # Seconds between listings of the folders of targets imaged in the last two days, so new lights are indexed, previewed and scored soon after upload; 0 waits for the bucket scan
+  recent-seconds: 15
   # Headers to fetch in parallel
   concurrency: 8
 # Sub preview rendering
