@@ -198,10 +198,10 @@ func criteria(p starfront.Project, rig Rig, info rigsource.Rig, ev evidence) []C
 		}
 	}
 	out = append(out, filterCriterion(r, rig, info))
-	out = append(out, qualityCriteria(r, rig)...)
+	out = append(out, qualityCriteria(r, rig, info)...)
 	if r.MinExposure != nil || r.MaxExposure != nil {
 		var ok, bad []string
-		for _, f := range filterOrder() {
+		for _, f := range dealtFilters(r, rig) {
 			if e, has := rig.Exposures[f]; has && e > 0 {
 				if within(e, r.MinExposure, r.MaxExposure) {
 					ok = append(ok, fmt.Sprintf("%s %gs", f, e))
@@ -210,13 +210,14 @@ func criteria(p starfront.Project, rig Rig, info rigsource.Rig, ev evidence) []C
 				}
 			}
 		}
+		rule := span(r.MinExposure, r.MaxExposure, " s")
 		switch {
 		case len(ok) == 0 && len(bad) == 0:
-			add("Sub length", span(r.MinExposure, r.MaxExposure, " s"), "not measured", CriterionOpen)
-		case len(ok) == 0:
-			add("Sub length", span(r.MinExposure, r.MaxExposure, " s"), strings.Join(bad, ", "), CriterionFail)
+			add("Sub length", rule, "not measured for the filters it wants", CriterionOpen)
+		case len(bad) > 0:
+			add("Sub length", rule, "usual subs "+strings.Join(bad, ", ")+": change that filter's sub length to join", CriterionFail)
 		default:
-			add("Sub length", span(r.MinExposure, r.MaxExposure, " s"), strings.Join(ok, ", "), CriterionPass)
+			add("Sub length", rule, "usual subs "+strings.Join(ok, ", "), CriterionPass)
 		}
 	}
 	if c, ok := moonCriterion(r, ev); ok {
@@ -311,29 +312,35 @@ func moonCriterion(r starfront.Requirements, ev evidence) (Criterion, bool) {
 	return c, true
 }
 
-func qualityCriteria(r starfront.Requirements, rig Rig) []Criterion {
+func qualityCriteria(r starfront.Requirements, rig Rig, info rigsource.Rig) []Criterion {
 	var out []Criterion
 	add := func(name, rule, you, result string) {
 		out = append(out, Criterion{Name: name, Rule: rule, You: you, Result: result, Scope: ScopeRig})
 	}
+	basis := func(n int) string {
+		if n <= 0 {
+			return " typical"
+		}
+		return fmt.Sprintf(" median of %d lights", n)
+	}
 	if r.MaxHFR != nil {
+		rule := fmt.Sprintf("HFR at most %g″", *r.MaxHFR)
+		you := fmt.Sprintf("%.1f″%s", rig.TypicalHFR, basis(info.Basis.HFRFrames))
 		switch {
 		case rig.TypicalHFR <= 0:
-			add("Star size", fmt.Sprintf("HFR at most %g″", *r.MaxHFR), "not measured", CriterionOpen)
-		case rig.TypicalHFR <= *r.MaxHFR:
-			add("Star size", fmt.Sprintf("HFR at most %g″", *r.MaxHFR), fmt.Sprintf("%.1f″ typical", rig.TypicalHFR), CriterionPass)
+			add("Star size", rule, "not measured", CriterionOpen)
 		default:
-			add("Star size", fmt.Sprintf("HFR at most %g″", *r.MaxHFR), fmt.Sprintf("%.1f″ typical", rig.TypicalHFR), CriterionFail)
+			add("Star size", rule, you, passIf(rig.TypicalHFR <= *r.MaxHFR))
 		}
 	}
 	if r.MaxGuideRMS != nil {
+		rule := fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS)
+		you := fmt.Sprintf("%.2f″%s", rig.TypicalRMS, basis(info.Basis.GuideFrames))
 		switch {
 		case rig.TypicalRMS <= 0:
-			add("Guiding", fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS), "not measured", CriterionOpen)
-		case rig.TypicalRMS <= *r.MaxGuideRMS:
-			add("Guiding", fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS), fmt.Sprintf("%.2f″ typical", rig.TypicalRMS), CriterionPass)
+			add("Guiding", rule, "not measured", CriterionOpen)
 		default:
-			add("Guiding", fmt.Sprintf("RMS at most %g″", *r.MaxGuideRMS), fmt.Sprintf("%.2f″ typical", rig.TypicalRMS), CriterionFail)
+			add("Guiding", rule, you, passIf(rig.TypicalRMS <= *r.MaxGuideRMS))
 		}
 	}
 	return out
