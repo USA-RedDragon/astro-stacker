@@ -283,7 +283,7 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, []Exclu
 	hmap, hst := s.halphaMap()
 	key := fmt.Sprintf("%+v|%s|%v", rig.Frame, hst.State, hst.FetchedAt)
 	s.mu.Lock()
-	cached := s.finder
+	cached, gen := s.finder, s.gen
 	s.mu.Unlock()
 	if cached != nil && cached.day.Equal(day) && cached.key == key {
 		return cached.rows, cached.excluded, nil
@@ -343,7 +343,9 @@ func (s *Service) finderRows(ctx context.Context, rig Rig) ([]FinderRow, []Exclu
 		}
 	}
 	s.mu.Lock()
-	s.finder = &finderCache{day: day, key: key, rows: rows, excluded: excluded}
+	if s.gen == gen {
+		s.finder = &finderCache{day: day, key: key, rows: rows, excluded: excluded}
+	}
 	s.mu.Unlock()
 	return rows, excluded, nil
 }
