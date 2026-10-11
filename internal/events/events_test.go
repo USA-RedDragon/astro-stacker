@@ -72,6 +72,20 @@ func TestNewListenerGetsLatestStatusFirst(t *testing.T) {
 	}
 }
 
+// A new listener has loaded the current state itself, so the events
+// before it connected are not replayed to it.
+func TestNewListenerGetsNoOldEvents(t *testing.T) {
+	t.Parallel()
+	b := NewBroker()
+	b.Publish(Event{Type: TypeMaster, Object: "M 101", Filter: "Red"})
+	b.Broadcast("scheduler", map[string]string{"state": "imaging"}, true)
+	backlog, _, cancel := b.Subscribe(0)
+	defer cancel()
+	if len(backlog) != 1 || !strings.Contains(string(backlog[0]), `"type":"scheduler"`) {
+		t.Fatalf("backlog %q, want only the sticky scheduler message", backlog)
+	}
+}
+
 func TestNilBrokerDropsEvents(t *testing.T) {
 	t.Parallel()
 	var b *Broker
