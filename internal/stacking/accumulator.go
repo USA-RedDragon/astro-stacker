@@ -31,10 +31,14 @@ type Options struct {
 	// rejection would drop most of them (see keepMajorityMem). Comet stacks
 	// leave it off: there a star's trail is what the majority can hold.
 	KeepMajority bool
+	// FillShadows fills in, in rebuilds, a soft dark disc one sub has and
+	// the others don't (see shadowFill). Comet stacks leave it off: their
+	// masked stars leave holes the size of one.
+	FillShadows bool
 }
 
 func DefaultOptions() Options {
-	return Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2, LocalNorm: true, KeepMajority: true}
+	return Options{SaturationLevel: 0.9, RejectSigma: 4, MinSamples: 8, RejectGrow: 2, LocalNorm: true, KeepMajority: true, FillShadows: true}
 }
 
 // Accumulator holds the running state for one master: per pixel, the total
