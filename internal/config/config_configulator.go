@@ -162,9 +162,10 @@ type darksShadow struct {
 }
 
 type subLengthShadow struct {
-	Publish         *string `json:"publish"          toml:"publish"          yaml:"publish"`
-	NewLengths      *bool   `json:"new-lengths"      toml:"new-lengths"      yaml:"new-lengths"`
-	IntervalMinutes *int    `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
+	Publish         *string  `json:"publish"           toml:"publish"           yaml:"publish"`
+	NewLengths      *bool    `json:"new-lengths"       toml:"new-lengths"       yaml:"new-lengths"`
+	IntervalMinutes *int     `json:"interval-minutes"  toml:"interval-minutes"  yaml:"interval-minutes"`
+	TolerancePct    *float64 `json:"tolerance-percent" toml:"tolerance-percent" yaml:"tolerance-percent"`
 }
 
 type calibrationShadow struct {
@@ -340,6 +341,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("sub-length.publish", configulator.LayerDefault, "default tag")
 	cfg.SubLength.IntervalMinutes = 60
 	set("sub-length.interval-minutes", configulator.LayerDefault, "default tag")
+	cfg.SubLength.TolerancePct = 2.0
+	set("sub-length.tolerance-percent", configulator.LayerDefault, "default tag")
 	cfg.Calibration.Publish = "off"
 	set("calibration.publish", configulator.LayerDefault, "default tag")
 	return nil
@@ -794,6 +797,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.SubLength.IntervalMinutes != nil {
 			cfg.SubLength.IntervalMinutes = *s.SubLength.IntervalMinutes
 			set("sub-length.interval-minutes", configulator.LayerFile, file)
+		}
+		if s.SubLength.TolerancePct != nil {
+			cfg.SubLength.TolerancePct = *s.SubLength.TolerancePct
+			set("sub-length.tolerance-percent", configulator.LayerFile, file)
 		}
 	}
 	if s.Calibration != nil {
@@ -1804,6 +1811,19 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.SubLength.IntervalMinutes = int(p)
 		set("sub-length.interval-minutes", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "sub-length", "tolerance-percent"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "sub-length.tolerance-percent",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.SubLength.TolerancePct = p
+		set("sub-length.tolerance-percent", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "calibration", "publish"); ok {
 		cfg.Calibration.Publish = v
 		set("calibration.publish", configulator.LayerEnv, n)
@@ -1923,6 +1943,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"sub-length" + o.Separator + "publish",
 		"sub-length" + o.Separator + "new-lengths",
 		"sub-length" + o.Separator + "interval-minutes",
+		"sub-length" + o.Separator + "tolerance-percent",
 		"calibration" + o.Separator + "publish",
 	}
 	for i, name := range names {
@@ -2041,7 +2062,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[99], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
 	fs.Bool(names[100], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
 	fs.Var(impl.NewInt(60), names[101], "Minutes between recomputing the lengths")
-	fs.String(names[102], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.Float64(names[102], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
+	fs.String(names[103], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -3270,6 +3292,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.SubLength.IntervalMinutes = v
 		set("sub-length.interval-minutes", configulator.LayerCLI, "--"+n)
+	}
+	if n := "sub-length" + o.Separator + "tolerance-percent"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "sub-length.tolerance-percent",
+				Source: "--" + n,
+			}
+		}
+		cfg.SubLength.TolerancePct = v
+		set("sub-length.tolerance-percent", configulator.LayerCLI, "--"+n)
 	}
 	if n := "calibration" + o.Separator + "publish"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -5632,6 +5666,22 @@ func (s *subLengthShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".interval-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "tolerance-percent":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".tolerance-percent", v, err)
+				}
+				s.TolerancePct = &num
+			default:
+				return configJSONError(path+".tolerance-percent", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -5799,6 +5849,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "sub-length.publish = %v\n", c.SubLength.Publish)
 	fmt.Fprintf(&b, "sub-length.new-lengths = %v\n", c.SubLength.NewLengths)
 	fmt.Fprintf(&b, "sub-length.interval-minutes = %v\n", c.SubLength.IntervalMinutes)
+	fmt.Fprintf(&b, "sub-length.tolerance-percent = %v\n", c.SubLength.TolerancePct)
 	fmt.Fprintf(&b, "calibration.publish = %v\n", c.Calibration.Publish)
 	return b.String()
 }

@@ -33,6 +33,7 @@ type Input struct {
 	Ladder        []float64
 	MinSkySubs    int
 	SaturationRef float64
+	Tolerance     float64
 }
 
 type Recommendation struct {
@@ -47,6 +48,7 @@ type Recommendation struct {
 	EPerADU       float64     `json:"e_per_adu"`
 	Overhead      float64     `json:"overhead"`
 	SaturationCap float64     `json:"saturation_cap"`
+	Tolerance     float64     `json:"tolerance"`
 	SNRChange     float64     `json:"snr_rate_change"`
 	IdealGain     float64     `json:"ideal_snr_rate_gain"`
 	Candidates    []Candidate `json:"candidates"`
@@ -107,7 +109,14 @@ func candidates(in Input, satCap float64) []Candidate {
 	return cands
 }
 
-func shortestNearBest(cands []Candidate, needDarks bool) int {
+func (in Input) tolerance() float64 {
+	if in.Tolerance > 0 && in.Tolerance < 1 {
+		return in.Tolerance
+	}
+	return DefaultTolerance
+}
+
+func shortestNearBest(cands []Candidate, needDarks bool, near float64) int {
 	best := 0.0
 	for _, c := range cands {
 		if c.Blocked == "" && (!needDarks || c.Darks) {
@@ -118,20 +127,20 @@ func shortestNearBest(cands []Candidate, needDarks bool) int {
 		return -1
 	}
 	for i, c := range cands {
-		if c.Blocked == "" && (!needDarks || c.Darks) && math.Sqrt(c.Efficiency/best) >= NearBest {
+		if c.Blocked == "" && (!needDarks || c.Darks) && math.Sqrt(c.Efficiency/best) >= near {
 			return i
 		}
 	}
 	return -1
 }
 
-func choose(cands []Candidate) (use, ideal int) {
-	use = shortestNearBest(cands, true)
+func choose(cands []Candidate, near float64) (use, ideal int) {
+	use = shortestNearBest(cands, true, near)
 	if use < 0 {
-		return use, shortestNearBest(cands, false)
+		return use, shortestNearBest(cands, false, near)
 	}
 	ideal = use
-	if c := shortestNearBest(cands, false); c >= 0 && !cands[c].Darks && ratio(cands[c].Efficiency, cands[use].Efficiency) >= NewLengthGain {
+	if c := shortestNearBest(cands, false, near); c >= 0 && !cands[c].Darks && ratio(cands[c].Efficiency, cands[use].Efficiency) >= NewLengthGain {
 		ideal = c
 	}
 	return use, ideal
@@ -150,13 +159,13 @@ func Recommend(in Input) (Recommendation, bool) {
 	}
 	satCap := saturationCap(in)
 	cands := candidates(in, satCap)
-	use, ideal := choose(cands)
+	use, ideal := choose(cands, 1-in.tolerance())
 	if ideal < 0 {
 		return Recommendation{}, false
 	}
 	rec := Recommendation{
 		Current: in.Current, SkyLimited: SkyLimited(in.Sky, in.Sensor.ReadNoise), SkyRate: in.Sky, SkySubs: in.SkySubs, SkySource: in.SkySource,
-		ReadNoise: in.Sensor.ReadNoise, EPerADU: in.Sensor.EPerADU, Overhead: in.Overhead, SaturationCap: satCap, Ideal: cands[ideal].Exposure,
+		ReadNoise: in.Sensor.ReadNoise, EPerADU: in.Sensor.EPerADU, Overhead: in.Overhead, SaturationCap: satCap, Tolerance: in.tolerance(), Ideal: cands[ideal].Exposure,
 	}
 	cur := -1.0
 	for _, c := range cands {
@@ -187,8 +196,8 @@ func basis(rec Recommendation, in Input, cands []Candidate, ideal, use int) stri
 	fmt.Fprintf(&b, "Sky noise reaches 3× read noise (5%% SNR cost) at %s. ", secs(rec.SkyLimited))
 	if use >= 0 {
 		c := cands[use]
-		fmt.Fprintf(&b, "%s gets %s of an ideal sub's SNR per hour (time lost to read noise %s, to overhead %s, to rejected subs %s), within 5%% of the best length allowed",
-			secs(c.Exposure), pct(math.Sqrt(c.Efficiency)), pct(1-c.ReadNoiseShare), pct(1-c.DutyCycle), pct(1-c.Kept))
+		fmt.Fprintf(&b, "%s gets %s of an ideal sub's SNR per hour (time lost to read noise %s, to overhead %s, to rejected subs %s), within %s of the best length allowed",
+			secs(c.Exposure), pct(math.Sqrt(c.Efficiency)), pct(1-c.ReadNoiseShare), pct(1-c.DutyCycle), pct(1-c.Kept), pct(in.tolerance()))
 		if c.SaturatedShare != nil {
 			fmt.Fprintf(&b, "; it saturates %s of the stars (cap %s)", pct(*c.SaturatedShare), pct(rec.SaturationCap))
 		}

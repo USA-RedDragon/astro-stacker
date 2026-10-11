@@ -79,6 +79,7 @@ type Result struct {
 	ComputedAt  *time.Time           `json:"computed_at"`
 	Mode        string               `json:"mode"`
 	NewLengths  bool                 `json:"new_lengths"`
+	Tolerance   float64              `json:"tolerance"`
 	Ladder      []float64            `json:"ladder"`
 	DarkLengths map[string][]float64 `json:"dark_lengths"`
 	Sensors     []Sensor             `json:"sensors"`
@@ -110,6 +111,7 @@ type Service struct {
 	Pedestal   float64
 	Mode       string
 	NewLengths bool
+	Tolerance  float64
 	Now        func() time.Time
 
 	mu      sync.Mutex
@@ -124,6 +126,10 @@ func (s *Service) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+func (s *Service) tolerance() float64 {
+	return Input{Tolerance: s.Tolerance}.tolerance()
 }
 
 func (s *Service) mode() string {
@@ -485,6 +491,7 @@ type world struct {
 	objProject  map[string]int
 	overhead    Overhead
 	rejection   Rejection
+	tolerance   float64
 }
 
 type targetPositions struct {
@@ -570,7 +577,7 @@ func (s *Service) load(ctx context.Context, res *Result, plans []planGroup) (*wo
 		return nil, err
 	}
 	return &world{plans: plans, subs: subs, phots: phots, ranks: measure.Ranks(), setups: lastSetup(lightRows), darks: darks,
-		guidObjects: tp.guidObjects, objProject: tp.objProject, overhead: oh, rejection: res.Rejection}, nil
+		guidObjects: tp.guidObjects, objProject: tp.objProject, overhead: oh, rejection: res.Rejection, tolerance: s.tolerance()}, nil
 }
 
 func (w *world) stars(p planGroup, filter string, objs []string) []Stars {
@@ -647,7 +654,7 @@ func (w *world) planRows(p planGroup, proposals map[string]*Proposal) []Row {
 			continue
 		}
 		rec, ok := Recommend(Input{Sensor: sen, Sky: median(rates), SkySubs: len(rates), SkySource: src, Current: p.current,
-			Overhead: w.overhead.Seconds, Rejection: w.rejection, Stars: stars, DarkLengths: w.darks[darkKey{float64(p.gain), offset}]})
+			Overhead: w.overhead.Seconds, Rejection: w.rejection, Tolerance: w.tolerance, Stars: stars, DarkLengths: w.darks[darkKey{float64(p.gain), offset}]})
 		if !ok {
 			continue
 		}
@@ -668,7 +675,7 @@ func (w *world) planRows(p planGroup, proposals map[string]*Proposal) []Row {
 
 func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	now := s.now().UTC()
-	res := &Result{ComputedAt: &now, Mode: s.mode(), NewLengths: s.NewLengths, Ladder: Ladder(), Sensors: knownSensors(), Buckets: bucketEdges(),
+	res := &Result{ComputedAt: &now, Mode: s.mode(), NewLengths: s.NewLengths, Tolerance: s.tolerance(), Ladder: Ladder(), Sensors: knownSensors(), Buckets: bucketEdges(),
 		DarkLengths: map[string][]float64{}, Rows: []Row{}, Site: []Row{}, Proposals: []Proposal{}}
 	if s.App == nil || s.Sched == nil {
 		res.Reason = "no scheduler database"
@@ -692,7 +699,7 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 		res.DarkLengths[strconv.Itoa(p.gain)] = w.darks[darkKey{float64(p.gain), offset}]
 		res.Rows = append(res.Rows, w.planRows(p, proposals)...)
 	}
-	res.Site = siteRows(plans, w.subs, w.phots, w.ranks, w.setups, w.darks, w.overhead, w.rejection)
+	res.Site = siteRows(plans, w.subs, w.phots, w.ranks, w.setups, w.darks, w.overhead, w.rejection, w.tolerance)
 	for _, pr := range proposals {
 		pr.Basis = fmt.Sprintf("%g s at gain %g has no full dark set; it would gain 5%% or more SNR per hour over the length in use for %d target/filter/glare rows", pr.Exposure, pr.Gain, len(pr.Rows))
 		res.Proposals = append(res.Proposals, *pr)
@@ -742,7 +749,7 @@ func (r *Result) For(object, guid string) Result {
 }
 
 func siteRows(plans []planGroup, subs []sub, phots map[int]measure.Photometry, ranks []int, setups map[int]lightRow,
-	darks map[darkKey][]float64, oh Overhead, rej Rejection) []Row {
+	darks map[darkKey][]float64, oh Overhead, rej Rejection, tol float64) []Row {
 	type key struct {
 		filter string
 		gain   int
@@ -791,7 +798,7 @@ func siteRows(plans []planGroup, subs []sub, phots map[int]measure.Photometry, r
 				continue
 			}
 			rec, ok := Recommend(Input{Sensor: sen, Sky: median(rates), SkySubs: len(rates), SkySource: SourceSite, Current: current[k],
-				Overhead: oh.Seconds, Rejection: rej, Stars: stars, DarkLengths: darks[darkKey{float64(k.gain), *setup.Offset}]})
+				Overhead: oh.Seconds, Rejection: rej, Tolerance: tol, Stars: stars, DarkLengths: darks[darkKey{float64(k.gain), *setup.Offset}]})
 			if !ok {
 				continue
 			}
