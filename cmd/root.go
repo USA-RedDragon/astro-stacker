@@ -287,6 +287,13 @@ func (c commandSnapshot) TargetPlans(ctx context.Context, targetID int64) ([]sch
 	return schedcmd.TargetPlansFrom(ctx, c.sched, targetID)
 }
 
+func (c commandSnapshot) ProjectAltitudes(ctx context.Context, projectID int64) (float64, float64, error) {
+	if c.sched == nil {
+		return 0, 0, errNoSchedulerDB
+	}
+	return schedcmd.ProjectAltitudesFrom(ctx, c.sched, projectID)
+}
+
 func newScheduler(ctx context.Context, cfg *config.Config, appStore, schedulerDBStore store.Store, broker *events.Broker, onCommand func(schedcmd.Record)) (*schedcmd.Service, *observatory.Monitor, *observatory.Client) {
 	obs := observatory.NewClient(cfg.Scheduler.URL, cfg.Scheduler.Token)
 	transports := []schedcmd.Transport{observatory.NewAPITransport(obs)}

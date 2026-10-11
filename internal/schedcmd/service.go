@@ -97,6 +97,9 @@ func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage
 	if err := spec.Validate(payload); err != nil {
 		return Record{}, err
 	}
+	if err := s.checkProjectAltitudes(ctx, kind, payload); err != nil {
+		return Record{}, err
+	}
 	desc, err := spec.Describe(payload)
 	if err != nil {
 		return Record{}, err
