@@ -51,7 +51,7 @@ func SetStatus(ctx context.Context, db *gorm.DB, id int, before, after, who stri
 	}
 	var row app.MosaicAdoption
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.First(&row, id).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrNotFound
 			}

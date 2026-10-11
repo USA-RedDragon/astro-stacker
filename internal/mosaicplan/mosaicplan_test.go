@@ -74,7 +74,11 @@ func schedFixture(t *testing.T) *gorm.DB {
 
 func appFixture(t *testing.T) *gorm.DB {
 	t.Helper()
-	db := open(t, "app")
+	return appFixtureOn(t, open(t, "app"))
+}
+
+func appFixtureOn(t *testing.T, db *gorm.DB) *gorm.DB {
+	t.Helper()
 	if err := db.AutoMigrate(&app.Frame{}, &app.Stack{}, &app.StackFrame{}, &app.GoalMeasurement{}, &app.MosaicPanel{}, &app.MosaicAdoption{},
 		&app.FrameTarget{}, &app.MosaicSeam{}, &app.MosaicPanelHealth{}, &app.Mosaic{}); err != nil {
 		t.Fatal(err)
