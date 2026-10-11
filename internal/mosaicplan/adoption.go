@@ -495,7 +495,7 @@ func keep(tx *gorm.DB, c candidate, old app.MosaicAdoption, rig mosaics.Rig, now
 			return row, err
 		}
 	}
-	if autoByUs(old) && old.Kind == KindFrames && proposedTarget(old) != proposedTarget(row) {
+	if autoByUs(old) && (!c.decidable() || (old.Kind == KindFrames && proposedTarget(old) != proposedTarget(row))) {
 		if err := withdraw(tx, old, &row, rig, now, dryRun); err != nil {
 			return row, err
 		}
