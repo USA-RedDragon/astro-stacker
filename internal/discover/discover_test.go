@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,6 +39,8 @@ const (
 	m13Name    = "M 13"
 	hydrogen   = "H-a"
 	testSiteLa = 31.5
+	visitName  = "Frames per visit"
+	single     = "single"
 )
 
 func openDB(t *testing.T, name string) *gorm.DB {
@@ -469,7 +472,7 @@ func TestCollabs(t *testing.T) {
 	s := newService(t)
 	now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
 	open := starfront.Project{ID: "a", Name: "M31 test", Coordinator: "c", Status: starfront.StatusOpen, Created: float64(now.Unix()),
-		Payload: starfront.Payload{Kind: "single", Region: starfront.Region{RA: 10.675, Dec: 41.267, Width: 5.37, Height: 3.58, Rotation: 275.8},
+		Payload: starfront.Payload{Kind: single, Region: starfront.Region{RA: 10.675, Dec: 41.267, Width: 5.37, Height: 3.58, Rotation: 275.8},
 			Requirements: starfront.Requirements{MinFocalLength: ptr(100.0), MaxFocalLength: ptr(3000.0), Filters: map[string]*float64{"H": nil, "O": nil, "L": nil}},
 			Goals:        map[string]float64{"H": 500}}}
 	closed := starfront.Project{ID: "b", Name: "m42 closeup", Status: "closed", Created: float64(now.Add(-48 * time.Hour).Unix()),
@@ -575,7 +578,7 @@ func TestUnknownRigIsNotInvented(t *testing.T) {
 		t.Fatalf("object fit without a rig: %+v %v", d.Fit, err)
 	}
 	src := fakeCollabs{starfront.State{Enabled: true, Projects: []starfront.Project{{ID: "a", Status: starfront.StatusOpen,
-		Payload: starfront.Payload{Kind: "single", Region: starfront.Region{RA: 10.6, Dec: 41.2, Width: 2, Height: 1},
+		Payload: starfront.Payload{Kind: single, Region: starfront.Region{RA: 10.6, Dec: 41.2, Width: 2, Height: 1},
 			Requirements: starfront.Requirements{MinFocalLength: ptr(100.0), MaxHFR: ptr(3.0)}}}}}}
 	v, err := s.Collabs(ctx, src)
 	if err != nil || len(v.Open) != 1 {
@@ -830,4 +833,91 @@ func TestSubjectPositionAcrossRAZero(t *testing.T) {
 		}
 	}
 	t.Fatal("no subject for the field")
+}
+
+func TestCollabFramesPerVisitIsInformation(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	fl, px, w, h, hfr, rms, colour := 405.0, 3.76, 6248, 4176, 3.22, 0.77, false
+	s.Measure = func(context.Context) rigsource.Rig {
+		r := rigsource.Empty()
+		r.FocalLength, r.PixelSize, r.WidthPx, r.HeightPx, r.TypicalHFR, r.TypicalGuideRMS, r.Colour = &fl, &px, &w, &h, &hfr, &rms, &colour
+		r.Filters = []string{"L", "R", "G", "B", "H", "O", "S"}
+		r.Exposures = map[string]float64{"L": 300, "R": 300, "G": 300, "B": 300, "H": 600, "O": 600, "S": 600}
+		return r
+	}
+	s.Now = func() time.Time { return time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC) }
+	raw, err := os.ReadFile("../starfront/testdata/projects.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Projects []starfront.Project `json:"projects"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil || len(list.Projects) != 10 {
+		t.Fatalf("%v %d", err, len(list.Projects))
+	}
+	v, err := s.Collabs(context.Background(), fakeCollabs{starfront.State{Enabled: true, Projects: list.Projects}})
+	if err != nil || len(v.Open) != 1 || len(v.Closed) != 9 {
+		t.Fatalf("%v open %d closed %d", err, len(v.Open), len(v.Closed))
+	}
+	fits := 0
+	for _, c := range v.Closed {
+		if c.Verdict == discover.VerdictFits {
+			fits++
+		} else if c.Name != "m42 closeup" {
+			t.Errorf("%s: %s %+v", c.Name, c.Verdict, c.Criteria)
+		}
+	}
+	if fits != 8 {
+		t.Errorf("%d of 9 closed collabs fit", fits)
+	}
+	m31 := v.Open[0]
+	if m31.Verdict != discover.VerdictFits || !m31.Fits {
+		t.Fatalf("M31 %s %+v", m31.Verdict, m31.Criteria)
+	}
+	var visit *discover.Criterion
+	for i, c := range m31.Criteria {
+		if c.Name == visitName {
+			visit = &m31.Criteria[i]
+		}
+	}
+	if visit == nil || visit.Scope != discover.ScopeInfo || visit.Result != discover.CriterionNone ||
+		!strings.Contains(visit.Rule, "not a requirement") || !strings.Contains(visit.You, "50 min (L R G B at 300s), 100 min (H O at 600s)") {
+		t.Errorf("frames per visit %+v", visit)
+	}
+}
+
+func TestCollabTypicalVisitCountsFramesWithoutATarget(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	now := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
+	s.Now = func() time.Time { return now }
+	if err := s.AppDB.Where("1 = 1").Delete(&app.Frame{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	night := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	frames := make([]app.Frame, 0, 18)
+	for i := range 18 {
+		at := now.Add(-time.Duration(i+1) * time.Minute)
+		f := app.Frame{Key: fmt.Sprintf("l%d", i), ETag: "e", LastModified: at, Type: lightType, Object: "M31", Filter: "H", DateObs: &at, Night: &night}
+		if i >= 12 {
+			f.Filter = "O"
+		}
+		frames = append(frames, f)
+	}
+	if err := s.AppDB.Create(&frames).Error; err != nil {
+		t.Fatal(err)
+	}
+	p := starfront.Project{ID: "a", Status: starfront.StatusOpen, Payload: starfront.Payload{Kind: single,
+		Region: starfront.Region{RA: 10.6, Dec: 41.2, Width: 2, Height: 1}, Requirements: starfront.Requirements{MinFramesPerVisit: ptr(10)}}}
+	v, err := s.Collabs(context.Background(), fakeCollabs{starfront.State{Enabled: true, Projects: []starfront.Project{p}}})
+	if err != nil || len(v.Open) != 1 {
+		t.Fatalf("%v %+v", err, v)
+	}
+	for _, c := range v.Open[0].Criteria {
+		if c.Name == visitName && !strings.Contains(c.You, "median 9 lights of one filter per target per night over 2 target-filter-nights") {
+			t.Errorf("typical visit %+v", c)
+		}
+	}
 }
