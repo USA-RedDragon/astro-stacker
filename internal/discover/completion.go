@@ -31,21 +31,29 @@ const (
 var ErrUnknownList = errors.New("unknown catalogue")
 
 type SubjectRef struct {
-	Key        string   `json:"key"`
-	Name       string   `json:"name"`
-	ProjectID  int      `json:"projectId,omitempty"`
-	State      string   `json:"state,omitempty"`
-	Status     string   `json:"status"`
-	Method     string   `json:"method"`
-	Basis      string   `json:"basis,omitempty"`
-	Coverage   *float64 `json:"coverage"`
-	Done       bool     `json:"done"`
-	DoneByGoal bool     `json:"doneByGoal"`
-	Judged     string   `json:"completionBasis"`
-	Completion string   `json:"completion"`
-	Tally      Tally    `json:"tally"`
-	Why        string   `json:"why,omitempty"`
-	Hours      float64  `json:"hours"`
+	Key        string    `json:"key"`
+	Name       string    `json:"name"`
+	ProjectID  int       `json:"projectId,omitempty"`
+	State      string    `json:"state,omitempty"`
+	Status     string    `json:"status"`
+	Method     string    `json:"method"`
+	Basis      string    `json:"basis,omitempty"`
+	Coverage   *float64  `json:"coverage"`
+	Done       bool      `json:"done"`
+	DoneByGoal bool      `json:"doneByGoal"`
+	Judged     string    `json:"completionBasis"`
+	Completion string    `json:"completion"`
+	Tally      Tally     `json:"tally"`
+	Progress   *Progress `json:"progress,omitempty"`
+	Why        string    `json:"why,omitempty"`
+	Hours      float64   `json:"hours"`
+}
+
+type Progress struct {
+	Percent      float64 `json:"percent"`
+	Target       string  `json:"target"`
+	LeastFilter  string  `json:"leastFilter,omitempty"`
+	LeastPercent float64 `json:"leastPercent"`
 }
 
 type Tonight struct {
@@ -73,6 +81,7 @@ type CatalogueEntry struct {
 	ByGoal    bool               `json:"doneByGoal"`
 	Scheduled bool               `json:"scheduled"`
 	Tally     Tally              `json:"tally"`
+	Progress  *Progress          `json:"progress,omitempty"`
 	Hours     map[string]float64 `json:"hours"`
 	Subjects  []SubjectRef       `json:"subjects"`
 	Tonight   *Tonight           `json:"tonight,omitempty"`
@@ -226,6 +235,9 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 			Basis: l.Basis, Coverage: l.Coverage, Why: l.Why, Tally: t, Completion: completion, Judged: basis,
 			Hours: math.Round(t.Hours*100) / 100}
 		ref.Done = completion == CompletionDone
+		if completion == CompletionInProgress || ref.Done {
+			ref.Progress = progressOf(subj.judged, targets)
+		}
 		ref.DoneByGoal = ref.Done && byGoal
 		ref.Tally.Hours = ref.Hours
 		e.Subjects = append(e.Subjects, ref)
@@ -244,7 +256,7 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 			e.Tally.add(d)
 		}
 		if completionRank(ref.Completion) > completionRank(e.Status) {
-			e.Status, e.Judged, e.ByGoal = ref.Completion, ref.Judged, ref.DoneByGoal
+			e.Status, e.Judged, e.ByGoal, e.Progress = ref.Completion, ref.Judged, ref.DoneByGoal, ref.Progress
 			e.Adding = subj.Adding
 		}
 	}
@@ -521,6 +533,29 @@ func judge(t Tally, judged map[string]planning.Judgement, targets []string) (str
 		return CompletionNotStarted, text, false
 	}
 	return CompletionInProgress, text, false
+}
+
+func progressOf(judged map[string]planning.Judgement, targets []string) *Progress {
+	var weakest *planning.Judgement
+	for _, name := range targets {
+		j, ok := judged[name]
+		if ok && (weakest == nil || j.Percent < weakest.Percent) {
+			weakest = &j
+		}
+	}
+	if weakest == nil {
+		return nil
+	}
+	p := &Progress{Percent: math.Max(0, math.Min(1, weakest.Percent)), Target: weakest.Target}
+	for _, f := range weakest.Filters {
+		if f.Basis == "" {
+			continue
+		}
+		if pct := math.Max(0, math.Min(1, f.Percent/100)); p.LeastFilter == "" || pct < p.LeastPercent {
+			p.LeastFilter, p.LeastPercent = f.Filter, pct
+		}
+	}
+	return p
 }
 
 func plural(n int, one, many string) string {

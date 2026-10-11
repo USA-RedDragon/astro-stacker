@@ -292,6 +292,9 @@ func TestObjectEntries(t *testing.T) {
 		!strings.Contains(e.Judged, "Garlic Nebula 87% complete") || !strings.Contains(e.Judged, "by accepted subs against desired") {
 		t.Errorf("garlic entry %+v", e)
 	}
+	if p := garlicEntry(green).Progress; p == nil || math.Abs(p.Percent-0.875) > 0.01 || p.Target != garlicName || p.LeastFilter == "" || p.LeastPercent > p.Percent {
+		t.Errorf("garlic progress %+v", p)
+	}
 	if _, err := s.Catalogue(ctx, "nope"); err == nil {
 		t.Error("unknown catalogue accepted")
 	}
@@ -323,6 +326,9 @@ func TestCompletionBuckets(t *testing.T) {
 	if e := garlicEntry(green); e.Status != discover.CompletionMeasuring || !strings.Contains(e.Judged, "2 filters with a goal not measured yet") {
 		t.Errorf("goals set but nothing measured %+v", e)
 	}
+	if e := garlicEntry(green); e.Progress != nil {
+		t.Errorf("progress before any measurement %+v", e.Progress)
+	}
 	s.AppDB.Create(&[]app.GoalMeasurement{
 		{Object: garlicName, Filter: hydrogen, MethodRevision: goals.MethodRevision, Subs: 120, SNR: 12, GainPerHourPct: 3, EffectiveHours: 10},
 		{Object: garlicName, Filter: "O-III", MethodRevision: goals.MethodRevision, Subs: 60, SNR: 4, GainPerHourPct: 6, EffectiveHours: 5},
@@ -331,6 +337,9 @@ func TestCompletionBuckets(t *testing.T) {
 	green, _ = s.Catalogue(ctx, "green")
 	if e := garlicEntry(green); e.Status != discover.CompletionInProgress || e.Tally.Measured != 2 || !strings.Contains(e.Judged, "by its goal") {
 		t.Errorf("one filter short of its goal %+v", e)
+	}
+	if p := garlicEntry(green).Progress; p == nil || p.Percent <= 0 || p.Percent >= 1 || p.LeastFilter != oxygen || math.Abs(p.LeastPercent-0.16) > 0.01 || math.Abs(p.Percent-0.58) > 0.01 {
+		t.Errorf("progress one filter short of its goal %+v", p)
 	}
 	s.AppDB.Model(&app.GoalMeasurement{}).Where("filter = ?", "O-III").Update("snr", 11)
 	s.Invalidate()
