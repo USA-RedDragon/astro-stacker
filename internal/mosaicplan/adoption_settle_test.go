@@ -121,6 +121,27 @@ func TestRunAdoptionLeavesAPersonsChangedRowForThePerson(t *testing.T) {
 	}
 }
 
+func TestRunAdoptionClosesAPersonsRowForARemovedProject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, appDB, sched := adoptionSvc(t)
+	_, by := runAdoption(ctx, t, svc)
+	ros := by["Rosette"]
+	if _, err := mosaicstore.SetStatus(ctx, appDB, ros.ID, ros.Status, app.AdoptionRejected, byPerson, svc.Rig); err != nil {
+		t.Fatal(err)
+	}
+	if err := sched.Exec(`UPDATE target SET projectid = 99 WHERE projectid = 3`).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, by = runAdoption(ctx, t, svc)
+	if a := by["Rosette"]; a.Status != app.AdoptionAuto || a.DecidedBy != mosaicplan.AutoDecider {
+		t.Fatalf("a person's row for a removed project stays open %+v", a)
+	}
+	if again, _ := runAdoption(ctx, t, svc); again.Auto != 0 || again.Changed != 0 {
+		t.Errorf("second run %+v", again)
+	}
+}
+
 func TestRunAdoptionSkipsWhenTSHasNoProjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
