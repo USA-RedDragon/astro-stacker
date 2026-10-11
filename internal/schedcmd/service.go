@@ -36,6 +36,14 @@ type Transport interface {
 	Cancel(ctx context.Context, id string) (Result, error)
 }
 
+type Deferring interface {
+	Defers() bool
+}
+
+type LiveOnly interface {
+	UnsentMessage() string
+}
+
 type Service struct {
 	Registry   *Registry
 	Log        Log
@@ -150,12 +158,45 @@ func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage
 		return Record{}, err
 	}
 	if r.Destination == DestinationObservatory {
-		if d, _ := s.deliver(ctx, r); d.ID != "" {
+		if live, ok := spec.(LiveOnly); ok {
+			r = s.deliverLive(ctx, r, live)
+		} else if d, _ := s.deliver(ctx, r); d.ID != "" {
 			r = d
 		}
 	}
 	s.notify(r)
 	return r, nil
+}
+
+func (s *Service) deliverLive(ctx context.Context, r Record, live LiveOnly) Record {
+	env := r.Envelope()
+	lastErr := ErrUnreachable
+	for _, t := range s.Transports {
+		if d, ok := t.(Deferring); ok && d.Defers() {
+			continue
+		}
+		res, err := t.Send(ctx, env)
+		if err != nil {
+			lastErr = err
+			if !errors.Is(err, ErrUnreachable) {
+				slog.Warn("Scheduler command transport failed", "transport", t.Name(), "id", r.ID, "error", err)
+			}
+			continue
+		}
+		res.ID = r.ID
+		if rec, err := s.record(ctx, res, t.Name()); err == nil {
+			return rec
+		}
+		return r
+	}
+	msg := live.UnsentMessage()
+	if !errors.Is(lastErr, ErrUnreachable) {
+		msg = "The observatory PC refused it: " + lastErr.Error()
+	}
+	if rec, err := s.record(ctx, Result{ID: r.ID, Status: StatusFailed, Message: msg, UpdatedAt: s.now()}, ""); err == nil {
+		return rec
+	}
+	return r
 }
 
 func (s *Service) deliver(ctx context.Context, r Record) (Record, error) {
@@ -373,6 +414,14 @@ func (s *Service) Redeliver(ctx context.Context) int {
 	for _, r := range waiting {
 		if r.Destination != DestinationObservatory || r.Status != StatusQueued {
 			continue
+		}
+		if spec, err := s.registry().Get(r.Kind); err == nil {
+			if live, ok := spec.(LiveOnly); ok {
+				if _, err := s.record(ctx, Result{ID: r.ID, Status: StatusFailed, Message: live.UnsentMessage(), UpdatedAt: s.now()}, ""); err != nil {
+					slog.Warn("Failing an undelivered live-only command failed", "id", r.ID, "error", err)
+				}
+				continue
+			}
 		}
 		if _, err := s.deliver(ctx, r); err == nil {
 			n++

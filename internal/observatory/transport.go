@@ -84,6 +84,8 @@ var errNotQueued = errors.New("command is not in ts_command")
 
 func (t *QueueTransport) Name() string { return "queue" }
 
+func (t *QueueTransport) Defers() bool { return true }
+
 func (t *QueueTransport) now() time.Time {
 	if t.Now != nil {
 		return t.Now().UTC()
