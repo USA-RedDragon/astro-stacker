@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -98,11 +99,20 @@ type Status struct {
 	Error       string     `json:"error,omitempty"`
 }
 
+type Planned struct {
+	Exposure float64
+	Gain     float64
+	Offset   float64
+	SetTemp  float64
+	Basis    string
+}
+
 type Publisher struct {
-	App   *gorm.DB
-	Sched *gorm.DB
-	Mode  string
-	Now   func() time.Time
+	App     *gorm.DB
+	Sched   *gorm.DB
+	Mode    string
+	Now     func() time.Time
+	Planned func(ctx context.Context) []Planned
 
 	mu     sync.Mutex
 	status Status
@@ -171,6 +181,9 @@ func (p *Publisher) Publish(ctx context.Context) (Status, error) {
 		return p.fail(err)
 	}
 	want := FromBacklog(b)
+	if want, err = p.addPlanned(ctx, want, b); err != nil {
+		return p.fail(err)
+	}
 	var have []Row
 	if err := p.Sched.WithContext(ctx).Table(Table).Find(&have).Error; err != nil {
 		return p.fail(fmt.Errorf("load %s: %w", Table, err))
@@ -224,6 +237,39 @@ func (p *Publisher) Publish(ctx context.Context) (Status, error) {
 		slog.Info("Published the dark backlog", "rows", s.Rows, "changed", s.Changed, "deleted", s.Deleted)
 	}
 	return p.finish(s), nil
+}
+
+func (p *Publisher) addPlanned(ctx context.Context, want []Row, b coverage.DarkBacklog) ([]Row, error) {
+	if p.Planned == nil {
+		return want, nil
+	}
+	have := map[string]bool{}
+	for _, r := range want {
+		have[r.ComboKey] = true
+	}
+	for _, pl := range p.Planned(ctx) {
+		if !(pl.Exposure > 0) || math.IsNaN(pl.SetTemp) {
+			continue
+		}
+		key := coverage.ComboKey(pl.Exposure, pl.Gain, pl.Offset, 1, pl.SetTemp)
+		if have[key] {
+			continue
+		}
+		var n int64
+		if err := p.App.WithContext(ctx).Table("frames").
+			Where(`type = ? AND index_error IS NULL AND light_leak IS NULL AND cal_check = ? AND exposure = ? AND gain = ? AND "offset" = ? AND set_temp = ?`,
+				"DARK", "clean", pl.Exposure, pl.Gain, pl.Offset, pl.SetTemp).Count(&n).Error; err != nil {
+			return nil, fmt.Errorf("count darks for planned length %s: %w", key, err)
+		}
+		if int(n) >= coverage.DarkFramesTarget {
+			continue
+		}
+		have[key] = true
+		want = append(want, Row{ComboKey: key, Priority: len(want) + 1, Exposure: pl.Exposure, Gain: pl.Gain, CameraOffset: pl.Offset,
+			Binning: 1, SetTemp: pl.SetTemp, FramesNeeded: coverage.DarkFramesTarget, FramesHave: int(n), SessionGapHours: b.SessionGapHours,
+			Basis: pl.Basis, ComputedAt: b.ComputedAt})
+	}
+	return want, nil
 }
 
 func (p *Publisher) Run(ctx context.Context) {
