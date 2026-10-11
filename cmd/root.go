@@ -30,6 +30,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
+	"github.com/USA-RedDragon/astro-stacker/internal/sublength"
 	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	"github.com/lmittmann/tint"
@@ -113,6 +114,12 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	darkNeed := &darkneed.Publisher{App: appStore.DB(), Sched: schedulerDBStore.DB(), Mode: cfg.Darks.Publish}
 	biasNeed := calpublish.NewBias(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
 	flatRequests := calpublish.NewFlat(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
+	subLengths := &sublength.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Site: sublength.SiteFunc(siteFunc(cfg, appStore)),
+		Pedestal: cfg.Stacking.Pedestal, Mode: cfg.SubLength.Publish, NewLengths: cfg.SubLength.NewLengths}
+	darkNeed.Planned = plannedDarks(subLengths)
+	go subLengths.Run(indexCtx, time.Duration(cfg.SubLength.IntervalMinutes)*time.Minute)
+	slog.Info("Sub lengths started", "publish", cfg.SubLength.Publish, "new_lengths", cfg.SubLength.NewLengths,
+		"interval_minutes", cfg.SubLength.IntervalMinutes)
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)
@@ -192,6 +199,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 
 	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill, mosaicPlans)
+	attachSubLengths(disc, subLengths)
 	previews := server.NewPreviewCache(nil, nil)
 	commands, monitor, obs := newScheduler(indexCtx, cfg, appStore, schedulerDBStore, broker, func(r schedcmd.Record) {
 		if disc != nil && discover.Affects(r) {
@@ -199,7 +207,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 		previews.Notice(r)
 	})
-	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {
@@ -360,4 +368,21 @@ func newScheduler(ctx context.Context, cfg *config.Config, appStore, schedulerDB
 		slog.Info("Scheduler API not configured; commands stay queued", "queue", cfg.Scheduler.Queue)
 	}
 	return commands, monitor, obs
+}
+
+func attachSubLengths(disc *discover.Service, s *sublength.Service) {
+	if disc != nil {
+		disc.SubLengths = s.Latest
+	}
+}
+
+func plannedDarks(s *sublength.Service) func(context.Context) []darkneed.Planned {
+	return func(ctx context.Context) []darkneed.Planned {
+		proposed := s.Proposed(ctx)
+		out := make([]darkneed.Planned, 0, len(proposed))
+		for _, p := range proposed {
+			out = append(out, darkneed.Planned{Exposure: p.Exposure, Gain: p.Gain, Offset: p.Offset, SetTemp: p.SetTemp, Basis: p.Basis})
+		}
+		return out
+	}
 }

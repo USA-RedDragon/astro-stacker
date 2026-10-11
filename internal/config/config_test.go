@@ -145,3 +145,32 @@ func TestCalibrationPublish(t *testing.T) {
 		t.Errorf("publish yes: %v", err)
 	}
 }
+func TestSubLength(t *testing.T) {
+	t.Parallel()
+	def, err := configulator.New(config.ConfigSchema()).Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.SubLength.Publish != config.GoalsPublishOff || def.SubLength.NewLengths || def.SubLength.IntervalMinutes != 60 || def.Stacking.ScorePerSecond {
+		t.Errorf("defaults %+v, per second %v", def.SubLength, def.Stacking.ScorePerSecond)
+	}
+	for _, tt := range []struct {
+		publish   string
+		perSecond bool
+		interval  int
+		want      error
+	}{
+		{config.GoalsPublishOff, false, 60, nil},
+		{config.GoalsPublishDryRun, false, 60, nil},
+		{config.GoalsPublishOn, false, 60, config.ErrSubLengthNeedsPerSecond},
+		{config.GoalsPublishOn, true, 60, nil},
+		{"sometimes", true, 60, config.ErrInvalidSubLengthPublish},
+		{config.GoalsPublishOff, false, 0, config.ErrInvalidSubLengthInterval},
+	} {
+		cfg := def
+		cfg.SubLength.Publish, cfg.Stacking.ScorePerSecond, cfg.SubLength.IntervalMinutes = tt.publish, tt.perSecond, tt.interval
+		if err := cfg.Validate(); !errors.Is(err, tt.want) {
+			t.Errorf("%+v: Validate() = %v, want %v", tt, err, tt.want)
+		}
+	}
+}

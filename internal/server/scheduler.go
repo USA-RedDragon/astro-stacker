@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
+	"github.com/USA-RedDragon/astro-stacker/internal/sublength"
 	"github.com/gin-gonic/gin"
 )
 
@@ -46,6 +47,7 @@ type Extras struct {
 	DarkNeed     *darkneed.Publisher
 	BiasNeed     *calpublish.BiasPublisher
 	FlatRequests *calpublish.FlatPublisher
+	SubLength    *sublength.Service
 	Site         SiteSource
 }
 
