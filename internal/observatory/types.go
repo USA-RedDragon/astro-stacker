@@ -42,12 +42,14 @@ type Target struct {
 }
 
 type Exposure struct {
-	PlanID    int64      `json:"plan_id,omitempty"`
-	Filter    string     `json:"filter"`
-	Seconds   float64    `json:"seconds"`
-	StartedAt *time.Time `json:"started_at,omitempty"`
-	EndsAt    *time.Time `json:"ends_at,omitempty"`
-	Number    int        `json:"number,omitempty"`
+	PlanID       int64      `json:"plan_id,omitempty"`
+	Filter       string     `json:"filter"`
+	Seconds      float64    `json:"seconds"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	EndsAt       *time.Time `json:"ends_at,omitempty"`
+	Number       int        `json:"number,omitempty"`
+	AbortBlocked string     `json:"abort_blocked,omitempty"`
+	SyncClients  bool       `json:"sync_clients,omitempty"`
 }
 
 type Wait struct {
