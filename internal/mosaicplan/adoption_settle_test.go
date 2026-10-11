@@ -6,9 +6,12 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaicstore"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
+
+const byPerson = "web"
 
 func adoptionSvc(t *testing.T) (*mosaicplan.Service, *gorm.DB, *gorm.DB) {
 	t.Helper()
@@ -81,5 +84,39 @@ func TestRunAdoptionReopensRowsForProjectsBackInTS(t *testing.T) {
 	rep, by := runAdoption(ctx, t, svc)
 	if a := by["Rosette"]; a.Status != app.AdoptionProposed || a.DecidedAt != nil {
 		t.Errorf("project back in TS stays closed %+v report %+v", a, rep)
+	}
+}
+
+func TestRunAdoptionLeavesAPersonsChangedRowForThePerson(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, appDB, sched := adoptionSvc(t)
+	_, by := runAdoption(ctx, t, svc)
+	sh := by["subs Sh2-1"]
+	if _, err := mosaicstore.SetStatus(ctx, appDB, sh.ID, app.AdoptionProposed, app.AdoptionAccepted, byPerson, svc.Rig); err != nil {
+		t.Fatal(err)
+	}
+	if n := countLinks(t, appDB, "Sh2-1"); n != 1 {
+		t.Fatalf("%d links after accepting", n)
+	}
+	for _, q := range []string{`UPDATE target SET dec = -30 WHERE guid = 'r1'`, `INSERT INTO target VALUES (31, 'Sh2-1 West', 1, 16.4, -24.2, 0, 3, 'sw')`} {
+		if err := sched.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, by := runAdoption(ctx, t, svc)
+	a := by["subs Sh2-1"]
+	if a.Frames == nil || a.Frames.TargetGUID != "sw" || a.Frames.Within != 1 || !a.Frames.NameMatch {
+		t.Fatalf("fixture %+v", a.Frames)
+	}
+	if a.Status != app.AdoptionProposed || a.DecidedBy != byPerson || a.DecidedAt == nil {
+		t.Errorf("a person's decision was replaced automatically %+v report %+v", a, rep)
+	}
+	if n := countLinks(t, appDB, "Sh2-1"); n != 0 {
+		t.Errorf("%d links to the old target left on a row that no longer proposes it", n)
+	}
+	again, _ := runAdoption(ctx, t, svc)
+	if again.Auto != 0 || again.Changed != 0 {
+		t.Errorf("second run %+v", again)
 	}
 }
