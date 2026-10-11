@@ -150,7 +150,19 @@ func (p *Pipeline) markOldRejection(ctx context.Context) {
 
 // rebuild recomputes a master from every stored registered sub with proper
 // rejection, replacing whatever the incremental updates accumulated.
-func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator, error) {
+func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (acc *Accumulator, err error) {
+	// The mark is taken before the subs are read, so a sweep that takes a
+	// sub out while this runs leaves it set for the next rebuild.
+	if err := p.markRebuild(ctx, stack.ID, false); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			if e := p.markRebuild(context.WithoutCancel(ctx), stack.ID, true); e != nil {
+				slog.Warn("Could not mark the master to be rebuilt again", "object", stack.Object, "filter", stack.Filter, "error", e)
+			}
+		}
+	}()
 	var rows []app.StackFrame
 	if err := p.db.WithContext(ctx).Where("stack_id = ? AND status = ? AND registered_key IS NOT NULL", stack.ID, app.StackStatusAdded).
 		Order("id").Find(&rows).Error; err != nil {
@@ -196,6 +208,10 @@ func (p *Pipeline) rebuild(ctx context.Context, stack *app.Stack) (*Accumulator,
 		passes = 3
 	}
 	return p.rebuildStreaming(ctx, cache, stack, subs, passes)
+}
+
+func (p *Pipeline) markRebuild(ctx context.Context, id int, on bool) error {
+	return p.db.WithContext(ctx).Model(&app.Stack{}).Where("id = ?", id).UpdateColumn("needs_rebuild", on).Error
 }
 
 // frameGains is the camera gain of each row's light, nil when unknown.
