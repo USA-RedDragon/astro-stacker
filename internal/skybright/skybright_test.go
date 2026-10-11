@@ -240,3 +240,32 @@ func TestMeasureInOneFilter(t *testing.T) {
 		t.Fatalf("narrowband sky %+v", h)
 	}
 }
+
+func TestSourceDoesNotKeepAValueFromACancelledRequest(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	const lat, lon = 31.5, -99.4
+	up := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	for moon.At(up).Altitude(up, lat, lon) < 20 {
+		up = up.Add(30 * time.Minute)
+	}
+	night := time.Date(up.Year(), up.Month(), up.Day(), 0, 0, 0, 0, time.UTC)
+	for k := range 6 {
+		add(t, db, k+1, "L", night, up.Add(time.Duration(k)*time.Minute), 19)
+	}
+	reqCtx, cancel := context.WithCancel(context.Background())
+	site := func(ctx context.Context) (float64, float64, bool) {
+		if ctx == reqCtx {
+			cancel()
+		}
+		if ctx.Err() != nil {
+			return 0, 0, false
+		}
+		return lat, lon, true
+	}
+	src := &skybright.Source{DB: db, Site: site, Now: func() time.Time { return up.Add(24 * time.Hour) }}
+	src.Get(reqCtx)
+	if v := src.Get(context.Background()); v.Mag != nil {
+		t.Fatalf("a request that ended while the site was read left moonlit subs measured as the dark sky: %+v", v)
+	}
+}

@@ -127,6 +127,9 @@ func measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time, pre
 	known := false
 	if site != nil {
 		lat, lon, known = site(ctx)
+		if !known && ctx.Err() != nil {
+			return Value{}, ctx.Err()
+		}
 	}
 	byNight := map[string]map[string][]float64{}
 	seen, dark := false, false
