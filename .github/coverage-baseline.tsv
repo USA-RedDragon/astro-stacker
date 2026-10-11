@@ -1,8 +1,10 @@
 cmd/discover.go	52	0
 cmd/mosaics.go	10	0
-cmd/root.go	171	1
+cmd/root.go	182	9
 cmd/stack.go	59	0
-internal/calmatch/calmatch.go	85	78
+internal/calmatch/calmatch.go	85	81
+internal/calpublish/calpublish.go	121	100
+internal/calreq/calreq.go	112	94
 internal/catalog/catalog.go	6	6
 internal/catalog/classify.go	85	82
 internal/catalog/coords.go	32	30
@@ -19,10 +21,12 @@ internal/catalog/gen/shapes.go	27	0
 internal/catalog/notcatalogue.go	29	28
 internal/conditions/conditions.go	240	185
 internal/conditions/moon.go	45	45
-internal/config/config.go	38	26
+internal/config/config.go	43	31
+internal/coverage/biasbacklog.go	126	115
 internal/coverage/coverage.go	179	158
-internal/coverage/darkbacklog.go	238	214
+internal/coverage/darkbacklog.go	243	219
 internal/coverage/imported.go	56	54
+internal/coverage/requests.go	201	174
 internal/darkcheck/darkcheck.go	121	115
 internal/darkcheck/pass.go	112	85
 internal/darkneed/darkneed.go	91	79
@@ -117,6 +121,7 @@ internal/rigsource/rigsource.go	214	201
 internal/ruleweights/ruleweights.go	73	67
 internal/schedcmd/altitude.go	59	52
 internal/schedcmd/before.go	69	41
+internal/schedcmd/calibration.go	49	43
 internal/schedcmd/command.go	5	4
 internal/schedcmd/edit.go	89	75
 internal/schedcmd/globalweights.go	35	29
@@ -130,6 +135,7 @@ internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/service.go	226	199
 internal/schedcmd/settings.go	84	78
+internal/server/calibration.go	37	29
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	20	14
 internal/server/discover.go	148	127
@@ -142,7 +148,7 @@ internal/server/routes.go	367	104
 internal/server/scheddata.go	279	236
 internal/server/schedpreview.go	225	210
 internal/server/scheduler.go	91	51
-internal/server/server.go	89	28
+internal/server/server.go	90	29
 internal/server/skycutout.go	24	20
 internal/server/subs.go	55	39
 internal/server/webui.go	25	25
@@ -187,6 +193,7 @@ internal/stacking/status.go	71	23
 internal/stacking/tsverdicts.go	252	209
 internal/starfront/starfront.go	180	144
 internal/store/gorm/gorm.go	37	0
+internal/store/models/app/calibrationrequest.go	1	1
 internal/store/models/app/imageprocess.go	3	0
 internal/store/models/app/stacking.go	1	1
 internal/store/models/app/tsverdict.go	1	1
