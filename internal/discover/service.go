@@ -211,6 +211,14 @@ func (s *Service) night(ctx context.Context, at time.Time) (sky.Night, error) {
 	if err != nil {
 		return sky.Night{}, err
 	}
+	n := s.nightOf(site, at)
+	if n.Ended(at) {
+		n = s.nightOf(site, n.Start.Add(24*time.Hour))
+	}
+	return n, nil
+}
+
+func (s *Service) nightOf(site sky.Site, at time.Time) sky.Night {
 	start := site.LocalNoon(at)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -218,14 +226,14 @@ func (s *Service) night(ctx context.Context, at time.Time) (sky.Night, error) {
 		s.nights = map[time.Time]sky.Night{}
 	}
 	if n, ok := s.nights[start]; ok {
-		return n, nil
+		return n
 	}
 	n := site.NightOf(at, 5*time.Minute)
 	if len(s.nights) > 8 {
 		s.nights = map[time.Time]sky.Night{}
 	}
 	s.nights[start] = n
-	return n, nil
+	return n
 }
 
 func (s *Service) year(ctx context.Context, y int) (*sky.Year, error) {
