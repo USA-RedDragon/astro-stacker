@@ -164,6 +164,15 @@ type Project struct {
 	GoalDriven      bool         `json:"goalDriven"`
 	Grader          bool         `json:"grader"`
 	Completion      Prefs        `json:"completion"`
+
+	DitherEvery           int     `json:"ditherEvery"`
+	FilterSwitchFrequency int     `json:"filterSwitchFrequency"`
+	FlatsHandling         int     `json:"flatsHandling"`
+	SmartExposureOrder    bool    `json:"smartExposureOrder"`
+	MeridianWindow        int     `json:"meridianWindow"`
+	UseCustomHorizon      bool    `json:"useCustomHorizon"`
+	HorizonOffset         float64 `json:"horizonOffset"`
+	MaximumAltitude       float64 `json:"maximumAltitude"`
 }
 
 type Template struct {
@@ -227,6 +236,9 @@ type Snapshot struct {
 	Sets      []ExposureSet   `json:"sets"`
 	Rules     []Rule          `json:"rules"`
 	Defaults  Defaults        `json:"defaults"`
+
+	projectRows      []projectRow
+	templateProfiles map[int]string
 }
 
 func twilightName(v *int) *string {
@@ -398,11 +410,12 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 		return nil, err
 	}
 	x := r.index()
-	out := &Snapshot{Rules: Rules()}
+	out := &Snapshot{Rules: Rules(), projectRows: r.projects, templateProfiles: map[int]string{}}
 	for _, pr := range r.projects {
 		out.Projects = append(out.Projects, buildProject(pr, r, x, in))
 	}
 	for _, t := range r.templates {
+		out.templateProfiles[t.ID] = t.ProfileID
 		out.Templates = append(out.Templates, Template{
 			ID: t.ID, GUID: deref(t.GUID), Name: t.Name, Filter: t.FilterName, DefaultExposure: t.DefaultExposure,
 			Gain: t.Gain, Offset: t.Offset, Bin: t.Bin, TwilightLevel: twilightName(t.TwilightLevel),
@@ -412,6 +425,7 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 		})
 	}
 	out.Sets, out.Defaults = DeriveSets(out.Projects), defaultsFor(out.Templates)
+	out.Defaults.ProjectSettings = out.ProjectSettingsFor(defaultProfile(r.projects))
 	return out, nil
 }
 
@@ -422,6 +436,10 @@ func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
 		MinimumTime: pr.MinimumTime, MinimumAltitude: pr.MinimumAltitude, IsMosaic: pr.IsMosaic != 0,
 		Progress: 1, Grader: pr.EnableGrader != 0, Completion: prefsFor(r.prefs, pr.ProfileID),
 	}
+	st := settingsOf(pr)
+	p.DitherEvery, p.FilterSwitchFrequency, p.FlatsHandling = st.DitherEvery, st.FilterSwitchFrequency, st.FlatsHandling
+	p.SmartExposureOrder, p.MeridianWindow, p.UseCustomHorizon = st.SmartExposureOrder, st.MeridianWindow, st.UseCustomHorizon
+	p.HorizonOffset, p.MaximumAltitude = st.HorizonOffset, st.MaximumAltitude
 	env := targetEnv{meas: r.meas, stacks: r.stacks, subs: r.subs, grader: p.Grader, prefs: p.Completion}
 	for _, rule := range Rules() {
 		w, ok := x.weightsBy[pr.ID][rule.Name]
