@@ -568,3 +568,31 @@ func TestConditionsAndMoon(t *testing.T) {
 		t.Fatalf("no site %d", code)
 	}
 }
+
+func TestPreviewWhatIfWeights(t *testing.T) {
+	t.Parallel()
+	f := &fakePreviews{}
+	sched := memDB(t, "s")
+	schedulerTables(t, sched)
+	start := time.Date(2026, 10, 10, 23, 0, 0, 0, time.UTC)
+	h := newHandler(t, sched, memDB(t, "a"), server.Extras{Previews: f})
+	body := fmt.Sprintf(`{"start":%q,"overrides":[{"entity":"project","id":5,"field":"priority","value":2}],"weights":{"Rarity":20,"Novelty (mosaic)":5}}`, start.Format(time.RFC3339))
+	if code, out := do(t, h, http.MethodPost, pathPreview, body); code != http.StatusOK {
+		t.Fatalf("%d %s", code, out)
+	}
+	f.mu.Lock()
+	got := f.posted[0].Overrides
+	f.mu.Unlock()
+	want := []string{"project/5/priority=2", "ruleweight/5/Novelty=5", "ruleweight/0/Rarity=20"}
+	if len(got) != len(want) {
+		t.Fatalf("%+v", got)
+	}
+	for i, o := range got {
+		if s := fmt.Sprintf("%s/%d/%s=%s", o.Entity, o.ID, o.Field, o.Value); s != want[i] {
+			t.Errorf("override %d = %s, want %s", i, s, want[i])
+		}
+	}
+	if code, _ := do(t, h, http.MethodPost, pathPreview, `{"weights":{"Made Up":1}}`); code != http.StatusBadRequest {
+		t.Fatalf("unknown rule: %d", code)
+	}
+}

@@ -83,6 +83,11 @@ type Status struct {
 	LastPlanAt     *time.Time       `json:"last_plan_at,omitempty"`
 }
 
+const (
+	OverrideProject    = "project"
+	OverrideRuleWeight = "ruleweight"
+)
+
 type Override struct {
 	Entity string          `json:"entity"`
 	ID     int64           `json:"id"`

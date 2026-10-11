@@ -51,6 +51,10 @@ ts_command_result (command_id text primary key, status text, message text, detai
 | `exposureplan.applyset` / `.unapplyset` | per target: plans to create (guids made by the stacker), disable and enable | each other |
 | `project.create` / `.delete` | project, targets, plans, goals and rule weights, guids made by the stacker; delete is refused once a target has subs | each other |
 
+`ruleweight.global` is app-only (`saved`): per key of the global rule weight set, `before`/`after` weight (`null` = not saved), and its inverse is itself. Target Scheduler keeps weights per project, so `POST /api/v1/planning/rule-weights/apply` saves the global set and then sends one `ruleweight.edit` to each project whose rows differ from it (or only to `projectIds`); `POST /api/v1/planning/rule-weights/preview` lists the projects new values would change without saving anything. `Novelty (mosaic)` is the Novelty weight for mosaic projects; `Novelty` is the value for single-target projects.
+
+What-if: `POST /api/v1/scheduler/preview` takes `weights` (global keys) beside `overrides`. The stacker sends each as an override with entity `ruleweight`, the rule name as the field and id 0 for every project, or one override per project for a key only some projects take. A plugin that does not list `ruleweight` in the preview's `override_kinds` ignores them.
+
 A spec may also change the app database when it is submitted (`AppSideEffect`). `project.create` writes a wizard mosaic's planned panels; its inverse removes them, and so does a cancelled, rejected or failed create.
 
 ## Adding a command kind
