@@ -330,6 +330,7 @@ type TonightSub struct {
 	Gain          *float64   `json:"gain,omitempty"`
 	CCDTemp       *float64   `json:"ccd_temp,omitempty"`
 	ProcessedAt   *time.Time `json:"processed_at,omitempty"`
+	UploadedAt    *time.Time `json:"uploaded_at,omitempty"`
 	PreviewURL    string     `json:"preview_url,omitempty"`
 	Width         *int       `json:"width"`
 	Height        *int       `json:"height"`
@@ -473,7 +474,7 @@ func newestPreview(ctx context.Context, db *gorm.DB, signer *previewer.Signer) (
 		return TonightSub{}, false, err
 	}
 	var f app.Frame
-	err := db.WithContext(ctx).Select("key", "object", "filter", "exposure", "gain", "ccd_temp", "width", "height", "date_obs", "preview_key").
+	err := db.WithContext(ctx).Select("key", "last_modified", "object", "filter", "exposure", "gain", "ccd_temp", "width", "height", "date_obs", "preview_key").
 		Where("type = ? AND preview_key IS NOT NULL AND date_obs IS NOT NULL", lightType).
 		Order("date_obs DESC").Limit(1).Take(&f).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -494,11 +495,20 @@ func newestPreview(ctx context.Context, db *gorm.DB, signer *previewer.Signer) (
 		Gain:       f.Gain,
 		CCDTemp:    f.CCDTemp,
 		File:       path.Base(f.Key),
+		UploadedAt: uploadedAt(f.LastModified),
 		PreviewURL: u,
 		Width:      f.Width,
 		Height:     f.Height,
 		Indexed:    true,
 	}, true, nil
+}
+
+func uploadedAt(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time.Time) error {
@@ -519,20 +529,21 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 		return err
 	}
 	var rows []struct {
-		Key         string
-		Object      string
-		Gain        *float64
-		CCDTemp     *float64
-		Width       *int
-		Height      *int
-		PreviewKey  *string
-		Status      *string
-		Score       *float64
-		Weight      *float64
-		ProcessedAt *time.Time
+		Key          string
+		Object       string
+		LastModified time.Time
+		Gain         *float64
+		CCDTemp      *float64
+		Width        *int
+		Height       *int
+		PreviewKey   *string
+		Status       *string
+		Score        *float64
+		Weight       *float64
+		ProcessedAt  *time.Time
 	}
 	q := db.WithContext(ctx).Table("frames f").
-		Select("f.key, f.object, f.gain, f.ccd_temp, f.width, f.height, f.preview_key, sf.status, sf.score, sf.weight, sf.processed_at").
+		Select("f.key, f.object, f.last_modified, f.gain, f.ccd_temp, f.width, f.height, f.preview_key, sf.status, sf.score, sf.weight, sf.processed_at").
 		Where("f.type = ? AND f.object IN ? AND (f.date_obs IS NULL OR f.date_obs >= ?)", lightType, names, since.Add(-12*time.Hour))
 	hasStack, err := tables.Has(ctx, db, &app.StackFrame{})
 	if err != nil {
@@ -541,7 +552,7 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 	if hasStack {
 		q = q.Joins("LEFT JOIN stack_frames sf ON sf.frame_id = f.id")
 	} else {
-		q = q.Select("f.key, f.object, f.gain, f.ccd_temp, f.width, f.height, f.preview_key")
+		q = q.Select("f.key, f.object, f.last_modified, f.gain, f.ccd_temp, f.width, f.height, f.preview_key")
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return err
@@ -560,6 +571,7 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 		subs[i].CCDTemp = r.CCDTemp
 		subs[i].Width, subs[i].Height = r.Width, r.Height
 		subs[i].previewKey = deref(r.PreviewKey)
+		subs[i].UploadedAt = uploadedAt(r.LastModified)
 		subs[i].Indexed = true
 		if r.Status != nil {
 			subs[i].Verdict = *r.Status

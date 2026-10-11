@@ -364,7 +364,7 @@ func tonightFixture(t *testing.T) (*gorm.DB, *gorm.DB, func(int) time.Time) {
 	w, hgt := 6248, 4176
 	frames := []app.Frame{
 		{Key: "lights/IC 1318 Panel 15/a.fits", ETag: "1", Type: light, Object: targetP15, Filter: "Red", Exposure: &exp, Gain: &gain, DateObs: &dobs, PreviewKey: &preview,
-			Width: &w, Height: &hgt},
+			Width: &w, Height: &hgt, LastModified: at(5).Add(621 * time.Second)},
 		{Key: "lights/IC 1318 Panel 15/b.fits", ETag: "2", Type: light, Object: targetP15, Filter: "Red", Exposure: &exp, DateObs: &dobs},
 		{Key: "lights/Other/c.fits", ETag: "3", Type: light, Object: "Other", Filter: "Ha", DateObs: &dobs},
 	}
@@ -402,6 +402,9 @@ func TestTonightSubs(t *testing.T) {
 	}
 	if a := got.Subs[0]; a.Width == nil || *a.Width != 6248 || a.Height == nil || *a.Height != 4176 || got.Subs[1].Width != nil {
 		t.Errorf("geometry %+v %+v", a, got.Subs[1])
+	}
+	if a := got.Subs[0]; a.UploadedAt == nil || !a.UploadedAt.Equal(at(5).Add(621*time.Second)) || got.Subs[1].UploadedAt != nil || got.Subs[2].UploadedAt != nil {
+		t.Errorf("uploaded_at %v %v %v", a.UploadedAt, got.Subs[1].UploadedAt, got.Subs[2].UploadedAt)
 	}
 	if !strings.Contains(string(body), `"width":null`) {
 		t.Errorf("unknown width not null: %s", body)
