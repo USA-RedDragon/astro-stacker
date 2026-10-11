@@ -415,3 +415,55 @@ func cosD(d float64) float64 { return math.Cos(d * math.Pi / 180) }
 func sinD(d float64) float64 { return math.Sin(d * math.Pi / 180) }
 
 func abs(v float64) float64 { return math.Abs(v) }
+
+func TestFrameRotation(t *testing.T) {
+	t.Parallel()
+	rig := testRig()
+	cases := []struct {
+		name       string
+		o          mosaics.Outline
+		rows, cols int
+		rot        float64
+	}{
+		{"taurus 3x4", mosaics.Outline{Centre: mosaics.Point{RA: 67.926, Dec: 25.31}, MajorArcmin: 600, MinorArcmin: 400}, 4, 3, 0},
+		{"rho 3x4", mosaics.Outline{Centre: mosaics.Point{RA: 246.4, Dec: -23.4}, MajorArcmin: 600, MinorArcmin: 400}, 4, 3, 0},
+		{"rotated 2x3", mosaics.Outline{Centre: mosaics.Point{RA: 312, Dec: 44}, MajorArcmin: 300, MinorArcmin: 200}, 2, 3, 70},
+		{"high dec 2x2", mosaics.Outline{Centre: mosaics.Point{RA: 10, Dec: 75}, MajorArcmin: 300, MinorArcmin: 200}, 2, 2, 135},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			l := mosaics.Grid(tc.o, tc.rows, tc.cols, tc.rot, 15, rig)
+			centres := make([]mosaics.Point, len(l.Panels))
+			rots := make([]float64, len(l.Panels))
+			for i, p := range l.Panels {
+				centres[i], rots[i] = p.Centre, p.RotationDeg
+			}
+			if angDiff(rots[0], tc.rot) < 0.1 {
+				t.Fatalf("panel 1 rotation %v already matches the frame; the case does not test anything", rots[0])
+			}
+			if got := mosaics.FrameRotation(centres, rots); angDiff(got, tc.rot) > 0.01 {
+				t.Fatalf("frame rotation %v, want %v", got, tc.rot)
+			}
+		})
+	}
+	if got := mosaics.FrameRotation(nil, nil); got != 0 {
+		t.Fatalf("empty input gave %v", got)
+	}
+	flipped := mosaics.FrameRotation(
+		[]mosaics.Point{{RA: 100, Dec: 21}, {RA: 100, Dec: 19}, {RA: 100, Dec: 20}},
+		[]float64{180, 0, 180})
+	if !near(flipped, 180, 1e-6) {
+		t.Fatalf("panels turned by 180° gave %v, want 180", flipped)
+	}
+	constant := mosaics.FrameRotation(
+		[]mosaics.Point{{RA: 103, Dec: 41}, {RA: 100, Dec: 41}, {RA: 97, Dec: 41}, {RA: 103, Dec: 39}, {RA: 100, Dec: 39}, {RA: 97, Dec: 39}},
+		[]float64{0, 0, 0, 0, 0, 0})
+	if angDiff(constant, 0) > 1e-3 {
+		t.Fatalf("panels all at 0° gave %v, want 0", constant)
+	}
+	one := mosaics.FrameRotation([]mosaics.Point{{RA: 83, Dec: 5}}, []float64{42})
+	if !near(one, 42, 1e-6) {
+		t.Fatalf("single panel gave %v, want 42", one)
+	}
+}

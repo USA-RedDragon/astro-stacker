@@ -300,12 +300,12 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup) (Detail, er
 	}
 
 	centres := make([]mosaics.Point, len(g.Panels))
+	rotations := make([]float64, len(g.Panels))
 	for i, pn := range g.Panels {
 		centres[i] = mosaics.Point{RA: pn.RA, Dec: pn.Dec}
+		rotations[i] = pn.Rotation
 	}
-	if len(g.Panels) > 0 {
-		d.Rotation = g.Panels[0].Rotation
-	}
+	d.Rotation = mosaics.FrameRotation(centres, rotations)
 	rows, cols, footprints, rigKnown := s.panelGeometry(ctx, g, centres, d.Rotation)
 	d.RigKnown = rigKnown
 	ids, err := s.targetIDs(ctx, g)
@@ -535,7 +535,7 @@ func layoutText(d Detail) *string {
 	if full != len(d.Panels) {
 		shape = fmt.Sprintf("%d panels over %d × %d", len(d.Panels), d.Cols, d.Rows)
 	}
-	out := fmt.Sprintf("%s at %.0f°", shape, d.Rotation)
+	out := fmt.Sprintf("%s at %d°", shape, int(math.Round(d.Rotation))%360)
 	return &out
 }
 
