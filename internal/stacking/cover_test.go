@@ -236,3 +236,19 @@ func TestCometCover(t *testing.T) {
 		t.Errorf("a comet master of unknown method: comet %v wait %v, want false true", comet, wait)
 	}
 }
+
+func TestPaletteFiltersByName(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string][]string{
+		"RGB":         {filterRed, filterGreen, filterBlue},
+		"RGB+Ha":      {filterRed, filterGreen, filterBlue, filterHa},
+		"RGB+Ha+OIII": {filterRed, filterGreen, filterBlue, filterHa, filterOIII},
+		"HOO":         {filterHa, filterOIII},
+		"SHO":         {filterSII, filterHa, filterOIII},
+		"":            nil,
+	} {
+		if got := PaletteFilters(name); !slices.Equal(got, want) {
+			t.Errorf("%q: %v, want %v", name, got, want)
+		}
+	}
+}
