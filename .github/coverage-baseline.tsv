@@ -111,8 +111,8 @@ internal/publicframe/renderer.go	165	95
 internal/publicframe/watermark.go	61	61
 internal/quality/pedestal.go	23	13
 internal/quality/quality.go	49	45
-internal/quality/scores.go	136	128
-internal/quality/transparency.go	80	77
+internal/quality/scores.go	144	136
+internal/quality/transparency.go	81	79
 internal/rigsource/rigsource.go	214	201
 internal/ruleweights/ruleweights.go	73	67
 internal/schedcmd/altitude.go	59	52
