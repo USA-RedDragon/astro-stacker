@@ -29,19 +29,20 @@ type unconfiguredStatus struct{}
 func (unconfiguredStatus) Status() any { return gin.H{"reachable": "unconfigured"} }
 
 type Extras struct {
-	Commands   *schedcmd.Service
-	Scheduler  SchedulerStatusSource
-	Mosaics    *mosaicplan.Service
-	Discover   *discover.Service
-	Collabs    *starfront.Poller
-	Previews   PreviewSource
-	Now        func() time.Time
-	Conditions *conditions.Service
-	Cutouts    *skycutout.Service
-	Backfill   func() goals.BackfillLive
-	Grader     GraderSource
-	DarkNeed   *darkneed.Publisher
-	Site       SiteSource
+	Commands     *schedcmd.Service
+	Scheduler    SchedulerStatusSource
+	Mosaics      *mosaicplan.Service
+	Discover     *discover.Service
+	Collabs      *starfront.Poller
+	Previews     PreviewSource
+	PreviewCache *PreviewCache
+	Now          func() time.Time
+	Conditions   *conditions.Service
+	Cutouts      *skycutout.Service
+	Backfill     func() goals.BackfillLive
+	Grader       GraderSource
+	DarkNeed     *darkneed.Publisher
+	Site         SiteSource
 }
 
 const schedulerWriteTimeout = 45 * time.Second
@@ -60,7 +61,7 @@ func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer
 		now = time.Now
 	}
 	site := &siteMemo{src: x.Site}
-	applyPreviewRoutes(g, x.Previews, site, now)
+	applyPreviewRoutes(g, x.Previews, x.PreviewCache, site, now)
 	applySchedDataRoutes(g, signer, x.Grader, site, now)
 	applyConditionsRoutes(g, x, now)
 	status := x.Scheduler

@@ -135,6 +135,24 @@ func (m *Monitor) setReachable(r Reachability, live bool, errText string) bool {
 	return changed
 }
 
+// PreviewInputs describes the live plugin state a scheduler preview depends
+// on beyond the database: the plugin version and the active skips.
+func (m *Monitor) PreviewInputs() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.status == nil {
+		return ""
+	}
+	b, err := json.Marshal(struct {
+		Version string `json:"version"`
+		Skips   []Skip `json:"skips"`
+	}{m.status.Version, m.status.Skips})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 func (m *Monitor) SetStatus(s Status, live bool) {
 	m.mu.Lock()
 	m.status = &s
