@@ -219,7 +219,7 @@ type tempTally struct {
 	readout               map[string]int
 }
 
-func BuildDarkBacklog(ctx context.Context, db, sched *gorm.DB, now time.Time) (DarkBacklog, error) {
+func BuildDarkBacklog(ctx context.Context, db *gorm.DB, now time.Time) (DarkBacklog, error) {
 	sets, _, err := loadSets(ctx, db)
 	if err != nil {
 		return DarkBacklog{}, err
@@ -236,11 +236,7 @@ func BuildDarkBacklog(ctx context.Context, db, sched *gorm.DB, now time.Time) (D
 	if err != nil {
 		return DarkBacklog{}, err
 	}
-	active, err := ActiveTargets(ctx, sched)
-	if err != nil {
-		return DarkBacklog{}, err
-	}
-	b := darkBacklog(lights, darks, sets, active, now)
+	b := darkBacklog(lights, darks, sets, now)
 	needs, err := openNeeds(ctx, db, app.CalibrationDarks, requestFrames{darks: darks})
 	if err != nil {
 		return DarkBacklog{}, err
@@ -270,9 +266,9 @@ func RejectedDarks(ctx context.Context, db *gorm.DB) ([]RejectedDark, error) {
 	return rejectedDarks(darks, len(darks)), nil
 }
 
-func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set, active map[string]bool, now time.Time) DarkBacklog {
+func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set, now time.Time) DarkBacklog {
 	counts, measured := measureCleanSets(sets, darks)
-	r := newDarkRank(lights, active, now)
+	r := newDarkRank(lights, now)
 	b := DarkBacklog{
 		ComputedAt: now.UTC(), FramesNeeded: DarkFramesTarget, FramesNeededBasis: FramesNeededBasis(measured),
 		SetTempExactC: calmatch.SetTempExactC, SessionGapHours: SessionGap.Hours(), RankingBasis: RankingBasis(),

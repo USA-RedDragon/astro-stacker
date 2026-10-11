@@ -1,15 +1,12 @@
 package coverage
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
-	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
-	"gorm.io/gorm"
 )
 
 const (
@@ -38,8 +35,8 @@ func RankingBasis() string {
 	return fmt.Sprintf("Combos are ranked by score, highest first. Each light adds its need weight times its age weight. "+
 		"Need weight: %s for a light with no dark at all, %s for a light calibrated with a dark scaled from another setpoint or exposure, "+
 		"%s for a light with an exact dark set of fewer than %d clean darks. Age weight: 1 for a light from the night that ends today, halved for every %s days "+
-		"since its night, so recent lights dominate. A light of an active target never weighs less than %s; a target is active when its project is Active and the "+
-		"target enabled in Target Scheduler, or when it has lights from the last %d days. Requested dark sets come first; ties go to more "+
+		"since its night, so recent lights dominate. A light of an active target never weighs less than %s; a target is active when it has lights "+
+		"from the last %d days. Requested dark sets come first; ties go to more "+
 		"lights with no dark, then scaled, then short sets, then the latest night.",
 		numText(DarkWeightBlocked), numText(DarkWeightScaled), numText(DarkWeightThin), DarkFramesTarget, numText(DarkHalfLifeDays),
 		numText(DarkActiveFloor), DarkRecentDays)
@@ -58,11 +55,8 @@ func nightDate(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-func newDarkRank(lights []darkLightGroup, active map[string]bool, now time.Time) darkRank {
+func newDarkRank(lights []darkLightGroup, now time.Time) darkRank {
 	r := darkRank{today: nightDate(now.UTC()), active: map[string]bool{}}
-	for k := range active {
-		r.active[targetKey(k)] = true
-	}
 	for _, l := range lights {
 		if l.Object != "" && r.ageDays(l.Night) <= DarkRecentDays {
 			r.active[targetKey(l.Object)] = true
@@ -114,31 +108,4 @@ func scoreNote(c DarkCombo) string {
 		"%d of its lights are from the last %d days, %d belong to active targets, and the latest night is %s.",
 		numText(c.Score), numText(c.ScoreParts.Blocked), numText(c.ScoreParts.Scaled), numText(c.ScoreParts.Thin),
 		c.LightsRecent, DarkRecentDays, c.LightsActive, c.LatestNight)
-}
-
-func ActiveTargets(ctx context.Context, sched *gorm.DB) (map[string]bool, error) {
-	out := map[string]bool{}
-	if sched == nil {
-		return out, nil
-	}
-	for _, t := range []string{"target", "project"} {
-		has, err := tables.Has(ctx, sched, t)
-		if err != nil {
-			return nil, fmt.Errorf("check the %s table for active targets: %w", t, err)
-		}
-		if !has {
-			return out, nil
-		}
-	}
-	var names []string
-	if err := sched.WithContext(ctx).Table("target t").
-		Joins(`JOIN project p ON p."Id" = t.projectid`).
-		Where(`p.state = 1 AND coalesce(t.active, 1) = 1`).
-		Pluck("t.name", &names).Error; err != nil {
-		return nil, fmt.Errorf("load active targets: %w", err)
-	}
-	for _, n := range names {
-		out[targetKey(n)] = true
-	}
-	return out, nil
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type darkBacklogResponse struct {
@@ -24,11 +23,7 @@ func applyDarkBacklogRoutes(g *gin.RouterGroup, p *darkneed.Publisher, now func(
 		if !ok {
 			return
 		}
-		var sched *gorm.DB
-		if di.SchedulerDBStore != nil {
-			sched = di.SchedulerDBStore.DB()
-		}
-		b, err := coverage.BuildDarkBacklog(c.Request.Context(), di.AppStore.DB(), sched, now())
+		b, err := coverage.BuildDarkBacklog(c.Request.Context(), di.AppStore.DB(), now())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 			return
