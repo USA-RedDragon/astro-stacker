@@ -109,8 +109,8 @@ func TestSnapshotCarriesProjectSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, _ := s.Project(7)
-	if g.DitherEvery != 3 || g.FilterSwitchFrequency != 1 || g.FlatsHandling != 100 || !g.SmartExposureOrder || g.MeridianWindow != 60 ||
-		!g.UseCustomHorizon || g.HorizonOffset != 2.5 || g.MaximumAltitude != 75 || !g.Grader {
+	if *g.DitherEvery != 3 || *g.FilterSwitchFrequency != 1 || *g.FlatsHandling != 100 || !*g.SmartExposureOrder || *g.MeridianWindow != 60 ||
+		!*g.UseCustomHorizon || *g.HorizonOffset != 2.5 || *g.MaximumAltitude != 75 || !g.Grader {
 		t.Fatalf("%+v", g)
 	}
 	d := s.Defaults.ProjectSettings
@@ -211,5 +211,34 @@ func TestDraftProjectWithoutProjectsUsesTargetSchedulerDefaults(t *testing.T) {
 	ps := p.Project.ProjectSettings
 	if *ps.DitherEvery != 0 || *ps.FilterSwitchFrequency != 0 || *ps.FlatsHandling != 0 || !*ps.EnableGrader {
 		t.Fatalf("profile q has no projects: %+v", ps)
+	}
+}
+
+func TestSnapshotReportsUnsetProjectSettingsAsNull(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	withSettingsColumns(t, sched)
+	if err := sched.Exec(`update project set ditherevery = null, smartexposureorder = null, horizonoffset = null, "maximumAltitude" = null where "Id" = 7`).Error; err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(context.Background(), sched, appDB, Inputs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, _ := s.Project(7)
+	if g.DitherEvery != nil || g.SmartExposureOrder != nil || g.HorizonOffset != nil || g.MaximumAltitude != nil || g.FlatsHandling == nil || *g.FlatsHandling != 100 {
+		t.Fatalf("%+v", g)
+	}
+}
+
+func TestProjectSettingsMajoritySkipsUnsetValues(t *testing.T) {
+	t.Parallel()
+	rows := []projectRow{
+		{ID: 1, ProfileID: "p", DitherEvery: ip(3), EnableGrader: 1},
+		{ID: 2, ProfileID: "p", EnableGrader: 1},
+		{ID: 3, ProfileID: "p", EnableGrader: 1},
+	}
+	if got := projectSettingsFor(rows, "p"); got.DitherEvery != 3 || got.MaximumAltitude != 0 || !got.EnableGrader {
+		t.Fatalf("%+v", got)
 	}
 }

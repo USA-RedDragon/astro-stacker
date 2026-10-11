@@ -1,18 +1,18 @@
 package planning
 
 type projectRow struct {
-	ID              int     `gorm:"column:Id;primaryKey"`
-	ProfileID       string  `gorm:"column:profileId"`
-	Name            string  `gorm:"column:name"`
-	Description     *string `gorm:"column:description"`
-	State           int     `gorm:"column:state"`
-	Priority        int     `gorm:"column:priority"`
-	MinimumTime     int     `gorm:"column:minimumtime"`
-	MinimumAltitude float64 `gorm:"column:minimumaltitude"`
-	MaximumAltitude float64 `gorm:"column:maximumAltitude"`
-	IsMosaic        int     `gorm:"column:isMosaic"`
-	EnableGrader    int     `gorm:"column:enablegrader"`
-	GUID            *string `gorm:"column:guid"`
+	ID              int      `gorm:"column:Id;primaryKey"`
+	ProfileID       string   `gorm:"column:profileId"`
+	Name            string   `gorm:"column:name"`
+	Description     *string  `gorm:"column:description"`
+	State           int      `gorm:"column:state"`
+	Priority        int      `gorm:"column:priority"`
+	MinimumTime     int      `gorm:"column:minimumtime"`
+	MinimumAltitude float64  `gorm:"column:minimumaltitude"`
+	MaximumAltitude *float64 `gorm:"column:maximumAltitude"`
+	IsMosaic        int      `gorm:"column:isMosaic"`
+	EnableGrader    int      `gorm:"column:enablegrader"`
+	GUID            *string  `gorm:"column:guid"`
 
 	DitherEvery           *int     `gorm:"column:ditherevery"`
 	FilterSwitchFrequency *int     `gorm:"column:filterswitchfrequency"`
