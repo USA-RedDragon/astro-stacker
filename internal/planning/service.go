@@ -13,6 +13,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"gorm.io/gorm"
 )
@@ -281,10 +282,6 @@ func Rarity(s *Season) float64 {
 	return math.Max(0, math.Min(1, float64(120-s.NightsLeft)/110))
 }
 
-func tableExists(db *gorm.DB, name string) bool {
-	return db.Migrator().HasTable(name)
-}
-
 type rows struct {
 	projects  []projectRow
 	targets   []targetRow
@@ -310,12 +307,17 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 	if err := db.Find(&r.weights).Error; err != nil {
 		return nil, err
 	}
-	if tableExists(db, "ts_target_season") {
+	hasSeasons, err := tables.Has(ctx, db, "ts_target_season")
+	if err != nil {
+		return nil, err
+	}
+	if hasSeasons {
 		var rs []seasonRow
-		if err := db.Find(&rs).Error; err == nil {
-			for _, x := range rs {
-				r.seasons[x.TargetGUID] = Season{NightsLeft: x.NightsLeft, OutOfSeason: x.OutOfSeason != 0, SeasonEnd: deref(x.SeasonEnd), ComputedFor: deref(x.ComputedFor)}
-			}
+		if err := db.Find(&rs).Error; err != nil {
+			return nil, err
+		}
+		for _, x := range rs {
+			r.seasons[x.TargetGUID] = Season{NightsLeft: x.NightsLeft, OutOfSeason: x.OutOfSeason != 0, SeasonEnd: deref(x.SeasonEnd), ComputedFor: deref(x.ComputedFor)}
 		}
 	}
 	type lastRow struct {
@@ -323,7 +325,15 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 		Last     int64 `gorm:"column:last"`
 	}
 	var lasts []lastRow
-	_ = db.Raw(`SELECT "targetId" AS target_id, max(acquireddate) AS last FROM acquiredimage GROUP BY "targetId"`).Scan(&lasts).Error
+	hasAcquired, err := tables.Has(ctx, db, "acquiredimage")
+	if err != nil {
+		return nil, err
+	}
+	if hasAcquired {
+		if err := db.Raw(`SELECT "targetId" AS target_id, max(acquireddate) AS last FROM acquiredimage GROUP BY "targetId"`).Scan(&lasts).Error; err != nil {
+			return nil, err
+		}
+	}
 	for _, l := range lasts {
 		if l.Last > 0 {
 			r.lastBy[l.TargetID] = fromTicks(l.Last)
@@ -337,7 +347,11 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 		for _, m := range ms {
 			r.meas[goals.Key{Object: m.Object, Filter: m.Filter}] = m
 		}
-		if tableExists(appDB, "stacks") {
+		hasStacks, err := tables.Has(ctx, appDB, "stacks")
+		if err != nil {
+			return nil, err
+		}
+		if hasStacks {
 			var st []struct{ Object, Filter string }
 			if err := appDB.WithContext(ctx).Table("stacks").Select("object, filter").Scan(&st).Error; err != nil {
 				return nil, err
@@ -352,7 +366,9 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 		}
 		r.subs = subs
 	}
-	r.prefs = loadPrefs(ctx, db)
+	if r.prefs, err = loadPrefs(ctx, db); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
