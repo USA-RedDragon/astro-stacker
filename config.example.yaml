@@ -233,6 +233,8 @@ sub-length:
   new-lengths: false
   # Minutes between recomputing the lengths
   interval-minutes: 60
+  # The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars
+  tolerance-percent: 2
 # The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through
 calibration:
   # Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on
