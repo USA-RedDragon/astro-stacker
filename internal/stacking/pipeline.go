@@ -71,7 +71,8 @@ type PipelineOptions struct {
 	// Photometry holds lights back until the indexer has measured their
 	// starlight (measure.Photometry), which their transparency is scored
 	// from; off, they are scored without it.
-	Photometry bool
+	Photometry     bool
+	ScorePerSecond bool
 	// Astrometry, when set, plate solves masters Siril can't with a local
 	// astrometry.net.
 	Astrometry *astrometry.Solver
@@ -234,8 +235,10 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 	if opts.RecalibrateLimit < 1 {
 		opts.RecalibrateLimit = DefaultPipelineOptions().RecalibrateLimit
 	}
-	return &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
+	p := &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
 		busy: map[string]bool{}, working: map[string]*events.Worker{}, drain: make(chan struct{})}
+	p.scorer.PerSecond = opts.ScorePerSecond
+	return p
 }
 
 // Run stacks new lights with opts.Workers workers until ctx is cancelled,

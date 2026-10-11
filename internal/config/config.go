@@ -106,6 +106,7 @@ type Stacking struct {
 	Enabled            bool    `name:"enabled" description:"Stack good lights into masters as they arrive"`
 	IntervalSeconds    int     `name:"interval-seconds" description:"Seconds between checks for new lights when idle" default:"120"`
 	MinScore           float64 `name:"min-score" description:"Lowest sub score (0-1) that goes into a master" default:"0.3"`
+	ScorePerSecond     bool    `name:"score-per-second" description:"Score subs per second of exposure against every sub of the same filter and gain, instead of against subs of the same filter and exposure, so a target's subs of different lengths weigh fairly in one master; turning it on or off scores every master's subs again"`
 	BatchSize          int     `name:"batch-size" description:"Subs calibrated and registered per Siril run" default:"12"`
 	WorkDir            string  `name:"work-dir" description:"Scratch space for downloads, masters and Siril output" default:"/tmp/stacking"`
 	SirilCommand       string  `name:"siril-command" description:"siril-cli, or an extracted Siril AppImage's AppRun" default:"siril-cli"`

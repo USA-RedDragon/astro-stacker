@@ -82,6 +82,7 @@ type stackingShadow struct {
 	Enabled                *bool     `json:"enabled"                    toml:"enabled"                    yaml:"enabled"`
 	IntervalSeconds        *int      `json:"interval-seconds"           toml:"interval-seconds"           yaml:"interval-seconds"`
 	MinScore               *float64  `json:"min-score"                  toml:"min-score"                  yaml:"min-score"`
+	ScorePerSecond         *bool     `json:"score-per-second"           toml:"score-per-second"           yaml:"score-per-second"`
 	BatchSize              *int      `json:"batch-size"                 toml:"batch-size"                 yaml:"batch-size"`
 	WorkDir                *string   `json:"work-dir"                   toml:"work-dir"                   yaml:"work-dir"`
 	SirilCommand           *string   `json:"siril-command"              toml:"siril-command"              yaml:"siril-command"`
@@ -509,6 +510,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Stacking.MinScore != nil {
 			cfg.Stacking.MinScore = *s.Stacking.MinScore
 			set("stacking.min-score", configulator.LayerFile, file)
+		}
+		if s.Stacking.ScorePerSecond != nil {
+			cfg.Stacking.ScorePerSecond = *s.Stacking.ScorePerSecond
+			set("stacking.score-per-second", configulator.LayerFile, file)
 		}
 		if s.Stacking.BatchSize != nil {
 			cfg.Stacking.BatchSize = *s.Stacking.BatchSize
@@ -1104,6 +1109,19 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		}
 		cfg.Stacking.MinScore = p
 		set("stacking.min-score", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "score-per-second"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.score-per-second",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Stacking.ScorePerSecond = p
+		set("stacking.score-per-second", configulator.LayerEnv, n)
 	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "batch-size"); ok {
 		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
@@ -1785,6 +1803,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"stacking" + o.Separator + "enabled",
 		"stacking" + o.Separator + "interval-seconds",
 		"stacking" + o.Separator + "min-score",
+		"stacking" + o.Separator + "score-per-second",
 		"stacking" + o.Separator + "batch-size",
 		"stacking" + o.Separator + "work-dir",
 		"stacking" + o.Separator + "siril-command",
@@ -1899,68 +1918,69 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Bool(names[34], false, "Stack good lights into masters as they arrive")
 	fs.Var(impl.NewInt(120), names[35], "Seconds between checks for new lights when idle")
 	fs.Float64(names[36], 0.3, "Lowest sub score (0-1) that goes into a master")
-	fs.Var(impl.NewInt(12), names[37], "Subs calibrated and registered per Siril run")
-	fs.String(names[38], "/tmp/stacking", "Scratch space for downloads, masters and Siril output")
-	fs.String(names[39], "siril-cli", "siril-cli, or an extracted Siril AppImage's AppRun")
-	fs.Var(impl.NewInt(4), names[40], "Threads Siril may use")
-	fs.Float64(names[41], 0.5, "Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread")
-	fs.String(names[42], "", "Directory astrometry.net's index files (about 1.1 GB) are downloaded to and checked in at startup; masters Siril can't plate solve are solved with solve-field from them. Empty turns it off")
-	fs.String(names[43], "solve-field", "astrometry.net's solve-field")
-	fs.Var(impl.NewInt(120), names[44], "CPU seconds one solve-field run may use; runs are one at a time, on one core")
-	fs.Var(impl.NewInt(300), names[45], "Seconds one solve-field run may take")
-	fs.Var(impl.NewInt(1), names[46], "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
-	fs.Var(impl.NewInt(10), names[47], "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
-	fs.Var(impl.NewInt(30), names[48], "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
-	fs.Bool(names[49], true, "Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way")
-	fs.Float64(names[50], 506.0, "Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset")
-	fs.Var(impl.NewInt(180), names[51], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
-	fs.Var(impl.NewInt(300), names[52], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
-	fs.Var(impl.NewInt(1200), names[53], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
-	fs.String(names[54], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
-	fs.String(names[55], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
-	fs.StringSlice(names[56], nil, "Only subs of these targets; empty for all")
-	fs.Var(impl.NewInt(200), names[57], "Most new verdicts sent per hourly sweep")
-	fs.Var(impl.NewInt(24), names[58], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
-	fs.Var(impl.NewInt(200), names[59], "Milliseconds between deletions of unreferenced registered subs")
-	fs.Float64(names[60], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
-	fs.Bool(names[61], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
-	fs.Var(impl.NewInt(60), names[62], "Seconds between checks for newly accepted lights")
-	fs.Var(impl.NewInt(14), names[63], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
-	fs.Float64(names[64], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
-	fs.Float64(names[65], 0.0, "Observatory east longitude in degrees")
-	fs.Float64(names[66], 0.0, "Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise")
-	fs.Float64(names[67], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
-	fs.Float64(names[68], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from broadband (L, G, R, B) masters' zero points and their subs' sky")
-	fs.Float64(names[69], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
-	fs.Float64(names[70], 0.0, "Ignored: the pixel size is read from lights' XPIXSZ")
-	fs.Var(impl.NewInt(0), names[71], "Ignored: the image width is read from lights' headers")
-	fs.Var(impl.NewInt(0), names[72], "Ignored: the image height is read from lights' headers")
-	fs.Bool(names[73], false, "Ignored: a colour camera is recognised by BAYERPAT in lights' headers")
-	fs.StringSlice(names[74], nil, "Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights")
-	fs.Float64(names[75], 0.0, "Ignored: the typical HFR is measured from recent lights")
-	fs.Float64(names[76], 0.0, "Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights")
-	fs.StringSlice(names[77], nil, "Ignored: sub lengths per filter are read from recent lights")
-	fs.Bool(names[78], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
-	fs.String(names[79], "https://collab.starfront.space", "Starfront collaboration server")
-	fs.Var(impl.NewInt(30), names[80], "Minutes between fetches of the collaboration list")
-	fs.Bool(names[81], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
-	fs.Bool(names[82], true, "Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database")
-	fs.String(names[83], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
-	fs.Var(impl.NewInt(20), names[84], "Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit")
-	fs.String(names[85], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
-	fs.String(names[86], "", "Bearer token for the plugin's API")
-	fs.Bool(names[87], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
-	fs.String(names[88], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
-	fs.String(names[89], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
-	fs.Bool(names[90], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
-	fs.Var(impl.NewInt(30), names[91], "Minutes between checks for masters to measure")
-	fs.Var(impl.NewInt(200), names[92], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
-	fs.Var(impl.NewInt(3), names[93], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
-	fs.String(names[94], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
-	fs.String(names[95], "on", "Every hour, move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
-	fs.String(names[96], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
-	fs.String(names[97], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[98], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.Bool(names[37], false, "Score subs per second of exposure against every sub of the same filter and gain, instead of against subs of the same filter and exposure, so a target's subs of different lengths weigh fairly in one master; turning it on or off scores every master's subs again")
+	fs.Var(impl.NewInt(12), names[38], "Subs calibrated and registered per Siril run")
+	fs.String(names[39], "/tmp/stacking", "Scratch space for downloads, masters and Siril output")
+	fs.String(names[40], "siril-cli", "siril-cli, or an extracted Siril AppImage's AppRun")
+	fs.Var(impl.NewInt(4), names[41], "Threads Siril may use")
+	fs.Float64(names[42], 0.5, "Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread")
+	fs.String(names[43], "", "Directory astrometry.net's index files (about 1.1 GB) are downloaded to and checked in at startup; masters Siril can't plate solve are solved with solve-field from them. Empty turns it off")
+	fs.String(names[44], "solve-field", "astrometry.net's solve-field")
+	fs.Var(impl.NewInt(120), names[45], "CPU seconds one solve-field run may use; runs are one at a time, on one core")
+	fs.Var(impl.NewInt(300), names[46], "Seconds one solve-field run may take")
+	fs.Var(impl.NewInt(1), names[47], "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
+	fs.Var(impl.NewInt(10), names[48], "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
+	fs.Var(impl.NewInt(30), names[49], "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
+	fs.Bool(names[50], true, "Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way")
+	fs.Float64(names[51], 506.0, "Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset")
+	fs.Var(impl.NewInt(180), names[52], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
+	fs.Var(impl.NewInt(300), names[53], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
+	fs.Var(impl.NewInt(1200), names[54], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
+	fs.String(names[55], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
+	fs.String(names[56], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
+	fs.StringSlice(names[57], nil, "Only subs of these targets; empty for all")
+	fs.Var(impl.NewInt(200), names[58], "Most new verdicts sent per hourly sweep")
+	fs.Var(impl.NewInt(24), names[59], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
+	fs.Var(impl.NewInt(200), names[60], "Milliseconds between deletions of unreferenced registered subs")
+	fs.Float64(names[61], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
+	fs.Bool(names[62], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
+	fs.Var(impl.NewInt(60), names[63], "Seconds between checks for newly accepted lights")
+	fs.Var(impl.NewInt(14), names[64], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
+	fs.Float64(names[65], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
+	fs.Float64(names[66], 0.0, "Observatory east longitude in degrees")
+	fs.Float64(names[67], 0.0, "Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise")
+	fs.Float64(names[68], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
+	fs.Float64(names[69], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from broadband (L, G, R, B) masters' zero points and their subs' sky")
+	fs.Float64(names[70], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
+	fs.Float64(names[71], 0.0, "Ignored: the pixel size is read from lights' XPIXSZ")
+	fs.Var(impl.NewInt(0), names[72], "Ignored: the image width is read from lights' headers")
+	fs.Var(impl.NewInt(0), names[73], "Ignored: the image height is read from lights' headers")
+	fs.Bool(names[74], false, "Ignored: a colour camera is recognised by BAYERPAT in lights' headers")
+	fs.StringSlice(names[75], nil, "Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights")
+	fs.Float64(names[76], 0.0, "Ignored: the typical HFR is measured from recent lights")
+	fs.Float64(names[77], 0.0, "Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights")
+	fs.StringSlice(names[78], nil, "Ignored: sub lengths per filter are read from recent lights")
+	fs.Bool(names[79], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
+	fs.String(names[80], "https://collab.starfront.space", "Starfront collaboration server")
+	fs.Var(impl.NewInt(30), names[81], "Minutes between fetches of the collaboration list")
+	fs.Bool(names[82], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
+	fs.Bool(names[83], true, "Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database")
+	fs.String(names[84], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
+	fs.Var(impl.NewInt(20), names[85], "Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit")
+	fs.String(names[86], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
+	fs.String(names[87], "", "Bearer token for the plugin's API")
+	fs.Bool(names[88], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
+	fs.String(names[89], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
+	fs.String(names[90], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
+	fs.Bool(names[91], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
+	fs.Var(impl.NewInt(30), names[92], "Minutes between checks for masters to measure")
+	fs.Var(impl.NewInt(200), names[93], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
+	fs.Var(impl.NewInt(3), names[94], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
+	fs.String(names[95], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.String(names[96], "on", "Every hour, move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
+	fs.String(names[97], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
+	fs.String(names[98], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[99], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -2408,6 +2428,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Stacking.MinScore = v
 		set("stacking.min-score", configulator.LayerCLI, "--"+n)
+	}
+	if n := "stacking" + o.Separator + "score-per-second"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.score-per-second",
+				Source: "--" + n,
+			}
+		}
+		cfg.Stacking.ScorePerSecond = v
+		set("stacking.score-per-second", configulator.LayerCLI, "--"+n)
 	}
 	if n := "stacking" + o.Separator + "batch-size"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
@@ -4253,6 +4285,19 @@ func (s *stackingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".min-score", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "score-per-second":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.ScorePerSecond = &b
+			default:
+				return configJSONError(path+".score-per-second", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
 		case "batch-size":
 			v, err := dec.ReadToken()
 			if err != nil {
@@ -5500,6 +5545,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "stacking.enabled = %v\n", c.Stacking.Enabled)
 	fmt.Fprintf(&b, "stacking.interval-seconds = %v\n", c.Stacking.IntervalSeconds)
 	fmt.Fprintf(&b, "stacking.min-score = %v\n", c.Stacking.MinScore)
+	fmt.Fprintf(&b, "stacking.score-per-second = %v\n", c.Stacking.ScorePerSecond)
 	fmt.Fprintf(&b, "stacking.batch-size = %v\n", c.Stacking.BatchSize)
 	fmt.Fprintf(&b, "stacking.work-dir = %v\n", c.Stacking.WorkDir)
 	fmt.Fprintf(&b, "stacking.siril-command = %v\n", c.Stacking.SirilCommand)
