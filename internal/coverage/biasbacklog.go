@@ -167,6 +167,20 @@ func loadBias(ctx context.Context, db *gorm.DB) ([]biasFrame, error) {
 	return frames, nil
 }
 
+// fullBiasAfter reports whether a full bias set of the same gain, offset and
+// binning was taken after the short set s, so the short set needs no top-up.
+func fullBiasAfter(s calmatch.Set, sets []calmatch.Set) bool {
+	for _, o := range sets {
+		if o.Type != biasType || !same(o.Gain, s.Gain) || !same(o.Offset, s.Offset) || !same(o.BinX, s.BinX) {
+			continue
+		}
+		if (o.Master != "" || o.Count >= BiasFramesTarget) && o.To.After(s.To) {
+			return true
+		}
+	}
+	return false
+}
+
 func biasBacklog(lights []biasLightGroup, frames []biasFrame, sets []calmatch.Set, now time.Time) BiasBacklog {
 	b := BiasBacklog{
 		ComputedAt: now.UTC(), FramesNeeded: BiasFramesTarget, FramesNeededBasis: BiasFramesNeededBasis,
@@ -190,7 +204,7 @@ func biasBacklog(lights []biasLightGroup, frames []biasFrame, sets []calmatch.Se
 		toNow := dayDiff(now, l.Night)
 		missing := m.Quality == calmatch.Missing
 		stale := !missing && m.AgeDays > BiasMaxAgeDays && toNow < m.AgeDays
-		thin := !missing && !stale && m.Set.Master == "" && m.Set.Count > 0 && m.Set.Count < BiasFramesTarget && toNow <= m.AgeDays
+		thin := !missing && !stale && m.Set.Master == "" && m.Set.Count > 0 && m.Set.Count < BiasFramesTarget && !fullBiasAfter(*m.Set, sets)
 		if !missing && !stale && !thin {
 			continue
 		}
@@ -232,7 +246,7 @@ func biasBacklog(lights []biasLightGroup, frames []biasFrame, sets []calmatch.Se
 		c.Nights, c.LatestNight = len(t.nights), t.latest
 		fillBiasProgress(&c, su, frames, sets, now)
 		c.Basis = fmt.Sprintf("%d lights at gain %s, offset %s, bin %s have no bias to calibrate with, %d have a bias set more than %d days "+
-			"from their night where one taken now would be nearer, and %d have a bias set of fewer than %d frames.",
+			"from their night where one taken now would be nearer, and %d have a bias set of fewer than %d frames with no full set taken after it.",
 			c.LightsMissing, numText(su.gain), numText(su.offset), numText(su.bin), c.LightsStale, BiasMaxAgeDays, c.LightsThin, BiasFramesTarget)
 		b.Combos = append(b.Combos, c)
 	}
