@@ -274,7 +274,7 @@ func TestCatalogues(t *testing.T) {
 	}
 	m13 := entries[12]
 	if m13.Label != m13Name || m13.Index != 13 || m13.Status != discover.CompletionDone || m13.ByGoal ||
-		!strings.Contains(m13.Judged, "100% complete: L by accepted subs against desired") || len(m13.Subjects) == 0 ||
+		!strings.Contains(m13.Judged, "enough data in every filter") || len(m13.Subjects) == 0 ||
 		m13.Tonight == nil || m13.Tonight.MinAltitude != 42 || !strings.Contains(m13.Tonight.AltitudeSource, "M13") {
 		t.Errorf("M 13 entry %+v %+v", m13, m13.Tonight)
 	}
@@ -289,10 +289,10 @@ func TestObjectEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if e := garlicEntry(green); e.Status != discover.CompletionInProgress || e.Hours[hydrogen] != 10 || e.Tally.Filters != 2 || e.Tally.Measured != 0 ||
-		!strings.Contains(e.Judged, "Garlic Nebula 87% complete") || !strings.Contains(e.Judged, "by accepted subs against desired") {
+		!strings.Contains(e.Judged, "Garlic Nebula needs more data") || !strings.Contains(e.Judged, "not measured yet (no goal set)") {
 		t.Errorf("garlic entry %+v", e)
 	}
-	if p := garlicEntry(green).Progress; p == nil || math.Abs(p.Percent-0.875) > 0.01 || p.Target != garlicName || p.LeastFilter == "" || p.LeastPercent > p.Percent {
+	if p := garlicEntry(green).Progress; p == nil || p.Percent != nil || p.Target != garlicName || p.LeastFilter == "" || p.NotMeasured != "no goal set" || p.Enough {
 		t.Errorf("garlic progress %+v", p)
 	}
 	if _, err := s.Catalogue(ctx, "nope"); err == nil {
@@ -326,8 +326,8 @@ func TestCompletionBuckets(t *testing.T) {
 	if e := garlicEntry(green); e.Status != discover.CompletionMeasuring || !strings.Contains(e.Judged, "2 filters with a goal not measured yet") {
 		t.Errorf("goals set but nothing measured %+v", e)
 	}
-	if e := garlicEntry(green); e.Progress != nil {
-		t.Errorf("progress before any measurement %+v", e.Progress)
+	if p := garlicEntry(green).Progress; p == nil || p.Percent != nil || p.NotMeasured == "" || p.Enough {
+		t.Errorf("progress before any measurement %+v", p)
 	}
 	s.AppDB.Create(&[]app.GoalMeasurement{
 		{Object: garlicName, Filter: hydrogen, MethodRevision: goals.MethodRevision, Subs: 120, SNR: 12, GainPerHourPct: 3, EffectiveHours: 10},
@@ -335,10 +335,10 @@ func TestCompletionBuckets(t *testing.T) {
 	})
 	s.Invalidate()
 	green, _ = s.Catalogue(ctx, "green")
-	if e := garlicEntry(green); e.Status != discover.CompletionInProgress || e.Tally.Measured != 2 || !strings.Contains(e.Judged, "by its goal") {
+	if e := garlicEntry(green); e.Status != discover.CompletionInProgress || e.Tally.Measured != 2 || !strings.Contains(e.Judged, "O-III least complete at 16% of its goal") {
 		t.Errorf("one filter short of its goal %+v", e)
 	}
-	if p := garlicEntry(green).Progress; p == nil || p.Percent <= 0 || p.Percent >= 1 || p.LeastFilter != oxygen || math.Abs(p.LeastPercent-0.16) > 0.01 || math.Abs(p.Percent-0.58) > 0.01 {
+	if p := garlicEntry(green).Progress; p == nil || p.Percent == nil || p.LeastFilter != oxygen || math.Abs(*p.Percent-0.16) > 0.01 || p.Enough {
 		t.Errorf("progress one filter short of its goal %+v", p)
 	}
 	s.AppDB.Model(&app.GoalMeasurement{}).Where("filter = ?", "O-III").Update("snr", 11)
