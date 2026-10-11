@@ -35,7 +35,7 @@ func (a *Accumulator) addAgainst(sub []float32, exposure, weight float64, ref *A
 	if len(sub) != a.W*a.H || len(ref.Mean) != len(sub) {
 		return AddResult{}, fmt.Errorf("sub, reference and master sizes differ")
 	}
-	sky := skyFor(sub, a.W, a.H, exposure, ref, opts)
+	sky := a.skyFor(sub, exposure, ref, opts)
 	norm := sky.normalizer(exposure)
 	// ref holds this sub at its scaled weight (see fold).
 	w := float32(weight * sky.scale * sky.scale)
@@ -309,6 +309,7 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 	for j := range all {
 		all[j].sky = flatSky(w, h, float64(all[j].bg))
 	}
+	var ln LocalNormRecord
 	if opts.LocalNorm && len(all) >= 3 {
 		// Each sub's sky is fitted against all of them stacked with their
 		// background levels, which averages their gradients.
@@ -316,6 +317,7 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 		for _, l := range all {
 			foldMem(ref, l, nil, opts.SaturationLevel)
 		}
+		ln.Uneven, ln.Measured = unevenShare(ref)
 		for j := range all {
 			if !needsLocalNorm(ref) {
 				break
@@ -368,6 +370,7 @@ func medianAnchored(all []memSub, w, h int, opts Options) *Accumulator {
 		keepMajorityMem(all, reject, opts.SaturationLevel)
 	}
 	acc := NewAccumulator(w, h)
+	acc.LocalNorm.Uneven, acc.LocalNorm.Measured = ln.Uneven, ln.Measured
 	for j, l := range all {
 		foldMem(acc, l, reject[j], opts.SaturationLevel)
 		reject[j] = nil
@@ -432,6 +435,9 @@ func foldMem(acc *Accumulator, l memSub, reject []bool, sat float32) {
 	acc.BackgroundSum += weight * l.sky.mean / l.sky.scale
 	acc.WeightSum += weight
 	acc.Subs++
+	if l.sky.fitted {
+		acc.LocalNorm.Subs++
+	}
 }
 
 // rebuildStreaming reads the subs once per pass, one at a time, so memory

@@ -21,15 +21,46 @@ import (
 // side bring different gradients, which it removes.
 const unevenCoverage = 0.1
 
+// LocalNormThreshold is unevenCoverage, for the masters API.
+const LocalNormThreshold = unevenCoverage
+
+// LocalNormRecord is what local normalization did in a master, for its
+// header and the masters API.
+type LocalNormRecord struct {
+	// Subs is how many subs were folded in with a fitted sky. Known is
+	// false for a master restored from state saved before they were
+	// counted: Subs then misses the subs folded in before.
+	Subs  int
+	Known bool
+	// Uneven is the coverage share (see unevenShare) its last decision
+	// measured; Measured is false before any.
+	Uneven   float64
+	Measured bool
+}
+
 // needsLocalNorm reports whether a master's coverage is uneven enough for
 // local normalization to help.
 func needsLocalNorm(acc *Accumulator) bool {
 	if acc == nil || acc.Subs < 3 {
 		return false
 	}
+	share, ok := unevenShare(acc)
+	return ok && share > unevenCoverage
+}
+
+// unevenShare is the share of the frame, where the master has data, that
+// fewer than 90% of its subs cover, from every 7th pixel; needsLocalNorm
+// compares it with unevenCoverage. ok is false when nothing is covered.
+func unevenShare(acc *Accumulator) (share float64, ok bool) {
+	if acc == nil {
+		return 0, false
+	}
 	var most float32
 	for _, c := range acc.Count {
 		most = max(most, c)
+	}
+	if most == 0 {
+		return 0, false
 	}
 	framed, partial := 0, 0
 	for i := 0; i < len(acc.Count); i += 7 {
@@ -42,7 +73,10 @@ func needsLocalNorm(acc *Accumulator) bool {
 			partial++
 		}
 	}
-	return framed > 0 && float64(partial) > unevenCoverage*float64(framed)
+	if framed == 0 {
+		return 0, false
+	}
+	return float64(partial) / float64(framed), true
 }
 
 // lnCell is the side of the cells the sky is measured in, in pixels.
@@ -66,6 +100,9 @@ type skyModel struct {
 	coef  []float64 // polynomial in x and y normalized to [-1, 1]
 	scale float64
 	mean  float64 // P averaged over the frame, added back to the master
+	// fitted is whether the sky was fitted against a reference rather
+	// than left one background level.
+	fitted bool
 }
 
 // flatSky is the model without local normalization: one background level.
@@ -163,7 +200,7 @@ func fitSky(get func(int) float32, w, h int, exposure float64, ref *Accumulator,
 	if !ok {
 		return flat()
 	}
-	m.coef, m.scale = coef, scale
+	m.coef, m.scale, m.fitted = coef, scale, true
 	// The surface's mean over the frame is the sky added back to the
 	// master, so it keeps a pedestal like any other stack.
 	sum := 0.0

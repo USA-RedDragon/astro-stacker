@@ -147,6 +147,13 @@ type Stack struct {
 	// ScoreMethod is how its subs were last scored (see
 	// stacking.scoreMethod); its subs are scored again under a newer one.
 	ScoreMethod int
+	// LocalNormSubs is how many of its subs were stacked with local
+	// normalization; nil while that is unknown, for a master stacked
+	// before they were counted, until its next rebuild.
+	// LocalNormUneven is the coverage share its last local normalization
+	// decision measured (see stacking.LocalNormThreshold); nil before one.
+	LocalNormSubs   *int
+	LocalNormUneven *float64
 
 	StateKey   *string // accumulator planes
 	MasterKey  *string // linear master FITS for download

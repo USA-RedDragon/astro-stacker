@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
@@ -57,6 +59,14 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	stack.WeightSum, stack.BackgroundSum = acc.WeightSum, acc.BackgroundSum
 	stack.ExposureSeconds, stack.EffectiveSeconds = totals.Exposure, totals.Effective
 	stack.ScaleExposure = totals.Longest
+	stack.LocalNormSubs, stack.LocalNormUneven = nil, nil
+	if ln := acc.LocalNorm; ln.Known {
+		stack.LocalNormSubs = &ln.Subs
+	}
+	if ln := acc.LocalNorm; ln.Measured {
+		stack.LocalNormUneven = &ln.Uneven
+	}
+	logLocalNorm(stack, acc.LocalNorm)
 
 	dir, err := os.MkdirTemp(p.workDir, "publish-")
 	if err != nil {
@@ -66,7 +76,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	prefix := stackPrefix(stack)
 	master := acc.Master(stack.ScaleExposure)
 
-	cards := []imagedata.Card{
+	cards := slices.Concat([]imagedata.Card{
 		imagedata.StringCard("OBJECT", stack.Object, "target"),
 		imagedata.StringCard("FILTER", stack.Filter, "filter"),
 		imagedata.StringCard("IMAGETYP", "Master Light", ""),
@@ -77,7 +87,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 		imagedata.FloatCard("MINSCORE", p.opts.MinScore, "cut: this x the target best sub score"),
 		imagedata.StringCard("DATE", time.Now().UTC().Format("2006-01-02T15:04:05"), "file written"),
 		imagedata.StringCard("SWCREATE", "astro-stacker (Siril 1.4 calibration)", ""),
-	}
+	}, localNormCards(acc.LocalNorm))
 	masterFile := filepath.Join(dir, "master.fit")
 	if err := writeFITSFile(masterFile, acc.W, acc.H, 1, master, cards); err != nil {
 		return err
@@ -210,5 +220,54 @@ func (p *Pipeline) loadState(ctx context.Context, stack *app.Stack) (*Accumulato
 	if im.C != 4 {
 		return nil, fmt.Errorf("state has %d planes, want 4", im.C)
 	}
-	return FromPlanes(im.W, im.H, im.Data, stack.BackgroundSum, stack.WeightSum, stack.Subs)
+	acc, err := FromPlanes(im.W, im.H, im.Data, stack.BackgroundSum, stack.WeightSum, stack.Subs)
+	if err != nil {
+		return nil, err
+	}
+	acc.LocalNorm = storedLocalNorm(stack)
+	return acc, nil
+}
+
+// storedLocalNorm is the local normalization record saved on a stack row.
+func storedLocalNorm(stack *app.Stack) LocalNormRecord {
+	var ln LocalNormRecord
+	if stack.LocalNormSubs != nil {
+		ln.Subs, ln.Known = *stack.LocalNormSubs, true
+	}
+	if stack.LocalNormUneven != nil {
+		ln.Uneven, ln.Measured = *stack.LocalNormUneven, true
+	}
+	return ln
+}
+
+// localNormCards are a master's header cards for local normalization:
+// whether it ran and on how many subs, when that is known, and the
+// coverage share that decided it, when one was measured.
+func localNormCards(ln LocalNormRecord) []imagedata.Card {
+	var cards []imagedata.Card
+	if ln.Known {
+		v := "F"
+		if ln.Subs > 0 {
+			v = "T"
+		}
+		cards = append(cards,
+			imagedata.Card{Key: "LOCALNRM", Value: v, Comment: "local normalization matched sub skies"},
+			imagedata.IntCard("LNSUBS", ln.Subs, "subs stacked with local normalization"))
+	}
+	if ln.Measured {
+		cards = append(cards, imagedata.FloatCard("LNUNEVEN", ln.Uneven,
+			fmt.Sprintf("share <90%% covered; LN above %g", unevenCoverage)))
+	}
+	return cards
+}
+
+func logLocalNorm(stack *app.Stack, ln LocalNormRecord) {
+	switch {
+	case ln.Subs > 0:
+		slog.Info("Local normalization ran", "object", stack.Object, "filter", stack.Filter,
+			"normalized_subs", ln.Subs, "all_counted", ln.Known, "uneven", ln.Uneven, "threshold", unevenCoverage)
+	case ln.Measured:
+		slog.Info("Local normalization not needed", "object", stack.Object, "filter", stack.Filter,
+			"uneven", ln.Uneven, "threshold", unevenCoverage)
+	}
 }
