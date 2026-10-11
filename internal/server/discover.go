@@ -9,6 +9,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/gin-gonic/gin"
@@ -130,7 +131,10 @@ func applyDiscoverRoutes(g *gin.RouterGroup, x Extras) {
 		if !ok {
 			return
 		}
-		out, err := d.Pick(c.Request.Context(), c.Param("id"), plans)
+		goal := discover.PickGoal{Kind: goals.Kind(c.Query("goal"))}
+		goal.SNR, _ = floatQuery(c, "snr")
+		goal.Depth, _ = floatQuery(c, "depth")
+		out, err := d.Pick(c.Request.Context(), c.Param("id"), plans, goal)
 		if err != nil {
 			discoverError(c, err)
 			return

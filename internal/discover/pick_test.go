@@ -198,7 +198,7 @@ func ruleRs(r discover.PickRule) map[string]float64 {
 func TestPickEmissionDerivesTheSIIThreshold(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "M16", pickPlans())
+	p, err := s.Pick(context.Background(), "M16", pickPlans(), discover.PickGoal{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestPickHAlphaHoursWhenTargetsFollowBrightness(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p, err := s.Pick(context.Background(), "M16", pickPlans())
+	p, err := s.Pick(context.Background(), "M16", pickPlans(), discover.PickGoal{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestPickHAlphaHoursWhenTargetsFollowBrightness(t *testing.T) {
 func TestPickReusesAMatchingSet(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "M27", pickPlans())
+	p, err := s.Pick(context.Background(), "M27", pickPlans(), discover.PickGoal{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestPickReusesAMatchingSet(t *testing.T) {
 func TestPickGalaxyDepthHours(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "M81", pickPlans())
+	p, err := s.Pick(context.Background(), "M81", pickPlans(), depthGoal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestPickGalaxyWithoutColourStatesBothBands(t *testing.T) {
 			break
 		}
 	}
-	p, err := s.Pick(context.Background(), id, pickPlans())
+	p, err := s.Pick(context.Background(), id, pickPlans(), depthGoal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestPickGalaxyWithoutColourStatesBothBands(t *testing.T) {
 func TestPickDustUsesLFromDustTargets(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "B33", pickPlans())
+	p, err := s.Pick(context.Background(), "B33", pickPlans(), discover.PickGoal{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestPickFallsBackToANamedRule(t *testing.T) {
 	if err := db.Where("filter = ?", sulphur).Delete(&app.Stack{}).Error; err != nil {
 		t.Fatal(err)
 	}
-	p, err := s.Pick(context.Background(), "M16", pickPlans())
+	p, err := s.Pick(context.Background(), "M16", pickPlans(), discover.PickGoal{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func TestPickFallsBackToANamedRule(t *testing.T) {
 func TestPickClusterAndUnknownType(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "M13", pickPlans())
+	p, err := s.Pick(context.Background(), "M13", pickPlans(), depthGoal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,10 +430,10 @@ func TestPickClusterAndUnknownType(t *testing.T) {
 	if g := filterOf(p, "G"); g.Hours.Hours != nil || !strings.HasPrefix(g.Hours.Unknown, "unknown: the sky brightness in G is not measured") {
 		t.Errorf("cluster G hours %+v", g.Hours)
 	}
-	if _, err := s.Pick(context.Background(), "no-such-object", nil); err == nil {
+	if _, err := s.Pick(context.Background(), "no-such-object", nil, discover.PickGoal{}); err == nil {
 		t.Error("unknown object picked")
 	}
-	p, err = s.Pick(context.Background(), "M42", nil)
+	p, err = s.Pick(context.Background(), "M42", nil, discover.PickGoal{})
 	if err != nil || p.Filters[0].Template != nil || p.Filters[0].TemplateBasis != "the scheduler's templates are not loaded" {
 		t.Errorf("no plans: %+v %v", p, err)
 	}
@@ -456,7 +456,7 @@ func TestBandToGaiaG(t *testing.T) {
 func TestPickGalaxyAddsHAlphaWithoutForegroundHours(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "NGC891", pickPlans())
+	p, err := s.Pick(context.Background(), "NGC891", pickPlans(), discover.PickGoal{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func TestPickGalaxyAddsHAlphaWithoutForegroundHours(t *testing.T) {
 func TestPickClassFromCatalogueCrossMatch(t *testing.T) {
 	t.Parallel()
 	s, _ := pickFixture(t)
-	p, err := s.Pick(context.Background(), "NGC 7023", pickPlans())
+	p, err := s.Pick(context.Background(), "NGC 7023", pickPlans(), discover.PickGoal{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,12 +480,68 @@ func TestPickClassFromCatalogueCrossMatch(t *testing.T) {
 		p.ClassBasis != "reflection nebula: listed as vdB 139 (van den Bergh 1966, a catalogue of reflection nebulae), 0.4′ from its centre" {
 		t.Fatalf("pick %+v", p)
 	}
-	p, err = s.Pick(context.Background(), "IC 4628", pickPlans())
+	p, err = s.Pick(context.Background(), "IC 4628", pickPlans(), discover.PickGoal{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.Class != "" || p.Palette != "" || len(p.Filters) != 0 || !strings.Contains(p.NoPick, "emission or a reflection nebula") ||
 		!strings.HasPrefix(p.Reason, "nebula: emission or reflection is not known: OpenNGC") {
 		t.Fatalf("pick %+v", p)
+	}
+}
+
+func depthGoal() discover.PickGoal { return discover.PickGoal{Kind: goals.KindDepth} }
+
+func noGoal() discover.PickGoal { return discover.PickGoal{} }
+
+func TestPickHoursFollowTheChosenGoal(t *testing.T) {
+	t.Parallel()
+	s, _ := pickFixture(t)
+	p, err := s.Pick(context.Background(), "M81", pickPlans(), discover.PickGoal{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Goal.Kind != goals.KindSNR || p.Goal.SNR != goals.DefaultSNRGoal {
+		t.Errorf("goal %+v", p.Goal)
+	}
+	if l := filterOf(p, "L"); l.Hours.Hours != nil || l.Hours.Goal != "SNR 10" || !strings.Contains(l.Hours.Unknown, "own faint band") {
+		t.Errorf("L hours under the SNR goal %+v", l.Hours)
+	}
+	p, err = s.Pick(context.Background(), "M81", pickPlans(), discover.PickGoal{Kind: goals.KindDepth, Depth: 26.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := filterOf(p, "L")
+	d1 := 25 - 1.25*math.Log10(4) + 0.5*(20.6-20.5)
+	want := math.Pow(10, (26.5-d1)/1.25)
+	if l.Hours.Hours == nil || math.Abs(*l.Hours.Hours-want) > 1e-9*want || l.Hours.Goal != "26.5 mag/arcsec² at SNR 3" ||
+		!strings.Contains(l.Hours.Basis, "the depth you typed for every filter") {
+		t.Errorf("L hours to a typed depth %+v want %v", l.Hours, want)
+	}
+}
+
+func TestPickHAlphaHoursScaleWithTheSNRGoal(t *testing.T) {
+	t.Parallel()
+	s, db := pickFixture(t)
+	rs := map[string]float64{m42: 1000, ngc7000: 800, m8: 100, m27: 60}
+	for obj, r := range rs {
+		if err := db.Model(&app.GoalMeasurement{}).Where("object = ? AND filter = ?", obj, hydrogen).
+			Updates(map[string]any{"snr": 10 / math.Sqrt(2e4/(r*r)), "effective_hours": 1}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := func(g discover.PickGoal) *discover.PickFilter {
+		p, err := s.Pick(context.Background(), "M16", pickPlans(), g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return filterOf(p, "H-α")
+	}
+	base, twice := at(discover.PickGoal{}), at(discover.PickGoal{Kind: goals.KindSNR, SNR: 20})
+	if base.Hours.Hours == nil || twice.Hours.Hours == nil || math.Abs(*twice.Hours.Hours/(*base.Hours.Hours)-4) > 1e-9 || twice.Hours.Goal != "SNR 20" {
+		t.Errorf("SNR 10 %+v, SNR 20 %+v", base.Hours, twice.Hours)
+	}
+	if d := at(depthGoal()); d.Hours.Hours != nil || !strings.Contains(d.Hours.Unknown, "only L, R, G and B sky is measured") || d.Hours.Goal != "25.5 mag/arcsec² at SNR 3" {
+		t.Errorf("H-α hours under a depth goal %+v", d.Hours)
 	}
 }
