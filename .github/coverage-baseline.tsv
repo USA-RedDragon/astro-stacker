@@ -49,7 +49,7 @@ internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	109
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	397	338
+internal/goalmeasure/runner.go	397	337
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -61,7 +61,7 @@ internal/goals/progress.go	104	91
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	330	300
+internal/goals/tsgoals.go	330	298
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	107	84
 internal/halpha/halpha.go	177	154
@@ -95,7 +95,7 @@ internal/mosaicstore/mosaicstore.go	66	56
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -136,7 +136,7 @@ internal/schedcmd/planning.go	404	335
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	226	201
+internal/schedcmd/service.go	226	199
 internal/schedcmd/settings.go	84	78
 internal/server/calibration.go	37	29
 internal/server/conditions.go	23	17
@@ -164,7 +164,7 @@ internal/skybright/skybright.go	114	111
 internal/skycutout/skycutout.go	157	137
 internal/stacking/accumulator.go	161	157
 internal/stacking/astrometry.go	8	0
-internal/stacking/comet.go	528	288
+internal/stacking/comet.go	530	289
 internal/stacking/cosmetic.go	61	50
 internal/stacking/cover.go	297	191
 internal/stacking/coverline.go	458	426
@@ -190,10 +190,11 @@ internal/stacking/outputs.go	133	33
 internal/stacking/pipeline.go	392	151
 internal/stacking/pointing.go	73	53
 internal/stacking/process.go	262	44
-internal/stacking/rebuild.go	281	258
+internal/stacking/rebuild.go	330	307
 internal/stacking/recalibrate.go	120	107
 internal/stacking/registered.go	324	227
 internal/stacking/rescore.go	79	53
+internal/stacking/shadow.go	223	220
 internal/stacking/status.go	71	23
 internal/stacking/telescopes.go	61	56
 internal/stacking/tsverdicts.go	252	209
