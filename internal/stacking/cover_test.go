@@ -62,6 +62,37 @@ func TestChoosePalette(t *testing.T) {
 	}
 }
 
+// A mosaic's colour cover needs as many panels in each channel as its best
+// filter has; with fewer, the mono cover of that filter shows more sky.
+func TestChoosePaletteWantsEveryPanel(t *testing.T) {
+	t.Parallel()
+	mosaic := func(panels map[string]int) map[string]layer {
+		m := map[string]layer{}
+		for f, n := range panels {
+			m[f] = layer{Key: "k", Effective: 3 * 3600, Panels: n}
+		}
+		return m
+	}
+	for _, c := range []struct {
+		name   string
+		panels map[string]int
+		want   string
+	}{
+		{"every panel", map[string]int{filterRed: 3, filterGreen: 3, filterBlue: 3}, paletteRGB},
+		// Heart and Soul Nebula: green on one panel of three, the rest on two.
+		{"green short", map[string]int{filterRed: 2, filterGreen: 1, filterBlue: 2, filterLuminance: 2}, ""},
+		{"narrowband whole", map[string]int{filterRed: 2, filterGreen: 1, filterBlue: 2, filterHa: 3, filterOIII: 3}, paletteHOO},
+		// Sadr Region: blue on one panel, red and green on three.
+		{"blue short", map[string]int{filterRed: 3, filterGreen: 3, filterBlue: 1}, ""},
+		{"H-a short adds only to red", map[string]int{filterRed: 2, filterGreen: 2, filterBlue: 2, filterHa: 1}, paletteRGBHa},
+	} {
+		p, ok := choosePalette(mosaic(c.panels), false)
+		if got := map[bool]string{true: p.Name, false: ""}[ok]; got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 func TestPaletteFilters(t *testing.T) {
 	t.Parallel()
 	want := map[string][]string{
