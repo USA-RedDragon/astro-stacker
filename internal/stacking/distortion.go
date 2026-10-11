@@ -79,15 +79,9 @@ func (p *Pipeline) solveReference(ctx context.Context, _, file string, f app.Fra
 	if math.IsNaN(h.RA) || math.IsNaN(h.Dec) {
 		return "", fmt.Errorf("%s has no pointing", f.Key)
 	}
-	focal, pixel := kw.Float("FOCALLEN"), kw.Float("XPIXSZ")
-	if bin := kw.Float("XBINNING"); bin > 1 {
-		pixel *= bin
-	}
+	focal, pixel, _ := frameOptics(kw, f.Key)
 	if !(focal > 0) || !(pixel > 0) {
-		focal, pixel = solutionOptics(kw, pixel)
-	}
-	if !(focal > 0) || !(pixel > 0) {
-		focal, pixel = p.telescopeOptics(ctx, f, pixel)
+		focal, pixel = p.telescopeOptics(ctx, f, kw.Float("XPIXSZ"))
 	}
 	if !(focal > 0) || !(pixel > 0) {
 		return "", fmt.Errorf("%s has no optics", f.Key)

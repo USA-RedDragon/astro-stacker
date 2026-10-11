@@ -101,6 +101,14 @@ stacking:
   siril-threads: 4
   # Share of memory all Siril runs together may use (Siril reads the container limit); registration needs about 320 MiB per thread
   siril-memory: 0.5
+  # Directory astrometry.net's index files (about 1.1 GB) are downloaded to and checked in at startup; masters Siril can't plate solve are solved with solve-field from them. Empty turns it off
+  # astrometry-index-dir: ""
+  # astrometry.net's solve-field
+  astrometry-command: "solve-field"
+  # CPU seconds one solve-field run may use; runs are one at a time, on one core
+  astrometry-cpu-seconds: 120
+  # Seconds one solve-field run may take
+  astrometry-timeout-seconds: 300
   # Targets stacked at once; each holds up to about 1.5 GB besides Siril
   workers: 1
   # Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off
