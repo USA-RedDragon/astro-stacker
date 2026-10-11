@@ -25,7 +25,7 @@ internal/catalog/notcatalogue.go	29	28
 internal/conditions/conditions.go	240	185
 internal/conditions/moon.go	45	45
 internal/config/config.go	54	42
-internal/coverage/biasbacklog.go	126	115
+internal/coverage/biasbacklog.go	121	110
 internal/coverage/coverage.go	179	158
 internal/coverage/darkbacklog.go	243	219
 internal/coverage/imported.go	56	54
@@ -61,7 +61,7 @@ internal/goals/progress.go	104	91
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	330	299
+internal/goals/tsgoals.go	330	298
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	107	84
 internal/halpha/halpha.go	177	154
@@ -136,7 +136,7 @@ internal/schedcmd/planning.go	404	335
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	226	199
+internal/schedcmd/service.go	226	201
 internal/schedcmd/settings.go	84	78
 internal/server/calibration.go	37	29
 internal/server/conditions.go	23	17
