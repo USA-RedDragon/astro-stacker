@@ -115,8 +115,8 @@ type frameRow struct {
 	Object   string
 	RA       *float64
 	RAWrap   *float64
-	RAMin    *float64
-	RAMax    *float64
+	RAMin    *float64 `gorm:"column:ra_min"`
+	RAMax    *float64 `gorm:"column:ra_max"`
 	Dec      *float64
 	LastSeen *string
 }

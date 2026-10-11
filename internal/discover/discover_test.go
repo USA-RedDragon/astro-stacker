@@ -773,3 +773,30 @@ func TestTonightAfterDawnIsTheComingNight(t *testing.T) {
 		})
 	}
 }
+
+func TestSubjectPositionAcrossRAZero(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	night := time.Date(2026, 9, 2, 4, 0, 0, 0, time.UTC)
+	dec := 20.0
+	for i, ra := range []float64{359.5, 0.5} {
+		r := ra
+		if err := s.AppDB.Create(&app.Frame{Key: fmt.Sprintf("wrap-%d.fits", i), ETag: "e", Size: 1, LastModified: night, Type: "LIGHT", Object: "Wrap Field",
+			MountRA: &r, MountDec: &dec, DateObs: &night}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	subs, err := s.Subjects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sb := range subs {
+		if sb.Key == "object:Wrap Field" {
+			if !sb.HasPos || math.Min(sb.RA, 360-sb.RA) > 0.01 {
+				t.Errorf("subject across RA 0 at RA %v", sb.RA)
+			}
+			return
+		}
+	}
+	t.Fatal("no subject for the field")
+}
