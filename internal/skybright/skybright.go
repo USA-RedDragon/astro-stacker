@@ -11,6 +11,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/moon"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -110,7 +111,12 @@ func MeasureIn(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time, f
 }
 
 func measure(ctx context.Context, db *gorm.DB, site SiteFunc, now time.Time, prefs []string) (Value, error) {
-	if db == nil || !db.Migrator().HasTable(&app.SkySample{}) {
+	if db == nil {
+		return None(reasonNoSamples), nil
+	}
+	if has, err := tables.Has(ctx, db, &app.SkySample{}); err != nil {
+		return Value{}, err
+	} else if !has {
 		return None(reasonNoSamples), nil
 	}
 	var rows []app.SkySample
