@@ -269,7 +269,7 @@ func TestCatalogues(t *testing.T) {
 		t.Error("nothing counted as scheduled with nothing captured")
 	}
 	if messier.Total != 110 || messier.Done != 1 || messier.DoneCounts != 1 ||
-		messier.Done+messier.InProgress+messier.Measuring+messier.NotStarted != 110 || messier.UpTonight == 0 {
+		messier.Done+messier.InProgress+messier.Measuring+messier.Adding+messier.Scheduled+messier.NotStarted != 110 || messier.UpTonight == 0 {
 		t.Errorf("messier summary %+v", messier)
 	}
 	entries, err := s.Catalogue(ctx, "messier")
@@ -726,6 +726,21 @@ func TestFinderUsesTheHAlphaMap(t *testing.T) {
 	}
 }
 
+func messierSummary(ctx context.Context, t *testing.T, s *discover.Service) discover.CatalogueSummary {
+	t.Helper()
+	ov, err := s.Overview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range ov.Catalogues {
+		if c.Key == "messier" {
+			return c
+		}
+	}
+	t.Fatal("no messier summary")
+	return discover.CatalogueSummary{}
+}
+
 func TestProjectBeingAdded(t *testing.T) {
 	t.Parallel()
 	s := newService(t)
@@ -754,11 +769,9 @@ func TestProjectBeingAdded(t *testing.T) {
 	if review, _ := s.Review(ctx, true); slices.ContainsFunc(review, func(r discover.ReviewItem) bool { return r.Subject == "adding:c34" }) {
 		t.Error("a pending create is in the review queue")
 	}
-	ov, _ := s.Overview(ctx)
-	for _, c := range ov.Catalogues {
-		if c.Key == "messier" && c.Adding != 1 {
-			t.Errorf("messier being added %d", c.Adding)
-		}
+	before := messierSummary(ctx, t, s)
+	if before.Adding != 1 {
+		t.Errorf("messier being added %d", before.Adding)
 	}
 	s.AppDB.Model(&rec).Update("status", schedcmd.StatusApplied)
 	if e := m34(); e.Status != discover.CompletionAdding || !strings.Contains(e.Judged, "not synced") {
@@ -767,15 +780,25 @@ func TestProjectBeingAdded(t *testing.T) {
 	for _, q := range []string{
 		`INSERT INTO project ("Id", "profileId", name, state, minimumaltitude, "isMosaic", enablegrader, guid) VALUES (7, 'p', 'M 34', 1, 30, 0, 1, 'p34')`,
 		`INSERT INTO target ("Id", name, active, ra, dec, rotation, projectid, guid) VALUES (8, 'M 34', 1, 2.702055, 42.74614, 0, 7, 't34')`,
+		`INSERT INTO exposureplan ("Id", "profileId", exposure, desired, acquired, accepted, targetid, "exposureTemplateId", enabled) VALUES
+			(5, 'p', 600, 30, 0, 0, 8, 1, 1), (6, 'p', 600, 30, 0, 0, 8, 2, 1)`,
+		`CREATE TABLE ts_goal (target_guid TEXT, filter TEXT, kind INTEGER, snr_goal REAL, depth_goal REAL, plateau_stop INTEGER, region TEXT, updated_at TEXT)`,
+		`INSERT INTO ts_goal VALUES ('t34', 'H-a', 0, 10, NULL, 0, NULL, NULL), ('t34', 'O-III', 0, 10, NULL, 0, NULL, NULL)`,
 	} {
 		if err := s.SchedDB.Exec(q).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
 	e := m34()
-	if e.Status != discover.CompletionNotStarted || !e.Scheduled || e.Adding != nil ||
-		!slices.ContainsFunc(e.Subjects, func(r discover.SubjectRef) bool { return r.Name == "M 34" && r.ProjectID == 7 }) {
-		t.Errorf("synced project %+v", e)
+	if e.Status != discover.CompletionScheduled || !e.Scheduled || e.Adding != nil || e.Progress != nil || !strings.HasPrefix(e.Judged, "No frames captured yet.") ||
+		!slices.ContainsFunc(e.Subjects, func(r discover.SubjectRef) bool {
+			return r.Name == "M 34" && r.ProjectID == 7 && r.Completion == discover.CompletionScheduled
+		}) {
+		t.Errorf("synced project with goals and no frames %+v", e)
+	}
+	if c := messierSummary(ctx, t, s); c.Scheduled != before.Scheduled+1 || c.Measuring != 0 || c.Adding != 0 ||
+		c.Done+c.InProgress+c.Measuring+c.Adding+c.Scheduled+c.NotStarted != c.Total {
+		t.Errorf("messier with a scheduled project %+v", c)
 	}
 	s.SchedDB.Exec(`DELETE FROM target WHERE "Id" = 8`)
 	s.SchedDB.Exec(`DELETE FROM project WHERE "Id" = 7`)
