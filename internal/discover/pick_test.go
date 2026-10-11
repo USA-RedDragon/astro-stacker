@@ -504,13 +504,19 @@ func TestPickDefaultsGalaxiesClustersAndDustToDepth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.Goal.Kind != want || !strings.Contains(p.GoalBasis, "by default for a "+p.ClassLabel) {
+		if p.Goal.Kind != want || !strings.Contains(p.GoalBasis, " "+p.ClassLabel) {
 			t.Errorf("%s (%s): goal %+v basis %q", id, p.ClassLabel, p.Goal, p.GoalBasis)
 		}
 		p, err = s.Pick(context.Background(), id, pickPlans(), snrGoal())
 		if err != nil || p.Goal.Kind != goals.KindSNR || p.GoalBasis != "chosen" {
 			t.Errorf("%s: a chosen SNR goal stays: %+v %q %v", id, p.Goal, p.GoalBasis, err)
 		}
+	}
+	if _, b := discover.DefaultGoalKind(discover.ClassCluster, "open cluster"); b != "depth by default for an open cluster: its broadband light is set by depth, not by one faint band" {
+		t.Error(b)
+	}
+	if _, b := discover.DefaultGoalKind(discover.ClassGalaxy, "galaxy"); !strings.HasPrefix(b, "depth by default for a galaxy:") {
+		t.Error(b)
 	}
 	if !discover.DepthClass(discover.ClassCluster) || discover.DepthClass(discover.ClassEmission) || discover.DepthClass("") {
 		t.Error("depth classes are galaxies, clusters and dust")

@@ -114,14 +114,21 @@ func DepthClass(class string) bool {
 	return false
 }
 
+func withArticle(label string) string {
+	if label != "" && strings.ContainsRune("aeiou", rune(label[0])) {
+		return "an " + label
+	}
+	return "a " + label
+}
+
 func DefaultGoalKind(class, label string) (goals.Kind, string) {
 	if DepthClass(class) {
-		return goals.KindDepth, fmt.Sprintf("depth by default for a %s: its broadband light is set by depth, not by one faint band", label)
+		return goals.KindDepth, fmt.Sprintf("depth by default for %s: its broadband light is set by depth, not by one faint band", withArticle(label))
 	}
 	if class == "" {
 		return goals.KindSNR, "faint-signal SNR by default: no class for this object"
 	}
-	return goals.KindSNR, fmt.Sprintf("faint-signal SNR by default for a %s", label)
+	return goals.KindSNR, fmt.Sprintf("faint-signal SNR by default for %s", withArticle(label))
 }
 
 func (g PickGoal) normal(class, label string) (PickGoal, string) {
