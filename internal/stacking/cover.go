@@ -93,6 +93,9 @@ const minShare = 0.25
 type layer struct {
 	Key       string
 	Effective float64 // seconds, score-weighted
+	// Panels is how many of a mosaic's panels the layer has; 0 for a
+	// target's master.
+	Panels int
 	// Crop is the well-covered part as fractions of the frame; zero W
 	// means the whole frame.
 	CropX, CropY, CropW, CropH float64
@@ -146,8 +149,15 @@ const oiiiBlue = 1.2
 // in a star field. SHO is the last resort, but for a subject shot for it
 // (sho: "SHO" in its name, as Heart and Soul Nebula SHO). A broadband
 // palette also takes O-III, into green and blue, when there is as much of
-// it as RGB+Ha asks of H-a.
+// it as RGB+Ha asks of H-a. For a mosaic, a palette's red, green and blue
+// must each have as many panels as the filter with the most, so a cover
+// shows the whole field when any filter does; without such a palette the
+// mono cover, from the filter with the most panels, is used.
 func choosePalette(have map[string]layer, sho bool) (palette, bool) {
+	most := 0
+	for _, l := range have {
+		most = max(most, l.Panels)
+	}
 	var narrow, broad float64
 	for _, f := range []string{filterHa, filterOIII, filterSII} {
 		narrow += have[f].Effective
@@ -182,6 +192,7 @@ func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 			}
 			best = max(best, l.Effective)
 			sum += l.Effective
+			ok = ok && l.Panels >= most
 		}
 		if !ok {
 			continue
@@ -497,7 +508,7 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 	}
 	linear := map[string]layer{}
 	for _, m := range mosaics {
-		linear[m.Filter] = fracCrop(layer{Key: *m.LinearKey, Effective: m.EffectiveSeconds},
+		linear[m.Filter] = fracCrop(layer{Key: *m.LinearKey, Effective: m.EffectiveSeconds, Panels: m.Panels},
 			m.CropX, m.CropY, m.CropW, m.CropH, m.Width, m.Height)
 	}
 	if err := p.renderCover(ctx, app.MosaicSubject(project), path.Join("mosaics", project), linear); err != nil {
@@ -514,7 +525,8 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // balanced on the sky and the stars and stretched together (colourStretch).
 // 6: black point no higher than the darkest sky, over-bright colour taken
 // partway to white, and less H-a (lineGain 1.5, none into blue). 7: what
-// no channel covers is sky grey, not black.
+// no channel covers is sky grey, not black, and a mosaic's palette needs
+// as many panels as its best filter.
 const CoverVersion = 7
 
 // backfillCovers renders covers for targets and projects whose masters are
