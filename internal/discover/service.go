@@ -50,6 +50,7 @@ type Service struct {
 	TTL      time.Duration
 
 	mu       sync.Mutex
+	gen      uint64
 	snap     *snapshot
 	nights   map[time.Time]sky.Night
 	years    map[int]*sky.Year
@@ -247,6 +248,7 @@ func (s *Service) year(ctx context.Context, y int) (*sky.Year, error) {
 
 func (s *Service) Invalidate() {
 	s.mu.Lock()
+	s.gen++
 	s.snap = nil
 	s.finder = nil
 	s.mu.Unlock()
@@ -258,7 +260,7 @@ func (s *Service) snapshot(ctx context.Context) (*snapshot, error) {
 		ttl = 5 * time.Minute
 	}
 	s.mu.Lock()
-	snap := s.snap
+	snap, gen := s.snap, s.gen
 	s.mu.Unlock()
 	if snap != nil && s.now().Sub(snap.at) < ttl {
 		return snap, nil
@@ -304,7 +306,9 @@ func (s *Service) snapshot(ctx context.Context) (*snapshot, error) {
 		snap.byObject[l.Object.ID] = append(snap.byObject[l.Object.ID], l)
 	}
 	s.mu.Lock()
-	s.snap = snap
+	if s.gen == gen {
+		s.snap = snap
+	}
 	s.mu.Unlock()
 	return snap, nil
 }
