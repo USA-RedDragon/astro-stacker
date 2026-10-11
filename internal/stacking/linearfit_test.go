@@ -124,6 +124,7 @@ func TestFitReference(t *testing.T) {
 		{[]app.Stack{{Filter: filterOIII, EffectiveSeconds: 9}, {Filter: filterSII, EffectiveSeconds: 1}}, filterOIII},
 		{[]app.Stack{{Filter: filterBlue, EffectiveSeconds: 9}, {Filter: filterGreen}, {Filter: filterRed, EffectiveSeconds: 1}}, filterRed},
 		{[]app.Stack{{Filter: filterBlue, EffectiveSeconds: 9}, {Filter: filterGreen}}, filterGreen},
+		{[]app.Stack{{Filter: filterLuminance, EffectiveSeconds: 90}, {Filter: filterBlue}, {Filter: filterGreen}, {Filter: filterRed}}, filterRed},
 	} {
 		if got := c.masters[fitReference(c.masters)].Filter; got != c.want {
 			t.Errorf("fitReference(%v) = %s, want %s", c.masters, got, c.want)
@@ -210,13 +211,70 @@ func TestSexagesimal(t *testing.T) {
 
 func TestFitGroup(t *testing.T) {
 	t.Parallel()
+	const lrgb = "Red/Green/Blue/Luminance"
 	for filter, want := range map[string]string{
-		filterRed: "Red/Green/Blue", filterBlue: "Red/Green/Blue",
+		filterRed: lrgb, filterBlue: lrgb, filterLuminance: lrgb,
 		filterHa: "H-a/O-III/S-II", filterSII: "H-a/O-III/S-II",
-		filterLuminance: "", "Clear": "",
+		"Clear": "",
 	} {
 		if got := fitGroup(filter); got != want {
 			t.Errorf("fitGroup(%q) = %q, want %q", filter, got, want)
 		}
+	}
+}
+
+// Luminance is fitted to (R+G+B)/3 of the fitted colour masters, over the
+// pixels all three have data in, and only when all three are there.
+func TestFitLuminanceToRGB(t *testing.T) {
+	t.Parallel()
+	const w, h = 400, 300
+	r := rand.New(rand.NewPCG(11, 11))
+	chans := [3][]float32{make([]float32, w*h), make([]float32, w*h), make([]float32, w*h)}
+	l := make([]float32, w*h)
+	for i := range l {
+		sig := 0.0
+		if r.IntN(300) == 0 {
+			sig = 0.3 * r.Float64()
+		}
+		var mean float64
+		for c, k := range []float64{1.2, 1, 0.7} {
+			v := 0.02 + 0.03*float64(i%w)/w + k*sig + 0.002*r.NormFloat64()
+			chans[c][i] = float32(v)
+			mean += v / 3
+		}
+		l[i] = float32((mean-0.01)/2 + 0.001*r.NormFloat64()) // R+G+B over 3 = 0.01 + 2×L
+	}
+	chans[1][5] = 0
+	if !lumFittable([]app.Stack{{Filter: filterRed}, {Filter: filterGreen}, {Filter: filterBlue}, {Filter: filterLuminance}}) ||
+		lumFittable([]app.Stack{{Filter: filterRed}, {Filter: filterBlue}, {Filter: filterLuminance}}) {
+		t.Error("lumFittable")
+	}
+	sum := &lumSum{}
+	sum.add(&imagedata.Image{W: w, H: h, C: 1, Data: chans[0]}, Rect{W: w, H: h})
+	sum.add(&imagedata.Image{W: w, H: h, C: 1, Data: chans[1]}, Rect{X: 10, W: w - 10, H: h})
+	if _, _, err := sum.image(); err == nil {
+		t.Error("luminance from two channels")
+	}
+	sum.add(&imagedata.Image{W: w, H: h, C: 1, Data: chans[2]}, Rect{Y: 5, W: w, H: h - 5})
+	rgb, crop, err := sum.image()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rgb.Data[5] != 0 || crop != (Rect{X: 10, Y: 5, W: w - 10, H: h - 5}) {
+		t.Errorf("pixel without green %v crop %+v", rgb.Data[5], crop)
+	}
+	if want := (chans[0][7] + chans[1][7] + chans[2][7]) / 3; math.Abs(float64(rgb.Data[7]-want)) > 1e-7 {
+		t.Errorf("luminance %v want %v", rgb.Data[7], want)
+	}
+	offset, scale, err := fitMasters(&imagedata.Image{W: w, H: h, C: 1, Data: l}, rgb, Rect{W: w, H: h}, crop)
+	if err != nil || math.Abs(scale-2) > 0.1 || math.Abs(offset-0.01) > 0.003 {
+		t.Errorf("offset %v scale %v err %v, want 0.01 2", offset, scale, err)
+	}
+	bad := &lumSum{}
+	bad.add(&imagedata.Image{W: 2, H: 1, C: 1, Data: []float32{1, 1}}, Rect{W: 2, H: 1})
+	bad.add(&imagedata.Image{W: 1, H: 2, C: 1, Data: []float32{1, 1}}, Rect{W: 1, H: 2})
+	var ff *fitError
+	if _, _, err := bad.image(); !errors.As(err, &ff) {
+		t.Errorf("mismatched sizes: %v", err)
 	}
 }

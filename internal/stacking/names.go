@@ -13,6 +13,8 @@ const (
 	filterHa    = "H-a"
 	filterOIII  = "O-III"
 	filterSII   = "S-II"
+
+	filterLuminance = "Luminance"
 )
 
 const (

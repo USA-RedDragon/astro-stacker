@@ -33,13 +33,31 @@ const fitRejectHigh = 0.92
 const fitSamples = 2_000_000
 
 // fitGroups are the filters fitted to each other. Colour channels are
-// matched to colour channels and narrowband to narrowband; luminance, and
-// any filter not listed, is left alone.
+// matched to colour channels and narrowband to narrowband; any filter not
+// listed is left alone. Luminance is fitted to the luminance of the fitted
+// red, green and blue, (R+G+B)/3 (fitReferenceRGB), so an LRGB combination
+// starts with L at the level of the colour it replaces; it is fitted only
+// when all three are there.
 func fitGroups() [][]string {
 	return [][]string{
-		{filterRed, filterGreen, filterBlue},
+		{filterRed, filterGreen, filterBlue, filterLuminance},
 		{filterHa, filterOIII, filterSII},
 	}
+}
+
+// fitReferenceRGB is the reference recorded for luminance: the mean of the
+// fitted red, green and blue masters.
+const fitReferenceRGB = "R+G+B"
+
+// lumFittable reports whether a group's masters have all of red, green and
+// blue, which luminance is fitted to.
+func lumFittable(masters []app.Stack) bool {
+	for _, f := range []string{filterRed, filterGreen, filterBlue} {
+		if !slices.ContainsFunc(masters, func(m app.Stack) bool { return m.Filter == f }) {
+			return false
+		}
+	}
+	return true
 }
 
 // linearFitsOnce refits each target's filter groups whose masters changed
@@ -65,6 +83,12 @@ func (p *Pipeline) linearFitsOnce(ctx context.Context) error {
 	for k, masters := range groups {
 		if p.stopping(ctx) {
 			return nil
+		}
+		if i := slices.IndexFunc(masters, func(m app.Stack) bool { return m.Filter == filterLuminance }); i >= 0 && !lumFittable(masters) {
+			if masters[i].FittedKey != nil || masters[i].FitError != nil {
+				p.dropFit(ctx, &masters[i])
+			}
+			masters = slices.Delete(masters, i, i+1)
 		}
 		if len(masters) < 2 {
 			for i := range masters {
@@ -215,12 +239,17 @@ func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []
 		return err
 	}
 	defer os.RemoveAll(dir)
+	// Luminance last, fitted to the fitted colour masters.
+	slices.SortStableFunc(masters, func(a, b app.Stack) int {
+		return boolCmp(a.Filter == filterLuminance, b.Filter == filterLuminance)
+	})
 	ri := fitReference(masters)
 	ref := &masters[ri]
 	refIm, _, err := p.loadMaster(ctx, dir, ref)
 	if err != nil {
 		return fmt.Errorf("load %s: %w", ref.Filter, err)
 	}
+	lum := &lumSum{}
 	for i := range masters {
 		m := &masters[i]
 		p.progress(object, m.Filter, StageLinearFit, i, len(masters))
@@ -229,23 +258,37 @@ func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []
 			return fmt.Errorf("load %s: %w", m.Filter, err)
 		}
 		offset, scale := 0.0, 1.0
-		if i != ri {
-			offset, scale, err = fitMasters(im, refIm, cropRect(m), cropRect(ref))
-			if err != nil {
-				// Left unfitted, and not tried again until a master
-				// changes; the rest of the group is still published.
-				msg := fmt.Sprintf("fitting %s to %s: %v", m.Filter, ref.Filter, err)
-				slog.Warn("Could not linear fit master", "object", object, "filter", m.Filter,
-					"reference", ref.Filter, "error", err)
-				if err := p.failFit(ctx, m, sig, msg); err != nil {
-					return err
-				}
-				continue
+		refName := ref.Filter
+		switch {
+		case m.Filter == filterLuminance:
+			refName = fitReferenceRGB
+			var rgb *imagedata.Image
+			var crop Rect
+			if rgb, crop, err = lum.image(); err == nil {
+				offset, scale, err = fitMasters(im, rgb, cropRect(m), crop)
 			}
+		case i != ri:
+			offset, scale, err = fitMasters(im, refIm, cropRect(m), cropRect(ref))
+		}
+		if err != nil {
+			// Left unfitted, and not tried again until a master
+			// changes; the rest of the group is still published.
+			msg := fmt.Sprintf("fitting %s to %s: %v", m.Filter, refName, err)
+			slog.Warn("Could not linear fit master", "object", object, "filter", m.Filter,
+				"reference", refName, "error", err)
+			if err := p.failFit(ctx, m, sig, msg); err != nil {
+				return err
+			}
+			continue
+		}
+		if i != ri {
 			applyLinear(im.Data, offset, scale)
 		}
+		if m.Filter != filterLuminance && fitGroup(m.Filter) == fitGroup(filterLuminance) {
+			lum.add(im, cropRect(m))
+		}
 		out := slices.Concat(cards, []imagedata.Card{
-			imagedata.StringCard("LFREF", ref.Filter, "LinearFit reference filter"),
+			imagedata.StringCard("LFREF", refName, "LinearFit reference filter"),
 			imagedata.FloatCard("LFOFFSET", offset, "LinearFit: this = offset + scale * master"),
 			imagedata.FloatCard("LFSCALE", scale, "LinearFit scale"),
 		})
@@ -263,17 +306,76 @@ func (p *Pipeline) linearFitIfDue(ctx context.Context, object string, masters []
 		}
 		// UpdateColumns leaves updated_at, which the signature is made of.
 		if err := p.db.WithContext(ctx).Model(m).UpdateColumns(map[string]any{
-			columnFittedKey: key, columnFitReference: ref.Filter, columnFitOffset: offset, columnFitScale: scale,
+			columnFittedKey: key, columnFitReference: refName, columnFitOffset: offset, columnFitScale: scale,
 			columnFitSignature: sig, columnFitError: nil,
 		}).Error; err != nil {
 			return err
 		}
 		os.Remove(file)
-		slog.Info("Linear fitted master", "object", object, "filter", m.Filter, "reference", ref.Filter,
+		slog.Info("Linear fitted master", "object", object, "filter", m.Filter, "reference", refName,
 			"offset", offset, "scale", scale)
 	}
 	p.Events.Publish(events.Event{Type: events.TypeMaster, Object: object})
 	return nil
+}
+
+func boolCmp(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
+}
+
+// lumSum builds the luminance of the fitted red, green and blue masters,
+// (R+G+B)/3, over the pixels all three have data in.
+type lumSum struct {
+	w, h int
+	sum  []float32
+	n    int
+	crop Rect
+	err  error
+}
+
+func (l *lumSum) add(im *imagedata.Image, crop Rect) {
+	if l.err != nil {
+		return
+	}
+	if l.sum == nil {
+		l.w, l.h, l.sum, l.crop = im.W, im.H, make([]float32, len(im.Data)), crop
+	} else if im.W != l.w || im.H != l.h {
+		l.err = unfittable("colour masters differ in size")
+		return
+	}
+	l.crop = intersect(l.crop, crop)
+	for i, v := range im.Data {
+		if v == 0 || math.IsNaN(float64(l.sum[i])) {
+			l.sum[i] = float32(math.NaN())
+			continue
+		}
+		l.sum[i] += v
+	}
+	l.n++
+}
+
+// image is the luminance, with pixels missing from any channel at 0, and
+// the part of the frame all three cover well.
+func (l *lumSum) image() (*imagedata.Image, Rect, error) {
+	if l.err != nil {
+		return nil, Rect{}, l.err
+	}
+	if l.n != 3 {
+		return nil, Rect{}, unfittable("only %d of red, green and blue were fitted", l.n)
+	}
+	out := make([]float32, len(l.sum))
+	for i, v := range l.sum {
+		if !math.IsNaN(float64(v)) {
+			out[i] = v / 3
+		}
+	}
+	return &imagedata.Image{W: l.w, H: l.h, C: 1, Data: out}, l.crop, nil
 }
 
 // loadMaster downloads a master and returns its image and header, without
