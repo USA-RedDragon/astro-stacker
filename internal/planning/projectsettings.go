@@ -28,30 +28,28 @@ func TargetSchedulerProjectSettings() ProjectSettings {
 	return ProjectSettings{EnableGrader: true}
 }
 
-func settingsOf(r projectRow) ProjectSettings {
-	return ProjectSettings{
-		DitherEvery:           deref(r.DitherEvery),
-		FilterSwitchFrequency: deref(r.FilterSwitchFrequency),
-		FlatsHandling:         deref(r.FlatsHandling),
-		SmartExposureOrder:    deref(r.SmartExposureOrder) != 0,
-		MeridianWindow:        deref(r.MeridianWindow),
-		UseCustomHorizon:      deref(r.UseCustomHorizon) != 0,
-		HorizonOffset:         deref(r.HorizonOffset),
-		MaximumAltitude:       r.MaximumAltitude,
-		EnableGrader:          r.EnableGrader != 0,
+func intFlag(v *int) *bool {
+	if v == nil {
+		return nil
 	}
+	b := *v != 0
+	return &b
 }
 
-func majority[T comparable](rows []projectRow, get func(projectRow) T) T {
+func majority[T comparable](rows []projectRow, get func(projectRow) *T, fallback T) T {
 	count, top := map[T]int{}, map[T]int{}
 	for _, r := range rows {
-		v := get(r)
+		p := get(r)
+		if p == nil {
+			continue
+		}
+		v := *p
 		count[v]++
 		if n, ok := top[v]; !ok || r.ID > n {
 			top[v] = r.ID
 		}
 	}
-	var best T
+	best := fallback
 	bestN, bestID := 0, 0
 	for v, n := range count {
 		if n > bestN || (n == bestN && top[v] > bestID) {
@@ -68,26 +66,26 @@ func projectSettingsFor(projects []projectRow, profileID string) ProjectSettings
 			own = append(own, p)
 		}
 	}
-	out := ProjectSettingsDefaults{Basis: SettingsBasisTargetScheduler, Projects: len(own), ProfileID: profileID}
+	ts := TargetSchedulerProjectSettings()
+	out := ProjectSettingsDefaults{Basis: SettingsBasisTargetScheduler, Projects: len(own), ProfileID: profileID, ProjectSettings: ts}
 	if len(own) == 0 {
-		out.ProjectSettings = TargetSchedulerProjectSettings()
 		return out
 	}
 	out.Basis = SettingsBasisProfile
-	out.DitherEvery = majority(own, func(r projectRow) int { return settingsOf(r).DitherEvery })
-	out.FilterSwitchFrequency = majority(own, func(r projectRow) int { return settingsOf(r).FilterSwitchFrequency })
-	out.FlatsHandling = majority(own, func(r projectRow) int { return settingsOf(r).FlatsHandling })
-	out.SmartExposureOrder = majority(own, func(r projectRow) bool { return settingsOf(r).SmartExposureOrder })
-	out.MeridianWindow = majority(own, func(r projectRow) int { return settingsOf(r).MeridianWindow })
-	out.UseCustomHorizon = majority(own, func(r projectRow) bool { return settingsOf(r).UseCustomHorizon })
-	out.HorizonOffset = majority(own, func(r projectRow) float64 { return settingsOf(r).HorizonOffset })
-	out.MaximumAltitude = majority(own, func(r projectRow) float64 { return settingsOf(r).MaximumAltitude })
-	out.EnableGrader = majority(own, func(r projectRow) bool { return settingsOf(r).EnableGrader })
+	out.DitherEvery = majority(own, func(r projectRow) *int { return r.DitherEvery }, ts.DitherEvery)
+	out.FilterSwitchFrequency = majority(own, func(r projectRow) *int { return r.FilterSwitchFrequency }, ts.FilterSwitchFrequency)
+	out.FlatsHandling = majority(own, func(r projectRow) *int { return r.FlatsHandling }, ts.FlatsHandling)
+	out.SmartExposureOrder = majority(own, func(r projectRow) *bool { return intFlag(r.SmartExposureOrder) }, ts.SmartExposureOrder)
+	out.MeridianWindow = majority(own, func(r projectRow) *int { return r.MeridianWindow }, ts.MeridianWindow)
+	out.UseCustomHorizon = majority(own, func(r projectRow) *bool { return intFlag(r.UseCustomHorizon) }, ts.UseCustomHorizon)
+	out.HorizonOffset = majority(own, func(r projectRow) *float64 { return r.HorizonOffset }, ts.HorizonOffset)
+	out.MaximumAltitude = majority(own, func(r projectRow) *float64 { return r.MaximumAltitude }, ts.MaximumAltitude)
+	out.EnableGrader = majority(own, func(r projectRow) *bool { b := r.EnableGrader != 0; return &b }, ts.EnableGrader)
 	return out
 }
 
 func defaultProfile(projects []projectRow) string {
-	return majority(projects, func(r projectRow) string { return r.ProfileID })
+	return majority(projects, func(r projectRow) *string { return &r.ProfileID }, "")
 }
 
 func (s *Snapshot) ProjectSettingsFor(profileID string) ProjectSettingsDefaults {
