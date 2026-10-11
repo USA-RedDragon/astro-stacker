@@ -148,10 +148,7 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 	if err != nil {
 		return SeasonPlan{}, err
 	}
-	inForce := string(mosaics.StrategyOff)
-	if d.Balancing.On {
-		inForce = string(mosaics.StrategyWeakest)
-	}
+	inForce := string(strategyInForce(d.Balancing))
 	switch mosaics.Strategy(strategy) {
 	case mosaics.StrategyWeakest, mosaics.StrategyEven, mosaics.StrategyOff:
 	case "":
@@ -253,6 +250,16 @@ func (s *Service) Seasons(ctx context.Context, key, strategy, pace string, now t
 }
 
 func reason(s string) *string { return &s }
+
+func strategyInForce(b Balancing) mosaics.Strategy {
+	switch {
+	case !b.On:
+		return mosaics.StrategyOff
+	case b.EvenPanels:
+		return mosaics.StrategyEven
+	}
+	return mosaics.StrategyWeakest
+}
 
 const reasonNoProject = "this mosaic has no Target Scheduler project, so its minimum altitude and horizon are unknown and dark hours are not worked out"
 

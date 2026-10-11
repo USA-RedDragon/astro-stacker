@@ -123,3 +123,22 @@ func TestSimulateStrategiesDiffer(t *testing.T) {
 		}
 	}
 }
+
+func TestEvenGivesPanelsTimeByUnfinishedFilters(t *testing.T) {
+	t.Parallel()
+	items := make([]mosaics.Item, 0, 6)
+	items = append(items,
+		mosaics.Item{Panel: 1, Filter: "R", GoalHours: 100}, mosaics.Item{Panel: 1, Filter: "G", GoalHours: 100},
+		mosaics.Item{Panel: 2, Filter: "R", GoalHours: 100},
+		mosaics.Item{Panel: 3, Filter: "R", GoalHours: 100}, mosaics.Item{Panel: 3, Filter: "G", GoalHours: 100},
+	)
+	rows, _ := mosaics.Simulate(items, mosaics.StrategyEven, 12.5, 1)
+	if len(rows) != 1 || !near(rows[0].WeakestProgress, 0.025, 1e-9) || !near(rows[0].AverageProgress, 0.025, 1e-9) {
+		t.Fatalf("each unfinished filter should get 2.5 h, so panels 1 and 3 get 5 h and panel 2 gets 2.5 h: %+v", rows)
+	}
+	items = append(items, mosaics.Item{Panel: 2, Filter: "B", GoalHours: 1})
+	rows, _ = mosaics.Simulate(items, mosaics.StrategyEven, 11, 1)
+	if len(rows) != 1 || !near(rows[0].WeakestProgress, 0.02, 1e-9) || !near(rows[0].AverageProgress, (5*0.02+1)/6, 1e-9) {
+		t.Fatalf("once a filter finishes its panel's share drops back: %+v", rows)
+	}
+}

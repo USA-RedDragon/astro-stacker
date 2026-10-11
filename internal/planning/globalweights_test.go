@@ -3,10 +3,12 @@ package planning
 import (
 	"context"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/ruleweights"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 )
@@ -129,7 +131,7 @@ func TestWeightsForSplitsNovelty(t *testing.T) {
 	if m[ruleweights.Novelty] != 5 || s[ruleweights.Novelty] != 35 || m[ruleweights.PanelDeficit] != 25 || s[ruleweights.PanelDeficit] != 25 {
 		t.Fatalf("%v %v", m, s)
 	}
-	if _, ok := m[ruleweights.NoveltyMosaic]; ok || len(m) != len(Rules())+1 {
+	if _, ok := m[ruleweights.NoveltyMosaic]; ok || len(m) != len(Rules())+2 {
 		t.Fatalf("only Target Scheduler rule names reach a project: %v", m)
 	}
 }
@@ -264,5 +266,63 @@ func TestGlobalWithRecomparesProjects(t *testing.T) {
 	}
 	if _, err := s.GlobalWith(map[string]float64{rarity: 101}); err == nil {
 		t.Fatal("out of range")
+	}
+}
+
+func TestEvenPanelsIsAMosaicSwitch(t *testing.T) {
+	t.Parallel()
+	keys := ruleweights.Keys()
+	if i := slices.Index(keys, ruleweights.EvenPanels); i < 1 || keys[i-1] != ruleweights.PanelDeficit {
+		t.Fatalf("Even Panels should follow Panel Deficit: %v", keys)
+	}
+	g := globalRule(ruleweights.EvenPanels)
+	if g.Rule != ruleweights.EvenPanels || !g.Switch || !g.MosaicOnly || g.DefaultWeight != 0 || g.For != WeightsForAll || !g.New || g.Description == "" {
+		t.Fatalf("%+v", g)
+	}
+	if slices.ContainsFunc(Rules(), func(r Rule) bool { return r.Name == ruleweights.EvenPanels }) {
+		t.Fatal("Even Panels is a switch, not a scored rule")
+	}
+}
+
+func TestEvenPanelsSyncsLikeAnyGlobalRule(t *testing.T) {
+	t.Parallel()
+	sched, appDB := weightsDBs(t)
+	if err := sched.Exec(`insert into ruleweight (name, weight, projectid) values ('Even Panels',100,5)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	s := load(t, sched, appDB)
+	if w, ok := s.GlobalWeights.Weights[ruleweights.EvenPanels]; !ok || w != 0 {
+		t.Fatalf("global Even Panels %v %v", w, ok)
+	}
+	cyg, _ := s.Project(5)
+	if slices.ContainsFunc(cyg.RuleWeights, func(w RuleWeight) bool { return w.Name == ruleweights.EvenPanels }) {
+		t.Fatalf("Even Panels in the scored rule weights %+v", cyg.RuleWeights)
+	}
+	k := slices.IndexFunc(cyg.WeightDiffs, func(d WeightDiff) bool { return d.Key == ruleweights.EvenPanels })
+	if k < 0 || cyg.WeightDiffs[k].Project == nil || *cyg.WeightDiffs[k].Project != 100 || cyg.WeightDiffs[k].Global != 0 {
+		t.Fatalf("project 5 diffs %+v", cyg.WeightDiffs)
+	}
+	on, err := s.GlobalWith(map[string]float64{ruleweights.EvenPanels: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	veil := slices.IndexFunc(on.Differing, func(p ProjectWeights) bool { return p.ID == 6 })
+	if veil < 0 {
+		t.Fatalf("differing %+v", on.Differing)
+	}
+	d := on.Differing[veil].Diffs
+	if k := slices.IndexFunc(d, func(x WeightDiff) bool { return x.Key == ruleweights.EvenPanels }); k < 0 || d[k].Project != nil || d[k].Global != 100 {
+		t.Fatalf("a missing row should be created on sync: %+v", d)
+	}
+	edits, err := s.SyncEdits([]int{5})
+	if err != nil || len(edits) != 1 {
+		t.Fatalf("%+v %v", edits, err)
+	}
+	if k := slices.IndexFunc(edits[0].Changes, func(c schedcmd.RuleWeightChange) bool { return c.Rule == ruleweights.EvenPanels }); k < 0 || *edits[0].Changes[k].Before != 100 || *edits[0].Changes[k].After != 0 {
+		t.Fatalf("sync %+v", edits[0].Changes)
+	}
+	over, err := WhatIfWeights(map[string]float64{ruleweights.EvenPanels: 100}, map[int]bool{5: true, 7: false})
+	if err != nil || !reflect.DeepEqual(over, []WeightOverride{{Rule: ruleweights.EvenPanels, Weight: 100}}) {
+		t.Fatalf("what-if %+v %v", over, err)
 	}
 }
