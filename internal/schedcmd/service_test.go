@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -352,4 +353,16 @@ func TestPendingResultsCarryTheLatestApplyTime(t *testing.T) {
 	if got.Status != schedcmd.StatusApplied {
 		t.Fatalf("got %s", got.Status)
 	}
+}
+
+func TestServiceSharedAcrossGoroutines(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			_, _ = s.Submit(context.Background(), schedcmd.KindProjectEdit, json.RawMessage(`{"entity":"nope"}`), author)
+		})
+	}
+	wg.Wait()
 }

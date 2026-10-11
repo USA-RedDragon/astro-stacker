@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -44,6 +45,8 @@ type Service struct {
 	Snapshot   Snapshot
 	Now        func() time.Time
 	NewID      func() string
+
+	registryOnce sync.Once
 }
 
 func NewID() string {
@@ -69,9 +72,11 @@ func (s *Service) newID() string {
 }
 
 func (s *Service) registry() *Registry {
-	if s.Registry == nil {
-		s.Registry = Default()
-	}
+	s.registryOnce.Do(func() {
+		if s.Registry == nil {
+			s.Registry = Default()
+		}
+	})
 	return s.Registry
 }
 
