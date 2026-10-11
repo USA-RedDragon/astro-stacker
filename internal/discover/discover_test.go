@@ -888,6 +888,43 @@ func TestCollabFramesPerVisitIsInformation(t *testing.T) {
 	}
 }
 
+func TestCollabSubLengthJudgesTheWantedFilters(t *testing.T) {
+	t.Parallel()
+	s := newService(t)
+	fl, px, w, h, colour := 405.0, 3.76, 6248, 4176, false
+	s.Measure = func(context.Context) rigsource.Rig {
+		r := rigsource.Empty()
+		r.FocalLength, r.PixelSize, r.WidthPx, r.HeightPx, r.Colour = &fl, &px, &w, &h, &colour
+		r.Filters = []string{"L", "H"}
+		r.Exposures = map[string]float64{"L": 60, "H": 600}
+		return r
+	}
+	mk := func(id string, filters map[string]*float64) starfront.Project {
+		return starfront.Project{ID: id, Status: starfront.StatusOpen, Payload: starfront.Payload{Kind: single,
+			Region:       starfront.Region{RA: 10.6, Dec: 41.2, Width: 2, Height: 1},
+			Requirements: starfront.Requirements{MinExposure: ptr(300.0), Filters: filters}}}
+	}
+	v, err := s.Collabs(context.Background(), fakeCollabs{starfront.State{Enabled: true, Projects: []starfront.Project{
+		mk("ha", map[string]*float64{"Ha": nil}), mk("any", nil)}}})
+	if err != nil || len(v.Open) != 2 {
+		t.Fatalf("%v %+v", err, v)
+	}
+	sub := func(c discover.Collab) discover.Criterion {
+		for _, x := range c.Criteria {
+			if x.Name == "Sub length" {
+				return x
+			}
+		}
+		return discover.Criterion{}
+	}
+	if x := sub(v.Open[0]); x.Result != discover.CriterionPass || strings.Contains(x.You, "L ") {
+		t.Errorf("Ha-only collab judged on L: %+v", x)
+	}
+	if x := sub(v.Open[1]); x.Result != discover.CriterionFail || !strings.Contains(x.You, "L 60s") {
+		t.Errorf("60 s L subs pass a 300 s minimum: %+v", x)
+	}
+}
+
 func TestCollabTypicalVisitCountsFramesWithoutATarget(t *testing.T) {
 	t.Parallel()
 	s := newService(t)
