@@ -91,7 +91,7 @@ func newReqFixture(t *testing.T) *reqFixture {
 func TestRequestsMergeIntoTheDarkBacklog(t *testing.T) {
 	t.Parallel()
 	fx := newReqFixture(t)
-	b, err := coverage.BuildDarkBacklog(context.Background(), fx.db, fx.now)
+	b, err := coverage.BuildDarkBacklog(context.Background(), fx.db, nil, fx.now)
 	if err != nil {
 		t.Fatal(err)
 	}
