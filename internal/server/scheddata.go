@@ -15,6 +15,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -171,8 +172,12 @@ const (
 	ProfileFromMostProjects = "most-projects"
 )
 
-func schedProfile(db *gorm.DB, rows []tsProjectRow) (string, string, error) {
-	if db.Migrator().HasTable(tableAcquired) {
+func schedProfile(ctx context.Context, db *gorm.DB, rows []tsProjectRow) (string, string, error) {
+	has, err := tables.Has(ctx, db, tableAcquired)
+	if err != nil {
+		return "", "", err
+	}
+	if has {
 		var ids []string
 		if err := db.Table(tableAcquired).Select(`"profileId"`).Where(`"profileId" IS NOT NULL AND "profileId" <> ''`).
 			Order(`"Id" DESC`).Limit(1).Scan(&ids).Error; err != nil {
@@ -187,7 +192,14 @@ func schedProfile(db *gorm.DB, rows []tsProjectRow) (string, string, error) {
 
 func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, string, error) {
 	out := []SchedProject{}
-	if db == nil || !db.Migrator().HasTable(tableProject) {
+	if db == nil {
+		return out, "", nil
+	}
+	has, err := tables.Has(ctx, db, tableProject)
+	if err != nil {
+		return nil, "", err
+	}
+	if !has {
 		return out, "", nil
 	}
 	db = db.WithContext(ctx)
@@ -195,7 +207,7 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, string
 	if err := db.Order(`"Id"`).Find(&projects).Error; err != nil {
 		return nil, "", err
 	}
-	profile, basis, err := schedProfile(db, projects)
+	profile, basis, err := schedProfile(ctx, db, projects)
 	if err != nil {
 		return nil, "", err
 	}
@@ -247,7 +259,11 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, string
 		})
 	}
 	lastBy := map[int]time.Time{}
-	if db.Migrator().HasTable(tableAcquired) {
+	hasAcquired, err := tables.Has(ctx, db, tableAcquired)
+	if err != nil {
+		return nil, "", err
+	}
+	if hasAcquired {
 		var lasts []struct {
 			ProjectID int   `gorm:"column:project_id"`
 			Last      int64 `gorm:"column:last"`
@@ -366,8 +382,12 @@ type subKey struct {
 
 func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, signer *previewer.Signer, since time.Time) (TonightSubs, error) {
 	out := TonightSubs{Since: since, Subs: []TonightSub{}}
-	if sched == nil || !sched.Migrator().HasTable(tableAcquired) {
+	if sched == nil {
 		return out, nil
+	}
+	has, err := tables.Has(ctx, sched, tableAcquired)
+	if err != nil || !has {
+		return out, err
 	}
 	sinceTicks := since.Unix()*ticksPerSecond + ticksUnixOffset
 	rows, err := sched.WithContext(ctx).Table("acquiredimage a").
@@ -449,8 +469,8 @@ func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, signer *preview
 // newestPreview is the newest light with a preview, from any night, for when
 // no sub of tonight has one yet. Its ID is 0: it has no acquiredimage row here.
 func newestPreview(ctx context.Context, db *gorm.DB, signer *previewer.Signer) (TonightSub, bool, error) {
-	if !db.Migrator().HasTable(&app.Frame{}) {
-		return TonightSub{}, false, nil
+	if has, err := tables.Has(ctx, db, &app.Frame{}); err != nil || !has {
+		return TonightSub{}, false, err
 	}
 	var f app.Frame
 	err := db.WithContext(ctx).Select("key", "object", "filter", "exposure", "gain", "ccd_temp", "width", "height", "date_obs", "preview_key").
@@ -492,8 +512,11 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 	for o := range objects {
 		names = append(names, o)
 	}
-	if len(names) == 0 || !db.Migrator().HasTable(&app.Frame{}) {
+	if len(names) == 0 {
 		return nil
+	}
+	if has, err := tables.Has(ctx, db, &app.Frame{}); err != nil || !has {
+		return err
 	}
 	var rows []struct {
 		Key         string
@@ -511,7 +534,11 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 	q := db.WithContext(ctx).Table("frames f").
 		Select("f.key, f.object, f.gain, f.ccd_temp, f.width, f.height, f.preview_key, sf.status, sf.score, sf.weight, sf.processed_at").
 		Where("f.type = ? AND f.object IN ? AND (f.date_obs IS NULL OR f.date_obs >= ?)", lightType, names, since.Add(-12*time.Hour))
-	if db.Migrator().HasTable(&app.StackFrame{}) {
+	hasStack, err := tables.Has(ctx, db, &app.StackFrame{})
+	if err != nil {
+		return err
+	}
+	if hasStack {
 		q = q.Joins("LEFT JOIN stack_frames sf ON sf.frame_id = f.id")
 	} else {
 		q = q.Select("f.key, f.object, f.gain, f.ccd_temp, f.width, f.height, f.preview_key")
