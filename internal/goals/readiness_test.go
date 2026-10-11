@@ -109,8 +109,10 @@ func TestPublishReadiness(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	sched, db := readinessDBs(t)
-	if !HasReadinessColumns(sched) || HasReadinessColumns(schedDB(t, true)) {
-		t.Fatal("readiness columns")
+	has, err := HasReadinessColumns(ctx, sched)
+	hasOld, errOld := HasReadinessColumns(ctx, schedDB(t, true))
+	if !has || err != nil || hasOld || errOld != nil {
+		t.Fatal("readiness columns", err, errOld)
 	}
 	if err := sched.Exec(`INSERT INTO ts_goal VALUES ('g-m31', 'L', 1, NULL, 26, 0, NULL, '2026-10-01 00:00:00')`).Error; err != nil {
 		t.Fatal(err)

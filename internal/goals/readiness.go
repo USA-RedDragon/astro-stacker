@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -58,21 +59,21 @@ func Ready(m *app.GoalMeasurement, p *Progress, stackSubs int) Readiness {
 	return r
 }
 
-func HasReadinessColumns(sched *gorm.DB) bool {
-	m := sched.Migrator()
+func HasReadinessColumns(ctx context.Context, sched *gorm.DB) (bool, error) {
 	for _, c := range []string{ColumnState, ColumnReason, ColumnStackSubs, ColumnMinSubs, ColumnSubLimit} {
-		if !m.HasColumn(ProgressTable, c) {
-			return false
+		if has, err := tables.HasColumn(ctx, sched, ProgressTable, c); err != nil || !has {
+			return false, err
 		}
 	}
-	return true
+	return true, nil
 }
 
 func MeasurableSubs(ctx context.Context, appDB *gorm.DB) (map[Key]int, error) {
 	out := map[Key]int{}
-	m := appDB.Migrator()
-	if !m.HasTable(&app.Stack{}) || !m.HasTable(&app.StackFrame{}) {
-		return out, nil
+	for _, t := range []any{&app.Stack{}, &app.StackFrame{}} {
+		if has, err := tables.Has(ctx, appDB, t); err != nil || !has {
+			return out, err
+		}
 	}
 	var rows []struct {
 		Object string

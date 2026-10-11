@@ -371,13 +371,14 @@ func TestPublishSignals(t *testing.T) {
 
 func TestPublishWithoutSignalColumnsLeavesThemAlone(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 	sched := schedDB(t, true)
-	if HasSignalColumns(sched) {
-		t.Fatal("old table has signal columns")
+	if has, err := HasSignalColumns(ctx, sched); has || err != nil {
+		t.Fatal("old table has signal columns", err)
 	}
 	sched2, _ := signalDBs(t)
-	if !HasSignalColumns(sched2) {
-		t.Fatal("signal columns not found")
+	if has, err := HasSignalColumns(ctx, sched2); !has || err != nil {
+		t.Fatal("signal columns not found", err)
 	}
 }
 
