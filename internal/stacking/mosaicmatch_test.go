@@ -168,6 +168,75 @@ func TestMatchRegisteredPanels(t *testing.T) {
 	}
 }
 
+// Panels 1 and 3 of a column of three, with panel 2 missing, share no
+// overlap; their skies differ by an offset, which is levelled on the sky
+// they each see, whatever the nebula in one of them.
+func TestMatchRegisteredPanelsWithoutOverlap(t *testing.T) {
+	t.Parallel()
+	const sat = 0.9
+	rng := rand.New(rand.NewPCG(3, 4))
+	panels := []registeredPanel{{0, 0, 478, 120}, {2, 240, 478, 120}}
+	nebula := func(c, r int) float64 {
+		return 0.03 * math.Exp(-(math.Pow(float64(c)-150, 2)+math.Pow(float64(r)-300, 2))/(2*30*30))
+	}
+	const sky, step = 0.01, 0.004
+	dir := t.TempDir()
+	files := make([]string, 0, len(panels))
+	for k, p := range panels {
+		data := make([]float32, p.W*p.H)
+		for y := range p.H {
+			for x := range p.W {
+				c, r := x+p.X, y+p.Y
+				v := sky + nebula(c, r) + 1e-4*rng.NormFloat64()
+				if k == 1 {
+					v += step
+				}
+				data[y*p.W+x] = float32(v)
+			}
+		}
+		for range 150 {
+			data[rng.IntN(len(data))] += 0.3
+		}
+		f := filepath.Join(dir, fmt.Sprintf("r_pan_%05d.fit", k+1))
+		if err := writeFITSFile(f, p.W, p.H, 1, data, panels[k].cards()); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	before, after, err := matchRegistered(files, sat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 0 || len(after) != 0 {
+		t.Fatalf("pairs %+v, %+v: the panels don't overlap", before, after)
+	}
+	level := func(f string, x, y int) float64 {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		im, err := imagedata.Decode(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v []float64
+		for r := y; r < y+40; r++ {
+			for c := x; c < x+40; c++ {
+				v = append(v, float64(im.Data[r*im.W+c]))
+			}
+		}
+		return median(v)
+	}
+	// Sky well away from the nebula in each.
+	a, b := level(files[0], 400, 40), level(files[1], 400, 40)
+	if math.Abs(a-b) > 3e-4 {
+		t.Errorf("sky at %v in panel 1 and %v in panel 3 after levelling, %v apart before", a, b, step)
+	}
+	if mid := sky + step/2; math.Abs((a+b)/2-mid) > 1e-3 {
+		t.Errorf("levelled sky %v, want about %v, between the two", (a+b)/2, mid)
+	}
+}
+
 // Corrections for a chain of panels satisfy every overlap and keep the
 // panels' mean level.
 func TestPanelCorrections(t *testing.T) {

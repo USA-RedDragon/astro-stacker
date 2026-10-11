@@ -345,6 +345,97 @@ func panelCorrections(n int, pairs []panelPair) []plane {
 	return out
 }
 
+// levelGroups levels groups of panels that share no overlap with each
+// other (a mosaic missing its middle panel), which the overlaps can't
+// match: each group's corrections are moved by one offset so that its sky,
+// the clipped median of its blocks with corr added, sits at the mean of
+// all groups' skies, weighted by their blocks. Panels are flattened before
+// they are registered, so an offset is all that is left between groups;
+// nebulosity filling most of a group still raises its median.
+func levelGroups(binned []binnedPanel, pairs []panelPair, corr []plane) {
+	group := make([]int, len(binned))
+	for i := range group {
+		group[i] = i
+	}
+	var root func(int) int
+	root = func(i int) int {
+		if group[i] != i {
+			group[i] = root(group[i])
+		}
+		return group[i]
+	}
+	for _, p := range pairs {
+		group[root(p.I)] = root(p.J)
+	}
+	values := map[int][]float64{}
+	for k, b := range binned {
+		g := root(k)
+		for by := range b.H {
+			for bx := range b.W {
+				v := float64(b.Data[by*b.W+bx])
+				if math.IsNaN(v) {
+					continue
+				}
+				x, y := b.coords(bx, by)
+				values[g] = append(values[g], v+corr[k].at(x, y))
+			}
+		}
+	}
+	if len(values) < 2 {
+		return
+	}
+	sky := map[int]float64{}
+	var sum, weight float64
+	for g, v := range values {
+		s, ok := clippedMedian(v)
+		if !ok {
+			continue
+		}
+		sky[g] = s
+		sum += s * float64(len(v))
+		weight += float64(len(v))
+	}
+	if len(sky) < 2 {
+		return
+	}
+	target := sum / weight
+	for k := range corr {
+		if s, ok := sky[root(k)]; ok {
+			corr[k].A += target - s
+		}
+	}
+}
+
+// clippedMedian is the median of v after leaving out, over and again,
+// values more than 2.5σ (MAD) from it: stars and bright nebulosity.
+func clippedMedian(v []float64) (float64, bool) {
+	s := slices.Clone(v)
+	for range 8 {
+		if len(s) < minOverlap {
+			return 0, false
+		}
+		slices.Sort(s)
+		m := s[len(s)/2]
+		dev := make([]float64, len(s))
+		for i, x := range s {
+			dev[i] = math.Abs(x - m)
+		}
+		limit := 2.5 * madToSigma * median(dev)
+		kept := s[:0:0]
+		for _, x := range s {
+			if math.Abs(x-m) <= limit {
+				kept = append(kept, x)
+			}
+		}
+		if len(kept) == len(s) {
+			return m, true
+		}
+		s = kept
+	}
+	slices.Sort(s)
+	return s[len(s)/2], len(s) > 0
+}
+
 // matchRegistered matches the sky of registered panels (Siril's r_ files,
 // 0 where a panel has no data) on their overlaps, rewriting them with each
 // one's correction added. Siril blends the panels unnormalized, so without
@@ -403,11 +494,8 @@ func matchRegisteredSeams(files []string, sat float32, rewrite bool) (before, af
 		return pairs
 	}
 	before = measure()
-	if len(before) == 0 {
-		rep.noise = measureMosaicNoise(binned, panelScales(len(files), nil))
-		return before, nil, rep, nil
-	}
 	corr := panelCorrections(len(files), before)
+	levelGroups(binned, before, corr)
 	for k, b := range binned {
 		for by := range b.H {
 			for bx := range b.W {
@@ -423,6 +511,9 @@ func matchRegisteredSeams(files []string, sat float32, rewrite bool) (before, af
 		return before, after, rep, nil
 	}
 	for k, f := range files {
+		if corr[k] == (plane{}) {
+			continue
+		}
 		if err := addPlane(f, corr[k], at[k], sat); err != nil {
 			return nil, nil, rep, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
