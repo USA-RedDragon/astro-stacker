@@ -377,18 +377,21 @@ func (s *Service) RunAdoption(ctx context.Context, dryRun bool) (Report, error) 
 					rep.Clean++
 				}
 			default:
+				row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionProposed, "", nil
 				if seen {
 					rep.Changed++
 					row.ID, row.CreatedAt = old.ID, old.CreatedAt
-					if autoByUs(old) {
+					if old.Status == app.AdoptionAccepted || old.Status == app.AdoptionAuto {
 						if err := withdraw(tx, old, &row, rig, now, dryRun); err != nil {
 							return err
 						}
 					}
+					if decidedByPerson(old) {
+						row.DecidedBy, row.DecidedAt = old.DecidedBy, old.DecidedAt
+					}
 				} else {
 					rep.New++
 				}
-				row.Status, row.DecidedBy, row.DecidedAt = app.AdoptionProposed, "", nil
 				row.Clean = c.auto
 				action = "review"
 				if c.auto {
@@ -511,6 +514,10 @@ func keep(tx *gorm.DB, c candidate, old app.MosaicAdoption, rig mosaics.Rig, now
 		}
 	}
 	return row, nil
+}
+
+func decidedByPerson(r app.MosaicAdoption) bool {
+	return r.DecidedAt != nil && r.DecidedBy != AutoDecider
 }
 
 func autoByUs(r app.MosaicAdoption) bool {
