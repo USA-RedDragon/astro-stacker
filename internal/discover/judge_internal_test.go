@@ -31,3 +31,18 @@ func TestJudgeSkipsTargetsWithoutEnabledPlans(t *testing.T) {
 		t.Fatal("a subject whose only target has no enabled plans was judged done")
 	}
 }
+
+func TestProgressCarriesTheFurthestPlateau(t *testing.T) {
+	t.Parallel()
+	one, near, far := 1.0, 0.6, 0.07
+	judged := map[string]planning.Judgement{
+		p1: {Target: p1, Least: planning.Least{Target: p1, Enough: true, Progress: &one, Filter: "L", Filters: 2,
+			Plateau: planning.LeastPlateau{Target: p1, Filter: "H-a", Progress: &far, Filters: 2}}},
+		p2: {Target: p2, Least: planning.Least{Target: p2, Progress: &near, Filter: "G", Filters: 1,
+			Plateau: planning.LeastPlateau{Target: p2, Filter: "G", Progress: &near, Filters: 1, Unmeasured: 0}}},
+	}
+	p := progressOf(judged, []string{p1, p2})
+	if p.Target != p2 || p.Plateau.Target != p1 || p.Plateau.Filter != "H-a" || *p.Plateau.Progress != far || p.Plateau.Filters != 3 {
+		t.Fatalf("%+v %+v", p, p.Plateau)
+	}
+}

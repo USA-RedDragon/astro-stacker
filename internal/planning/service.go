@@ -104,6 +104,7 @@ type FilterGoal struct {
 	Enough       bool             `json:"enough"`
 	GoalProgress *float64         `json:"goalProgress"`
 	NotMeasured  string           `json:"notMeasured,omitempty"`
+	PlateauAt    goals.Plateau    `json:"plateauAt"`
 }
 
 type Season struct {

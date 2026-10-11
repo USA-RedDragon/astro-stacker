@@ -10,13 +10,27 @@ import (
 // Least is the display progress of a target, project or catalogue object: its least complete enabled filter,
 // measured against that filter's goal. Progress is nil when that filter has no goal measurement yet.
 type Least struct {
-	Enough      bool     `json:"enough"`
-	Progress    *float64 `json:"progress"`
-	Target      string   `json:"target,omitempty"`
-	Filter      string   `json:"filter,omitempty"`
-	NotMeasured string   `json:"notMeasured,omitempty"`
-	Unmeasured  int      `json:"unmeasured"`
-	Filters     int      `json:"filters"`
+	Enough      bool         `json:"enough"`
+	Progress    *float64     `json:"progress"`
+	Target      string       `json:"target,omitempty"`
+	Filter      string       `json:"filter,omitempty"`
+	NotMeasured string       `json:"notMeasured,omitempty"`
+	Unmeasured  int          `json:"unmeasured"`
+	Filters     int          `json:"filters"`
+	Plateau     LeastPlateau `json:"plateau"`
+}
+
+type LeastPlateau struct {
+	Progress       *float64 `json:"progress"`
+	Hours          *float64 `json:"hours"`
+	EffectiveHours float64  `json:"effectiveHours"`
+	GainPerHourPct *float64 `json:"gainPerHourPct"`
+	Target         string   `json:"target,omitempty"`
+	Filter         string   `json:"filter,omitempty"`
+	NotMeasured    string   `json:"notMeasured,omitempty"`
+	Unmeasured     int      `json:"unmeasured"`
+	Filters        int      `json:"filters"`
+	GainPct        float64  `json:"gainPct"`
 }
 
 const (
@@ -64,6 +78,24 @@ func notMeasuredReason(g FilterGoal) string {
 	return NotMeasuredText
 }
 
+func plateauReason(g FilterGoal) string {
+	switch {
+	case g.Measurement != nil:
+		return g.Measurement.PlateauAt.Unmeasured
+	case g.Readiness != nil && g.Readiness.StackSubs < g.Readiness.MinSubs:
+		return CollectingFirst
+	case g.Status == StatusFailed && g.Error != "":
+		return FailedReason + ": " + g.Error
+	case g.Status == StatusFailed:
+		return FailedReason
+	case g.Status == StatusNoMaster:
+		return NoStackReason
+	case g.Status == StatusNotMeasured:
+		return WaitingFirst
+	}
+	return NotMeasuredText
+}
+
 func finishFilter(g *FilterGoal) {
 	if g.Readiness != nil && g.Readiness.State == goals.StateCollecting {
 		g.Enough = false
@@ -72,6 +104,46 @@ func finishFilter(g *FilterGoal) {
 	if g.GoalProgress == nil {
 		g.NotMeasured = notMeasuredReason(*g)
 	}
+	g.PlateauAt = goals.Plateau{GainPct: goals.PlateauGainPct}
+	if g.Measurement != nil {
+		g.PlateauAt = g.Measurement.PlateauAt
+	}
+	if g.PlateauAt.Progress == nil {
+		g.PlateauAt.Unmeasured = plateauReason(*g)
+	}
+}
+
+func leastPlateauOf(target string, gs []FilterGoal) LeastPlateau {
+	lp := LeastPlateau{Target: target, Filters: len(gs), GainPct: goals.PlateauGainPct}
+	var w *FilterGoal
+	for i := range gs {
+		g := &gs[i]
+		if g.PlateauAt.Progress == nil {
+			lp.Unmeasured++
+		}
+		if w == nil || filterLess(false, g.PlateauAt.Progress, false, w.PlateauAt.Progress) {
+			w = g
+		}
+	}
+	if w == nil {
+		lp.NotMeasured = NoPlansReason
+		return lp
+	}
+	lp.Filter, lp.Progress, lp.Hours = w.Filter, w.PlateauAt.Progress, w.PlateauAt.Hours
+	if w.Measurement != nil {
+		lp.EffectiveHours, lp.GainPerHourPct = w.Measurement.EffectiveHours, w.Measurement.GainPerHourPct
+	}
+	if lp.Progress == nil {
+		lp.NotMeasured = w.PlateauAt.Unmeasured
+	}
+	return lp
+}
+
+func PlateauLess(a, b LeastPlateau) bool {
+	if a.Filters == 0 || b.Filters == 0 {
+		return a.Filters == 0 && b.Filters != 0
+	}
+	return filterLess(false, a.Progress, false, b.Progress)
 }
 
 func filterLess(enoughA bool, pa *float64, enoughB bool, pb *float64) bool {
@@ -93,7 +165,7 @@ func filterLess(enoughA bool, pa *float64, enoughB bool, pb *float64) bool {
 }
 
 func leastOfGoals(target string, gs []FilterGoal) Least {
-	l := Least{Target: target, Filters: len(gs), Enough: len(gs) > 0}
+	l := Least{Target: target, Filters: len(gs), Enough: len(gs) > 0, Plateau: leastPlateauOf(target, gs)}
 	if len(gs) == 0 {
 		l.NotMeasured = NoPlansReason
 		return l
@@ -134,7 +206,8 @@ func LeastLess(a, b Least) bool {
 
 func leastOfTargets(ts []Target) Least {
 	var w *Least
-	enough, unmeasured, filters := false, 0, 0
+	var wp *LeastPlateau
+	enough, unmeasured, filters, plateauUnmeasured := false, 0, 0, 0
 	for i := range ts {
 		if !ts[i].Active || ts[i].Least.Filters == 0 {
 			continue
@@ -146,15 +219,22 @@ func leastOfTargets(ts []Target) Least {
 		enough = enough && l.Enough
 		unmeasured += l.Unmeasured
 		filters += l.Filters
+		plateauUnmeasured += l.Plateau.Unmeasured
 		if w == nil || LeastLess(l, *w) {
 			w = &l
 		}
+		if wp == nil || PlateauLess(l.Plateau, *wp) {
+			p := l.Plateau
+			wp = &p
+		}
 	}
 	if w == nil {
-		return Least{NotMeasured: NoPlansReason}
+		return Least{NotMeasured: NoPlansReason, Plateau: LeastPlateau{NotMeasured: NoPlansReason, GainPct: goals.PlateauGainPct}}
 	}
 	out := *w
 	out.Enough, out.Unmeasured, out.Filters = enough, unmeasured, filters
+	out.Plateau = *wp
+	out.Plateau.Unmeasured, out.Plateau.Filters = plateauUnmeasured, filters
 	return out
 }
 

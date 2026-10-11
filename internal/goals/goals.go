@@ -52,6 +52,7 @@ type Progress struct {
 	HoursNeeded    float64   `json:"hoursNeeded"`
 	GainPerHourPct float64   `json:"gainPerHourPct"`
 	Plateau        bool      `json:"plateau"`
+	PlateauAt      Plateau   `json:"plateauAt"`
 	LowConfidence  bool      `json:"lowConfidence"`
 	LowReason      string    `json:"lowReason,omitempty"`
 	Unmeasured     string    `json:"unmeasured,omitempty"`

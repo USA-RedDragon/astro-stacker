@@ -32,26 +32,27 @@ const (
 )
 
 type PanelFilter struct {
-	Filter         string  `json:"filter"`
-	Object         string  `json:"object,omitempty"`
-	Source         string  `json:"source"`
-	Kind           string  `json:"kind,omitempty"`
-	Goal           float64 `json:"goal,omitempty"`
-	Achieved       float64 `json:"achieved,omitempty"`
-	SNR            float64 `json:"snr,omitempty"`
-	Progress       float64 `json:"progress"`
-	EffectiveHours float64 `json:"effectiveHours"`
-	HoursNeeded    float64 `json:"hoursNeeded"`
-	HoursBasis     string  `json:"hoursBasis,omitempty"`
-	PlannedHours   float64 `json:"plannedHours,omitempty"`
-	Desired        int     `json:"desired,omitempty"`
-	Accepted       int     `json:"accepted,omitempty"`
-	Plateau        bool    `json:"plateau,omitempty"`
-	Done           bool    `json:"done,omitempty"`
-	DoneReason     string  `json:"doneReason,omitempty"`
-	LowConfidence  bool    `json:"lowConfidence,omitempty"`
-	Measured       bool    `json:"measured"`
-	NotMeasured    string  `json:"notMeasured,omitempty"`
+	Filter         string        `json:"filter"`
+	Object         string        `json:"object,omitempty"`
+	Source         string        `json:"source"`
+	Kind           string        `json:"kind,omitempty"`
+	Goal           float64       `json:"goal,omitempty"`
+	Achieved       float64       `json:"achieved,omitempty"`
+	SNR            float64       `json:"snr,omitempty"`
+	Progress       float64       `json:"progress"`
+	EffectiveHours float64       `json:"effectiveHours"`
+	HoursNeeded    float64       `json:"hoursNeeded"`
+	HoursBasis     string        `json:"hoursBasis,omitempty"`
+	PlannedHours   float64       `json:"plannedHours,omitempty"`
+	Desired        int           `json:"desired,omitempty"`
+	Accepted       int           `json:"accepted,omitempty"`
+	Plateau        bool          `json:"plateau,omitempty"`
+	Done           bool          `json:"done,omitempty"`
+	DoneReason     string        `json:"doneReason,omitempty"`
+	LowConfidence  bool          `json:"lowConfidence,omitempty"`
+	Measured       bool          `json:"measured"`
+	NotMeasured    string        `json:"notMeasured,omitempty"`
+	PlateauAt      goals.Plateau `json:"plateauAt"`
 }
 
 type Panel struct {
@@ -71,6 +72,17 @@ type Panel struct {
 	Progress   *float64            `json:"progress"`
 	Weakest    string              `json:"weakest"`
 	PastGoal   bool                `json:"pastGoal"`
+	Plateau    PlateauLeast        `json:"plateau"`
+}
+
+type PlateauLeast struct {
+	Progress       *float64 `json:"progress"`
+	Hours          *float64 `json:"hours"`
+	EffectiveHours float64  `json:"effectiveHours"`
+	GainPct        float64  `json:"gainPct"`
+	Panel          int      `json:"panel,omitempty"`
+	Filter         string   `json:"filter,omitempty"`
+	NotMeasured    string   `json:"notMeasured,omitempty"`
 }
 
 type Balancing struct {
@@ -106,6 +118,7 @@ type Detail struct {
 	WeakestPanel   int                     `json:"weakestPanel"`
 	WeakestFilter  string                  `json:"weakestFilter"`
 	NotMeasured    string                  `json:"notMeasured,omitempty"`
+	Plateau        PlateauLeast            `json:"plateau"`
 	EffectiveHours float64                 `json:"effectiveHours"`
 	HoursLeft      HoursLeft               `json:"hoursLeft"`
 	Balancing      Balancing               `json:"balancing"`
@@ -185,17 +198,18 @@ func NoiseAndStatus(ms []app.Mosaic, seams []app.MosaicSeam) ([]MosaicNoise, []S
 }
 
 type Summary struct {
-	Project       string   `json:"project"`
-	ProjectGUID   string   `json:"projectGuid"`
-	Panels        int      `json:"panels"`
-	Adopted       bool     `json:"adopted"`
-	Complete      *float64 `json:"complete"`
-	Average       *float64 `json:"average"`
-	WeakestPanel  int      `json:"weakestPanel"`
-	WeakestFilter string   `json:"weakestFilter"`
-	NotMeasured   string   `json:"notMeasured,omitempty"`
-	SeamWarnings  int      `json:"seamWarnings"`
-	Balancing     bool     `json:"balancing"`
+	Project       string       `json:"project"`
+	ProjectGUID   string       `json:"projectGuid"`
+	Panels        int          `json:"panels"`
+	Adopted       bool         `json:"adopted"`
+	Complete      *float64     `json:"complete"`
+	Average       *float64     `json:"average"`
+	WeakestPanel  int          `json:"weakestPanel"`
+	WeakestFilter string       `json:"weakestFilter"`
+	NotMeasured   string       `json:"notMeasured,omitempty"`
+	Plateau       PlateauLeast `json:"plateau"`
+	SeamWarnings  int          `json:"seamWarnings"`
+	Balancing     bool         `json:"balancing"`
 }
 
 type planRow struct {
@@ -228,7 +242,7 @@ func (s *Service) List(ctx context.Context) ([]Summary, error) {
 			return nil, err
 		}
 		sum := Summary{Project: d.Project, ProjectGUID: d.ProjectGUID, Panels: len(d.Panels), Adopted: d.Adopted, Complete: d.Complete,
-			Average: d.Average, WeakestPanel: d.WeakestPanel, WeakestFilter: d.WeakestFilter, NotMeasured: d.NotMeasured, Balancing: d.Balancing.On}
+			Average: d.Average, WeakestPanel: d.WeakestPanel, WeakestFilter: d.WeakestFilter, NotMeasured: d.NotMeasured, Plateau: d.Plateau, Balancing: d.Balancing.On}
 		for _, sm := range d.Seams {
 			if !sm.OK {
 				sum.SeamWarnings++
@@ -342,10 +356,12 @@ func (s *Service) build(ctx context.Context, g stacking.MosaicGroup, gs map[goal
 			d.HoursLeft.add(pf)
 		}
 		p.Progress, p.Weakest, p.PastGoal = panelLeast(p.Filters)
+		p.Plateau = panelPlateau(p.Number, p.Filters)
 		d.Panels = append(d.Panels, p)
 	}
 	d.Complete, d.WeakestPanel, d.WeakestFilter, d.Average = Completion(d.Panels)
 	d.NotMeasured = notMeasuredOf(d.Panels, d.WeakestPanel, d.WeakestFilter)
+	d.Plateau = mosaicPlateau(d.Panels)
 	d.Layout = layoutText(d)
 
 	db := s.App.WithContext(ctx)
@@ -410,7 +426,7 @@ func bestStacks(g stacking.MosaicGroup, stacks []app.Stack) (map[string]app.Stac
 }
 
 func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Progress, hasGoal bool) (PanelFilter, bool) {
-	pf := PanelFilter{Filter: f, Source: SourceNone, HoursNeeded: -1}
+	pf := PanelFilter{Filter: f, Source: SourceNone, HoursNeeded: -1, PlateauAt: goals.Plateau{GainPct: goals.PlateauGainPct}}
 	if have {
 		pf.Object, pf.EffectiveHours = st.Object, st.EffectiveSeconds/3600
 	}
@@ -443,6 +459,7 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 		if gp.EffectiveHours > 0 {
 			pf.EffectiveHours = gp.EffectiveHours
 		}
+		pf.PlateauAt = gp.PlateauAt
 	case pf.Desired > 0:
 		pf.Source, pf.NotMeasured = SourceTS, NoGoalMeasurement
 		pf.Progress = float64(pf.Accepted) / float64(pf.Desired)
@@ -457,7 +474,42 @@ func panelFilter(f string, st app.Stack, have bool, plans []planRow, gp goals.Pr
 	if !pf.Measured && pf.NotMeasured == "" {
 		pf.NotMeasured = NoGoalMeasurement
 	}
+	if pf.PlateauAt.Progress == nil && pf.PlateauAt.Unmeasured == "" {
+		pf.PlateauAt.Unmeasured = NoGoalMeasurement
+	}
 	return pf, true
+}
+
+func plateauLess(a, b PlateauLeast) bool {
+	return lessValue(a.Progress != nil, deref(a.Progress), b.Progress != nil, deref(b.Progress))
+}
+
+func panelPlateau(panel int, fs []PanelFilter) PlateauLeast {
+	if len(fs) == 0 {
+		return PlateauLeast{Panel: panel, NotMeasured: NoPanelData, GainPct: goals.PlateauGainPct}
+	}
+	var w PlateauLeast
+	for i, f := range fs {
+		c := PlateauLeast{Progress: f.PlateauAt.Progress, Hours: f.PlateauAt.Hours, EffectiveHours: f.EffectiveHours, GainPct: goals.PlateauGainPct,
+			Panel: panel, Filter: f.Filter, NotMeasured: f.PlateauAt.Unmeasured}
+		if i == 0 || plateauLess(c, w) {
+			w = c
+		}
+	}
+	return w
+}
+
+func mosaicPlateau(panels []Panel) PlateauLeast {
+	if len(panels) == 0 {
+		return PlateauLeast{NotMeasured: NoPanelData, GainPct: goals.PlateauGainPct}
+	}
+	w := panels[0].Plateau
+	for _, p := range panels[1:] {
+		if plateauLess(p.Plateau, w) {
+			w = p.Plateau
+		}
+	}
+	return w
 }
 
 func filterValue(f PanelFilter) (bool, float64) {

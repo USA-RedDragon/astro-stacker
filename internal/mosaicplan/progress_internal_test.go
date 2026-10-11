@@ -130,3 +130,30 @@ func TestLayoutTextWrapsRotation(t *testing.T) {
 		}
 	}
 }
+
+func TestPlateauRollsUpToTheFurthestPanelFilter(t *testing.T) {
+	t.Parallel()
+	h, far, near := 25.0, 0.08, 0.7
+	gp := goals.Progress{Progress: 1.4, Done: true, EffectiveHours: 2, PlateauAt: goals.Plateau{Hours: &h, Progress: &far}}
+	met, _ := panelFilter(fRed, app.Stack{Object: "P1"}, true, nil, gp, true)
+	if met.DoneReason != DoneGoal || met.PlateauAt.Progress == nil || *met.PlateauAt.Progress != far || *met.PlateauAt.Hours != h {
+		t.Fatalf("%+v", met)
+	}
+	counts, _ := panelFilter(fBlue, app.Stack{}, false, []planRow{{Filter: fBlue, Enabled: 1, Desired: 10, Exposure: 300}}, goals.Progress{}, false)
+	if counts.PlateauAt.Progress != nil || counts.PlateauAt.Unmeasured != NoGoalMeasurement || counts.PlateauAt.GainPct != goals.PlateauGainPct {
+		t.Fatalf("%+v", counts)
+	}
+	green := PanelFilter{Filter: fGreen, PlateauAt: goals.Plateau{Progress: &near, Hours: &h}}
+	p1 := Panel{Number: 1, Plateau: panelPlateau(1, []PanelFilter{green, met})}
+	if p1.Plateau.Filter != fRed || *p1.Plateau.Progress != far {
+		t.Fatalf("%+v", p1.Plateau)
+	}
+	p2 := Panel{Number: 2, Plateau: panelPlateau(2, []PanelFilter{green})}
+	if w := mosaicPlateau([]Panel{p2, p1}); w.Panel != 1 || w.Filter != fRed {
+		t.Fatalf("%+v", w)
+	}
+	p3 := Panel{Number: 3, Plateau: panelPlateau(3, []PanelFilter{green, counts})}
+	if w := mosaicPlateau([]Panel{p1, p3}); w.Panel != 3 || w.Progress != nil || w.NotMeasured != NoGoalMeasurement {
+		t.Fatalf("%+v", w)
+	}
+}
