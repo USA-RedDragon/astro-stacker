@@ -55,7 +55,7 @@ func TestEmbeddedSearch(t *testing.T) {
 	ctx := context.Background()
 	cases := map[string]string{
 		"Garlic Nebula": garlic, abell85: garlic, m31: m31, "M102": "M 102",
-		"SH2-129": "Sh2-129", "Centarus A": "NGC 5128", "Cygnis Loop": "G074.0-08.5", c14: c14,
+		"SH2-129": "Sh2-129", "Centarus A": "NGC 5128", "Cygnis Loop": cygnusLoop, c14: c14,
 		"Horsehead": "B 33", "Pacman": "NGC 281", "NGC1313": "NGC 1313",
 	}
 	for q, want := range cases {
@@ -309,7 +309,28 @@ func TestRenamedObjectsKeepTheirOldName(t *testing.T) {
 	}
 }
 
+func TestChildShapesAreNotTheirParents(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	veil, _ := ix.Get("C 34")
+	if veil.ID != "NGC6960" || veil.Name != "Western Veil" || !slices.Contains(veil.Aliases, "Veil Nebula") || veil.MajorArcmin != 70 || veil.MinorArcmin != nil || catalog.Separation(veil.RA, veil.Dec, 311.40833, 30.70833) > 1.0/3600 {
+		t.Errorf("Western Veil %+v", veil)
+	}
+	loop, _ := ix.Get("LBN 191")
+	if loop.ID != cygnusLoop || loop.MajorArcmin < 200 || !slices.Contains(loop.Lists, "lbn") || slices.Contains(veil.Lists, "lbn") {
+		t.Errorf("LBN 191 is %+v", loop)
+	}
+	rosette, _ := ix.Get("C 49")
+	if catalog.Separation(rosette.RA, rosette.Dec, 98.1115, 4.79364) > 1.0/3600 || rosette.MajorArcmin != 80 {
+		t.Errorf("Rosette %+v", rosette)
+	}
+}
+
 const (
+	cygnusLoop  = "G074.0-08.5"
 	ic434       = "IC 434"
 	b33         = "B 33"
 	comaCluster = "Coma Cluster"

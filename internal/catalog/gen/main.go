@@ -298,6 +298,9 @@ func (b *builder) build(ctx context.Context) error {
 	if err := b.curated(); err != nil {
 		return err
 	}
+	if err := b.fixShapes(); err != nil {
+		return err
+	}
 	if err := b.fixNames(); err != nil {
 		return err
 	}
