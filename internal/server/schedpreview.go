@@ -12,6 +12,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
+	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/gin-gonic/gin"
@@ -402,12 +403,17 @@ func applyPreviewRoutes(g *gin.RouterGroup, src PreviewSource, cache *PreviewCac
 			Night     string                 `json:"night"`
 			Start     *time.Time             `json:"start"`
 			Overrides []observatory.Override `json:"overrides"`
+			Weights   map[string]float64     `json:"weights"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 			return
 		}
-		req := observatory.PreviewRequest{Start: body.Start, Overrides: body.Overrides}
+		weights, ok := weightOverrides(c, body.Weights)
+		if !ok {
+			return
+		}
+		req := observatory.PreviewRequest{Start: body.Start, Overrides: append(body.Overrides, weights...)}
 		if req.Start == nil {
 			start, ok := previewStart(c, site, cache, body.Night, now())
 			if !ok {
@@ -452,4 +458,40 @@ func SyncStamp(db *gorm.DB, live func() string) PreviewStamp {
 		}
 		return s, true
 	}
+}
+
+// weightOverrides turns what-if global rule weights into preview overrides.
+// A plugin that predates rule weight overrides skips entities it does not know.
+func weightOverrides(c *gin.Context, weights map[string]float64) ([]observatory.Override, bool) {
+	if len(weights) == 0 {
+		return nil, true
+	}
+	di, ok := depInjection(c)
+	if !ok {
+		return nil, false
+	}
+	if di.SchedulerDBStore == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "no scheduler database"})
+		return nil, false
+	}
+	mosaic, err := planning.MosaicFlags(c.Request.Context(), di.SchedulerDBStore.DB())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{errorKey: "load projects: " + err.Error()})
+		return nil, false
+	}
+	list, err := planning.WhatIfWeights(weights, mosaic)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		return nil, false
+	}
+	out := make([]observatory.Override, 0, len(list))
+	for _, w := range list {
+		v, err := json.Marshal(w.Weight)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+			return nil, false
+		}
+		out = append(out, observatory.Override{Entity: observatory.OverrideRuleWeight, ID: int64(w.ProjectID), Field: w.Rule, Value: v})
+	}
+	return out, true
 }
