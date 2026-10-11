@@ -63,6 +63,10 @@ type SubScore struct {
 	ReferenceSubs       int
 	TransparencySource  string
 	TransparencyMissing string
+	// Measured is set when Target Scheduler has no record of the sub: it
+	// is scored from the stacker's measurement of its pixels (Measured),
+	// its filter, exposure and gain from its header.
+	Measured bool
 }
 
 type group struct {
@@ -386,7 +390,7 @@ func score(rows []row, pedestal Pedestals, measured []Measured, perSecond bool) 
 		field := fieldGroup{target: m.Target, g: g, gain: fieldGain(m.Gain), framing: Framing(rot)}
 		items = append(items, item{
 			s: SubScore{File: m.File, Filter: g.filter, Exposure: exposure, GradingStatus: GradingPending, HFR: m.HFR, Stars: m.Stars,
-				Missing: Missing(m.SkyADU, ped, m.HFR), Pedestal: pd, Sky: Sky(m.SkyADU, ped)},
+				Missing: Missing(m.SkyADU, ped, m.HFR), Pedestal: pd, Sky: Sky(m.SkyADU, ped), Measured: true},
 			raw:    raw,
 			g:      g,
 			target: m.Target,

@@ -237,7 +237,21 @@ type StackFrame struct {
 	BiasMaster *string
 	DarkMaster *string
 	FlatMaster *string
+	// MetadataSource is what the light was scored from when it was last
+	// classified: MetadataSourceTS, or MetadataSourceHeader when Target
+	// Scheduler had no record of it. Nil for a light classified before it
+	// was recorded, or without a score.
+	MetadataSource *string
 }
+
+// Where a light's score and metadata came from (StackFrame.MetadataSource).
+const (
+	// MetadataSourceTS is Target Scheduler's acquired image record.
+	MetadataSourceTS = "ts"
+	// MetadataSourceHeader is the light's FITS or XISF header, with its sky
+	// and stars measured from its pixels by the indexer.
+	MetadataSourceHeader = "header"
+)
 
 type RegisteredOrphan struct {
 	Key    string `gorm:"primaryKey"`

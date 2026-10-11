@@ -318,6 +318,10 @@ type candidate struct {
 	// offBy is how far, in degrees, the mount said it pointed from the
 	// target, when that is more than OffTargetDegrees; 0 otherwise.
 	offBy float64
+	// source is the app.MetadataSource its score came from, "" without one.
+	source string
+	// placeable is whether its header alone places it (headerPlaceable).
+	placeable bool
 }
 
 // RunOnce processes one batch of new lights for one master and returns how
@@ -466,18 +470,74 @@ func (p *Pipeline) leftOut(c candidate, status string) app.StackFrame {
 			sf.NextAttemptAt = &next
 		}
 	}
-	if status == app.StackStatusNoMetadata && time.Since(f.LastModified) < MetadataGrace {
-		next := time.Now().Add(time.Minute)
-		sf.NextAttemptAt = &next
+	if status == app.StackStatusNoMetadata {
+		var msg string
+		sf.NextAttemptAt, msg = metadataRetry(f, c.source != "", c.placeable, time.Now())
+		sf.Error = &msg
 	}
+	sf.MetadataSource = optional(c.source)
 	return sf
 }
 
 // MetadataGrace is how long after its upload a light without a Target
 // Scheduler record is looked at again every minute rather than after
-// RetryAfter: the record can reach the scheduler database after the light
-// reaches the bucket.
+// RetryAfter, and is not scored from its header and pixels: the record can
+// reach the scheduler database after the light reaches the bucket.
 const MetadataGrace = 30 * time.Minute
+
+// MeasureWait is how long after MetadataGrace a light without a Target
+// Scheduler record, whose header places it, is looked at again every minute
+// while the indexer has not measured its pixels: once measured it is scored
+// from them and stacked at once rather than after RetryAfter.
+const MeasureWait = time.Hour
+
+// metadataRetry is when a light left out for no_metadata is looked at again,
+// nil for RetryAfter, and why it waits. scored is whether it has a score,
+// left out because its header lacks the exposure or night.
+func metadataRetry(f app.Frame, scored, placeable bool, now time.Time) (*time.Time, string) {
+	age := now.Sub(f.LastModified)
+	soon := now.Add(time.Minute)
+	switch {
+	case scored && age < MetadataGrace:
+		return &soon, "its header lacks the exposure or night"
+	case scored:
+		return nil, "its header lacks the exposure or night"
+	case age < MetadataGrace:
+		return &soon, "no Target Scheduler record yet; waiting for it until " +
+			f.LastModified.Add(MetadataGrace).UTC().Format(time.RFC3339) + ", then scoring the light from its header and pixels"
+	case !placeable:
+		return nil, "no Target Scheduler record, and its header lacks the object, filter, exposure or night, or names no known target"
+	case f.MeasuredAt == nil && age < MetadataGrace+MeasureWait:
+		return &soon, "no Target Scheduler record; scoring it from its header once the indexer has measured its pixels"
+	case f.MeasuredAt == nil:
+		return nil, "no Target Scheduler record, and the indexer has not measured its pixels"
+	default:
+		return nil, "no Target Scheduler record, and its pixels could not be scored"
+	}
+}
+
+// headerPlaceable reports whether a light's header has what stacking it
+// needs without a Target Scheduler record: an object that names a known
+// target, as classify and the verdicts match them, a filter, an exposure
+// and a night.
+func headerPlaceable(f app.Frame, positions map[string][2]float64) bool {
+	_, known := positions[f.Object]
+	return known && f.Filter != "" && f.Exposure != nil && *f.Exposure > 0 && f.Night != nil
+}
+
+// awaitingRecord reports whether a light scored from its pixels, Target
+// Scheduler having no record of it, is still within MetadataGrace, when the
+// record is waited for.
+func awaitingRecord(f app.Frame, s quality.SubScore, now time.Time) bool {
+	return s.Measured && now.Sub(f.LastModified) < MetadataGrace
+}
+
+func metadataSource(s quality.SubScore) string {
+	if s.Measured {
+		return app.MetadataSourceHeader
+	}
+	return app.MetadataSourceTS
+}
 
 func (p *Pipeline) runBatch(ctx context.Context, first *app.Frame, batch []candidate, sets []calmatch.Set,
 	scores map[string]quality.SubScore, positions map[string][2]float64,
@@ -586,7 +646,7 @@ func (p *Pipeline) lockKey(key string) func() {
 // classify decides whether a light goes into its master. It returns a status
 // when it doesn't.
 func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, sets []calmatch.Set, positions map[string][2]float64) (candidate, string) {
-	c := candidate{frame: f}
+	c := candidate{frame: f, placeable: headerPlaceable(f, positions)}
 	// A sub whose mount pointing is off target is still stacked if it
 	// registers to the target's reference (see OffTargetDegrees).
 	if pos, ok := positions[f.Object]; ok && f.MountRA != nil && f.MountDec != nil {
@@ -595,10 +655,10 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		}
 	}
 	s, ok := scores[path.Base(f.Key)]
-	if !ok {
+	if !ok || awaitingRecord(f, s, time.Now()) {
 		return c, app.StackStatusNoMetadata
 	}
-	c.score = s
+	c.score, c.source = s, metadataSource(s)
 	switch {
 	case s.GradingStatus == quality.GradingRejected && !s.StackerRejected:
 		// Rejected by Target Scheduler or by hand. One the stacker rejected
