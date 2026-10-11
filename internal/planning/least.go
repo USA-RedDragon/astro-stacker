@@ -136,7 +136,7 @@ func leastOfTargets(ts []Target) Least {
 	var w *Least
 	enough, unmeasured, filters := false, 0, 0
 	for i := range ts {
-		if !ts[i].Active {
+		if !ts[i].Active || ts[i].Least.Filters == 0 {
 			continue
 		}
 		l := ts[i].Least
