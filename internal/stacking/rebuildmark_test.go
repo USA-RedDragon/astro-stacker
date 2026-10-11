@@ -65,3 +65,34 @@ func TestFailedRebuildKeepsTheMark(t *testing.T) {
 		t.Fatal("a failed rebuild cleared the mark")
 	}
 }
+
+// Masters left holding subs taken out of them are marked to be restacked.
+func TestMarkMiscounted(t *testing.T) {
+	t.Parallel()
+	p, stale := rebuildMarkDB(t)
+	state := "stacks/IC 4604 Panel 1/Green/state.fit"
+	key := "registered/a.fit"
+	good := app.Stack{Object: stale.Object, Filter: filterRed, Subs: 1, StateKey: &state}
+	if err := p.db.Create(&good).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := p.db.Model(&stale).Updates(map[string]any{"subs": 2, "state_key": state}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i, sf := range []app.StackFrame{
+		{FrameID: 1, StackID: &stale.ID, Status: app.StackStatusAdded, RegisteredKey: &key},
+		{FrameID: 2, StackID: &stale.ID, Status: app.StackStatusMoon, RegisteredKey: &key},
+		{FrameID: 3, StackID: &good.ID, Status: app.StackStatusAdded, RegisteredKey: &key},
+	} {
+		if err := p.db.Create(&sf).Error; err != nil {
+			t.Fatal(i, err)
+		}
+	}
+	p.markMiscounted(context.Background())
+	if !needsRebuild(t, p, stale.ID) {
+		t.Error("a master holding a moonlit sub was not marked")
+	}
+	if needsRebuild(t, p, good.ID) {
+		t.Error("a master holding exactly its added subs was marked")
+	}
+}

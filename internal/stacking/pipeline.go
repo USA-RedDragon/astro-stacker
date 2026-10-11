@@ -252,6 +252,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.requeueStackerRejected(ctx)
 		p.markOldRejection(ctx)
 		p.markMixedGains(ctx)
+		p.markMiscounted(ctx)
 		// The exposure templates' moon avoidance can change: hourly.
 		// Duplicates found in masters are left for the sweep to restack.
 		// Masters are scored again as their lights' photometry comes in,
