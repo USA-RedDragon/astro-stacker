@@ -27,7 +27,8 @@ internal/conditions/moon.go	45	45
 internal/config/config.go	54	42
 internal/coverage/biasbacklog.go	121	110
 internal/coverage/coverage.go	179	158
-internal/coverage/darkbacklog.go	243	219
+internal/coverage/darkbacklog.go	260	229
+internal/coverage/darkrank.go	44	42
 internal/coverage/imported.go	56	54
 internal/coverage/requests.go	201	174
 internal/darkcheck/darkcheck.go	121	115
@@ -61,7 +62,7 @@ internal/goals/progress.go	104	91
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	330	300
+internal/goals/tsgoals.go	330	298
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	107	84
 internal/halpha/halpha.go	177	154
@@ -95,7 +96,7 @@ internal/mosaicstore/mosaicstore.go	66	56
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -136,11 +137,11 @@ internal/schedcmd/planning.go	404	335
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	226	199
+internal/schedcmd/service.go	226	201
 internal/schedcmd/settings.go	84	78
 internal/server/calibration.go	37	29
 internal/server/conditions.go	23	17
-internal/server/darkbacklog.go	20	14
+internal/server/darkbacklog.go	23	17
 internal/server/discover.go	148	127
 internal/server/goalmask.go	84	72
 internal/server/middleware/di.go	8	8
