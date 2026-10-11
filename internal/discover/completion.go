@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +22,7 @@ const (
 	CompletionInProgress = "in-progress"
 	CompletionMeasuring  = "measuring"
 	CompletionAdding     = "being-added"
+	CompletionScheduled  = "scheduled"
 	CompletionNotStarted = "not-started"
 
 	upTonightHours = 1.0
@@ -204,12 +204,14 @@ func (snap *snapshot) linkTally(subj Subject, l Link) Tally {
 func completionRank(status string) int {
 	switch status {
 	case CompletionDone:
-		return 4
+		return 5
 	case CompletionMeasuring:
-		return 3
+		return 4
 	case CompletionInProgress:
-		return 2
+		return 3
 	case CompletionAdding:
+		return 2
+	case CompletionScheduled:
 		return 1
 	}
 	return 0
@@ -233,6 +235,8 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 		completion, basis, byGoal := judge(t, subj.judged, targets)
 		if subj.Adding != nil {
 			completion, basis, byGoal = CompletionAdding, subj.Basis, false
+		} else if completion == CompletionNotStarted && l.Status == StatusPlanned {
+			completion = CompletionScheduled
 		}
 		ref := SubjectRef{Key: subj.Key, Name: subj.Name, ProjectID: subj.ProjectID, State: subj.StateName, Status: l.Status, Method: l.Method,
 			Basis: l.Basis, Coverage: l.Coverage, Why: l.Why, Tally: t, Completion: completion, Judged: basis,
@@ -272,9 +276,7 @@ func (s *Service) entry(snap *snapshot, subjects map[string]Subject, n *sky.Nigh
 	e.Tally.Hours = math.Round(e.Tally.Hours*100) / 100
 	alt, source := s.altitudeFor(snap, subjects, o)
 	e.Tonight = s.tonightAt(n, o, alt, source)
-	if e.Status == CompletionNotStarted && slices.ContainsFunc(e.Subjects, func(r SubjectRef) bool { return r.Status == StatusPlanned }) {
-		e.Scheduled = true
-	}
+	e.Scheduled = e.Status == CompletionScheduled
 	e.Fit = rig.fit(o.MajorArcmin, o.Minor())
 	return e
 }
@@ -353,11 +355,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 				sum.Measuring++
 			case CompletionAdding:
 				sum.Adding++
+			case CompletionScheduled:
+				sum.Scheduled++
 			default:
 				sum.NotStarted++
-				if e.Scheduled {
-					sum.Scheduled++
-				}
 			}
 			if e.Tonight != nil && e.Tonight.Up {
 				sum.UpTonight++
@@ -523,10 +524,10 @@ func judge(t Tally, judged map[string]planning.Judgement, targets []string) (str
 	switch {
 	case done:
 		return CompletionDone, text, byGoal
+	case t.Filters == 0 && (weakest.Least.Progress == nil || *weakest.Least.Progress <= 0):
+		return CompletionNotStarted, "No frames captured yet. " + text, false
 	case unmeasured > 0:
 		return CompletionMeasuring, text + fmt.Sprintf(" %d %s with a goal not measured yet.", unmeasured, plural(unmeasured, "filter", "filters")), false
-	case t.Filters == 0 && (weakest.Least.Progress == nil || *weakest.Least.Progress <= 0):
-		return CompletionNotStarted, text, false
 	}
 	return CompletionInProgress, text, false
 }
