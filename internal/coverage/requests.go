@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -307,4 +309,130 @@ func RequestLights(ctx context.Context, db *gorm.DB, typ, object string, night t
 		return RequestProgress{}, err
 	}
 	return progressOf(app.CalibrationRequest{Type: typ, Object: object, Night: night}, lights, requestFrames{}), nil
+}
+
+type openNeed struct {
+	ref  RequestRef
+	need requestNeed
+}
+
+// openNeeds lists the sets open requests of typ still need, with the frames
+// of each taken since its request. None when the requests table is missing.
+func openNeeds(ctx context.Context, db *gorm.DB, typ string, fr requestFrames) ([]openNeed, error) {
+	has, err := tables.Has(ctx, db, &app.CalibrationRequest{})
+	if err != nil || !has {
+		return nil, err
+	}
+	var reqs []app.CalibrationRequest
+	if err := db.WithContext(ctx).Where("type = ? AND status = ?", typ, app.CalibrationOpen).Order("created_at, id").
+		Find(&reqs).Error; err != nil {
+		return nil, fmt.Errorf("load open %s requests: %w", typ, err)
+	}
+	var out []openNeed
+	for _, r := range reqs {
+		lights, err := loadRequestLights(ctx, db, r.Object, r.Night)
+		if err != nil {
+			return nil, err
+		}
+		ref := RequestRef{ID: r.ID, Object: r.Object, Night: r.Night.Format(time.DateOnly)}
+		for _, n := range progressOf(r, lights, fr).needs {
+			if n.have < n.needed {
+				out = append(out, openNeed{ref: ref, need: n})
+			}
+		}
+	}
+	return out, nil
+}
+
+func requestedNote(ref RequestRef) string {
+	return fmt.Sprintf(" Requested for %s, night of %s.", ref.Object, ref.Night)
+}
+
+// requestedFirst puts requested combos first at priority 0 and numbers the
+// rest from 1 in their order.
+func requestedFirst[C any](cs []C, requested func(C) bool, setPriority func(*C, int)) {
+	sort.SliceStable(cs, func(i, j int) bool { return requested(cs[i]) && !requested(cs[j]) })
+	n := 0
+	for i := range cs {
+		if requested(cs[i]) {
+			setPriority(&cs[i], 0)
+			continue
+		}
+		n++
+		setPriority(&cs[i], n)
+	}
+}
+
+// mergeDarkRequests adds requested dark sets to the backlog: into the combo
+// of the same setup that covers the request's set temperature, else into a
+// requested combo within SetTempExactC of it, else as a new combo.
+func mergeDarkRequests(b *DarkBacklog, needs []openNeed, darks []darkFrame, now time.Time) {
+	for _, on := range needs {
+		n := on.need
+		sameSetup := func(c DarkCombo) bool {
+			return c.Exposure == n.exposure && c.Gain == n.gain && c.Offset == n.offset && c.Binning == n.bin
+		}
+		idx := -1
+		for i, c := range b.Combos {
+			if sameSetup(c) && slices.Contains(c.SetTempsCovered, n.tmp) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			for i, c := range b.Combos {
+				if len(c.Requests) > 0 && sameSetup(c) && math.Abs(c.SetTemp-n.tmp) <= calmatch.SetTempExactC {
+					idx = i
+					b.Combos[i].SetTempsCovered = append(b.Combos[i].SetTempsCovered, n.tmp)
+					sort.Float64s(b.Combos[i].SetTempsCovered)
+					break
+				}
+			}
+		}
+		if idx < 0 {
+			c := DarkCombo{
+				ComboKey: ComboKey(n.exposure, n.gain, n.offset, n.bin, n.tmp), Exposure: n.exposure, Gain: n.gain, Offset: n.offset,
+				Binning: n.bin, ReadoutMode: n.readout, SetTemp: n.tmp, SetTempsCovered: []float64{n.tmp}, FramesNeeded: DarkFramesTarget,
+				Nights: 1, LatestNight: on.ref.Night, Requests: []RequestRef{},
+				Basis: fmt.Sprintf("No lights at set temperature %s °C are short of darks; this set was asked for.", numText(n.tmp)),
+			}
+			fillDarkProgress(&c, darkSetup{exposure: n.exposure, gain: n.gain, offset: n.offset, bin: n.bin}, darks, now)
+			b.Combos = append(b.Combos, c)
+			idx = len(b.Combos) - 1
+		}
+		c := &b.Combos[idx]
+		if !slices.ContainsFunc(c.Requests, func(r RequestRef) bool { return r.ID == on.ref.ID }) {
+			c.Requests = append(c.Requests, on.ref)
+			c.Basis += requestedNote(on.ref)
+		}
+		c.FramesHave = min(c.FramesHave, n.have)
+	}
+	requestedFirst(b.Combos, func(c DarkCombo) bool { return len(c.Requests) > 0 }, func(c *DarkCombo, p int) { c.Priority = p })
+}
+
+// mergeBiasRequests adds requested bias sets to the backlog, into the combo
+// of the same gain, offset and binning or as a new one.
+func mergeBiasRequests(b *BiasBacklog, needs []openNeed, frames []biasFrame, sets []calmatch.Set, now time.Time) {
+	for _, on := range needs {
+		n := on.need
+		key := BiasComboKey(n.gain, n.offset, n.bin)
+		idx := slices.IndexFunc(b.Combos, func(c BiasCombo) bool { return c.ComboKey == key })
+		if idx < 0 {
+			su := biasSetup{gain: n.gain, offset: n.offset, bin: n.bin}
+			c := newBiasCombo(su, n.readout)
+			c.Nights, c.LatestNight = 1, on.ref.Night
+			c.Basis = fmt.Sprintf("No lights at gain %s, offset %s, bin %s are short of bias; this set was asked for.",
+				numText(n.gain), numText(n.offset), numText(n.bin))
+			fillBiasProgress(&c, su, frames, sets, now)
+			b.Combos = append(b.Combos, c)
+			idx = len(b.Combos) - 1
+		}
+		c := &b.Combos[idx]
+		if !slices.ContainsFunc(c.Requests, func(r RequestRef) bool { return r.ID == on.ref.ID }) {
+			c.Requests = append(c.Requests, on.ref)
+			c.Basis += requestedNote(on.ref)
+		}
+		c.FramesHave = min(c.FramesHave, n.have)
+	}
+	requestedFirst(b.Combos, func(c BiasCombo) bool { return len(c.Requests) > 0 }, func(c *BiasCombo, p int) { c.Priority = p })
 }
