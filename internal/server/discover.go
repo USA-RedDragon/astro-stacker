@@ -2,7 +2,7 @@ package server
 
 import (
 	"errors"
-	"log/slog"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -47,14 +47,14 @@ func discoverError(c *gin.Context, err error) {
 	}
 }
 
-func pickPlans(c *gin.Context) *planning.Snapshot {
+func pickPlans(c *gin.Context) (*planning.Snapshot, bool) {
 	v, ok := c.Get(middleware.DepInjectionKey)
 	if !ok {
-		return nil
+		return nil, true
 	}
 	di, ok := v.(*middleware.DepInjection)
 	if !ok || di.SchedulerDBStore == nil {
-		return nil
+		return nil, true
 	}
 	ctx := c.Request.Context()
 	sched := di.SchedulerDBStore.DB()
@@ -64,15 +64,15 @@ func pickPlans(c *gin.Context) *planning.Snapshot {
 	}
 	in, err := planning.AppInputs(ctx, appDB, sched)
 	if err != nil {
-		slog.Warn("Could not load goal settings for the exposure pick", "error", err)
-		return nil
+		discoverError(c, fmt.Errorf("load goal settings for the exposure pick: %w", err))
+		return nil, false
 	}
 	s, err := planning.Load(ctx, sched, appDB, in)
 	if err != nil {
-		slog.Warn("Could not load the scheduler's templates for the exposure pick", "error", err)
-		return nil
+		discoverError(c, fmt.Errorf("load the scheduler's templates for the exposure pick: %w", err))
+		return nil, false
 	}
-	return s
+	return s, true
 }
 
 func applyDiscoverRoutes(g *gin.RouterGroup, x Extras) {
@@ -126,7 +126,11 @@ func applyDiscoverRoutes(g *gin.RouterGroup, x Extras) {
 		c.JSON(http.StatusOK, out)
 	})
 	g.GET("/catalog/objects/:id/pick", func(c *gin.Context) {
-		out, err := d.Pick(c.Request.Context(), c.Param("id"), pickPlans(c))
+		plans, ok := pickPlans(c)
+		if !ok {
+			return
+		}
+		out, err := d.Pick(c.Request.Context(), c.Param("id"), plans)
 		if err != nil {
 			discoverError(c, err)
 			return

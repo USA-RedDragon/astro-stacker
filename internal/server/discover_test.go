@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
@@ -131,5 +133,33 @@ func TestPickRoute(t *testing.T) {
 	}
 	if w := discoverGet(t, r, "/api/v1/catalog/objects/nope/pick"); w.Code != http.StatusNotFound {
 		t.Errorf("unknown object: %d", w.Code)
+	}
+}
+
+func TestPickRouteFailsWhenTheSchedulerCannotBeRead(t *testing.T) {
+	t.Parallel()
+	ix, err := catalog.LoadEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	appStore := memStore(t)
+	if err := appStore.DB().AutoMigrate(&app.Stack{}, &app.Frame{}, &app.ObjectXref{}); err != nil {
+		t.Fatal(err)
+	}
+	sched := memStore(t)
+	sqlDB, err := sched.DB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	d := &discover.Service{Catalog: ix, AppDB: appStore.DB(), Rig: discover.Rig{Frame: sky.Frame{FocalLength: 405, PixelSize: 3.76, WidthPx: 6248, HeightPx: 4176}}}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{}, AppStore: appStore, SchedulerDBStore: sched}))
+	applyDiscoverRoutes(r.Group("/api/v1"), Extras{Discover: d})
+	if w := discoverGet(t, r, "/api/v1/catalog/objects/M42/pick"); w.Code != http.StatusInternalServerError {
+		t.Fatalf("pick with the scheduler database down: %d %s", w.Code, w.Body.String())
 	}
 }
