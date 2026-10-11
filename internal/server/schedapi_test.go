@@ -435,6 +435,33 @@ func TestTonightLatestPreviewTrailsAnUnindexedSub(t *testing.T) {
 	}
 }
 
+func TestTonightLatestPreviewFallsBackToAnEarlierNight(t *testing.T) {
+	t.Parallel()
+	const m31 = "M31"
+	sched, appDB, at := tonightFixture(t)
+	if err := appDB.Model(&app.Frame{}).Where("preview_key IS NOT NULL").Update("preview_key", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	older, old := at(-40), at(-20)
+	olderKey, oldKey := "previews/older.jpg", "previews/old.jpg"
+	if err := appDB.Create(&[]app.Frame{
+		{Key: "lights/M31/older.fits", ETag: "5", Type: light, Object: m31, Filter: "Ha", DateObs: &older, PreviewKey: &olderKey},
+		{Key: "lights/M31/old.fits", ETag: "6", Type: light, Object: m31, Filter: "OIII", DateObs: &old, PreviewKey: &oldKey},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	got := tonightSubsWithSigner(t, sched, appDB, at)
+	for _, s := range got.Subs {
+		if s.PreviewURL != "" {
+			t.Fatalf("sub %+v has a preview", s)
+		}
+	}
+	p := got.LatestPreview
+	if p == nil || p.ID != 0 || !strings.Contains(p.PreviewURL, "previews/old.jpg") || p.Target != m31 || p.Filter != "OIII" || !p.Time.Equal(old) || p.File != "old.fits" {
+		t.Fatalf("latest preview %+v", p)
+	}
+}
+
 func TestSchedulerStatusFromMonitor(t *testing.T) {
 	t.Parallel()
 	m := observatory.NewMonitor(observatory.NewClient("http://127.0.0.1:1", "x"), nil, nil)
