@@ -60,6 +60,16 @@ type Master struct {
 	CometXISFURL    string   `json:"comet_xisf_url,omitempty"`
 	MinScore        float64  `json:"min_score"`
 	LowestScore     *float64 `json:"lowest_score"`
+	// LocalNorm is whether local normalization matched any of its subs'
+	// skies to the master, and LocalNormSubs how many; both null while
+	// unknown, for a master stacked before they were counted.
+	LocalNorm     *bool `json:"local_norm"`
+	LocalNormSubs *int  `json:"local_norm_subs"`
+	// LocalNormUneven is the share of the frame fewer than 90% of the subs
+	// cover, as the last decision measured it; local normalization runs
+	// above LocalNormThreshold. Null before a decision was recorded.
+	LocalNormUneven    *float64 `json:"local_norm_uneven"`
+	LocalNormThreshold float64  `json:"local_norm_threshold"`
 }
 
 // Crop is the well-covered part of an image as fractions of its width and
@@ -589,7 +599,12 @@ func stackMaster(ctx context.Context, signer *previewer.Signer, s app.Stack) (Ma
 	m := Master{
 		Filter: s.Filter, Subs: s.Subs, ExposureSeconds: s.ExposureSeconds, EffectiveSeconds: s.EffectiveSeconds,
 		Width: s.Width, Height: s.Height, UpdatedAt: s.UpdatedAt,
-		Crop: cropOf(s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height),
+		Crop:          cropOf(s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height),
+		LocalNormSubs: s.LocalNormSubs, LocalNormUneven: s.LocalNormUneven, LocalNormThreshold: stacking.LocalNormThreshold,
+	}
+	if s.LocalNormSubs != nil {
+		ran := *s.LocalNormSubs > 0
+		m.LocalNorm = &ran
 	}
 	var err error
 	name := fmt.Sprintf("%s_%s_master.fit", strings.ReplaceAll(s.Object, " ", "_"), strings.ReplaceAll(s.Filter, " ", "_"))
