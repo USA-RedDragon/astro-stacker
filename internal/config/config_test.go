@@ -122,3 +122,26 @@ func TestGoals(t *testing.T) {
 		t.Errorf("enabled without S3 credentials: %v", err)
 	}
 }
+
+func TestCalibrationPublish(t *testing.T) {
+	t.Parallel()
+	defConfig, err := configulator.New(config.ConfigSchema()).Default()
+	if err != nil {
+		t.Fatalf("failed to create default config: %v", err)
+	}
+	if defConfig.Calibration.Publish != config.GoalsPublishOff {
+		t.Errorf("calibration.publish default %q", defConfig.Calibration.Publish)
+	}
+	for _, mode := range []string{config.GoalsPublishOff, config.GoalsPublishDryRun, config.GoalsPublishOn} {
+		cfg := defConfig
+		cfg.Calibration.Publish = mode
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("publish %q: %v", mode, err)
+		}
+	}
+	bad := defConfig
+	bad.Calibration.Publish = "always"
+	if err := bad.Validate(); !errors.Is(err, config.ErrInvalidCalibrationPublish) {
+		t.Errorf("publish yes: %v", err)
+	}
+}

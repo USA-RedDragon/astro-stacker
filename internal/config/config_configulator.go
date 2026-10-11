@@ -156,6 +156,10 @@ type darksShadow struct {
 	Publish     *string `json:"publish"      toml:"publish"      yaml:"publish"`
 }
 
+type calibrationShadow struct {
+	Publish *string `json:"publish" toml:"publish" yaml:"publish"`
+}
+
 type configShadow struct {
 	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
 	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
@@ -171,6 +175,7 @@ type configShadow struct {
 	Scheduler    *schedulerShadow    `json:"scheduler"     toml:"scheduler"     yaml:"scheduler"`
 	Goals        *goalsShadow        `json:"goals"         toml:"goals"         yaml:"goals"`
 	Darks        *darksShadow        `json:"darks"         toml:"darks"         yaml:"darks"`
+	Calibration  *calibrationShadow  `json:"calibration"   toml:"calibration"   yaml:"calibration"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -313,6 +318,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("darks.reject-since", configulator.LayerDefault, "default tag")
 	cfg.Darks.Publish = "off"
 	set("darks.publish", configulator.LayerDefault, "default tag")
+	cfg.Calibration.Publish = "off"
+	set("calibration.publish", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -731,6 +738,12 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Darks.Publish != nil {
 			cfg.Darks.Publish = *s.Darks.Publish
 			set("darks.publish", configulator.LayerFile, file)
+		}
+	}
+	if s.Calibration != nil {
+		if s.Calibration.Publish != nil {
+			cfg.Calibration.Publish = *s.Calibration.Publish
+			set("calibration.publish", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -1658,6 +1671,10 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Darks.Publish = v
 		set("darks.publish", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "calibration", "publish"); ok {
+		cfg.Calibration.Publish = v
+		set("calibration.publish", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -1765,6 +1782,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"goals" + o.Separator + "depth-switch",
 		"darks" + o.Separator + "reject-since",
 		"darks" + o.Separator + "publish",
+		"calibration" + o.Separator + "publish",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -1874,6 +1892,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[91], "on", "Every hour, move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
 	fs.String(names[92], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
 	fs.String(names[93], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[94], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
 	return nil
 }
 
@@ -3007,6 +3026,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Darks.Publish = v
 		set("darks.publish", configulator.LayerCLI, "--"+n)
 	}
+	if n := "calibration" + o.Separator + "publish"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "calibration.publish",
+				Source: "--" + n,
+			}
+		}
+		cfg.Calibration.Publish = v
+		set("calibration.publish", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -3286,6 +3317,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Darks = &sub
+			}
+		case "calibration":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("calibration", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub calibrationShadow
+				if err := sub.decodeJSON(dec, "calibration"); err != nil {
+					return err
+				}
+				s.Calibration = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -5181,6 +5231,42 @@ func (s *darksShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *calibrationShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "publish":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Publish = &str
+			default:
+				return configJSONError(path+".publish", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -5293,6 +5379,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "goals.depth-switch = %v\n", c.Goals.DepthSwitch)
 	fmt.Fprintf(&b, "darks.reject-since = %v\n", c.Darks.RejectSince)
 	fmt.Fprintf(&b, "darks.publish = %v\n", c.Darks.Publish)
+	fmt.Fprintf(&b, "calibration.publish = %v\n", c.Calibration.Publish)
 	return b.String()
 }
 
