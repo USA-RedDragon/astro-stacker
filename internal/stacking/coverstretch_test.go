@@ -28,7 +28,7 @@ func TestColourStretchKeepsFrameFillingEmission(t *testing.T) {
 			}
 		}
 	}
-	out := colourStretch([3][]float32{r, g, b}, [3][]float32{r, g, b}, f.w, f.h)
+	out, _ := colourStretch([3][]float32{r, g, b}, [3][]float32{r, g, b}, nil, f.w, f.h)
 	mean := func(keep func(x, y int) bool) (dr, db float64) {
 		var n float64
 		for y := range f.h {

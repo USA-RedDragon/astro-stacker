@@ -182,7 +182,7 @@ func TestCoverFromFiles(t *testing.T) {
 		t.Fatal("no palette")
 	}
 	w, h := planes[pal.R].W, planes[pal.R].H
-	jpg, err := composeCover(pal, planes, w, h)
+	jpg, _, err := composeCover(pal, planes, w, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestCoverNeedsEveryChannel(t *testing.T) {
 		filterGreen: plane(sky),
 		filterBlue:  plane(sky),
 	}
-	jpg, err := composeCover(palettes()[1], planes, w, h) // RGB
+	jpg, _, err := composeCover(palettes()[1], planes, w, h) // RGB
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,12 +277,16 @@ func TestCometCover(t *testing.T) {
 func TestPaletteFiltersByName(t *testing.T) {
 	t.Parallel()
 	for name, want := range map[string][]string{
-		"RGB":         {filterRed, filterGreen, filterBlue},
-		"RGB+Ha":      {filterRed, filterGreen, filterBlue, filterHa},
-		"RGB+Ha+OIII": {filterRed, filterGreen, filterBlue, filterHa, filterOIII},
-		"HOO":         {filterHa, filterOIII},
-		"SHO":         {filterSII, filterHa, filterOIII},
-		"":            nil,
+		"RGB":          {filterRed, filterGreen, filterBlue},
+		"RGB+Ha":       {filterRed, filterGreen, filterBlue, filterHa},
+		"RGB+Ha+OIII":  {filterRed, filterGreen, filterBlue, filterHa, filterOIII},
+		"HOO":          {filterHa, filterOIII},
+		"SHO":          {filterSII, filterHa, filterOIII},
+		"LRGB":         {filterRed, filterGreen, filterBlue, filterLuminance},
+		"LRGB+Ha":      {filterRed, filterGreen, filterBlue, filterHa, filterLuminance},
+		"LRGB+Ha+OIII": {filterRed, filterGreen, filterBlue, filterHa, filterOIII, filterLuminance},
+		"LHOO":         nil,
+		"":             nil,
 	} {
 		if got := PaletteFilters(name); !slices.Equal(got, want) {
 			t.Errorf("%q: %v, want %v", name, got, want)

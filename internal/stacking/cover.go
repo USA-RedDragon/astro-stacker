@@ -33,12 +33,16 @@ const (
 )
 
 // palette maps filters to red, green and blue; HaRed adds H-a to red, and
-// OIIIGB O-III to green and blue, where their masks are on (addLine).
+// OIIIGB O-III to green and blue, where their masks are on (addLine). Lum
+// offers a luminance master for the lightness of a red, green and blue
+// palette; composeCover uses it only where it measures better, and the
+// name then gets an L (LRGB, LRGB+Ha).
 type palette struct {
 	Name    string
 	R, G, B string
 	HaRed   bool
 	OIIIGB  bool
+	Lum     bool
 }
 
 // filters lists each filter the palette reads once.
@@ -55,16 +59,27 @@ func (p palette) filters() []string {
 	if p.OIIIGB && !slices.Contains(out, filterOIII) {
 		out = append(out, filterOIII)
 	}
+	if p.Lum {
+		out = append(out, filterLuminance)
+	}
 	return out
 }
+
+// lrgbPrefix starts the name of a palette whose lightness took a
+// luminance master.
+const lrgbPrefix = "L"
 
 // PaletteFilters lists the filters a cover of the named palette is composed
 // from, or nil for a name that isn't a palette.
 func PaletteFilters(name string) []string {
 	base, oiii := strings.CutSuffix(name, "+OIII")
+	lum := strings.HasPrefix(base, lrgbPrefix+paletteRGB)
+	if lum {
+		base = strings.TrimPrefix(base, lrgbPrefix)
+	}
 	for _, p := range palettes() {
 		if p.Name == base {
-			p.OIIIGB = oiii
+			p.OIIIGB, p.Lum = oiii, lum && p.R == filterRed
 			return p.filters()
 		}
 	}
@@ -212,6 +227,8 @@ func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 					p.OIIIGB = true
 					p.Name += "+OIII"
 				}
+				l, found := have[filterLuminance]
+				p.Lum = found && l.Key != "" && l.Panels >= most
 			}
 			return p, true
 		}
@@ -237,35 +254,20 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 		}
 		planes[f] = img
 	}
-	// Mosaic canvases of different filters are framed from each filter's
-	// own plate solutions, so they can differ by a pixel or two; trim them
-	// to the common size. Anything more means they don't line up.
-	w, h := planes[pal.R].W, planes[pal.R].H
-	for _, img := range planes {
-		w, h = min(w, img.W), min(h, img.H)
+	pal, planes, w, h, ok := framePlanes(subject, pal, linear, planes)
+	if !ok {
+		return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
 	}
-	for f, img := range planes {
-		if float64(img.W-w) > 0.01*float64(img.W) || float64(img.H-h) > 0.01*float64(img.H) {
-			slog.Info("Filters differ in size; no colour cover", "subject", subject, "filter", f)
-			return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
-		}
-		if img.W != w || img.H != h {
-			planes[f] = &linearImage{W: w, H: h, Data: crop(img.Data, img.W, Rect{0, 0, w, h})}
-		}
-	}
-	var layers []layer
-	for _, f := range pal.filters() {
-		layers = append(layers, linear[f])
-	}
-	if r := commonCrop(layers, w, h); r.W != w || r.H != h {
-		for f, img := range planes {
-			planes[f] = &linearImage{W: r.W, H: r.H, Data: crop(img.Data, img.W, r)}
-		}
-		w, h = r.W, r.H
-	}
-	jpg, err := composeCover(pal, planes, w, h)
+	jpg, lrgb, err := composeCover(pal, planes, w, h)
 	if err != nil {
 		return err
+	}
+	if pal.Lum {
+		slog.Info("Cover luminance", "subject", subject, "used", lrgb.Used, "why", lrgb.Why, "weight", lrgb.Weight,
+			"noise_rgb", lrgb.NoiseRGB, "noise_l", lrgb.NoiseL, "noise_out", lrgb.NoiseOut, "shift", lrgb.Shift, "stars", lrgb.Stars)
+	}
+	if lrgb.Used {
+		pal.Name = lrgbPrefix + pal.Name
 	}
 	key := path.Join(prefix, "color.jpg")
 	if err := p.putBytes(ctx, key, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG}); err != nil {
@@ -281,9 +283,66 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 	return p.db.WithContext(ctx).Save(&c).Error
 }
 
+// framePlanes brings a cover's linear previews to one frame: trimmed to
+// the colour channels' common size and their common well-covered crop. A
+// luminance that doesn't fit the frame is left out, and one is used only
+// inside its own well-covered crop. ok is false when the colour channels
+// themselves don't line up.
+func framePlanes(subject string, pal palette, linear map[string]layer, planes map[string]*linearImage) (palette, map[string]*linearImage, int, int, bool) {
+	// Mosaic canvases of different filters are framed from each filter's
+	// own plate solutions, so they can differ by a pixel or two; trim them
+	// to the common size. Anything more means they don't line up.
+	w, h := planes[pal.R].W, planes[pal.R].H
+	for f, img := range planes {
+		if f != filterLuminance {
+			w, h = min(w, img.W), min(h, img.H)
+		}
+	}
+	if l, ok := planes[filterLuminance]; ok && (l.W < w || l.H < h || float64(l.W-w) > 0.01*float64(l.W) || float64(l.H-h) > 0.01*float64(l.H)) {
+		slog.Info("Luminance differs in size from the colour; cover without it", "subject", subject)
+		delete(planes, filterLuminance)
+		pal.Lum = false
+	}
+	for f, img := range planes {
+		if float64(img.W-w) > 0.01*float64(img.W) || float64(img.H-h) > 0.01*float64(img.H) {
+			slog.Info("Filters differ in size; no colour cover", "subject", subject, "filter", f)
+			return pal, nil, 0, 0, false
+		}
+		if img.W != w || img.H != h {
+			planes[f] = &linearImage{W: w, H: h, Data: crop(img.Data, img.W, Rect{0, 0, w, h})}
+		}
+	}
+	if l, ok := planes[filterLuminance]; ok {
+		// Only where the luminance is well covered; elsewhere the
+		// colour's own lightness.
+		keep := commonCrop([]layer{linear[filterLuminance]}, w, h)
+		for y := range h {
+			for x := range w {
+				if x < keep.X || x >= keep.X+keep.W || y < keep.Y || y >= keep.Y+keep.H {
+					l.Data[y*w+x] = 0
+				}
+			}
+		}
+	}
+	var layers []layer
+	for _, f := range pal.filters() {
+		if f != filterLuminance {
+			layers = append(layers, linear[f])
+		}
+	}
+	if r := commonCrop(layers, w, h); r.W != w || r.H != h {
+		for f, img := range planes {
+			planes[f] = &linearImage{W: r.W, H: r.H, Data: crop(img.Data, img.W, r)}
+		}
+		w, h = r.W, r.H
+	}
+	return pal, planes, w, h, true
+}
+
 // composeCover adds the narrowband lines, balances and stretches the
-// channels together (colourStretch) and encodes a JPEG.
-func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte, error) {
+// channels together (colourStretch), with the luminance in the lightness
+// when the palette offers one, and encodes a JPEG.
+func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte, lrgbReport, error) {
 	// Only where every channel has data: a mosaic panel missing a filter,
 	// or a master's edge another doesn't reach, would otherwise show in the
 	// remaining channels' colours. H-a only adds to red, so it isn't needed.
@@ -303,7 +362,11 @@ func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte
 	}
 	// Balanced and stretched as without the lines, so where the mask is
 	// off the colour is exactly the broadband's.
-	rgb := colourStretch([3][]float32{red, green, blue}, [3][]float32{rawR, rawG, rawB}, w, h)
+	var lum []float32
+	if l, ok := planes[filterLuminance]; ok && pal.Lum {
+		lum = l.Data
+	}
+	rgb, lrgb := colourStretch([3][]float32{red, green, blue}, [3][]float32{rawR, rawG, rawB}, lum, w, h)
 	r, g, b := rgb[0], rgb[1], rgb[2]
 	fillUncovered([][]float32{r, g, b}, rawR, w, h)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -315,9 +378,9 @@ func composeCover(pal palette, planes map[string]*linearImage, w, h int) ([]byte
 	}
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85}); err != nil {
-		return nil, err
+		return nil, lrgb, err
 	}
-	return buf.Bytes(), nil
+	return buf.Bytes(), lrgb, nil
 }
 
 // commonData returns copies of the planes with every pixel that is empty
@@ -526,8 +589,10 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // 6: black point no higher than the darkest sky, over-bright colour taken
 // partway to white, and less H-a (lineGain 1.5, none into blue). 7: what
 // no channel covers is sky grey, not black, and a mosaic's palette needs
-// as many panels as its best filter.
-const CoverVersion = 7
+// as many panels as its best filter. 8: a luminance master goes into the
+// lightness of a red, green and blue cover where it lines up with them and
+// lowers the noise (LRGB).
+const CoverVersion = 8
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or
