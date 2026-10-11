@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"path"
@@ -433,7 +434,51 @@ func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, signer *preview
 			break
 		}
 	}
+	if out.LatestPreview == nil && appDB != nil && signer != nil {
+		p, ok, err := newestPreview(ctx, appDB, signer)
+		if err != nil {
+			return out, err
+		}
+		if ok {
+			out.LatestPreview = &p
+		}
+	}
 	return out, nil
+}
+
+// newestPreview is the newest light with a preview, from any night, for when
+// no sub of tonight has one yet. Its ID is 0: it has no acquiredimage row here.
+func newestPreview(ctx context.Context, db *gorm.DB, signer *previewer.Signer) (TonightSub, bool, error) {
+	if !db.Migrator().HasTable(&app.Frame{}) {
+		return TonightSub{}, false, nil
+	}
+	var f app.Frame
+	err := db.WithContext(ctx).Select("key", "object", "filter", "exposure", "gain", "ccd_temp", "width", "height", "date_obs", "preview_key").
+		Where("type = ? AND preview_key IS NOT NULL AND date_obs IS NOT NULL", lightType).
+		Order("date_obs DESC").Limit(1).Take(&f).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return TonightSub{}, false, nil
+	}
+	if err != nil {
+		return TonightSub{}, false, err
+	}
+	u, err := signer.URL(ctx, *f.PreviewKey)
+	if err != nil {
+		return TonightSub{}, false, err
+	}
+	return TonightSub{
+		Time:       f.DateObs.UTC(),
+		Target:     f.Object,
+		Filter:     f.Filter,
+		Exposure:   f.Exposure,
+		Gain:       f.Gain,
+		CCDTemp:    f.CCDTemp,
+		File:       path.Base(f.Key),
+		PreviewURL: u,
+		Width:      f.Width,
+		Height:     f.Height,
+		Indexed:    true,
+	}, true, nil
 }
 
 func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time.Time) error {
