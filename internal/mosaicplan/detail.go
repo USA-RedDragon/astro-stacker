@@ -93,6 +93,9 @@ type Balancing struct {
 	On               bool    `json:"on"`
 	OnWeight         float64 `json:"onWeight"`
 	EvenPanels       bool    `json:"evenPanels"`
+	EnabledPanels    int     `json:"enabledPanels"`
+	EvenMinPanels    int     `json:"evenMinPanels"`
+	EvenSpreads      bool    `json:"evenSpreads"`
 }
 
 type Project struct {
@@ -286,7 +289,7 @@ func (s *Service) loadGoals(ctx context.Context) (map[goals.Key]goals.Goal, erro
 
 func (s *Service) build(ctx context.Context, g stacking.MosaicGroup, gs map[goals.Key]goals.Goal) (Detail, error) {
 	d := Detail{Project: g.Project, ProjectGUID: g.ProjectGUID, Seams: []app.MosaicSeam{}, Health: []app.MosaicPanelHealth{}, Needs: []string{},
-		Noise: []MosaicNoise{}, SeamStatus: []SeamStatus{}, Balancing: Balancing{OnWeight: mosaics.PanelDeficitOnWeight},
+		Noise: []MosaicNoise{}, SeamStatus: []SeamStatus{}, Balancing: Balancing{OnWeight: mosaics.PanelDeficitOnWeight, EvenMinPanels: mosaics.EvenPanelsMinPanels},
 		SeamLimits: stacking.Limits()}
 	var adopted int64
 	if err := s.App.WithContext(ctx).Model(&app.MosaicPanel{}).Where("project_guid = ?", g.ProjectGUID).Count(&adopted).Error; err != nil {
@@ -747,6 +750,12 @@ func (s *Service) loadTS(ctx context.Context, d *Detail) error {
 		}
 	}
 	d.Balancing.On = d.Balancing.PanelDeficit > 0
+	var enabled int64
+	if err := s.Sched.WithContext(ctx).Table("target").Where("projectid = ? AND active = 1", r.ID).Count(&enabled).Error; err != nil {
+		return fmt.Errorf("count enabled targets: %w", err)
+	}
+	d.Balancing.EnabledPanels = int(enabled)
+	d.Balancing.EvenSpreads = mosaics.EvenPanelsSpread(d.Balancing.EvenPanels, d.Balancing.EnabledPanels)
 	return nil
 }
 

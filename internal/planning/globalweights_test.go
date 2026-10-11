@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -281,6 +282,13 @@ func TestEvenPanelsIsAMosaicSwitch(t *testing.T) {
 	}
 	if slices.ContainsFunc(Rules(), func(r Rule) bool { return r.Name == ruleweights.EvenPanels }) {
 		t.Fatal("Even Panels is a switch, not a scored rule")
+	}
+	if !strings.Contains(g.Description, "4 or more enabled panels") || !strings.Contains(g.Description, "fewer panels keep the weakest panel first") {
+		t.Errorf("Even Panels description does not name the 4-panel limit: %s", g.Description)
+	}
+	pd := globalRule(ruleweights.PanelDeficit)
+	if !strings.Contains(pd.Description, "4 or more enabled panels") {
+		t.Errorf("Panel Deficit description does not name the 4-panel limit: %s", pd.Description)
 	}
 }
 

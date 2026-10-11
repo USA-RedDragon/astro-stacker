@@ -24,6 +24,12 @@ type SeasonRow struct {
 	Done            bool    `json:"done"`
 }
 
+const EvenPanelsMinPanels = 4
+
+func EvenPanelsSpread(evenPanelsOn bool, panels int) bool {
+	return evenPanelsOn && panels >= EvenPanelsMinPanels
+}
+
 const (
 	StepHours = 0.25
 	epsilon   = 1e-9
