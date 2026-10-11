@@ -17,7 +17,7 @@ internal/catalog/gen/names.go	106	0
 internal/catalog/gen/nina.go	193	0
 internal/catalog/gen/shapes.go	27	0
 internal/catalog/notcatalogue.go	29	28
-internal/conditions/conditions.go	213	160
+internal/conditions/conditions.go	240	185
 internal/conditions/moon.go	45	45
 internal/config/config.go	36	24
 internal/coverage/coverage.go	179	158
