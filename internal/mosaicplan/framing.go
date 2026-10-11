@@ -99,7 +99,7 @@ func (s *Service) Frame(ctx context.Context, req FramingRequest, now time.Time) 
 	if s.Site != nil {
 		if site, ok := s.Site(ctx); ok {
 			out.SiteKnown = true
-			months = mosaics.MonthlyDarkHours(now.Year(), site, []mosaics.Point{o.Centre}, minAlt)
+			months = mosaics.MonthlyDarkHours(now.Year(), site, []mosaics.Point{o.Centre}, mosaics.Flat(minAlt))
 			idx := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 			slices.SortFunc(idx, func(a, b int) int {
 				switch {

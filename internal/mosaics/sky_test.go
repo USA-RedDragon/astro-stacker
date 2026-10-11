@@ -90,7 +90,7 @@ func TestDarkHours(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h := mosaics.DarkHours(tc.night, tc.site, tc.points, tc.minAlt)
+			h := mosaics.DarkHours(tc.night, tc.site, tc.points, mosaics.Flat(tc.minAlt))
 			if h < tc.lo || h > tc.hi {
 				t.Fatalf("%v dark hours, want %v..%v", h, tc.lo, tc.hi)
 			}
@@ -113,7 +113,7 @@ func TestMonthlyDarkHours(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			m := mosaics.MonthlyDarkHours(2026, texas, tc.points, 30)
+			m := mosaics.MonthlyDarkHours(2026, texas, tc.points, mosaics.Flat(30))
 			top := 0.0
 			for _, h := range m {
 				top = max(top, h)
@@ -133,10 +133,10 @@ func TestMonthlyDarkHours(t *testing.T) {
 			}
 		})
 	}
-	m := mosaics.MonthlyDarkHours(2026, texas, []mosaics.Point{{RA: 0, Dec: 90}}, 20)
+	m := mosaics.MonthlyDarkHours(2026, texas, []mosaics.Point{{RA: 0, Dec: 90}}, mosaics.Flat(20))
 	want := 0.0
 	for _, d := range []int{1, 8, 15, 22} {
-		want += mosaics.DarkHours(time.Date(2026, 3, d, 0, 0, 0, 0, time.UTC), texas, []mosaics.Point{{RA: 0, Dec: 90}}, 20) / 4
+		want += mosaics.DarkHours(time.Date(2026, 3, d, 0, 0, 0, 0, time.UTC), texas, []mosaics.Point{{RA: 0, Dec: 90}}, mosaics.Flat(20)) / 4
 	}
 	if !near(m[2], want, 1e-9) {
 		t.Fatalf("march %v, want the mean of four nights %v", m[2], want)
