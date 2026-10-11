@@ -438,3 +438,53 @@ func TestPublishLogsEachSkipOnce(t *testing.T) {
 		t.Errorf("logs:\n%s", out)
 	}
 }
+
+func TestPublishSkipsNightQualityStampsInsideTheRefresh(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sched, db := signalDBs(t)
+	now := time.Date(2026, 10, 9, 6, 0, 0, 0, time.UTC)
+	ms := []app.GoalMeasurement{
+		{Object: objGarlic, Filter: filterHa, Subs: 64, SNR: 5, EffectiveHours: 8, GainPerHourPct: 5, MeasuredAt: now},
+		{Object: objGarlic, Filter: filterO3, Subs: 47, SNR: 4.4, EffectiveHours: 7.8, GainPerHourPct: 5.8, MeasuredAt: now},
+	}
+	if err := db.Create(&ms).Error; err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	addSub := func(score float64, at time.Time) {
+		n++
+		f := app.Frame{Key: fmt.Sprintf("light-%d", n), ETag: "e", Type: "LIGHT", Object: objGarlic, DateObs: &at, LastModified: at, IndexedAt: at}
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&app.StackFrame{FrameID: f.ID, Status: app.StackStatusAdded, Score: score, ProcessedAt: at}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 3 {
+		addSub(0.8, now.Add(-time.Duration(20*(2-i))*time.Minute))
+	}
+	clock := now
+	p := &Publisher{App: db, Sched: sched, Mode: PublishOn, Now: func() time.Time { return clock }}
+	publish := func(want int, what string) {
+		t.Helper()
+		if sum, err := p.Publish(ctx); err != nil || sum.Changed != want {
+			t.Fatalf("%s: %+v %v", what, sum, err)
+		}
+	}
+	publish(2, "first")
+	for i := 1; i <= 5; i++ {
+		clock = now.Add(time.Duration(i*10) * time.Minute)
+		addSub(0.8, clock)
+		publish(0, fmt.Sprintf("new sub %d with the same night quality", i))
+	}
+	clock = now.Add(time.Hour)
+	addSub(0.8, clock)
+	publish(2, "same night quality an hour on")
+	clock = clock.Add(10 * time.Minute)
+	for range 12 {
+		addSub(0.3, clock)
+	}
+	publish(2, "night quality changed")
+}

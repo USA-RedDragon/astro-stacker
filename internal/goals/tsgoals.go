@@ -341,7 +341,7 @@ func (r progressRow) same(o progressRow, signals, readiness bool) bool {
 	if readiness && !r.sameReadiness(o) {
 		return false
 	}
-	if signals && (!sameFloat(r.NightQuality, o.NightQuality) || !sameTime(r.NightQualityAt, o.NightQualityAt) || !sameFloat(r.SeasonBoost, o.SeasonBoost)) {
+	if signals && (!sameFloat(r.NightQuality, o.NightQuality) || !sameNightQualityAt(r.NightQualityAt, o.NightQualityAt) || !sameFloat(r.SeasonBoost, o.SeasonBoost)) {
 		return false
 	}
 	return r.Kind == o.Kind && r.Plateau == o.Plateau && r.LowConfidence == o.LowConfidence && r.Done == o.Done &&

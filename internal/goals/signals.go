@@ -19,6 +19,9 @@ const (
 	nightQualityMinSubs  = 3
 	nightQualityStep     = 0.05
 	seasonBoostStep      = 0.01
+	// NightQualityRefresh is how far a stored night quality's time may lag the newest sub before the rows
+	// are rewritten with the same value. The plugin ignores a night quality older than NightQualityWindow.
+	NightQualityRefresh = time.Hour
 )
 
 type SeasonBoostSource func(ctx context.Context, now time.Time) (map[string]float64, error)
@@ -118,9 +121,10 @@ func (s Signals) apply(r *progressRow) {
 	}
 }
 
-func sameTime(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
+func sameNightQualityAt(stored, next *time.Time) bool {
+	if stored == nil || next == nil {
+		return stored == nil && next == nil
 	}
-	return a.Equal(*b)
+	lag := next.Sub(*stored)
+	return lag >= 0 && lag < NightQualityRefresh
 }
