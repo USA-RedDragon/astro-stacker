@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
@@ -39,6 +40,7 @@ const (
 	PaletteLRGB = "LRGB"
 
 	MinRuleSide     = 2
+	SIISignificance = 0.05
 	MinHAlphaPoints = 3
 	ScaleTolerance  = 0.05
 
@@ -238,6 +240,41 @@ type pastTarget struct {
 	class   string
 	sample  *halpha.Sample
 	canon   map[string]float64
+	own     bool
+}
+
+func ownProject(subj Subject) bool {
+	return subj.Kind == SubjectProject && subj.ProjectID > 0
+}
+
+func canonHours(subj Subject) map[string]float64 {
+	out := map[string]float64{}
+	for f, h := range subj.Hours {
+		out[rigsource.CanonicalFilter(f)] += h
+	}
+	return out
+}
+
+func namedSHO(name string) bool {
+	return slices.ContainsFunc(strings.FieldsFunc(name, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}), func(w string) bool { return strings.EqualFold(w, "SHO") })
+}
+
+func ownHistory(snap *snapshot, id string) []Subject {
+	keys := map[string]bool{}
+	for _, l := range snap.byObject[id] {
+		if l.Linked() {
+			keys[l.Subject] = true
+		}
+	}
+	var out []Subject
+	for _, subj := range snap.subjects {
+		if keys[subj.Key] && ownProject(subj) {
+			out = append(out, subj)
+		}
+	}
+	return out
 }
 
 func (s *Service) pastTargets(snap *snapshot, hmap *halpha.Map) []pastTarget {
@@ -260,10 +297,7 @@ func (s *Service) pastTargets(snap *snapshot, hmap *halpha.Map) []pastTarget {
 		if class == "" {
 			continue
 		}
-		pt := pastTarget{subject: subj, object: link.Object, class: class, canon: map[string]float64{}}
-		for f, h := range subj.Hours {
-			pt.canon[rigsource.CanonicalFilter(f)] += h
-		}
+		pt := pastTarget{subject: subj, object: link.Object, class: class, canon: canonHours(subj), own: ownProject(subj)}
 		if smp, ok := hmap.Sample(link.Object.RA, link.Object.Dec, link.Object.MajorArcmin/120); ok {
 			pt.sample = &smp
 		}
@@ -334,9 +368,7 @@ func (s *Service) rule(key string, past []pastTarget, measured *halpha.Sample) P
 	switch key {
 	case RuleSII:
 		r.Filter, r.Label = "S", "S-II when H-α is strong"
-		population = "emission, remnant and planetary targets you shot H-α on, with and without S-II"
-		fallbackR = halpha.ScoreFullR
-		fallback = fmt.Sprintf("at or above %s, by the Finder's H-α rule, whose score is full there", rText(halpha.ScoreFullR))
+		population = "own scheduler projects on emission, remnant and planetary targets shot in H-α, with and without S-II"
 	default:
 		r.Filter, r.Label = "H", "H-α when the map shows emission"
 		population = "galaxy and cluster targets, with and without H-α"
@@ -351,7 +383,7 @@ func (s *Service) rule(key string, past []pastTarget, measured *halpha.Sample) P
 		var in, shot bool
 		switch key {
 		case RuleSII:
-			in, shot = fam == FamilyNarrowband && pt.canon["H"] > 0, pt.canon["S"] > 0
+			in, shot = pt.own && fam == FamilyNarrowband && pt.canon["H"] > 0, pt.canon["S"] > 0
 		default:
 			in, shot = fam == FamilyBroadband, pt.canon["H"] > 0
 		}
@@ -361,6 +393,17 @@ func (s *Service) rule(key string, past []pastTarget, measured *halpha.Sample) P
 	}
 	sort.Slice(r.Points, func(i, j int) bool { return r.Points[i].Rayleigh > r.Points[j].Rayleigh })
 	st, why := bestSplit(r.Points)
+	if why == "" && key == RuleSII {
+		why = siiChance(st)
+	}
+	if measured != nil {
+		v := measured.Rayleigh
+		r.Measured = &v
+	}
+	if why != "" && key == RuleSII {
+		r.Basis = fmt.Sprintf("no H-α threshold for S-II: of your %s, %s", population, why)
+		return r
+	}
 	t := fallbackR
 	strict := false
 	if why == "" {
@@ -373,12 +416,40 @@ func (s *Service) rule(key string, past []pastTarget, measured *halpha.Sample) P
 		r.Basis = fmt.Sprintf("%s; not derived from your targets: of your %s, %s", fallback, population, why)
 	}
 	r.Threshold, r.Strict = &t, strict
-	if measured != nil {
-		v := measured.Rayleigh
-		r.Measured = &v
-		r.Met = v >= t && (!strict || v > t)
+	if r.Measured != nil {
+		r.Met = *r.Measured >= t && (!strict || *r.Measured > t)
 	}
 	return r
+}
+
+func logChoose(n, k int) float64 {
+	a, _ := math.Lgamma(float64(n + 1))
+	b, _ := math.Lgamma(float64(k + 1))
+	c, _ := math.Lgamma(float64(n - k + 1))
+	return a - b - c
+}
+
+// fisherUpper is the one-sided Fisher exact p-value: the chance that a random
+// draw of above targets from n, pos of them positive, holds posAbove or more.
+func fisherUpper(n, pos, above, posAbove int) float64 {
+	p := 0.0
+	for k := posAbove; k <= min(pos, above); k++ {
+		if above-k > n-pos {
+			continue
+		}
+		p += math.Exp(logChoose(pos, k) + logChoose(n-pos, above-k) - logChoose(n, above))
+	}
+	return min(p, 1)
+}
+
+func siiChance(st stump) string {
+	above := st.posAbove + st.neg - st.negBelow
+	p := fisherUpper(st.n, st.pos, above, st.posAbove)
+	if p <= SIISignificance {
+		return ""
+	}
+	return fmt.Sprintf("the best split, at %s, has %d of %d with S-II at or above and %d of %d without below; chance alone gives a split that good %.0f%% of the time (one-sided Fisher exact test), more than the %.0f%% allowed",
+		rText(ceilTenth(st.threshold)), st.posAbove, st.pos, st.negBelow, st.neg, p*100, SIISignificance*100)
 }
 
 type frameExp struct {
@@ -772,13 +843,68 @@ func (s *Service) depthGoalHours(ctx context.Context, in hoursInputs) PickHours 
 		Unknown: fmt.Sprintf("unknown, the goal model will measure it: the depth model scales by the sky measured in the same filter, and only L, R, G and B sky is measured, not %s", filterLabel(in.canon))}
 }
 
-func (s *Service) choosePalette(out *ExposurePick, fam string, past []pastTarget, haText string) []string {
+// siiChoice decides S-II for a narrowband target. HOO is the default; S-II
+// needs the user's own projects to ask for it: one named for SHO, S-II
+// already shot on this object, or a significant H-α rule from their projects.
+func siiChoice(r PickRule, hist []Subject, haText string) (bool, string) {
+	for _, subj := range hist {
+		if namedSHO(subj.Name) {
+			return true, fmt.Sprintf("%s; your project %s is named for SHO", haText, subj.Name)
+		}
+		for _, n := range subj.Targets {
+			if namedSHO(n) {
+				return true, fmt.Sprintf("%s; your project %s has the target %s, named for SHO", haText, subj.Name, n)
+			}
+		}
+	}
+	var without []string
+	for _, subj := range hist {
+		c := canonHours(subj)
+		if c["H"] <= 0 {
+			continue
+		}
+		if c["S"] > 0 {
+			return true, fmt.Sprintf("%s; you added S-II on your project %s (%s of S-II)", haText, subj.Name, hText(c["S"]))
+		}
+		without = append(without, subj.Name)
+	}
+	if len(without) > 0 {
+		if len(without) == 1 {
+			return false, fmt.Sprintf("%s; you shot your project %s in H-α without S-II", haText, without[0])
+		}
+		return false, fmt.Sprintf("%s; you shot your projects %s and %s in H-α without S-II", haText, strings.Join(without[:len(without)-1], ", "), without[len(without)-1])
+	}
+	switch {
+	case r.Met:
+		word := "at or above"
+		if r.Strict {
+			word = "above"
+		}
+		return true, fmt.Sprintf("%s %s %s, the S-II rule learned from your own projects", haText, word, rText(*r.Threshold))
+	case r.Threshold == nil:
+		return false, haText + "; S-II only when your own projects call for it, and they don't yet"
+	case r.Measured != nil:
+		return false, fmt.Sprintf("%s, below the %s S-II rule", haText, rText(*r.Threshold))
+	}
+	return false, haText
+}
+
+func (s *Service) choosePalette(out *ExposurePick, fam string, past []pastTarget, hist []Subject, haText string) []string {
 	broad := []string{"L", "R", "G", "B"}
 	var canons []string
 	var key, extra string
 	switch fam {
 	case FamilyNarrowband:
-		out.Palette, canons, key, extra = PaletteHOO, []string{"H", "O"}, RuleSII, "S"
+		r := s.rule(RuleSII, past, out.HAlpha)
+		out.Rules = append(out.Rules, r)
+		out.Palette, canons = PaletteHOO, []string{"H", "O"}
+		add, why := siiChoice(r, hist, haText)
+		if add {
+			out.Palette += " + " + filterLabel("S")
+			canons = append(canons, "S")
+		}
+		out.Reason = fmt.Sprintf("%s: %s, %s", out.Palette, out.ClassLabel, why)
+		return canons
 	case FamilyBroadband:
 		out.Palette, canons, key, extra = PaletteLRGB, broad, RuleHa, "H"
 	default:
@@ -852,7 +978,7 @@ func (s *Service) Pick(ctx context.Context, id string, plans *planning.Snapshot,
 	if out.HAlpha != nil {
 		haText = "H-α " + rText(out.HAlpha.Rayleigh)
 	}
-	canons := s.choosePalette(&out, fam, past, haText)
+	canons := s.choosePalette(&out, fam, past, ownHistory(snap, o.ID), haText)
 	camera := ""
 	if info.Basis.Camera != nil {
 		camera = *info.Basis.Camera

@@ -9,3 +9,5 @@ func (s *Service) MatchSubject(ctx context.Context, subj Subject) ([]Link, strin
 	links, reason := s.matchSubject(ctx, subj)
 	return trimSuggestions(links), reason
 }
+
+func NamedSHO(name string) bool { return namedSHO(name) }

@@ -30,6 +30,11 @@ const (
 	m8        = "M 8"
 	m42       = "M 42"
 	m27       = "M 27"
+	hooSII    = "HOO + S-II"
+	m43       = "M 43"
+	m57       = "M 57"
+	ic5070    = "IC 5070"
+	ic2948    = "IC 2948"
 	sulphur   = "S-II"
 	pickScale = 206.264806 * 3.76 / 405
 	skyNow    = 20.69
@@ -71,11 +76,12 @@ func pickFixture(t *testing.T) (*discover.Service, *gorm.DB) {
 
 func pickFixtureOn(t *testing.T, db *gorm.DB) *discover.Service {
 	t.Helper()
-	if err := db.AutoMigrate(&app.Stack{}, &app.Frame{}, &app.ObjectXref{}, &app.GoalMeasurement{}, &app.SkySample{}); err != nil {
+	if err := db.AutoMigrate(&app.Stack{}, &app.Frame{}, &app.ObjectXref{}, &app.GoalMeasurement{}, &app.SkySample{}, &app.FrameTarget{}); err != nil {
 		t.Fatal(err)
 	}
 	stacks := map[string][]string{
 		m42: {hydrogen, sulphur, oxygen}, ngc7000: {hydrogen, sulphur}, m8: {hydrogen, oxygen}, m27: {hydrogen, oxygen},
+		m43: {hydrogen, sulphur}, ic5070: {hydrogen, sulphur}, m57: {hydrogen, oxygen}, ic2948: {hydrogen, sulphur},
 		m51: {"L", "R", "G", "B"}, "M 81": {"L", "R", "G", "B"}, "M 101": {"L", hydrogen}, "NGC 891": {"L", hydrogen}, "M 78": {"L"},
 	}
 	for obj, fs := range stacks {
@@ -152,7 +158,29 @@ func pickFixtureOn(t *testing.T, db *gorm.DB) *discover.Service {
 		},
 		Now: func() time.Time { return time.Date(2026, 10, 10, 2, 0, 0, 0, time.UTC) },
 	}
+	s.SchedDB = pickProjects(t)
 	return s
+}
+
+func pickProjects(t *testing.T) *gorm.DB {
+	t.Helper()
+	sched := openDB(t, "sched")
+	for _, q := range append(schedSchema(),
+		`INSERT INTO project ("Id", "profileId", name, state, minimumaltitude, "isMosaic", enablegrader, guid) VALUES
+			(1, 'p', 'Orion', 1, 30, 0, 1, 'p1'), (2, 'p', 'Running Man', 1, 30, 0, 1, 'p2'), (3, 'p', 'North America', 1, 30, 0, 1, 'p3'),
+			(4, 'p', 'Pelican', 1, 30, 0, 1, 'p4'), (5, 'p', 'Lagoon', 1, 30, 0, 1, 'p5'), (6, 'p', 'Dumbbell', 1, 30, 0, 1, 'p6'),
+			(7, 'p', 'Ring', 1, 30, 0, 1, 'p7')`,
+		`INSERT INTO target ("Id", name, active, ra, dec, rotation, projectid, guid) VALUES
+			(1, 'M 42', 1, 5.5879, -5.3897, 0, 1, 't1'), (2, 'M 43', 1, 5.5921, -5.2675, 0, 2, 't2'),
+			(3, 'NGC 7000', 1, 20.9881, 44.5288, 0, 3, 't3'), (4, 'IC 5070', 1, 20.8502, 44.4015, 0, 4, 't4'),
+			(5, 'M 8', 1, 18.0615, -24.3802, 0, 5, 't5'), (6, 'M 27', 1, 19.9934, 22.7210, 0, 6, 't6'),
+			(7, 'M 57', 1, 18.8931, 33.0292, 0, 7, 't7')`,
+	) {
+		if err := sched.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	return sched
 }
 
 func darkMoment(night time.Time) time.Time {
@@ -190,7 +218,7 @@ func filterOf(p discover.ExposurePick, f string) *discover.PickFilter {
 func ruleRs(r discover.PickRule) map[string]float64 {
 	out := map[string]float64{}
 	for _, p := range r.Points {
-		out[p.Name] = p.Rayleigh
+		out[p.Object] = p.Rayleigh
 	}
 	return out
 }
@@ -202,20 +230,23 @@ func TestPickEmissionDerivesTheSIIThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Palette != "HOO + S-II" || p.HAlpha == nil || p.HAlpha.Rayleigh != 400 {
+	if p.Palette != hooSII || p.HAlpha == nil || p.HAlpha.Rayleigh != 400 {
 		t.Fatalf("pick %+v", p)
 	}
-	if p.Reason != "HOO + S-II: emission nebula, H-α 400 R at or above 283 R" {
+	if p.Reason != "HOO + S-II: emission nebula, H-α 400 R at or above 283 R, the S-II rule learned from your own projects" {
 		t.Errorf("reason %q", p.Reason)
 	}
 	if len(p.Rules) != 1 {
 		t.Fatalf("rules %+v", p.Rules)
 	}
 	r := p.Rules[0]
-	if !r.Derived || r.Threshold == nil || *r.Threshold != 282.9 || !r.Met || len(r.Points) != 4 {
+	if !r.Derived || r.Threshold == nil || *r.Threshold != 282.9 || !r.Met || len(r.Points) != 7 {
 		t.Fatalf("rule %+v", r)
 	}
-	if !strings.Contains(r.Basis, "2 of 2 with S-II are at or above, 2 of 2 without are below") {
+	if _, ok := ruleRs(r)[m42]; !ok || slices.ContainsFunc(r.Points, func(p discover.PickRulePoint) bool { return p.Object == ic2948 }) {
+		t.Errorf("points %+v: S-II on a target with no scheduler project must not count", r.Points)
+	}
+	if !strings.Contains(r.Basis, "4 of 4 with S-II are at or above, 3 of 3 without are below") {
 		t.Errorf("basis %q", r.Basis)
 	}
 	if got := []string{p.Filters[0].Filter, p.Filters[1].Filter, p.Filters[2].Filter}; !slices.Equal(got, []string{"H-α", oxygen, sulphur}) {
@@ -291,10 +322,10 @@ func TestPickReusesAMatchingSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Palette != "HOO" || p.Set == nil || p.Set.ID != "set-lo" {
+	if p.Palette != discover.PaletteHOO || p.Set == nil || p.Set.ID != "set-lo" {
 		t.Fatalf("pick %+v", p)
 	}
-	if p.Reason != "HOO: planetary nebula, H-α 60 R, below the 283 R S-II rule" {
+	if p.Reason != "HOO: planetary nebula, H-α 60 R; you shot your project Dumbbell in H-α without S-II" {
 		t.Errorf("reason %q", p.Reason)
 	}
 	if ha := filterOf(p, "H-α"); ha.Template == nil || ha.Template.Name != haShort || !strings.HasPrefix(ha.TemplateBasis, "from your set") {
@@ -402,11 +433,94 @@ func TestPickFallsBackToANamedRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := p.Rules[0]
-	if r.Derived || r.Threshold == nil || *r.Threshold != halpha.ScoreFullR || r.Met || p.Palette != "HOO" {
+	if r.Derived || r.Threshold != nil || r.Met || p.Palette != discover.PaletteHOO {
 		t.Fatalf("rule %+v palette %s", r, p.Palette)
 	}
-	if !strings.Contains(r.Basis, "not derived from your targets") || !strings.Contains(r.Basis, "0 with and 4 without") {
+	if !strings.HasPrefix(r.Basis, "no H-α threshold for S-II") || !strings.Contains(r.Basis, "0 with and 7 without") {
 		t.Errorf("basis %q", r.Basis)
+	}
+	if p.Reason != "HOO: emission nebula, H-α 400 R; S-II only when your own projects call for it, and they don't yet" {
+		t.Errorf("reason %q", p.Reason)
+	}
+}
+
+func pickReason(t *testing.T, s *discover.Service, id string) discover.ExposurePick {
+	t.Helper()
+	p, err := s.Pick(context.Background(), id, pickPlans(), discover.PickGoal{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestPickSIIFromYourProjectOnTheObject(t *testing.T) {
+	t.Parallel()
+	s, _ := pickFixture(t)
+	if p := pickReason(t, s, "M42"); p.Palette != hooSII || p.Reason != "HOO + S-II: cluster with nebula, H-α 1000 R; you added S-II on your project Orion (2.0 h of S-II)" {
+		t.Errorf("M 42 %s: %q", p.Palette, p.Reason)
+	}
+	if p := pickReason(t, s, "NGC7293"); p.Palette != discover.PaletteHOO || p.Reason != "HOO: planetary nebula, H-α 0.5 R, below the 283 R S-II rule" {
+		t.Errorf("NGC 7293 %s: %q", p.Palette, p.Reason)
+	}
+}
+
+func TestPickHOOWhenYourProjectSkippedSII(t *testing.T) {
+	t.Parallel()
+	s, db := pickFixture(t)
+	db.Create(&[]app.Stack{{Object: "M 16", Filter: hydrogen, EffectiveSeconds: 7200, Subs: 24}, {Object: "M 16", Filter: oxygen, EffectiveSeconds: 7200, Subs: 24}})
+	for _, q := range []string{
+		`INSERT INTO project ("Id", "profileId", name, state, minimumaltitude, "isMosaic", enablegrader, guid) VALUES (8, 'p', 'Eagle', 1, 30, 0, 1, 'p8')`,
+		`INSERT INTO target ("Id", name, active, ra, dec, rotation, projectid, guid) VALUES (8, 'M 16', 1, 18.3134, -13.8064, 0, 8, 't8')`,
+	} {
+		if err := s.SchedDB.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := pickReason(t, s, "M16")
+	if p.Palette != discover.PaletteHOO || p.Reason != "HOO: emission nebula, H-α 400 R; you shot your project Eagle in H-α without S-II" || len(p.Filters) != 2 {
+		t.Errorf("M 16 shot without S-II %s: %q", p.Palette, p.Reason)
+	}
+}
+
+func TestPickSIIWhenAProjectIsNamedSHO(t *testing.T) {
+	t.Parallel()
+	s, _ := pickFixture(t)
+	for _, q := range []string{
+		`INSERT INTO project ("Id", "profileId", name, state, minimumaltitude, "isMosaic", enablegrader, guid) VALUES (8, 'p', 'Eagle (SHO)', 0, 30, 0, 1, 'p8')`,
+		`INSERT INTO target ("Id", name, active, ra, dec, rotation, projectid, guid) VALUES (8, 'M 16', 1, 18.3134, -13.8064, 0, 8, 't8')`,
+		`DELETE FROM target WHERE projectid IN (1, 2)`,
+	} {
+		if err := s.SchedDB.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := pickReason(t, s, "M16")
+	if p.Palette != hooSII || p.Reason != "HOO + S-II: emission nebula, H-α 400 R; your project Eagle (SHO) is named for SHO" {
+		t.Errorf("%s: %q", p.Palette, p.Reason)
+	}
+	if r := p.Rules[0]; r.Threshold != nil || !strings.Contains(r.Basis, "one-sided Fisher exact test") || len(r.Points) != 5 {
+		t.Errorf("rule from 2 with and 3 without must not be trusted: %+v", r)
+	}
+}
+
+func TestPickSIIWhenATargetIsNamedSHO(t *testing.T) {
+	t.Parallel()
+	s, _ := pickFixture(t)
+	if err := s.SchedDB.Exec(`UPDATE target SET name = 'M 8 SHO' WHERE "Id" = 5`).Error; err != nil {
+		t.Fatal(err)
+	}
+	p := pickReason(t, s, "M8")
+	if p.Palette != hooSII || p.Reason != "HOO + S-II: emission nebula, H-α 100 R; your project Lagoon has the target M 8 SHO, named for SHO" {
+		t.Errorf("%s: %q", p.Palette, p.Reason)
+	}
+}
+
+func TestNamedSHO(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string]bool{"Heart and Soul Nebula SHO": true, "Rosette sho": true, "Eagle (SHO)": true, "Shoemaker": false, "SHOO": false, "HOO": false} {
+		if got := discover.NamedSHO(name); got != want {
+			t.Errorf("%q: %v", name, got)
+		}
 	}
 }
 
