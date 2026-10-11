@@ -141,6 +141,9 @@ func (b *builder) fixNames() error {
 		if f.op == opAlias && b.byName[k] != nil {
 			continue
 		}
+		if f.op == opMove && catalog.LooksLikeDesignation(f.name) {
+			b.byKey[catalog.Key(f.name)] = b.lookup(target)
+		}
 		b.byName[k] = b.lookup(target)
 	}
 	for _, o := range b.objects {

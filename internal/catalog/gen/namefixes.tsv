@@ -23,3 +23,5 @@ drop	B 72	Snake DCld
 rename	M 11	Wild Duck Cluster
 rename	NGC 2362	Tau Canis Majoris Cluster
 rename	NGC 2070	Tarantula Nebula
+rename	NGC 6960	Western Veil
+move	NGC 6960	G074.0-08.5	LBN 191
