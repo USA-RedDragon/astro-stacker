@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
+	"github.com/USA-RedDragon/astro-stacker/internal/calreq"
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
@@ -109,6 +111,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	broker := events.NewBroker()
 	newFrames := &wake.Signal{}
 	darkNeed := &darkneed.Publisher{App: appStore.DB(), Sched: schedulerDBStore.DB(), Mode: cfg.Darks.Publish}
+	biasNeed := calpublish.NewBias(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
+	flatRequests := calpublish.NewFlat(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)
@@ -121,7 +125,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			ix.Events = broker
 			ix.Wake = newFrames
 			ix.RecentTargets = indexer.ScheduledTargets(schedulerDBStore.DB())
-			ix.AfterScan = darkNeed.Run
+			ix.AfterScan = afterScan(appStore.DB(), broker, darkNeed.Run, biasNeed.Run, flatRequests.Run)
 			ix.RejectDarksSince = cfg.Darks.RejectSinceTime()
 			go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second, time.Duration(cfg.Indexer.RecentSeconds)*time.Second)
 			slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds,
@@ -195,7 +199,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 		previews.Notice(r)
 	})
-	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {
@@ -235,6 +239,24 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	shutdown.Listen(syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 
 	return nil
+}
+
+// afterScan marks calibration requests whose frames are now indexed done,
+// tells listeners, and then publishes the calibration needs.
+func afterScan(db *gorm.DB, broker *events.Broker, publish ...func(context.Context)) func(context.Context) {
+	return func(ctx context.Context) {
+		done, err := calreq.Refresh(ctx, db, time.Now())
+		if err != nil && ctx.Err() == nil {
+			slog.Error("Refreshing calibration requests failed", "error", err)
+		}
+		for _, r := range done {
+			slog.Info("Calibration request done", "id", r.ID, "type", r.Type, "object", r.Object, "night", r.Night.Format(time.DateOnly))
+			broker.Broadcast(calreq.EventType, calreq.EventOf(r), false)
+		}
+		for _, p := range publish {
+			p(ctx)
+		}
+	}
 }
 
 func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool) (func(), func() goals.BackfillLive) {

@@ -215,3 +215,7 @@ darks:
   reject-since: "2026-10-10"
   # Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on
   publish: "off"
+# The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through
+calibration:
+  # Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on
+  publish: "off"

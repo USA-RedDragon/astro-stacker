@@ -181,6 +181,9 @@ func List(ctx context.Context, db *gorm.DB, object, status string) ([]app.Calibr
 	return out, nil
 }
 
+// EventType is the event stream type of a request that changed.
+const EventType = "calibration"
+
 // Event is what listeners are told when a request changes.
 type Event struct {
 	ID     string `json:"id"`

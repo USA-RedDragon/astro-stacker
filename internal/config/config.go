@@ -35,6 +35,7 @@ type Config struct {
 	Scheduler    Scheduler    `name:"scheduler" description:"The observatory-scheduler plugin's API and the durable command queue"`
 	Goals        Goals        `name:"goals" description:"Faint-signal SNR and depth of every master, measured from random half stacks of its registered subs, and progress toward Target Scheduler goals"`
 	Darks        Darks        `name:"darks" description:"The dark backlog the observatory's Target Scheduler Darks instruction works through"`
+	Calibration  Calibration  `name:"calibration" description:"The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through"`
 }
 
 func (d Darks) RejectSinceTime() time.Time {
@@ -48,6 +49,10 @@ func (d Darks) RejectSinceTime() time.Time {
 type Darks struct {
 	RejectSince string `name:"reject-since" description:"Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only" default:"2026-10-10"`
 	Publish     string `name:"publish" description:"Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on" default:"off"`
+}
+
+type Calibration struct {
+	Publish string `name:"publish" description:"Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on" default:"off"`
 }
 
 type Scheduler struct {
@@ -218,7 +223,27 @@ var (
 	ErrInvalidGoalsDepthSwitch      = errors.New("goals.depth-switch must be off, dry-run or on")
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
 	ErrInvalidDarksRejectSince      = errors.New("darks.reject-since must be a date, YYYY-MM-DD")
+	ErrInvalidCalibrationPublish    = errors.New("calibration.publish must be off, dry-run or on")
 )
+
+func (c Config) validateCalibration() error {
+	switch c.Darks.Publish {
+	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
+	default:
+		return ErrInvalidDarksPublish
+	}
+	if c.Darks.RejectSince != "" {
+		if _, err := time.Parse(time.DateOnly, c.Darks.RejectSince); err != nil {
+			return ErrInvalidDarksRejectSince
+		}
+	}
+	switch c.Calibration.Publish {
+	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
+	default:
+		return ErrInvalidCalibrationPublish
+	}
+	return nil
+}
 
 func (c Config) Validate() error {
 	if c.LogLevel != LogLevelDebug &&
@@ -263,15 +288,8 @@ func (c Config) Validate() error {
 		return ErrInvalidGoalsDepthSwitch
 	}
 
-	switch c.Darks.Publish {
-	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
-	default:
-		return ErrInvalidDarksPublish
-	}
-	if c.Darks.RejectSince != "" {
-		if _, err := time.Parse(time.DateOnly, c.Darks.RejectSince); err != nil {
-			return ErrInvalidDarksRejectSince
-		}
+	if err := c.validateCalibration(); err != nil {
+		return err
 	}
 
 	if (c.Indexer.Enabled || c.Previews.Enabled || c.Stacking.Enabled || c.PublicFrames.Enabled || c.Goals.Enabled) && (c.S3.AccessKey == "" || c.S3.SecretKey == "") {

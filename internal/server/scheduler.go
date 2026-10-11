@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
@@ -43,6 +44,8 @@ type Extras struct {
 	Backfill     func() goals.BackfillLive
 	Grader       GraderSource
 	DarkNeed     *darkneed.Publisher
+	BiasNeed     *calpublish.BiasPublisher
+	FlatRequests *calpublish.FlatPublisher
 	Site         SiteSource
 }
 
