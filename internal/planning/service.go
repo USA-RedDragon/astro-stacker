@@ -177,6 +177,9 @@ type Project struct {
 	UseCustomHorizon      *bool    `json:"useCustomHorizon"`
 	HorizonOffset         *float64 `json:"horizonOffset"`
 	MaximumAltitude       *float64 `json:"maximumAltitude"`
+
+	ProfileID       string `json:"-"`
+	MinAltitudeNull bool   `json:"-"`
 }
 
 type Template struct {
@@ -471,8 +474,9 @@ func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
 	p := Project{
 		ID: pr.ID, GUID: deref(pr.GUID), Name: pr.Name, Description: deref(pr.Description),
 		State: label(States(), pr.State), Priority: label(Priorities(), pr.Priority),
-		MinimumTime: pr.MinimumTime, MinimumAltitude: pr.MinimumAltitude, IsMosaic: pr.IsMosaic != 0,
-		Progress: 1, Grader: pr.EnableGrader != 0, Completion: prefsFor(r.prefs, pr.ProfileID),
+		MinimumTime: pr.MinimumTime, MinimumAltitude: deref(pr.MinimumAltitude), MinAltitudeNull: pr.MinimumAltitude == nil, IsMosaic: pr.IsMosaic != 0,
+		ProfileID: pr.ProfileID,
+		Progress:  1, Grader: pr.EnableGrader != 0, Completion: prefsFor(r.prefs, pr.ProfileID),
 	}
 	p.DitherEvery, p.FilterSwitchFrequency, p.FlatsHandling = pr.DitherEvery, pr.FilterSwitchFrequency, pr.FlatsHandling
 	p.SmartExposureOrder, p.MeridianWindow, p.UseCustomHorizon = intFlag(pr.SmartExposureOrder), pr.MeridianWindow, intFlag(pr.UseCustomHorizon)

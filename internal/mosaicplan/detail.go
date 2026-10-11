@@ -94,11 +94,18 @@ type Balancing struct {
 }
 
 type Project struct {
-	ID          int     `json:"id"`
-	Priority    int     `json:"priority"`
-	State       int     `json:"state"`
-	MinimumTime int     `json:"minimumTime"`
-	MinAltitude float64 `json:"minimumAltitude"`
+	ID               int      `json:"id"`
+	ProfileID        string   `json:"profileId"`
+	Priority         int      `json:"priority"`
+	State            int      `json:"state"`
+	MinimumTime      int      `json:"minimumTime"`
+	MinAltitude      *float64 `json:"minimumAltitude"`
+	UseCustomHorizon bool     `json:"useCustomHorizon"`
+	HorizonOffset    float64  `json:"horizonOffset"`
+}
+
+func (p Project) horizon() HorizonSettings {
+	return HorizonSettings{ProfileID: p.ProfileID, MinAltitude: p.MinAltitude, UseCustom: p.UseCustomHorizon, Offset: p.HorizonOffset}
 }
 
 type Detail struct {
@@ -699,14 +706,18 @@ func compareFilters(a, b string) int {
 
 func (s *Service) loadTS(ctx context.Context, d *Detail) error {
 	var rows []struct {
-		ID              int
-		Priority        *int
-		State           *int
-		MinimumTime     *int
-		MinimumAltitude *float64
+		ID               int
+		ProfileID        *string
+		Priority         *int
+		State            *int
+		MinimumTime      *int
+		MinimumAltitude  *float64
+		UseCustomHorizon *int
+		HorizonOffset    *float64
 	}
 	if err := s.Sched.WithContext(ctx).Table("project").
-		Select(`"Id" AS id, priority, state, minimumtime AS minimum_time, minimumaltitude AS minimum_altitude`).
+		Select(`"Id" AS id, "profileId" AS profile_id, priority, state, minimumtime AS minimum_time, minimumaltitude AS minimum_altitude, `+
+			`usecustomhorizon AS use_custom_horizon, horizonoffset AS horizon_offset`).
 		Where("guid = ?", d.ProjectGUID).Scan(&rows).Error; err != nil {
 		return fmt.Errorf("load project: %w", err)
 	}
@@ -714,7 +725,8 @@ func (s *Service) loadTS(ctx context.Context, d *Detail) error {
 		return nil
 	}
 	r := rows[0]
-	d.TS = Project{ID: r.ID, Priority: deref(r.Priority), State: deref(r.State), MinimumTime: deref(r.MinimumTime), MinAltitude: deref(r.MinimumAltitude)}
+	d.TS = Project{ID: r.ID, ProfileID: deref(r.ProfileID), Priority: deref(r.Priority), State: deref(r.State), MinimumTime: deref(r.MinimumTime),
+		MinAltitude: r.MinimumAltitude, UseCustomHorizon: deref(r.UseCustomHorizon) != 0, HorizonOffset: deref(r.HorizonOffset)}
 	var weights []struct {
 		Name   string
 		Weight float64

@@ -42,6 +42,7 @@ type Service struct {
 	Rig     mosaics.Rig
 	Measure func(ctx context.Context) rigsource.Rig
 	Site    SiteSource
+	Horizon HorizonSource
 }
 
 func New(appDB, sched *gorm.DB) *Service {

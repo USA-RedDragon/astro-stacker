@@ -79,24 +79,24 @@ func TestSeasonHours(t *testing.T) {
 	t.Parallel()
 	polar := mosaics.Point{RA: 0, Dec: 85}
 	all := allClear()
-	if _, in := mosaicplan.SeasonHours(nil, testSite(), polar, 20, 60, all, testNow()); in {
+	if _, in := mosaicplan.SeasonHours(nil, testSite(), polar, mosaics.Flat(20), 60, all, testNow()); in {
 		t.Error("no season row should be out of season")
 	}
-	if _, in := mosaicplan.SeasonHours(&planning.Season{OutOfSeason: true, NightsLeft: 10}, testSite(), polar, 20, 60, all, testNow()); in {
+	if _, in := mosaicplan.SeasonHours(&planning.Season{OutOfSeason: true, NightsLeft: 10}, testSite(), polar, mosaics.Flat(20), 60, all, testNow()); in {
 		t.Error("out of season")
 	}
-	if _, in := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 0}, testSite(), polar, 20, 60, all, testNow()); in {
+	if _, in := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 0}, testSite(), polar, mosaics.Flat(20), 60, all, testNow()); in {
 		t.Error("no nights left")
 	}
-	short, in := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 14, SeasonEnd: twoWeeks}, testSite(), polar, 20, 60, all, testNow())
+	short, in := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 14, SeasonEnd: twoWeeks}, testSite(), polar, mosaics.Flat(20), 60, all, testNow())
 	if !in || short < 14*8 || short > 14*11 {
 		t.Fatalf("two weeks of a circumpolar target in October: %v h", short)
 	}
-	long, _ := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 60, SeasonEnd: "2026-12-09"}, testSite(), polar, 20, 60, all, testNow())
+	long, _ := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 60, SeasonEnd: "2026-12-09"}, testSite(), polar, mosaics.Flat(20), 60, all, testNow())
 	if long <= 3*short {
 		t.Errorf("a longer season should hold more hours: %v vs %v", long, short)
 	}
-	byCount, _ := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 14}, testSite(), polar, 20, 60, all, testNow())
+	byCount, _ := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 14}, testSite(), polar, mosaics.Flat(20), 60, all, testNow())
 	if !near(byCount, short) {
 		t.Errorf("without a season end the night count sets the span: %v vs %v", byCount, short)
 	}
@@ -104,11 +104,11 @@ func TestSeasonHours(t *testing.T) {
 	for i := range half {
 		half[i] = 0.5
 	}
-	weather, _ := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 14, SeasonEnd: twoWeeks}, testSite(), polar, 20, 60, half, testNow())
+	weather, _ := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 14, SeasonEnd: twoWeeks}, testSite(), polar, mosaics.Flat(20), 60, half, testNow())
 	if !near(weather, short/2) {
 		t.Errorf("half the nights clear should halve the hours: %v vs %v", weather, short)
 	}
-	tooShort, _ := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 14, SeasonEnd: twoWeeks}, testSite(), polar, 20, 24*60, all, testNow())
+	tooShort, _ := mosaicplan.SeasonHours(&planning.Season{NightsLeft: 14, SeasonEnd: twoWeeks}, testSite(), polar, mosaics.Flat(20), 24*60, all, testNow())
 	if tooShort != 0 {
 		t.Errorf("nights shorter than the minimum time should not count: %v", tooShort)
 	}
@@ -162,10 +162,10 @@ func TestSeasonBoostsFor(t *testing.T) {
 		return planning.Target{GUID: guid, Name: guid, Active: true, RAHours: fp(ra), Dec: fp(85), Season: season, Plans: plans(desired)}
 	}
 	projects := []planning.Project{
-		{Name: "single", State: "Active", MinimumAltitude: 20, MinimumTime: 60, Targets: []planning.Target{
+		{Name: "single", State: activeState, MinimumAltitude: 20, MinimumTime: 60, Targets: []planning.Target{
 			target("short", 0, &planning.Season{NightsLeft: 10, SeasonEnd: "2026-10-20"}, 40),
 		}},
-		{Name: "mosaic", State: "Active", IsMosaic: true, MinimumAltitude: 20, MinimumTime: 60, Targets: []planning.Target{
+		{Name: "mosaic", State: activeState, IsMosaic: true, MinimumAltitude: 20, MinimumTime: 60, Targets: []planning.Target{
 			target("long", 0, &planning.Season{NightsLeft: 200, SeasonEnd: longEnd}, 40),
 			target("long-small", 0, &planning.Season{NightsLeft: 200, SeasonEnd: longEnd}, 4),
 			target("out", 0, &planning.Season{OutOfSeason: true}, 40),
@@ -175,7 +175,7 @@ func TestSeasonBoostsFor(t *testing.T) {
 		{Name: "closed", State: "Closed", Targets: []planning.Target{target("closed", 0, &planning.Season{NightsLeft: 10}, 40)}},
 	}
 	got := map[string]mosaicplan.TargetSeasonBoost{}
-	for _, b := range mosaicplan.SeasonBoostsFor(projects, testSite(), allClear(), 1, testNow()) {
+	for _, b := range mosaicplan.SeasonBoostsFor(projects, testSite(), nil, allClear(), 1, testNow()) {
 		got[b.GUID] = b
 	}
 	if len(got) != 5 {
