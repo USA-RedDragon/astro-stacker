@@ -98,6 +98,7 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	opts.RegisteredBackfillRate = cfg.Stacking.RegisteredBackfillRate
 	// The indexer measures the lights' starlight; without it, nothing would.
 	opts.Photometry = cfg.Indexer.Enabled
+	opts.ScorePerSecond = cfg.Stacking.ScorePerSecond
 	opts.Verdicts = stacking.VerdictOptions{Mode: cfg.Stacking.TSVerdicts, Targets: cfg.Stacking.TSVerdictsTargets, Max: cfg.Stacking.TSVerdictsMax}
 	if cfg.Stacking.TSVerdictsSince != "" {
 		// Checked by config.Validate.

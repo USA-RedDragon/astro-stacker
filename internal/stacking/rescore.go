@@ -25,6 +25,15 @@ import (
 // so those now above it come back in on their own.
 const scoreMethod = 1
 
+const scoreMethodPerSecond = 2
+
+func (p *Pipeline) scoreMethod() int {
+	if p.opts.ScorePerSecond {
+		return scoreMethodPerSecond
+	}
+	return scoreMethod
+}
+
 // rescoreWeightTolerance is how far a sub's weight may move without its
 // master being restacked for it. Clear subs come out at a transparency of
 // 0.9 to 1, a weight 0.8 to 1 of the old, which changes a master's signal
@@ -36,7 +45,7 @@ const rescoreWeightTolerance = 0.2
 func (p *Pipeline) rescoreAdded(ctx context.Context) {
 	var n int64
 	if err := p.db.WithContext(ctx).Model(&app.Stack{}).
-		Where("score_method IS NULL OR score_method < ?", scoreMethod).Count(&n).Error; err != nil || n == 0 {
+		Where("score_method IS NULL OR score_method <> ?", p.scoreMethod()).Count(&n).Error; err != nil || n == 0 {
 		if err != nil && ctx.Err() == nil {
 			slog.Error("Finding masters to score again failed", "error", err)
 		}
@@ -70,7 +79,7 @@ func (p *Pipeline) rescoreAdded(ctx context.Context) {
 // as before.
 func (p *Pipeline) rescore(ctx context.Context, scores map[string]quality.SubScore, now time.Time) error {
 	var stacks []app.Stack
-	if err := p.db.WithContext(ctx).Where("score_method IS NULL OR score_method < ?", scoreMethod).
+	if err := p.db.WithContext(ctx).Where("score_method IS NULL OR score_method <> ?", p.scoreMethod()).
 		Order("id").Find(&stacks).Error; err != nil {
 		return err
 	}
@@ -93,7 +102,7 @@ func (p *Pipeline) rescore(ctx context.Context, scores map[string]quality.SubSco
 		}
 	}
 	if scored > 0 {
-		slog.Info("Scored masters' subs again", "method", scoreMethod, "masters", scored, "waiting", len(stacks)-scored,
+		slog.Info("Scored masters' subs again", "method", p.scoreMethod(), "masters", scored, "waiting", len(stacks)-scored,
 			"subs_out", left, "subs_reweighted", reweighted, "masters_to_restack", restack)
 	}
 	return nil
@@ -168,7 +177,7 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 				marked = true
 			}
 		}
-		cols := map[string]any{"score_method": scoreMethod}
+		cols := map[string]any{"score_method": p.scoreMethod()}
 		if marked {
 			cols["needs_rebuild"] = true
 		}
