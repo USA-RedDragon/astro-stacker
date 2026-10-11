@@ -61,7 +61,7 @@ internal/goals/progress.go	104	91
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	330	299
+internal/goals/tsgoals.go	330	300
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	107	84
 internal/halpha/halpha.go	177	154
@@ -118,7 +118,7 @@ internal/publicframe/renderer.go	165	95
 internal/publicframe/watermark.go	61	61
 internal/quality/pedestal.go	23	18
 internal/quality/quality.go	49	45
-internal/quality/scores.go	171	155
+internal/quality/scores.go	171	157
 internal/quality/transparency.go	82	80
 internal/rigsource/rigsource.go	214	201
 internal/ruleweights/ruleweights.go	73	67
@@ -176,6 +176,7 @@ internal/stacking/duplicate.go	34	29
 internal/stacking/freespace_unix.go	7	5
 internal/stacking/gain.go	118	108
 internal/stacking/header.go	308	161
+internal/stacking/laterecord.go	77	53
 internal/stacking/lightleak.go	33	25
 internal/stacking/linearfit.go	247	117
 internal/stacking/localnorm.go	211	202
@@ -187,9 +188,9 @@ internal/stacking/mosaicmatch.go	325	293
 internal/stacking/mosaicseams.go	295	218
 internal/stacking/mosaicstars.go	191	173
 internal/stacking/outputs.go	133	33
-internal/stacking/pipeline.go	392	151
+internal/stacking/pipeline.go	411	173
 internal/stacking/pointing.go	73	53
-internal/stacking/process.go	262	44
+internal/stacking/process.go	262	47
 internal/stacking/rebuild.go	330	307
 internal/stacking/recalibrate.go	120	107
 internal/stacking/registered.go	324	227
@@ -197,7 +198,7 @@ internal/stacking/rescore.go	79	53
 internal/stacking/shadow.go	223	220
 internal/stacking/status.go	71	23
 internal/stacking/telescopes.go	61	56
-internal/stacking/tsverdicts.go	252	209
+internal/stacking/tsverdicts.go	253	210
 internal/starfront/starfront.go	180	144
 internal/store/gorm/gorm.go	37	0
 internal/store/models/app/calibrationrequest.go	1	1
