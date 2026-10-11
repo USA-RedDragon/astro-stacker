@@ -1,6 +1,9 @@
 package mosaics
 
-import "math"
+import (
+	"math"
+	"time"
+)
 
 // Horizon is a custom horizon sampled every Step degrees of azimuth from
 // north through east, starting at azimuth 0.
@@ -52,4 +55,13 @@ func (l Limit) At(az float64) float64 {
 		return l.Min
 	}
 	return math.Min(90, math.Max(l.Horizon.At(az)+l.Offset, l.Min))
+}
+
+// HorizonReport is what the observatory scheduler last said about the custom
+// horizon of a NINA profile. Horizon is nil when the profile has none.
+type HorizonReport struct {
+	ProfileID string
+	Custom    bool
+	Horizon   *Horizon
+	FetchedAt time.Time
 }
