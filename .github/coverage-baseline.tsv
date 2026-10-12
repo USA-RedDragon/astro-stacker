@@ -63,7 +63,7 @@ internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	109
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	404	342
+internal/goalmeasure/runner.go	404	343
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/body.go	161	154
@@ -77,7 +77,7 @@ internal/goals/progress.go	104	93
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	353	320
+internal/goals/tsgoals.go	353	319
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	107	84
 internal/halpha/halpha.go	177	154
@@ -112,7 +112,7 @@ internal/mosaicstore/mosaicstore.go	66	56
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -154,7 +154,7 @@ internal/schedcmd/planning.go	409	341
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	234	203
+internal/schedcmd/service.go	234	205
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/window.go	58	53
 internal/server/autofocus.go	26	22
@@ -195,8 +195,9 @@ internal/skyevents/service.go	339	252
 internal/skyevents/tracks.go	51	30
 internal/stacking/accumulator.go	161	157
 internal/stacking/astrometry.go	8	0
-internal/stacking/bodynight.go	417	64
-internal/stacking/comet.go	549	323
+internal/stacking/bodynight.go	445	96
+internal/stacking/comet.go	552	346
+internal/stacking/cometnights.go	228	84
 internal/stacking/cosmetic.go	61	50
 internal/stacking/cover.go	297	191
 internal/stacking/coverline.go	458	426
@@ -208,7 +209,7 @@ internal/stacking/duplicate.go	34	29
 internal/stacking/freespace_unix.go	7	5
 internal/stacking/gain.go	118	108
 internal/stacking/header.go	308	161
-internal/stacking/laterecord.go	77	53
+internal/stacking/laterecord.go	81	54
 internal/stacking/lightleak.go	33	25
 internal/stacking/linearfit.go	247	117
 internal/stacking/localnorm.go	211	202
@@ -219,10 +220,11 @@ internal/stacking/mosaiclayout.go	233	193
 internal/stacking/mosaicmatch.go	325	293
 internal/stacking/mosaicseams.go	295	218
 internal/stacking/mosaicstars.go	191	173
+internal/stacking/nightref.go	321	64
 internal/stacking/outputs.go	133	33
-internal/stacking/pipeline.go	413	173
-internal/stacking/pointing.go	73	53
-internal/stacking/process.go	262	47
+internal/stacking/pipeline.go	416	173
+internal/stacking/pointing.go	91	62
+internal/stacking/process.go	267	47
 internal/stacking/rebuild.go	330	307
 internal/stacking/recalibrate.go	120	107
 internal/stacking/registered.go	324	227
