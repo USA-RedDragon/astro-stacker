@@ -15,6 +15,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
@@ -50,6 +51,7 @@ type Extras struct {
 	BiasNeed     *calpublish.BiasPublisher
 	FlatRequests *calpublish.FlatPublisher
 	SubLength    *sublength.Service
+	MoonKeep     *moonkeep.Service
 	Bodies       *bodies.Service
 	BodyNights   *bodies.NightService
 	Comets       *bodies.CometList

@@ -37,6 +37,7 @@ type Config struct {
 	Darks        Darks        `name:"darks" description:"The dark backlog the observatory's Target Scheduler Darks instruction works through"`
 	SubLength    SubLength    `name:"sub-length" description:"Sub exposure lengths the system picks per target, filter and moon glare from the measured sky, read noise, overhead, star saturation, rejections and the dark library"`
 	Calibration  Calibration  `name:"calibration" description:"The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through"`
+	MoonKeep     MoonKeep     `name:"moon-keep" description:"How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, fitted from its own verdicts for the plugin's bright-Moon decisions"`
 	Bodies       Bodies       `name:"bodies" description:"Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight"`
 }
 
@@ -95,6 +96,23 @@ func (s SubLength) validate(perSecond bool) error {
 	}
 	if !(s.TolerancePct > 0 && s.TolerancePct < 50) {
 		return ErrInvalidSubLengthTolerance
+	}
+	return nil
+}
+
+type MoonKeep struct {
+	Publish       string `name:"publish" description:"Write the fitted kept rates into ts_moon_keep in the scheduler database, which the plugin uses to weigh and skip bright-Moon exposures: off, dry-run (log what would be written) or on; nothing is written until the scheduler has the ts_moon_keep table" default:"on"`
+	IntervalHours int    `name:"interval-hours" description:"Hours between refitting the kept rates" default:"24"`
+}
+
+func (m MoonKeep) validate() error {
+	switch m.Publish {
+	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
+	default:
+		return ErrInvalidMoonKeepPublish
+	}
+	if m.IntervalHours < 1 {
+		return ErrInvalidMoonKeepInterval
 	}
 	return nil
 }
@@ -275,6 +293,8 @@ var (
 	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
 	ErrInvalidGoalsDepthSwitch      = errors.New("goals.depth-switch must be off, dry-run or on")
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
+	ErrInvalidMoonKeepPublish       = errors.New("moon-keep.publish must be off, dry-run or on")
+	ErrInvalidMoonKeepInterval      = errors.New("moon-keep.interval-hours must be at least 1")
 	ErrInvalidSubLengthPublish      = errors.New("sub-length.publish must be off, dry-run or on")
 	ErrSubLengthNeedsPerSecond      = errors.New("sub-length.publish on needs stacking.score-per-second, so subs of different lengths weigh fairly in one master")
 	ErrInvalidSubLengthInterval     = errors.New("sub-length.interval-minutes must be at least 1")
@@ -302,6 +322,13 @@ func (c Config) validateCalibration() error {
 		return ErrInvalidCalibrationPublish
 	}
 	return nil
+}
+
+func (c Config) validatePublishers() error {
+	if err := c.validateCalibration(); err != nil {
+		return err
+	}
+	return c.MoonKeep.validate()
 }
 
 func (c Config) Validate() error {
@@ -347,7 +374,7 @@ func (c Config) Validate() error {
 		return ErrInvalidGoalsDepthSwitch
 	}
 
-	if err := c.validateCalibration(); err != nil {
+	if err := c.validatePublishers(); err != nil {
 		return err
 	}
 	if err := c.SubLength.validate(c.Stacking.ScorePerSecond); err != nil {
