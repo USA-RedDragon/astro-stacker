@@ -96,7 +96,7 @@ internal/mosaicstore/mosaicstore.go	66	56
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -105,7 +105,7 @@ internal/planning/drafts.go	243	222
 internal/planning/frame.go	5	5
 internal/planning/globalweights.go	144	142
 internal/planning/judge.go	38	36
-internal/planning/least.go	126	120
+internal/planning/least.go	129	123
 internal/planning/newgoal.go	55	53
 internal/planning/projectsettings.go	52	52
 internal/planning/rows.go	6	6
