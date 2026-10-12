@@ -15,6 +15,10 @@ const KindSchedulingGlobal Kind = "scheduling.global"
 
 const entityGlobalScheduling = "scheduling"
 
+// HardMinAltitude is the lowest minimum altitude a project gets without
+// the observatory horizon; a global maximum must be above it.
+const HardMinAltitude = 15.0
+
 // GlobalSchedulingPayload saves the global scheduling settings. Before is
 // the saved set the change expects, nil when nothing is saved; After nil
 // removes the saved set so the defaults apply.
@@ -40,6 +44,9 @@ func CheckGlobalScheduling(s schedglobal.Settings) error {
 		if err != nil {
 			return err
 		}
+	}
+	if s.MaximumAltitude > 0 && s.MaximumAltitude <= HardMinAltitude {
+		return fmt.Errorf("%w: maximum altitude must be 0 for off or above %g°, the lowest minimum altitude", ErrInvalid, HardMinAltitude)
 	}
 	return nil
 }

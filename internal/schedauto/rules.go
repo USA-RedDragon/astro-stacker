@@ -3,6 +3,8 @@ package schedauto
 import (
 	"fmt"
 	"math"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 )
 
 const (
@@ -10,7 +12,7 @@ const (
 	MaxSwitchShare = 0.15
 	// HardMinAltitude is the minimum altitude until the observatory
 	// horizon is set: below it there are too few subs to judge.
-	HardMinAltitude = 15.0
+	HardMinAltitude = schedcmd.HardMinAltitude
 	// MinTimeStep is what minimum times are rounded to, in minutes.
 	MinTimeStep = 5
 	// DefaultSwitchMinutes is the switch time used until the stacker has
@@ -61,7 +63,7 @@ func MinTimeFor(w Window, floor int) *MinTime {
 		picks = append(picks, pick{fmt.Sprintf("typical over the next %d nights", TypicalNights), *w.Typical})
 	}
 	if len(picks) == 0 {
-		return &MinTime{Minutes: floor, Basis: fmt.Sprintf("the %d min switching floor; no window in the next %d nights", floor, TypicalNights)}
+		return &MinTime{Minutes: floor, Basis: fmt.Sprintf("the %d min switching floor", floor)}
 	}
 	p := picks[0]
 	for _, q := range picks[1:] {
