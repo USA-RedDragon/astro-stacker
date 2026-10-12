@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
+	"github.com/USA-RedDragon/astro-stacker/internal/tsmigration"
 	"gorm.io/gorm"
 )
 
@@ -308,6 +309,7 @@ type rows struct {
 	plans     []planRow
 	templates []templateRow
 	roles     map[int]string
+	oldExp    map[int]float64
 	weights   []ruleWeightRow
 	saved     ruleweights.Saved
 	seasons   map[string]Season
@@ -335,6 +337,9 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB, now time.Time) (*rows,
 		return nil, err
 	}
 	r.roles = roles
+	if r.oldExp, err = tsmigration.OldDefaults(ctx, db); err != nil {
+		return nil, err
+	}
 	hasSeasons, err := tables.Has(ctx, db, "ts_target_season")
 	if err != nil {
 		return nil, err
@@ -513,7 +518,7 @@ func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
 	p.DitherEvery, p.FilterSwitchFrequency, p.FlatsHandling = pr.DitherEvery, pr.FilterSwitchFrequency, pr.FlatsHandling
 	p.SmartExposureOrder, p.MeridianWindow, p.UseCustomHorizon = intFlag(pr.SmartExposureOrder), pr.MeridianWindow, intFlag(pr.UseCustomHorizon)
 	p.HorizonOffset, p.MaximumAltitude = pr.HorizonOffset, pr.MaximumAltitude
-	env := targetEnv{meas: r.meas, stacks: r.stacks, subs: r.subs, grader: p.Grader, prefs: p.Completion, bodies: r.bodies}
+	env := targetEnv{oldExp: r.oldExp, meas: r.meas, stacks: r.stacks, subs: r.subs, grader: p.Grader, prefs: p.Completion, bodies: r.bodies}
 	for _, rule := range Rules() {
 		w, ok := x.weightsBy[pr.ID][rule.Name]
 		p.RuleWeights = append(p.RuleWeights, RuleWeight{Name: rule.Name, Weight: w, Missing: !ok})
@@ -600,6 +605,7 @@ func panelNumber(name string) int {
 }
 
 type targetEnv struct {
+	oldExp map[int]float64
 	meas   map[goals.Key]app.GoalMeasurement
 	stacks map[goals.Key]bool
 	subs   map[goals.Key]int
@@ -725,6 +731,18 @@ func (in Inputs) resolveGoal(tr targetRow, g *FilterGoal, env targetEnv, guid st
 	return ""
 }
 
+// planExposure is the length a plan images at: its own, else the template
+// it had before an open migration, else its template's default.
+func planExposure(p planRow, tm templateRow, oldExp map[int]float64) float64 {
+	if p.Exposure > 0 {
+		return p.Exposure
+	}
+	if old, ok := oldExp[p.ID]; ok {
+		return old
+	}
+	return tm.DefaultExposure
+}
+
 func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env targetEnv, in Inputs) Target {
 	t := Target{ID: tr.ID, GUID: deref(tr.GUID), Name: tr.Name, Active: tr.Active != 0, RAHours: tr.RA, Dec: tr.Dec, Rotation: tr.Rotation, Panel: panelNumber(tr.Name), GoalMode: goals.KindSNR, Links: in.linksFor(tr)}
 	t.Driven = in.targetGoalDriven(tr)
@@ -737,10 +755,7 @@ func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env 
 	var enabledPlans []int
 	for _, p := range plans {
 		tm := tmplBy[deref(p.TemplateID)]
-		exp := p.Exposure
-		if exp <= 0 {
-			exp = tm.DefaultExposure
-		}
+		exp := planExposure(p, tm, env.oldExp)
 		enabled := p.Enabled == nil || *p.Enabled != 0
 		t.Plans = append(t.Plans, Plan{
 			ID: p.ID, GUID: deref(p.GUID), TemplateID: deref(p.TemplateID), Template: tm.Name, Filter: tm.FilterName,

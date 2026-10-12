@@ -23,6 +23,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
+	"github.com/USA-RedDragon/astro-stacker/internal/tsmigration"
 	"gorm.io/gorm"
 )
 
@@ -141,6 +142,7 @@ func (s *Service) mode() string {
 }
 
 type planRow struct {
+	PlanID          int
 	GUID            string
 	Name            string
 	ProjectID       int
@@ -169,7 +171,7 @@ func (s *Service) plans(ctx context.Context) ([]planGroup, error) {
 	}
 	var rows []planRow
 	if err := s.Sched.WithContext(ctx).Table("exposureplan e").
-		Select(`coalesce(t.guid, '') AS guid, t.name AS name, t.projectid AS project_id, p.name AS project, t.ra AS ra, t.dec AS dec, ` +
+		Select(`e."Id" AS plan_id, coalesce(t.guid, '') AS guid, t.name AS name, t.projectid AS project_id, p.name AS project, t.ra AS ra, t.dec AS dec, ` +
 			`et.filtername AS filtername, et.gain AS gain, et.defaultexposure AS defaultexposure, e.exposure AS exposure`).
 		Joins(`JOIN exposuretemplate et ON et."Id" = e."exposureTemplateId"`).
 		Joins(`JOIN target t ON t."Id" = e.targetid`).
@@ -177,6 +179,10 @@ func (s *Service) plans(ctx context.Context) ([]planGroup, error) {
 		Where(`p.state IN (0, 1) AND coalesce(t.active, 1) = 1 AND coalesce(e.enabled, 1) = 1`).
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load exposure plans: %w", err)
+	}
+	oldDefaults, err := tsmigration.OldDefaults(ctx, s.Sched)
+	if err != nil {
+		return nil, err
 	}
 	type key struct {
 		guid, filter string
@@ -190,6 +196,8 @@ func (s *Service) plans(ctx context.Context) ([]planGroup, error) {
 		cur := 0.0
 		if r.Exposure != nil && *r.Exposure > 0 {
 			cur = *r.Exposure
+		} else if old, ok := oldDefaults[r.PlanID]; ok {
+			cur = old
 		} else if r.Defaultexposure != nil {
 			cur = *r.Defaultexposure
 		}

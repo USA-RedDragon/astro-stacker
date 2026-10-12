@@ -15,6 +15,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/stacking"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
+	"github.com/USA-RedDragon/astro-stacker/internal/tsmigration"
 )
 
 const (
@@ -225,6 +226,7 @@ type Summary struct {
 }
 
 type planRow struct {
+	PlanID     int
 	TargetGUID string
 	Filter     string
 	Exposure   float64
@@ -802,6 +804,7 @@ func (s *Service) plans(ctx context.Context, g stacking.MosaicGroup) ([]planRow,
 		return nil, nil
 	}
 	var rows []struct {
+		PlanID     int
 		TargetGUID string
 		Filter     string
 		Exposure   *float64
@@ -811,20 +814,27 @@ func (s *Service) plans(ctx context.Context, g stacking.MosaicGroup) ([]planRow,
 		Enabled    *int
 	}
 	if err := s.Sched.WithContext(ctx).Table("exposureplan ep").
-		Select(`t.guid AS target_guid, et.filtername AS filter, ep.exposure AS exposure, et.defaultexposure AS "default", `+
+		Select(`ep."Id" AS plan_id, t.guid AS target_guid, et.filtername AS filter, ep.exposure AS exposure, et.defaultexposure AS "default", `+
 			`ep.desired AS desired, ep.accepted AS accepted, ep.enabled AS enabled`).
 		Joins(`JOIN target t ON t."Id" = ep.targetid`).
 		Joins(`JOIN exposuretemplate et ON et."Id" = ep."exposureTemplateId"`).
 		Where("t.guid IN ?", guids).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load exposure plans: %w", err)
 	}
+	oldDefaults, err := tsmigration.OldDefaults(ctx, s.Sched)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]planRow, 0, len(rows))
 	for _, r := range rows {
+		if old, ok := oldDefaults[r.PlanID]; ok {
+			r.Default = &old
+		}
 		enabled := 1
 		if r.Enabled != nil {
 			enabled = *r.Enabled
 		}
-		out = append(out, planRow{TargetGUID: r.TargetGUID, Filter: frameheader.NormalizeFilter(r.Filter), Exposure: deref(r.Exposure),
+		out = append(out, planRow{PlanID: r.PlanID, TargetGUID: r.TargetGUID, Filter: frameheader.NormalizeFilter(r.Filter), Exposure: deref(r.Exposure),
 			Default: deref(r.Default), Desired: deref(r.Desired), Accepted: deref(r.Accepted), Enabled: enabled})
 	}
 	return out, nil
