@@ -74,7 +74,7 @@ type rowKey struct {
 	at   int64
 }
 
-func (r PositionRow) key() rowKey { return rowKey{strings.ToLower(r.TargetGUID), r.At.UTC().Unix()} }
+func (r PositionRow) key() rowKey { return rowKey{r.TargetGUID, r.At.UTC().Unix()} }
 
 func sameP(a, b *float64) bool {
 	if a == nil || b == nil {
@@ -205,7 +205,6 @@ type Service struct {
 	refresh sync.Mutex
 	mu      sync.Mutex
 	last    *Result
-	dryRun  map[rowKey]PositionRow
 }
 
 func (s *Service) mode() string {
@@ -323,6 +322,14 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	if len(targets) == 0 {
 		return res, nil
 	}
+	has, err = tables.Has(ctx, s.Sched, PositionTable)
+	if err != nil {
+		return res, err
+	}
+	if !has {
+		res.Skipped = SkipNoTable
+		return res, nil
+	}
 	if s.Site == nil || s.Horizons == nil {
 		return res, ErrNoSite
 	}
@@ -361,7 +368,7 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 
 // Publish writes the rows into ts_body_position, removing rows of nights
 // and targets no longer computed. A target whose fetch failed keeps the rows
-// it has.
+// it has of its current designation. A dry run counts what it would change.
 func (s *Service) Publish(ctx context.Context, res *Result) error {
 	if res.Skipped != "" {
 		return nil
@@ -382,9 +389,9 @@ func (s *Service) Publish(ctx context.Context, res *Result) error {
 	for _, r := range have {
 		old[r.key()] = r
 	}
-	failed := map[string]bool{}
+	failed := map[string]string{}
 	for _, e := range res.Errors {
-		failed[strings.ToLower(e.TargetGUID)+"\x00"+e.Night] = true
+		failed[e.TargetGUID+"\x00"+e.Night] = e.Designation
 	}
 	want := map[rowKey]bool{}
 	var write []PositionRow
@@ -394,18 +401,9 @@ func (s *Service) Publish(ctx context.Context, res *Result) error {
 			continue
 		}
 		res.Changed++
-		if s.mode() == ModeDryRun {
-			if seen, ok := s.dryRun[r.key()]; !ok || !seen.same(r) {
-				if s.dryRun == nil {
-					s.dryRun = map[rowKey]PositionRow{}
-				}
-				s.dryRun[r.key()] = r
-			}
-			continue
-		}
 		write = append(write, r)
 	}
-	if len(write) > 0 {
+	if len(write) > 0 && s.mode() == ModeOn {
 		if err := s.Sched.WithContext(ctx).Table(PositionTable).Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "target_guid"}, {Name: "at"}},
 			DoUpdates: clause.AssignmentColumns([]string{"designation", "night", "ra", "dec", "ra_app", "dec_app", "ra_rate", "dec_rate",
@@ -416,7 +414,12 @@ func (s *Service) Publish(ctx context.Context, res *Result) error {
 	}
 	var drop []PositionRow
 	for k, r := range old {
-		if want[k] || failed[k.guid+"\x00"+r.Night] {
+		if want[k] {
+			continue
+		}
+		// A failed fetch keeps the night's rows, unless they are of another
+		// designation than the one now stored.
+		if des, ok := failed[k.guid+"\x00"+r.Night]; ok && des == r.Designation {
 			continue
 		}
 		res.Deleted++

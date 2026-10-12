@@ -46,19 +46,18 @@ func TestPublishOnPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newFake(t)
-	now := time.Date(2026, 10, 13, 1, 0, 0, 0, time.UTC)
-	s := &bodies.Service{Sched: db, Mode: bodies.ModeOn, Now: func() time.Time { return now },
+	s := &bodies.Service{Sched: db, Mode: bodies.ModeOn, Now: fakeNow,
 		Horizons: &horizons.Client{BaseURL: f.srv.URL, Cache: db},
 		Site:     func(context.Context) (sky.Site, error) { return testSite(), nil }}
 	res, err := s.Refresh(ctx)
-	if err != nil || res.PublishedAt == nil || count(t, db, "") != 73 {
+	if err != nil || res.PublishedAt == nil || count(t, db, "") != rowsPerNight(fakeNow()) {
 		t.Fatalf("first publish %+v %v", res.Status, err)
 	}
 	var first bodies.PositionRow
 	if err := db.Table(bodies.PositionTable).Order("at").First(&first).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !first.At.Equal(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)) || first.Night != "2026-10-12" {
+	if sp := bodies.Spans(testSite(), fakeNow(), 1)[0]; !first.At.Equal(sp.Start) || first.Night != night12 {
 		t.Errorf("first row at %v night %s", first.At, first.Night)
 	}
 	again, err := s.Refresh(ctx)

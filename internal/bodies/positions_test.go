@@ -2,9 +2,9 @@ package bodies_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -75,40 +75,69 @@ func scheduler(t *testing.T, withTargets, withPositions bool) *gorm.DB {
 }
 
 type fakeHorizons struct {
-	srv   *httptest.Server
-	hits  atomic.Int32
-	fine  atomic.Int32
-	cmds  chan string
-	comet string
-	moon  string
+	srv  *httptest.Server
+	hits atomic.Int32
+	fine atomic.Int32
+	cmds chan string
 }
 
+const fakeHeader = " Date__(UT)__HR:MN, , , R.A.___(ICRF), DEC____(ICRF),  R.A.__(a-app), DEC___(a-app),  dRA*cosD, d(DEC)/dt,    T-mag,  N-mag,             delta,     deldot,  RA_3sigma, DEC_3sigma,"
+
+// newFake answers like Horizons over the requested span and step: a slow
+// comet, a body nearer than NearEarth for commands with NEAR, and no match
+// for commands with 2099.
 func newFake(t *testing.T) *fakeHorizons {
 	t.Helper()
-	read := func(n string) string {
-		b, err := os.ReadFile("../horizons/testdata/" + n)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(b)
-	}
-	f := &fakeHorizons{comet: read("comet-c2025r2-10m.json"), moon: read("moon-10m.json"), cmds: make(chan string, 100)}
+	f := &fakeHorizons{cmds: make(chan string, 100)}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.hits.Add(1)
 		q := r.URL.Query()
-		f.cmds <- q.Get("COMMAND")
-		if q.Get("STEP_SIZE") == "'1 m'" {
-			f.fine.Add(1)
-		}
-		if strings.Contains(q.Get("COMMAND"), "NEAR") {
-			_, _ = w.Write([]byte(f.moon))
+		cmd := q.Get("COMMAND")
+		f.cmds <- cmd
+		if strings.Contains(cmd, "2099") {
+			_, _ = fmt.Fprintf(w, `{"result":%q}`, "Matching small-bodies: \n    No matches found.\n")
 			return
 		}
-		_, _ = w.Write([]byte(f.comet))
+		parse := func(k string) time.Time {
+			v, err := time.Parse("2006-01-02 15:04", strings.Trim(q.Get(k), "'"))
+			if err != nil {
+				t.Errorf("%s: %v", k, err)
+			}
+			return v
+		}
+		step := 10 * time.Minute
+		if q.Get("STEP_SIZE") == "'1 m'" {
+			f.fine.Add(1)
+			step = time.Minute
+		}
+		delta := 4.836
+		if strings.Contains(cmd, "NEAR") {
+			delta = 0.0026
+		}
+		var b strings.Builder
+		b.WriteString("****\n" + fakeHeader + "\n****\n$$SOE\n")
+		for at := parse("START_TIME"); !at.After(parse("STOP_TIME")); at = at.Add(step) {
+			m := at.Sub(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)).Minutes()
+			fmt.Fprintf(&b, " %s, , , %.9f, %.9f, %.9f, %.9f, -13.37, 0.83, 24.3, n.a., %.8f, -7.7, 2.86, 0.27,\n",
+				at.Format("2006-Jan-02 15:04"), 76.1955-m*7e-5, 27.8636+m*4e-6, 76.62-m*7e-5, 27.9009+m*4e-6, delta)
+		}
+		b.WriteString("$$EOE\n")
+		_, _ = fmt.Fprintf(w, `{"result":%q}`, b.String())
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
 }
+
+// rowsPerNight is how many 10-minute rows the fake gives each night.
+func rowsPerNight(now time.Time) int64 {
+	var n int64
+	for _, sp := range bodies.Spans(testSite(), now, bodies.Nights) {
+		n += int64(sp.Stop.Sub(sp.Start)/bodies.CoarseStep) + 1
+	}
+	return n
+}
+
+func fakeNow() time.Time { return time.Date(2026, 10, 13, 1, 0, 0, 0, time.UTC) }
 
 func service(t *testing.T, sched *gorm.DB, f *fakeHorizons, mode string) *bodies.Service {
 	t.Helper()
@@ -116,8 +145,7 @@ func service(t *testing.T, sched *gorm.DB, f *fakeHorizons, mode string) *bodies
 	if err := cache.AutoMigrate(&app.HorizonsCache{}); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 10, 13, 1, 0, 0, 0, time.UTC)
-	return &bodies.Service{Sched: sched, Mode: mode, Now: func() time.Time { return now },
+	return &bodies.Service{Sched: sched, Mode: mode, Now: fakeNow,
 		Horizons: &horizons.Client{BaseURL: f.srv.URL, Cache: cache},
 		Site:     func(context.Context) (sky.Site, error) { return testSite(), nil }}
 }
@@ -165,8 +193,8 @@ func TestMissingPositionTableComputesButWritesNothing(t *testing.T) {
 	if err != nil || res.Skipped != bodies.SkipNoTable {
 		t.Fatalf("skipped %q, %v", res.Skipped, err)
 	}
-	if res.Targets != 1 || len(res.Tables) != bodies.Nights || res.Rows != 73 {
-		t.Fatalf("targets %d tables %d rows %d", res.Targets, len(res.Tables), res.Rows)
+	if f.hits.Load() != 0 || res.Rows != 0 {
+		t.Fatalf("%d Horizons requests, %d rows without ts_body_position", f.hits.Load(), res.Rows)
 	}
 	if has := sched.Migrator().HasTable(bodies.PositionTable); has {
 		t.Error("the stacker created ts_body_position")
@@ -192,8 +220,12 @@ func TestPublishesOncePerTargetNightAndPrunes(t *testing.T) {
 	if cmd := <-f.cmds; cmd != "'DES=C/2025 R2;CAP;NOFRAG'" {
 		t.Errorf("COMMAND %s", cmd)
 	}
-	if n := count(t, sched, ""); n != 73 {
-		t.Fatalf("%d rows published, want 73 (both nights' fixture rows share times)", n)
+	want := rowsPerNight(fakeNow())
+	if n := count(t, sched, ""); n != want || int64(res.Rows) != want {
+		t.Fatalf("%d rows published of %d computed, want %d over two nights", n, res.Rows, want)
+	}
+	if n := count(t, sched, "night = '"+night12+"'"); n == 0 || n == want {
+		t.Errorf("%d of %d rows are the first night's", n, want)
 	}
 	if n := count(t, sched, "target_guid = '"+idleGUID+"'"); n != 0 {
 		t.Errorf("a closed project's body was published")
@@ -202,7 +234,7 @@ func TestPublishesOncePerTargetNightAndPrunes(t *testing.T) {
 	if err := sched.Table(bodies.PositionTable).Where("target_guid = ?", cometGUID).Order("at").First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if row.Designation != swan || row.RA < 76.19 || row.RA > 76.2 || row.RARate > -13 || row.Mag == nil || row.Delta == nil {
+	if row.Designation != swan || row.RA < 76.19 || row.RA > 76.21 || row.RARate > -13 || row.Mag == nil || row.Delta == nil {
 		t.Errorf("row %+v", row)
 	}
 
@@ -216,7 +248,7 @@ func TestPublishesOncePerTargetNightAndPrunes(t *testing.T) {
 
 	exec(t, sched, `delete from ts_target_body`)
 	gone, err := s.Refresh(ctx)
-	if err != nil || gone.Deleted != 73 || count(t, sched, "") != 0 {
+	if err != nil || int64(gone.Deleted) != want || count(t, sched, "") != 0 {
 		t.Fatalf("after the designation was removed: %+v %v", gone.Status, err)
 	}
 }
@@ -259,8 +291,40 @@ func TestHorizonsErrorKeepsPublishedRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Errors) != bodies.Nights || res.Deleted != 0 || count(t, sched, "") != 73 {
+	if len(res.Errors) != bodies.Nights || res.Deleted != 0 || count(t, sched, "") != rowsPerNight(fakeNow()) {
 		t.Fatalf("errors %d deleted %d rows %d", len(res.Errors), res.Deleted, count(t, sched, ""))
+	}
+}
+
+func TestDesignationChangeDropsOldRowsEvenWhenTheFetchFails(t *testing.T) {
+	t.Parallel()
+	f := newFake(t)
+	sched := scheduler(t, true, true)
+	s := service(t, sched, f, bodies.ModeOn)
+	ctx := context.Background()
+	if _, err := s.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, sched, `update ts_target_body set designation = 'C/2099 Z9' where target_guid = '`+cometGUID+`'`)
+	res, err := s.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errors) != bodies.Nights || int64(res.Deleted) != rowsPerNight(fakeNow()) || count(t, sched, "") != 0 {
+		t.Fatalf("errors %d deleted %d left %d", len(res.Errors), res.Deleted, count(t, sched, ""))
+	}
+}
+
+func TestDryRunReportsRealChanges(t *testing.T) {
+	t.Parallel()
+	f := newFake(t)
+	sched := scheduler(t, true, true)
+	s := service(t, sched, f, bodies.ModeDryRun)
+	for range 2 {
+		res, err := s.Refresh(context.Background())
+		if err != nil || int64(res.Changed) != rowsPerNight(fakeNow()) || res.PublishedAt != nil || count(t, sched, "") != 0 {
+			t.Fatalf("dry run: %+v %v", res.Status, err)
+		}
 	}
 }
 
