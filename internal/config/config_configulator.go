@@ -2009,7 +2009,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(300), names[46], "Seconds one solve-field run may take")
 	fs.Var(impl.NewInt(1), names[47], "Targets stacked at once; each holds up to about 1.5 GB besides Siril")
 	fs.Var(impl.NewInt(10), names[48], "Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off")
-	fs.Var(impl.NewInt(30), names[49], "Minutes a mosaic's panel masters must be unchanged before it is rebuilt")
+	fs.Var(impl.NewInt(30), names[49], "Minimum minutes between rebuilds of a mosaic whose panel masters keep changing; a new panel rebuilds it at once")
 	fs.Bool(names[50], true, "Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way")
 	fs.Float64(names[51], 506.0, "Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset")
 	fs.Var(impl.NewInt(180), names[52], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
