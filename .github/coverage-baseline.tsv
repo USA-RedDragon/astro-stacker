@@ -72,7 +72,7 @@ internal/goals/progress.go	104	91
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	330	298
+internal/goals/tsgoals.go	330	299
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	107	84
 internal/halpha/halpha.go	177	154
@@ -139,6 +139,7 @@ internal/schedcmd/before.go	69	41
 internal/schedcmd/calibration.go	49	43
 internal/schedcmd/command.go	5	4
 internal/schedcmd/edit.go	89	75
+internal/schedcmd/framing.go	50	47
 internal/schedcmd/globalweights.go	35	29
 internal/schedcmd/kinds.go	122	101
 internal/schedcmd/log.go	53	46
@@ -150,7 +151,7 @@ internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/service.go	234	204
 internal/schedcmd/settings.go	84	78
-internal/schedcmd/window.go	54	48
+internal/schedcmd/window.go	58	52
 internal/server/autofocus.go	26	22
 internal/server/bodies.go	89	69
 internal/server/calibration.go	37	29
