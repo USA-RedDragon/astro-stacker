@@ -387,7 +387,7 @@ func (s *scanner) occurrences(hs []rhit) []Occurrence {
 }
 
 func rarityBasis(c Criteria) string {
-	return fmt.Sprintf("The same members (the bodies and the deep-sky objects of the best frame) checked every %d minutes, %d years before and after, under the event rules: Sun below %g°, every member above %g°, all inside %.2f° × %.2f° at some rotator angle. Times up to %d hours apart count as one occurrence. Rare means no other occurrence within %d years either way. Moon and planets from JPL DE440s.",
+	return fmt.Sprintf("The same members (the bodies and the deep-sky objects of the best frame) checked every %d minutes, %d years before and after, under the event rules: Sun below %g°, every member above %g°, all inside %.2f° × %.2f° at some rotator angle. Times up to %d hours apart count as one occurrence. Rare means no other occurrence within %d years either way. Moon and planets from NASA JPL's planetary tables.",
 		c.StepMin, RecurrenceYears, c.SunBelow, c.MinAlt, c.UsableW, c.UsableH, int(c.MergeGap.Hours()), RareYears)
 }
 
