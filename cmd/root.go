@@ -308,7 +308,7 @@ func afterScan(db *gorm.DB, broker *events.Broker, publish ...func(context.Conte
 
 func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool) (func(), func() goals.BackfillLive) {
 	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
-		goalmeasure.VizierFetcher(nil, ""), goalOptions(cfg, boosts, busy))
+		goalmeasure.VizierFetcher(nil, ""), withLongitude(goalOptions(cfg, boosts, busy), siteFunc(cfg, appStore)))
 	r.XP = goalmeasure.VizierXPFetcher(nil, "")
 	done := make(chan struct{})
 	go func() {
@@ -345,6 +345,14 @@ func goalOptions(cfg *config.Config, boosts goals.SeasonBoostSource, busy func()
 		Workers:      cfg.Goals.Workers,
 		Busy:         busy,
 	}
+}
+
+func withLongitude(o goalmeasure.Options, site discover.SiteFunc) goalmeasure.Options {
+	o.Longitude = func(ctx context.Context) (float64, error) {
+		s, err := site(ctx)
+		return s.Longitude, err
+	}
+	return o
 }
 
 func credentials(cfg *config.Config) *miniocreds.Credentials {

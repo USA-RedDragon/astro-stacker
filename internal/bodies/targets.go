@@ -6,6 +6,7 @@ package bodies
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
@@ -156,4 +157,43 @@ func deref(s *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*s)
+}
+
+// cometName matches a comet's designation at the start of a target name:
+// C/2025 R2 (SWAN), 12P/Pons-Brooks.
+var cometName = regexp.MustCompile(`^(?:[CPDXI]/\d{4} [A-Z]{1,2}\d*|\d+[PDI])\b`)
+
+func CometDesignation(object string) (string, bool) {
+	d := cometName.FindString(object)
+	return d, d != ""
+}
+
+func Resolve(stored map[string]Target, object string) (Target, bool) {
+	if b := stored[object]; strings.TrimSpace(b.Designation) != "" {
+		b.Designation = strings.TrimSpace(b.Designation)
+		if strings.TrimSpace(b.Kind) == "" {
+			b.Kind = KindComet
+		}
+		return b, true
+	}
+	d, ok := CometDesignation(object)
+	return Target{Designation: d, Kind: KindComet}, ok
+}
+
+func OwnBody(stored map[string]Target, object string) (Target, bool) {
+	b, ok := Resolve(stored, object)
+	if !ok || IsEvent(b.Designation, b.Kind) {
+		return Target{}, false
+	}
+	if strings.TrimSpace(stored[object].Designation) != "" {
+		return b, true
+	}
+	rest := strings.TrimPrefix(object, b.Designation)
+	switch {
+	case rest == "", strings.HasPrefix(rest, "/"), strings.HasPrefix(rest, " ("):
+		return b, true
+	case strings.HasPrefix(rest, " ") && !strings.HasPrefix(strings.ToLower(rest), " with "):
+		return b, true
+	}
+	return Target{}, false
 }

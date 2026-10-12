@@ -39,6 +39,8 @@ const (
 
 var ErrInsufficientData = errors.New("insufficient data")
 
+const ReasonNoFaintSignal = "no faint signal"
+
 type Sub struct {
 	Exposure  float64
 	Weight    float64
@@ -151,8 +153,9 @@ type draw struct {
 }
 
 type Options struct {
-	Seed   uint64
-	Region []Point
+	Seed       uint64
+	Region     []Point
+	RegionMask []bool
 }
 
 type Measurer struct {
@@ -290,7 +293,13 @@ func (m *Measurer) Finish(totalHours float64) (Result, error) {
 	if count(covered) == 0 {
 		return res, errors.New("no pixel is covered by most subs")
 	}
+	if m.opts.RegionMask != nil && len(m.opts.RegionMask) != np {
+		return res, fmt.Errorf("region mask has %d bins, want %dx%d", len(m.opts.RegionMask), bw, bh)
+	}
 	mk := buildMasks(res.Mean, covered, bw, bh, m.w, m.h, m.opts.Region)
+	if m.opts.RegionMask != nil {
+		mk.Band = and(m.opts.RegionMask, covered)
+	}
 	res.Masks = mk.Masks
 	res.Sky = mk.sky
 	res.SkyStep = mk.skyStep
@@ -301,7 +310,7 @@ func (m *Measurer) Finish(totalHours float64) (Result, error) {
 	if nOK > 0 {
 		res.NebFraction = float64(count(mk.Nebula)) / float64(nOK)
 	}
-	region := len(m.opts.Region) >= 3
+	region := len(m.opts.Region) >= 3 || m.opts.RegionMask != nil
 	band := selectValues(res.Mean, mk.Band)
 	switch {
 	case len(band) == 0:
@@ -352,11 +361,11 @@ func (m *Measurer) Finish(totalHours float64) (Result, error) {
 	if res.SkyStep > SkyStepLimit {
 		reasons = append(reasons, "background is mostly nebula")
 	}
-	if res.BandFraction < MinBandFraction {
+	if res.BandFraction < MinBandFraction && m.opts.RegionMask == nil {
 		reasons = append(reasons, "faint band too small")
 	}
 	if math.IsNaN(res.Signal) || res.Signal <= 0 {
-		reasons = append(reasons, "no faint signal")
+		reasons = append(reasons, ReasonNoFaintSignal)
 		if math.IsNaN(res.Signal) {
 			res.Signal = 0
 		}

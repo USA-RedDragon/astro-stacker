@@ -14,7 +14,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -66,25 +65,15 @@ func cometOptions(opts Options) Options {
 	return opts
 }
 
-// cometName matches a comet's designation at the start of a target name:
-// C/2025 R2 (SWAN), 12P/Pons-Brooks.
-var cometName = regexp.MustCompile(`^(?:[CPDXI]/\d{4} [A-Z]{1,2}\d*|\d+[PDI])\b`)
-
 // cometDesignation is the designation Horizons knows a comet target by.
 func cometDesignation(object string) (string, bool) {
-	d := cometName.FindString(object)
-	return d, d != ""
+	return bodies.CometDesignation(object)
 }
 
 // bodyDesignation is the body stored on the scheduler target named object,
 // or, for targets without one, the comet designation its name starts with.
 func bodyDesignation(stored map[string]bodies.Target, object string) (bodies.Target, bool) {
-	if b := stored[object]; strings.TrimSpace(b.Designation) != "" {
-		b.Designation = strings.TrimSpace(b.Designation)
-		return b, true
-	}
-	d, ok := cometDesignation(object)
-	return bodies.Target{Designation: d, Kind: bodies.KindComet}, ok
+	return bodies.Resolve(stored, object)
 }
 
 // storedDesignations are the scheduler targets' stored bodies by target
@@ -292,17 +281,23 @@ type cometSub struct {
 	mid    time.Time
 }
 
-func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, body bodies.Target, signature string) error {
+type bodyField struct {
+	sky            wcs
+	lat, lon, elev float64
+	refTime        time.Time
+}
+
+func (p *Pipeline) bodyField(ctx context.Context, stack *app.Stack) (bodyField, error) {
 	var tr app.TargetReference
 	if err := p.db.WithContext(ctx).Where("object = ?", stack.Object).First(&tr).Error; err != nil {
-		return fmt.Errorf("registration reference: %w", err)
+		return bodyField{}, fmt.Errorf("registration reference: %w", err)
 	}
 	if tr.WCS == nil {
-		return errors.New("the target has no plate solution")
+		return bodyField{}, errors.New("the target has no plate solution")
 	}
 	var cards []frameheader.Card
 	if err := json.Unmarshal([]byte(*tr.WCS), &cards); err != nil {
-		return err
+		return bodyField{}, err
 	}
 	kw := frameheader.Keywords{}
 	for _, c := range cards {
@@ -310,29 +305,47 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, body bodies
 	}
 	sky, err := wcsFromHeader(kw, stack.Width, stack.Height)
 	if err != nil {
-		return err
+		return bodyField{}, err
 	}
 	var ref app.Frame
 	if err := p.db.WithContext(ctx).First(&ref, tr.FrameID).Error; err != nil {
-		return fmt.Errorf("reference frame: %w", err)
+		return bodyField{}, fmt.Errorf("reference frame: %w", err)
 	}
 	refKW, err := indexer.ReadHeader(ctx, p.s3, p.source, minio.ObjectInfo{Key: ref.Key, Size: ref.Size})
 	if err != nil {
-		return fmt.Errorf("reference header: %w", err)
+		return bodyField{}, fmt.Errorf("reference header: %w", err)
 	}
-	lat, lon, elev := refKW.Float("SITELAT"), refKW.Float("SITELONG"), refKW.Float("SITEELEV")
-	if math.IsNaN(lat) || math.IsNaN(lon) {
-		return errors.New("the reference sub has no site coordinates")
+	f := bodyField{sky: sky, lat: refKW.Float("SITELAT"), lon: refKW.Float("SITELONG"), elev: refKW.Float("SITEELEV")}
+	if math.IsNaN(f.lat) || math.IsNaN(f.lon) {
+		return bodyField{}, errors.New("the reference sub has no site coordinates")
 	}
-	if math.IsNaN(elev) {
-		elev = 0
+	if math.IsNaN(f.elev) {
+		f.elev = 0
 	}
 	if ref.DateObs == nil {
-		return errors.New("the reference sub has no time")
+		return bodyField{}, errors.New("the reference sub has no time")
 	}
+	f.refTime = ref.DateObs.Add(time.Duration(val(ref.Exposure) / 2 * float64(time.Second)))
+	return f, nil
+}
+
+func (f bodyField) pixel(ra, dec float64, height int) (x, y float64, ok bool) {
+	fx, fy, ok := f.sky.toPixel(ra, dec)
+	if !ok {
+		return 0, 0, false
+	}
+	return fx - 1, float64(height) - fy, true
+}
+
+func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, body bodies.Target, signature string) error {
+	field, err := p.bodyField(ctx, stack)
+	if err != nil {
+		return err
+	}
+	sky, lat, lon, elev := field.sky, field.lat, field.lon, field.elev
 	// Every filter's comet master puts the comet where it was in the
 	// target's reference sub, so they line up for colour.
-	refTime := ref.DateObs.Add(time.Duration(val(ref.Exposure) / 2 * float64(time.Second)))
+	refTime := field.refTime
 
 	var rows []struct {
 		RegisteredKey string
@@ -431,6 +444,8 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, body bodies
 	return p.publishComet(ctx, stack, layers, refTime, len(subs), signature, alignedOn(body))
 }
 
+type cometTap func(i int, sub []float32, w, h int, scale float64)
+
 // cometLayers are a comet master's two layers, on the reference sub's
 // pixels: the comet alone, with the stars and everything else fixed on the
 // sky taken out, and those stars without the comet.
@@ -482,7 +497,7 @@ func starsToAdd(layer *Accumulator) []float32 {
 // the star-aligned master with stars on them (starMask), which the first
 // stack leaves out but for the comet itself, so its comet holds no trails
 // for the second to take out of the stars.
-func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, opts Options, read func(int) ([]float32, int, int, error), progress func(done, total int)) (cometLayers, error) {
+func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, opts Options, read func(int) ([]float32, int, int, error), progress func(done, total int), tap ...cometTap) (cometLayers, error) {
 	reads := 1 // per sub and stack
 	if len(subs) > cometMedianMax {
 		reads = 2
@@ -558,13 +573,24 @@ func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, o
 	comet = nil
 	thinTrack(layer, track, len(subs))
 	apertures := starApertures(layer)
-	starless := func(i int, sub []float32, w int) {
-		subtractSignal(sub, layer.Mean, starScale(sub, layer.Mean, w, apertures, subs[i].exposure, sat), sat)
-	}
+	tapped := make([]bool, len(subs))
 	final, err := stackAll(opts, func(i int, sub []float32, w, h int) []float32 {
-		starless(i, sub, w)
+		k := starScale(sub, layer.Mean, w, apertures, subs[i].exposure, sat)
+		subtractSignal(sub, layer.Mean, k, sat)
+		var keep savedDisc
+		if len(tap) > 0 && track != nil {
+			keep = saveDisc(sub, w, h, track[i], bodyKeep)
+		}
 		maskSpikes(sub, w, h, sat)
-		return onComet(i, sub, w, h)
+		keep.restore(sub)
+		out := onComet(i, sub, w, h)
+		if !tapped[i] {
+			tapped[i] = true
+			for _, t := range tap {
+				t(i, out, w, h, k)
+			}
+		}
+		return out
 	})
 	if err != nil {
 		return cometLayers{}, err
