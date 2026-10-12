@@ -494,5 +494,7 @@ const TargetSchema = `create table if not exists ts_target_body (
     target_guid text NOT NULL PRIMARY KEY,
     designation text NOT NULL,
     kind text NOT NULL DEFAULT 'comet',
-    updated_at text
+    updated_at text,
+    rotation_deg double precision,
+    offset_frac double precision
 )`

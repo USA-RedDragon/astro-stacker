@@ -52,6 +52,7 @@ type Extras struct {
 	SubLength    *sublength.Service
 	Bodies       *bodies.Service
 	Comets       *bodies.CometList
+	Framing      *BodyFraming
 	SkyEvents    *skyevents.Service
 	Site         SiteSource
 }
