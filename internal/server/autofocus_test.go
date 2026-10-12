@@ -1,11 +1,13 @@
 package server_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 )
 
@@ -39,5 +41,22 @@ func TestAutofocusHistory(t *testing.T) {
 		if code, body = do(t, h, http.MethodGet, path+q, ""); code != http.StatusBadRequest {
 			t.Fatalf("%s: %d %s", q, code, body)
 		}
+	}
+}
+
+func TestSchedulerStatusCarriesTheLastAutofocus(t *testing.T) {
+	t.Parallel()
+	const af = `"autofocus":{"run_id":"r1","state":"finished","started_at":"2026-10-12T03:00:00Z","finished_at":"2026-10-12T03:02:00Z","filter":"L","autofocuser":"Hocus Focus",` +
+		`"chosen_position":5041.7,"chosen_value":1.92,"points":[{"position":4900,"value":3.2,"error":0.1},{"position":5000,"value":2.4}],"fit":{"r_squared":{"Hyperbolic":0.98}}}`
+	var s observatory.Status
+	if err := json.Unmarshal([]byte(`{"state":"imaging",`+af+`}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	m := observatory.NewMonitor(observatory.NewClient("http://127.0.0.1:1", "x"), nil, nil)
+	m.SetStatus(s, true)
+	h := newHandler(t, memDB(t, "s"), memDB(t, "a"), server.Extras{Scheduler: m})
+	code, body := do(t, h, http.MethodGet, "/api/v1/scheduler/status", "")
+	if code != http.StatusOK || !strings.Contains(string(body), af) {
+		t.Fatalf("%d %s", code, body)
 	}
 }
