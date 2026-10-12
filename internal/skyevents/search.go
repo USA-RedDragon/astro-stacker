@@ -10,6 +10,7 @@ import (
 	"math"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -530,19 +531,19 @@ func seriesKey(mosaic, dso bool, bodies []int) string {
 }
 
 // collector gathers the series, and for each set of bodies every step it
-// fits one frame (narrow) or two (wide), with the deep-sky objects it
-// takes there, whether or not a larger group holds it.
+// fits one frame, with the deep-sky objects it takes there, whether or not
+// a larger group holds it.
 type collector struct {
 	series map[string]*series
 	narrow map[string][]hit
-	wide   map[string][]hit
 }
 
 func fitKey(dso bool, bodies []int) string {
 	return fmt.Sprintf("%t|%s", dso, bodiesKey(bodies))
 }
 
-func (a *collector) note(to map[string][]hit, sets, all []group, s *step) {
+func (a *collector) note(sets, all []group, s *step) {
+	to := a.narrow
 	for _, set := range sets {
 		if len(set.bodies) > 1 {
 			k := fitKey(false, set.bodies)
@@ -570,7 +571,7 @@ func (a *collector) add(mosaic bool, gr group, h hit) {
 // Search finds every event over the grid.
 func Search(g Grid, tracks []Track, dsos []DSO, c Criteria) []Event {
 	single, mosaic := c.single(), c.mosaic()
-	acc := &collector{series: map[string]*series{}, narrow: map[string][]hit{}, wide: map[string][]hit{}}
+	acc := &collector{series: map[string]*series{}, narrow: map[string][]hit{}}
 	for i := range g.Times {
 		if !g.Dark[i] {
 			continue
@@ -582,7 +583,7 @@ func Search(g Grid, tracks []Track, dsos []DSO, c Criteria) []Event {
 			}
 		}
 		sets, all, top := s.groups(single)
-		acc.note(acc.narrow, sets, all, s)
+		acc.note(sets, all, s)
 		fitsHere := map[string]bool{}
 		for _, set := range sets {
 			fitsHere[bodiesKey(set.bodies)] = true
@@ -590,8 +591,7 @@ func Search(g Grid, tracks []Track, dsos []DSO, c Criteria) []Event {
 		for _, gr := range top {
 			acc.add(false, gr, s.hit(gr))
 		}
-		wsets, wall, wide := s.groups(mosaic)
-		acc.note(acc.wide, wsets, wall, s)
+		_, _, wide := s.groups(mosaic)
 		for _, gr := range wide {
 			if len(gr.dsos) == 0 && fitsHere[bodiesKey(gr.bodies)] {
 				continue
@@ -612,6 +612,11 @@ func Search(g Grid, tracks []Track, dsos []DSO, c Criteria) []Event {
 	var out []Event
 	for _, k := range keys {
 		sr := acc.series[k]
+		if sr.mosaic {
+			if sr.hits = acc.clearOfOneFrame(g, sr, out, c.MergeGap+c.Step); len(sr.hits) == 0 {
+				continue
+			}
+		}
 		var rs [][]hit
 		if sr.dso {
 			rs = dsoRuns(g, sr.hits, c.MergeGap)
@@ -619,9 +624,6 @@ func Search(g Grid, tracks []Track, dsos []DSO, c Criteria) []Event {
 			rs = runs(g, sr.hits, c.MergeGap)
 		}
 		for _, run := range rs {
-			if sr.mosaic && acc.oneFrameNear(g, sr, run, c.MergeGap) {
-				continue
-			}
 			out = append(out, groupEvent(g, tracks, dsos, sr, run, c))
 		}
 	}
@@ -631,50 +633,43 @@ func Search(g Grid, tracks []Track, dsos []DSO, c Criteria) []Event {
 	return out
 }
 
-// oneFrameNear reports whether the members of a mosaic run fit one frame
-// during the same pass: the stretch of steps, no more than the merge gap
-// apart, over which they fit two frames, whether or not a larger group
-// held them, widened by the merge gap. The one-frame event covers that
-// pass.
-func (a *collector) oneFrameNear(g Grid, sr *series, run []hit, gap time.Duration) bool {
-	var want []int
-	for _, h := range run {
-		for _, d := range h.dsos {
-			if !slices.Contains(want, d) {
-				want = append(want, d)
+// clearOfOneFrame keeps the mosaic hits of a series at steps where its
+// members fit no single frame within the gap, and that no one-frame event
+// of the same bodies holding the same deep-sky objects spans within the
+// gap, so a mosaic event never repeats a one-frame event of its members
+// and does not depend on how far the search looks. The one-frame events
+// are built first.
+func (a *collector) clearOfOneFrame(g Grid, sr *series, single []Event, gap time.Duration) []hit {
+	key := bodiesKey(sr.bodies)
+	var spans []Event
+	for _, e := range single {
+		if e.Kind != EventMosaic2 && (e.Kind == EventBodyDSO) == sr.dso && bodiesKey(slices.Sorted(slices.Values(e.bodies))) == key {
+			spans = append(spans, e)
+		}
+	}
+	holds := func(have, want []int) bool {
+		return !slices.ContainsFunc(want, func(d int) bool { return !slices.Contains(have, d) })
+	}
+	near := a.narrow[fitKey(sr.dso, sr.bodies)]
+	out := make([]hit, 0, len(sr.hits))
+	for _, h := range sr.hits {
+		at := g.Times[h.step]
+		from, to := at.Add(-gap), at.Add(gap)
+		covered := slices.ContainsFunc(spans, func(e Event) bool {
+			return !e.Start.After(to) && !e.End.Before(from) && holds(e.dsos, h.dsos)
+		})
+		lo := sort.Search(len(near), func(i int) bool { return !g.Times[near[i].step].Before(from) })
+		for _, n := range near[lo:] {
+			if covered || g.Times[n.step].After(to) {
+				break
 			}
+			covered = holds(n.dsos, h.dsos)
+		}
+		if !covered {
+			out = append(out, h)
 		}
 	}
-	holds := func(h hit) bool {
-		return !slices.ContainsFunc(want, func(d int) bool { return !slices.Contains(h.dsos, d) })
-	}
-	shares := func(h hit) bool {
-		return len(want) == 0 || slices.ContainsFunc(want, func(d int) bool { return slices.Contains(h.dsos, d) })
-	}
-	k := fitKey(sr.dso, sr.bodies)
-	var steps []int
-	for _, h := range a.wide[k] {
-		if shares(h) && (len(steps) == 0 || steps[len(steps)-1] != h.step) {
-			steps = append(steps, h.step)
-		}
-	}
-	first, last := g.Times[run[0].step], g.Times[run[len(run)-1].step]
-	lo := slices.Index(steps, run[0].step)
-	hi := slices.Index(steps, run[len(run)-1].step)
-	if lo >= 0 && hi >= 0 {
-		for lo > 0 && g.Times[steps[lo]].Sub(g.Times[steps[lo-1]]) <= gap {
-			lo--
-		}
-		for hi < len(steps)-1 && g.Times[steps[hi+1]].Sub(g.Times[steps[hi]]) <= gap {
-			hi++
-		}
-		first, last = g.Times[steps[lo]], g.Times[steps[hi]]
-	}
-	from, to := first.Add(-gap), last.Add(gap)
-	return slices.ContainsFunc(a.narrow[k], func(h hit) bool {
-		t := g.Times[h.step]
-		return !t.Before(from) && !t.After(to) && holds(h)
-	})
+	return out
 }
 
 func runs(g Grid, hs []hit, gap time.Duration) [][]hit {
@@ -844,14 +839,22 @@ func frameAt(center mosaics.Point, rotation float64, c Criteria, objs []FrameObj
 	return f
 }
 
+// finish fills the window, the hours and the nights from the run's steps,
+// counting a step once however many groups of the run it holds.
 func (e *Event) finish(g Grid, hs []hit, step time.Duration) {
-	first, last := g.Times[hs[0].step], g.Times[hs[len(hs)-1].step]
+	steps := make([]hit, 0, len(hs))
+	for _, h := range hs {
+		if len(steps) == 0 || steps[len(steps)-1].step != h.step {
+			steps = append(steps, h)
+		}
+	}
+	first, last := g.Times[steps[0].step], g.Times[steps[len(steps)-1].step]
 	e.Start, e.End = first, last.Add(step)
 	e.FirstNight, e.LastNight = nightOf(g.Site, first), nightOf(g.Site, last)
-	e.Hours = round(float64(len(hs))*step.Hours(), 1)
+	e.Hours = round(float64(len(steps))*step.Hours(), 1)
 	byNight := map[string][]hit{}
 	var order []string
-	for _, h := range hs {
+	for _, h := range steps {
 		n := nightOf(g.Site, g.Times[h.step])
 		if _, ok := byNight[n]; !ok {
 			order = append(order, n)
@@ -931,7 +934,14 @@ func groupEvent(g Grid, tracks []Track, dsos []DSO, sr *series, hs []hit, c Crit
 	e.Title = listNames(names)
 	e.Best = Best{At: g.Times[best.step], Separation: round(best.sep, 3), Altitude: round(best.alt, 1)}
 	shapes := c.shapes(sr.mosaic)
-	f, at, _ := fitShapes(ds, shapes)
+	f, at, ok := fitShapes(ds, shapes)
+	if !ok {
+		f, at = fit{center: meanPoint(ds)}, 0
+	}
+	if e.MovingCenter && ok {
+		f.rotation, hs = steadyRotation(tracks, idx, hs, shapes[at], f.rotation)
+		f.center = centreAt(ds, f.rotation)
+	}
 	e.Frame = frameAt(f.center, f.rotation, c, objs, ds)
 	if sr.mosaic {
 		e.Frame.Mosaic = mosaicFrame(f.center, e.Frame.Rotation, shapes[at], c)
@@ -975,4 +985,63 @@ func mosaicFrame(center mosaics.Point, rotation float64, sh shape, c Criteria) *
 			X: round(x, 4), Y: round(y, 4), East: round(e, 4), North: round(n, 4)})
 	}
 	return m
+}
+
+// steadyRotation picks the rotator angle, to 0.1°, that holds the bodies in
+// the shape at the most steps of the run, keeping the best moment's own
+// angle on a tie, and returns the run's steps that fit at it. The
+// scheduler turns the camera once for a target, so the event's hours and
+// nights count only the steps the frame holds the bodies at that angle.
+func steadyRotation(tracks []Track, bodies []int, hs []hit, sh shape, preferred float64) (float64, []hit) {
+	type at struct {
+		step int
+		p    projected
+	}
+	var steps []at
+	for _, h := range hs {
+		if len(steps) > 0 && steps[len(steps)-1].step == h.step {
+			continue
+		}
+		ds := make([]disc, 0, len(bodies))
+		for _, b := range bodies {
+			ds = append(ds, bodyDisc(tracks[b].Samples[h.step]))
+		}
+		steps = append(steps, at{h.step, project(ds)})
+	}
+	holds := func(x at, r float64) bool {
+		s, _, _ := x.p.box(r, sh.w, sh.h)
+		return s >= 0 && x.p.pairwise <= sh.reach()
+	}
+	best, most := round(preferred, 1), -1
+	for k := -1; k < 180; k++ {
+		r := best
+		if k >= 0 {
+			r = float64(k)
+		}
+		n := 0
+		for _, x := range steps {
+			if holds(x, r) {
+				n++
+			}
+		}
+		if n > most {
+			best, most = r, n
+		}
+	}
+	keep := map[int]bool{}
+	for _, x := range steps {
+		if holds(x, best) {
+			keep[x.step] = true
+		}
+	}
+	out := make([]hit, 0, len(hs))
+	for _, h := range hs {
+		if keep[h.step] {
+			out = append(out, h)
+		}
+	}
+	if len(out) == 0 {
+		return round(preferred, 1), hs
+	}
+	return best, out
 }

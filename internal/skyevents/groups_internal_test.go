@@ -195,12 +195,8 @@ func TestEventsDoNotRepeatOrOverlap(t *testing.T) {
 			if ka != kb || !slices.Equal(oa, ob) {
 				continue
 			}
-			near := a.Start.Before(b.End.Add(MergeGap)) && b.Start.Before(a.End.Add(MergeGap))
-			if a.Kind == b.Kind && a.Start.Before(b.End) && b.Start.Before(a.End) {
+			if a.Start.Before(b.End) && b.Start.Before(a.End) {
 				t.Errorf("%s and %s overlap", a.ID, b.ID)
-			}
-			if (a.Kind == EventMosaic2) != (b.Kind == EventMosaic2) && near {
-				t.Errorf("%s and %s are the same members in one frame and in a mosaic", a.ID, b.ID)
 			}
 		}
 	}

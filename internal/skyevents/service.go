@@ -124,6 +124,7 @@ type Service struct {
 	mu         sync.Mutex
 	last       *Result
 	tables     map[string]Table
+	rarities   map[string]*Rarity
 	site       sky.Site
 	eph        *ephem.Ephemeris
 	ephErr     error
@@ -276,14 +277,28 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	}
 	res.Events = Search(g, tracks, dsos, c)
 	Rarities(e, site, c, res.Events, dsos, s.cachedRarities(), orbits)
+	known := map[string]*Rarity{}
+	for _, ev := range res.Events {
+		if ev.Rarity != nil && ev.Rarity.Status == StatusReady {
+			known[ev.ID] = ev.Rarity
+		}
+	}
 	res.Events = WorthAMosaic(res.Events)
 	s.mu.Lock()
-	s.tables, s.site = tabs, site
+	s.tables, s.site, s.rarities = tabs, site, known
 	s.mu.Unlock()
 	return res, nil
 }
 
+// cachedRarities are the rarities of the last search, of the events it
+// left out too, so a common mosaic is not searched again every day.
 func (s *Service) cachedRarities() map[string]*Rarity {
+	s.mu.Lock()
+	known := s.rarities
+	s.mu.Unlock()
+	if known != nil {
+		return known
+	}
 	out := map[string]*Rarity{}
 	if res := s.Latest(); res != nil {
 		for _, e := range res.Events {
@@ -442,10 +457,7 @@ func matches(c app.SkyEventChoice, e Event) bool {
 		return false
 	}
 	b, o := memberKeys(e)
-	if c.Bodies != b || c.WindowStart == nil || c.WindowEnd == nil {
-		return false
-	}
-	if !c.WindowStart.Before(e.End) || !e.Start.Before(*c.WindowEnd) {
+	if c.Bodies != b || !overlaps(c, e) {
 		return false
 	}
 	have := strings.Split(c.Objects, ",")
@@ -453,6 +465,32 @@ func matches(c app.SkyEventChoice, e Event) bool {
 		return c.Objects == "" && len(o) == 0
 	}
 	return slices.ContainsFunc(o, func(x string) bool { return slices.Contains(have, x) })
+}
+
+func overlaps(c app.SkyEventChoice, e Event) bool {
+	return c.WindowStart != nil && c.WindowEnd != nil && c.WindowStart.Before(e.End) && e.Start.Before(*c.WindowEnd)
+}
+
+// followsPlan ties a planned choice to an event of a later search that
+// shares two of its bodies, or a body and an object, in an overlapping
+// window, whatever the framing: a body joining or leaving the group, or a
+// group moving between one frame and a mosaic, keeps the plan in view.
+func followsPlan(c app.SkyEventChoice, e Event) bool {
+	if c.PlannedAt == nil || c.CommandID == "" || !overlaps(c, e) {
+		return false
+	}
+	b, o := memberKeys(e)
+	shared := func(have string, want []string) int {
+		n := 0
+		for _, x := range strings.Split(have, ",") {
+			if x != "" && slices.Contains(want, x) {
+				n++
+			}
+		}
+		return n
+	}
+	bs := shared(c.Bodies, strings.Split(b, ","))
+	return bs >= 2 || (bs >= 1 && shared(c.Objects, o) >= 1)
 }
 
 func (s *Service) planState(ctx context.Context, c app.SkyEventChoice) *PlanState {
@@ -550,9 +588,24 @@ func (s *Service) decorate(ctx context.Context, e *Event, cs []app.SkyEventChoic
 	e.AutoPlan = autoState(*e, cp, pl, s.now())
 }
 
-func matchChoice(cs []app.SkyEventChoice, e Event) (app.SkyEventChoice, bool) {
+// matchOwnChoice is the choice stored for the event itself.
+func matchOwnChoice(cs []app.SkyEventChoice, e Event) (app.SkyEventChoice, bool) {
 	for _, c := range cs {
 		if matches(c, e) {
+			return c, true
+		}
+	}
+	return app.SkyEventChoice{}, false
+}
+
+// matchChoice is the event's own choice, or failing that a plan that
+// follows it.
+func matchChoice(cs []app.SkyEventChoice, e Event) (app.SkyEventChoice, bool) {
+	if c, ok := matchOwnChoice(cs, e); ok {
+		return c, true
+	}
+	for _, c := range cs {
+		if followsPlan(c, e) {
 			return c, true
 		}
 	}

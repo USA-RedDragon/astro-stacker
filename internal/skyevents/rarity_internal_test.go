@@ -85,7 +85,7 @@ func search(t *testing.T, e *ephem.Ephemeris, site sky.Site, dsos []DSO, from, t
 func titled(t *testing.T, evs []Event, title string) Event {
 	t.Helper()
 	for _, e := range evs {
-		if e.Title == title {
+		if e.Title == title && e.Kind != EventMosaic2 {
 			return e
 		}
 	}
