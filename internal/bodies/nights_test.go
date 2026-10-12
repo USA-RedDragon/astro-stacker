@@ -338,6 +338,19 @@ func TestNightServicePublishesKeepsAndPrunes(t *testing.T) {
 		t.Fatalf("second publish %+v, %v", res, err)
 	}
 
+	if ra, dec, usable, isBody := s.NightPoint(strings.ToUpper(hartleyGUID), night12); !isBody || !usable || !near(ra, 320.975696882, 1e-9) || !near(dec, 4.945605039, 1e-9) {
+		t.Errorf("161P tonight %v %v %v %v", ra, dec, usable, isBody)
+	}
+	if _, _, usable, isBody := s.NightPoint(k2GUID, night12); !isBody || usable {
+		t.Errorf("K2 is a body but never bright enough: %v %v", usable, isBody)
+	}
+	if _, _, usable, isBody := s.NightPoint(hartleyGUID, "2030-01-01"); !isBody || usable {
+		t.Errorf("night without a row: %v %v", usable, isBody)
+	}
+	if _, _, _, isBody := s.NightPoint("dddd-fixed", night12); isBody {
+		t.Error("a fixed target is not a body")
+	}
+
 	checkFailedFetchKeepsRows(t, s, sched, f, per)
 	checkInactiveTargetIsPruned(t, s, sched, per)
 	checkView(t, s)

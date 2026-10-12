@@ -43,6 +43,9 @@ type Service struct {
 	Measure func(ctx context.Context) rigsource.Rig
 	Site    SiteSource
 	Horizon HorizonSource
+	// BodyNight places a moving-body target on a night; nil leaves every
+	// target at its stored coordinates.
+	BodyNight BodyNightFunc
 }
 
 func New(appDB, sched *gorm.DB) *Service {

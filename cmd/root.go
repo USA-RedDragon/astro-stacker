@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
@@ -110,6 +112,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	defer stopIndexer()
 	var signer *previewer.Signer
 	mosaicPlans, horizon := newMosaicPlans(cfg, appStore, schedulerDBStore)
+	var bodyNightsRef atomic.Pointer[bodies.NightService]
+	mosaicPlans.BodyNight = bodyNightFunc(&bodyNightsRef)
 	go horizon.Run(indexCtx)
 	var restacker middleware.Restacker
 	drainStacker := func() {}
@@ -225,6 +229,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		Site: bodies.SiteFunc(siteFunc(cfg, appStore)), MinAlt: cfg.Discover.MinAltitude}
 	bodyNights := &bodies.NightService{Sched: schedulerDBStore.DB(), Horizons: hz, Elements: comets.ElementsOf, Site: bodies.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.Bodies.Publish}
 	go bodyNights.Run(indexCtx, time.Duration(cfg.Bodies.IntervalMinutes)*time.Minute)
+	bodyNightsRef.Store(bodyNights)
 	asteroids := &bodies.AsteroidList{Comets: comets, Horizons: hz}
 	go asteroids.Run(indexCtx, bodies.AsteroidWarmInterval)
 	skyEvents := &skyevents.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Horizons: hz, Site: skyevents.SiteFunc(siteFunc(cfg, appStore)),
@@ -418,5 +423,16 @@ func plannedDarks(s *sublength.Service) func(context.Context) []darkneed.Planned
 			out = append(out, darkneed.Planned{Exposure: p.Exposure, Gain: p.Gain, Offset: p.Offset, SetTemp: p.SetTemp, Basis: p.Basis})
 		}
 		return out
+	}
+}
+
+func bodyNightFunc(ref *atomic.Pointer[bodies.NightService]) mosaicplan.BodyNightFunc {
+	return func(guid, night string) (mosaics.Point, bool, bool) {
+		n := ref.Load()
+		if n == nil {
+			return mosaics.Point{}, false, false
+		}
+		ra, dec, usable, isBody := n.NightPoint(guid, night)
+		return mosaics.Point{RA: ra, Dec: dec}, usable, isBody
 	}
 }

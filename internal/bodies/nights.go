@@ -159,6 +159,8 @@ type NightResult struct {
 	Basis       string        `json:"basis"`
 	rows        []NightRow
 	site        *sky.Site
+	guids       map[string]bool
+	index       map[nightKey]NightRow
 }
 
 // Nights are the computed rows of one target, or all of them for "".
@@ -222,8 +224,28 @@ func (s *NightService) keep(res *NightResult) *NightResult {
 	if res.PublishedAt == nil && s.last != nil {
 		res.PublishedAt = s.last.PublishedAt
 	}
+	res.index = make(map[nightKey]NightRow, len(res.rows))
+	for _, r := range res.rows {
+		res.index[r.key()] = r
+	}
 	s.last = res
 	return res
+}
+
+// NightPoint is where an active body target is on night, from the latest
+// table, and whether it is bright enough then. isBody is false for a
+// target that is not an active moving body; usable is false for a night
+// without a row.
+func (s *NightService) NightPoint(guid, night string) (raDeg, dec float64, usable, isBody bool) {
+	res := s.Latest()
+	if res == nil || !res.guids[strings.ToLower(guid)] {
+		return 0, 0, false, false
+	}
+	r, ok := res.index[nightKey{strings.ToLower(guid), night}]
+	if !ok {
+		return 0, 0, false, true
+	}
+	return r.RA, r.Dec, r.Bright(), true
 }
 
 // Compute builds the night tables of every active target with a
@@ -254,6 +276,10 @@ func (s *NightService) Compute(ctx context.Context) (*NightResult, error) {
 	}
 	targets = slices.DeleteFunc(targets, func(t Target) bool { return !t.Active })
 	res.Targets = len(targets)
+	res.guids = map[string]bool{}
+	for _, t := range targets {
+		res.guids[strings.ToLower(t.GUID)] = true
+	}
 	if s.Site == nil || s.Horizons == nil {
 		return res, ErrNoSite
 	}
