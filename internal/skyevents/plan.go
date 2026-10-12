@@ -49,13 +49,13 @@ func desired(budget time.Duration, plans int, exposure float64) int {
 	return max(1, min(n, MaxDesired))
 }
 
-// pickTemplate is the luminance template the most plans use, or failing
-// that the most used broadband one.
-func pickTemplate(snap *planning.Snapshot) (planning.Template, bool) {
-	var best planning.Template
-	found := false
-	rank := func(t planning.Template) int {
-		switch rigsource.CanonicalFilter(t.Filter) {
+// pickFilter is Luminance, or failing that the broadband filter with the
+// most used template.
+func pickFilter(snap *planning.Snapshot) (string, bool) {
+	var best string
+	bestRank, bestUse, found := 0, 0, false
+	rank := func(f string) int {
+		switch rigsource.CanonicalFilter(f) {
 		case "L":
 			return 2
 		case "R", "G", "B":
@@ -63,16 +63,26 @@ func pickTemplate(snap *planning.Snapshot) (planning.Template, bool) {
 		}
 		return 0
 	}
-	for _, t := range snap.Templates {
-		r := rank(t)
+	for _, f := range snap.Filters {
+		r := rank(f.Name)
 		if r == 0 {
 			continue
 		}
-		if !found || r > rank(best) || (r == rank(best) && t.UsedByPlans > best.UsedByPlans) {
-			best, found = t, true
+		use := snap.MostPlans(snap.FilterProfile(), f.Name)
+		if !found || r > bestRank || (r == bestRank && use > bestUse) {
+			best, bestRank, bestUse, found = f.Name, r, use, true
 		}
 	}
 	return best, found
+}
+
+// pickTemplate is the template a plan on the picked filter uses.
+func pickTemplate(snap *planning.Snapshot) (planning.Template, bool) {
+	f, ok := pickFilter(snap)
+	if !ok {
+		return planning.Template{}, false
+	}
+	return snap.ResolveFilter(snap.FilterProfile(), f)
 }
 
 func (s *Service) projectName(snap *planning.Snapshot, e Event) string {
@@ -141,7 +151,7 @@ func (s *Service) Draft(ctx context.Context, snap *planning.Snapshot, e Event, p
 			nt.Designation, nt.BodyKind = bodies.EventPrefix+e.ID, bodies.KindEvent
 		}
 		for _, l := range lengths {
-			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Exposure: l,
+			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Filter: snap.PlanFilter(t), Exposure: l,
 				Desired: desired(budget, len(lengths)*len(frames), l)})
 		}
 		targets = append(targets, nt)
