@@ -175,7 +175,7 @@ func TestEphemerisCachedPerTargetNight(t *testing.T) {
 	if agent != "astro-stacker/v1.2.3 (jacob@mcswain.dev)" {
 		t.Errorf("User-Agent %q", agent)
 	}
-	for _, want := range []string{"CENTER=%27coord%40399%27", "QUANTITIES=%271%2C2%2C3%2C9%2C20%2C36%27", "ANG_FORMAT=%27DEG%27", "EXTRA_PREC=%27YES%27", "STEP_SIZE=%2710+m%27", "EPHEM_TYPE=%27OBSERVER%27"} {
+	for _, want := range []string{"CENTER=%27coord%40399%27", "QUANTITIES=%271%2C2%2C3%2C9%2C20%2C27%2C36%27", "ANG_FORMAT=%27DEG%27", "EXTRA_PREC=%27YES%27", "STEP_SIZE=%2710+m%27", "EPHEM_TYPE=%27OBSERVER%27"} {
 		if !strings.Contains(query, want) {
 			t.Errorf("query lacks %s: %s", want, query)
 		}
@@ -439,5 +439,64 @@ func TestMultipleMajorBodiesIsAmbiguous(t *testing.T) {
 	t.Parallel()
 	if _, err := horizons.Parse(" Multiple major-bodies match string \"MAR*\"\n\n  ID#      Name\n  499      Mars\n"); !errors.Is(err, horizons.ErrAmbiguous) {
 		t.Errorf("err %v", err)
+	}
+}
+
+func TestParsePositionAngles(t *testing.T) {
+	t.Parallel()
+	tab, err := horizons.Parse(result(t, "comet-161p-10m-psang.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tab.Angles || len(tab.Rows) != 13 {
+		t.Fatalf("angles %v rows %d", tab.Angles, len(tab.Rows))
+	}
+	r := tab.Rows[0]
+	if r.PsAng == nil || r.PsAMV == nil || !near(*r.PsAng, 84.059, 1e-9) || !near(*r.PsAMV, 141.693, 1e-9) {
+		t.Fatalf("PsAng %v PsAMV %v", r.PsAng, r.PsAMV)
+	}
+	if !near(r.RA, 321.494951490, 1e-9) || r.UncRA == nil || !near(*r.UncRA, 0.220, 1e-9) {
+		t.Fatalf("columns after PsAMV misread: ra %v unc %v", r.RA, r.UncRA)
+	}
+	old, err := horizons.Parse(result(t, "comet-c2025r2-10m.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Angles || old.Rows[0].PsAng != nil || old.Rows[0].PsAMV != nil {
+		t.Fatalf("a table without quantity 27 read as having angles")
+	}
+}
+
+func TestEphemerisWithAnglesRefetchesAnOldCachedTableOnce(t *testing.T) {
+	t.Parallel()
+	old, fresh := fixture(t, "comet-c2025r2-10m.json"), fixture(t, "comet-161p-10m-psang.json")
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			_, _ = w.Write([]byte(old))
+			return
+		}
+		_, _ = w.Write([]byte(fresh))
+	}))
+	defer srv.Close()
+	now := time.Date(2026, 10, 12, 18, 0, 0, 0, time.UTC)
+	c := &horizons.Client{BaseURL: srv.URL, Cache: cacheDB(t), Now: func() time.Time { return now }}
+	ctx := context.Background()
+	if tab, err := c.Ephemeris(ctx, request()); err != nil || tab.Angles {
+		t.Fatalf("seed: %v %v", tab.Angles, err)
+	}
+	if tab, err := c.Ephemeris(ctx, request()); err != nil || !tab.Cached || calls.Load() != 1 {
+		t.Fatalf("a young cached table without angles was fetched again for a caller that does not need them: %d %v", calls.Load(), err)
+	}
+	tab, err := c.EphemerisWithAngles(ctx, request())
+	if err != nil || !tab.Angles || tab.Cached || calls.Load() != 2 {
+		t.Fatalf("angles %v cached %v calls %d err %v", tab.Angles, tab.Cached, calls.Load(), err)
+	}
+	again, err := c.EphemerisWithAngles(ctx, request())
+	if err != nil || !again.Angles || !again.Cached || calls.Load() != 2 {
+		t.Fatalf("the refetched table was not cached under the same key: %v %v %d %v", again.Angles, again.Cached, calls.Load(), err)
+	}
+	if plain, err := c.Ephemeris(ctx, request()); err != nil || !plain.Angles || calls.Load() != 2 {
+		t.Fatalf("plain lookup after the refetch: %v %d %v", plain.Angles, calls.Load(), err)
 	}
 }

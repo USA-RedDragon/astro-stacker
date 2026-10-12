@@ -31,8 +31,12 @@ import (
 const (
 	yes        = "'YES'"
 	URL        = "https://ssd.jpl.nasa.gov/api/horizons.api"
-	Quantities = "1,2,3,9,20,36"
-	MaxRows    = 90024
+	Quantities = "1,2,3,9,20,27,36"
+	// KeyQuantities is the quantity list the cache key is computed with. It
+	// stays the list before quantity 27 was added so the tables cached then
+	// keep their keys and are fetched again only when they age out.
+	KeyQuantities = "1,2,3,9,20,36"
+	MaxRows       = 90024
 )
 
 var (
@@ -302,7 +306,9 @@ func (r Request) Values() url.Values {
 }
 
 func (r Request) key() string {
-	h := sha256.Sum256([]byte(r.Values().Encode()))
+	q := r.Values()
+	q.Set("QUANTITIES", "'"+KeyQuantities+"'")
+	h := sha256.Sum256([]byte(q.Encode()))
 	return hex.EncodeToString(h[:])
 }
 
@@ -406,6 +412,22 @@ func (c *Client) Ephemeris(ctx context.Context, r Request) (Table, error) {
 	return c.fetch(ctx, r, key)
 }
 
+// EphemerisWithAngles is Ephemeris for a caller that needs the position
+// angles: a cached table from before quantity 27 was asked for is fetched
+// again once, under the same key.
+func (c *Client) EphemerisWithAngles(ctx context.Context, r Request) (Table, error) {
+	t, err := c.Ephemeris(ctx, r)
+	if err != nil || t.Angles || !t.Cached {
+		return t, err
+	}
+	if fresh, err := c.fetch(ctx, r, r.key()); err == nil {
+		return fresh, nil
+	} else if ctx.Err() != nil {
+		return Table{}, err
+	}
+	return t, nil
+}
+
 // Prune drops cached tables that ended before cutoff.
 func (c *Client) Prune(ctx context.Context, cutoff time.Time) (int64, error) {
 	if c.Cache == nil {
@@ -427,12 +449,20 @@ type Row struct {
 	Delta   *float64
 	UncRA   *float64
 	UncDec  *float64
+	// PsAng is the position angle of the extended Sun-to-body radius
+	// vector, where a comet's ion tail points, and PsAMV that of the
+	// negative of the body's heliocentric velocity, the dust trail's side;
+	// both are degrees east of north (Horizons quantity 27).
+	PsAng *float64
+	PsAMV *float64
 }
 
 type Table struct {
 	Rows      []Row
 	FetchedAt time.Time
 	Cached    bool
+	// Angles reports whether the table has the quantity 27 columns.
+	Angles bool
 }
 
 // MinDelta is the smallest geocentric range in the table, in au.
@@ -458,6 +488,8 @@ const (
 	colDelta
 	colUncRA
 	colUncDec
+	colPsAng
+	colPsAMV
 	colCount
 )
 
@@ -485,6 +517,10 @@ func columnOf(name string) int {
 		return colUncRA
 	case "DEC_3sigma":
 		return colUncDec
+	case "PsAng":
+		return colPsAng
+	case "PsAMV":
+		return colPsAMV
 	}
 	return -1
 }
@@ -534,6 +570,7 @@ func Parse(result string) (Table, error) {
 					cols[c] = i
 				}
 			}
+			t.Angles = cols[colPsAng] >= 0 && cols[colPsAMV] >= 0
 			for _, c := range []int{colTime, colRA, colDec, colRARate, colDecRate} {
 				if cols[c] < 0 {
 					return t, fmt.Errorf("horizons: the table has no %s column", []string{"time", "RA", "Dec", "", "", "RA rate", "Dec rate"}[c])
@@ -574,7 +611,7 @@ func Parse(result string) (Table, error) {
 		for _, o := range []struct {
 			col int
 			dst **float64
-		}{{colRAApp, &row.RAApp}, {colDecApp, &row.DecApp}, {colMag, &row.Mag}, {colDelta, &row.Delta}, {colUncRA, &row.UncRA}, {colUncDec, &row.UncDec}} {
+		}{{colRAApp, &row.RAApp}, {colDecApp, &row.DecApp}, {colMag, &row.Mag}, {colDelta, &row.Delta}, {colUncRA, &row.UncRA}, {colUncDec, &row.UncDec}, {colPsAng, &row.PsAng}, {colPsAMV, &row.PsAMV}} {
 			if err := optional(get(o.col), o.dst); err != nil {
 				return t, fmt.Errorf("horizons row %q: %w", line, err)
 			}
