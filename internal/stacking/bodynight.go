@@ -38,6 +38,8 @@ const (
 var errNoTail = errors.New("an asteroid has no tail")
 
 type nightSub struct {
+	Status        string
+	ProcessedAt   time.Time
 	RegisteredKey string
 	Exposure      float64
 	Weight        float64
@@ -59,6 +61,7 @@ func (p *Pipeline) runBodyNights(ctx context.Context) {
 }
 
 type bodyStack struct {
+	moving bool
 	stack  *app.Stack
 	body   bodies.Target
 	nights map[string][]nightSub
@@ -67,7 +70,7 @@ type bodyStack struct {
 
 func (p *Pipeline) bodyStacks(ctx context.Context) ([]bodyStack, error) {
 	var stacks []app.Stack
-	if err := p.db.WithContext(ctx).Where("subs >= ? AND master_key IS NOT NULL", bodyNightMinSubs).Order("id").Find(&stacks).Error; err != nil {
+	if err := p.db.WithContext(ctx).Order("id").Find(&stacks).Error; err != nil {
 		return nil, err
 	}
 	stored := p.storedDesignations(ctx)
@@ -78,15 +81,22 @@ func (p *Pipeline) bodyStacks(ctx context.Context) ([]bodyStack, error) {
 		if !ok {
 			continue
 		}
+		moving := isMovingBody(stored, s.Object)
+		if moving {
+			p.solvePendingNightReferences(ctx, s)
+		}
 		nights, err := p.nightSubs(ctx, s)
 		if err != nil {
 			return nil, err
+		}
+		if total := countSubs(nights); total < bodyNightMinSubs || (!moving && s.MasterKey == nil) {
+			continue
 		}
 		have, err := p.pruneBodyNights(ctx, s, nights)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, bodyStack{stack: s, body: body, nights: nights, have: have})
+		out = append(out, bodyStack{moving: moving, stack: s, body: body, nights: nights, have: have})
 	}
 	return out, nil
 }
@@ -138,7 +148,7 @@ func (p *Pipeline) bodyNightsOnce(ctx context.Context) error {
 		}
 	}
 	for _, bs := range stacks {
-		if time.Since(bs.stack.UpdatedAt) < p.opts.MosaicQuiet {
+		if !bs.quiet(p.opts.MosaicQuiet) {
 			continue
 		}
 		for _, k := range newestFirst(bs.nights) {
@@ -151,7 +161,30 @@ func (p *Pipeline) bodyNightsOnce(ctx context.Context) error {
 			}
 		}
 	}
+	for _, bs := range stacks {
+		if p.stopping(ctx) {
+			return nil
+		}
+		if !bs.moving || !bs.quiet(p.opts.MosaicQuiet) {
+			continue
+		}
+		if done, err := p.combineNightsIfDue(ctx, bs); err != nil || done {
+			return err
+		}
+	}
 	return nil
+}
+
+func (bs bodyStack) quiet(d time.Duration) bool {
+	last := bs.stack.UpdatedAt
+	for _, rows := range bs.nights {
+		for _, r := range rows {
+			if r.ProcessedAt.After(last) {
+				last = r.ProcessedAt
+			}
+		}
+	}
+	return time.Since(last) >= d
 }
 
 func retryDue(err *string, at time.Time) bool {
@@ -216,16 +249,23 @@ func (p *Pipeline) imageNightIfDue(ctx context.Context, bs bodyStack, k string) 
 func (p *Pipeline) nightSubs(ctx context.Context, stack *app.Stack) (map[string][]nightSub, error) {
 	var rows []nightSub
 	if err := p.db.WithContext(ctx).Table("stack_frames sf").
-		Select("sf.registered_key, sf.exposure, sf.weight, sf.score, f.date_obs, f.gain, f.night").
+		Select("sf.status, sf.registered_key, sf.exposure, sf.weight, sf.score, f.date_obs, f.gain, f.night, sf.processed_at").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
-		Where("sf.stack_id = ? AND sf.status = ? AND sf.registered_key IS NOT NULL AND f.date_obs IS NOT NULL AND f.night IS NOT NULL AND sf.weight > 0 AND sf.exposure > 0",
-			stack.ID, app.StackStatusAdded).
+		Where("sf.stack_id = ? AND sf.status IN ? AND sf.registered_key IS NOT NULL AND f.date_obs IS NOT NULL AND f.night IS NOT NULL AND sf.weight > 0 AND sf.exposure > 0",
+			stack.ID, []string{app.StackStatusAdded, app.StackStatusNight}).
 		Order("f.date_obs").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	own, err := p.nightsWithReference(ctx, stack.Object)
+	if err != nil {
 		return nil, err
 	}
 	out := map[string][]nightSub{}
 	for _, r := range rows {
 		k := r.Night.UTC().Format(goals.NightLayout)
+		if (r.Status == app.StackStatusNight) != own[k] {
+			continue
+		}
 		out[k] = append(out[k], r)
 	}
 	return out, nil
@@ -364,7 +404,7 @@ func bodyCrop(track [][2]float64, x0, y0, arcsecPerPx float64, w, h int) Rect {
 }
 
 func (p *Pipeline) computeBodyNight(ctx context.Context, stack *app.Stack, body bodies.Target, rows []nightSub, row *app.BodyNight, cropped bool) (cometLayers, error) {
-	field, err := p.bodyField(ctx, stack)
+	field, nightRef, err := p.nightField(ctx, stack, row.Night)
 	if err != nil {
 		return cometLayers{}, err
 	}
@@ -443,13 +483,9 @@ func (p *Pipeline) computeBodyNight(ctx context.Context, stack *app.Stack, body 
 			return cometLayers{}, err
 		}
 	}
-	master, _, err := p.loadMaster(ctx, dir, stack)
+	mdata, err := p.starAligned(ctx, dir, stack, box, cropped, nightRef, len(subs), read)
 	if err != nil {
-		return cometLayers{}, fmt.Errorf("star-aligned master: %w", err)
-	}
-	mdata := master.Data
-	if cropped && master.W == stack.Width && master.H == stack.Height {
-		mdata = crop(master.Data, master.W, box)
+		return cometLayers{}, err
 	}
 	stars := starMask(mdata, box.W, box.H)
 	layers, err := separateComet(subs, shifts, track, stars, p.opts.Stack, read, func(done, total int) {
@@ -675,6 +711,18 @@ func (p *Pipeline) publishBodyNight(ctx context.Context, stack *app.Stack, layer
 		imagedata.StringCard("SWCREATE", "astro-stacker (Siril 1.4 calibration)", ""),
 	}
 	cards := p.masterHeader(ctx, stack, own, dir, "")
+	if wcs, ok := p.nightWCS(ctx, stack.Object, row.Night); ok {
+		kept := cards[:0:0]
+		for _, c := range cards {
+			if !wcsKey.MatchString(c.Key) {
+				kept = append(kept, c)
+			}
+		}
+		for _, c := range wcs {
+			kept = append(kept, imageCard(c))
+		}
+		cards = kept
+	}
 	starlessCards := cards[:0:0]
 	for _, c := range cards {
 		if !wcsKey.MatchString(c.Key) {

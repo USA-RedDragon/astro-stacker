@@ -126,7 +126,7 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 		var unmeasured int64
 		if err := p.db.WithContext(ctx).Table("stack_frames").
 			Joins("JOIN frames ON frames.id = stack_frames.frame_id").
-			Where("stack_frames.stack_id = ? AND stack_frames.status = ?", stack.ID, app.StackStatusAdded).
+			Where("stack_frames.stack_id = ? AND stack_frames.status IN ?", stack.ID, stackedStatuses()).
 			Where("frames.photometry_rev IS NULL OR frames.photometry_rev < ?", measure.PhotometryRevision).
 			Count(&unmeasured).Error; err != nil || unmeasured > 0 {
 			return false, false, 0, 0, err
@@ -139,7 +139,7 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 	if err := p.db.WithContext(ctx).Table("stack_frames").
 		Select("stack_frames.*, frames.key").
 		Joins("JOIN frames ON frames.id = stack_frames.frame_id").
-		Where("stack_frames.stack_id = ? AND stack_frames.status = ?", stack.ID, app.StackStatusAdded).
+		Where("stack_frames.stack_id = ? AND stack_frames.status IN ?", stack.ID, stackedStatuses()).
 		Scan(&rows).Error; err != nil {
 		return false, false, 0, 0, err
 	}
@@ -161,7 +161,7 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 					return err
 				}
 				left++
-				marked = true
+				marked = marked || r.Status == app.StackStatusAdded
 				continue
 			}
 			weight := s.Score * r.Exposure
@@ -174,7 +174,7 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 			}
 			if !(r.Weight > 0) || math.Abs(weight/r.Weight-1) > rescoreWeightTolerance {
 				reweighted++
-				marked = true
+				marked = marked || r.Status == app.StackStatusAdded
 			}
 		}
 		cols := map[string]any{"score_method": p.scoreMethod()}

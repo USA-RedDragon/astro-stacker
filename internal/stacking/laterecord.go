@@ -138,6 +138,11 @@ func (p *Pipeline) reconcileObject(ctx context.Context, object string, rows []la
 // lateColumns is the update reconcileLate makes to one light given its
 // record's score s, and whether its master needs restacking for it.
 func (p *Pipeline) lateColumns(r lateRow, s quality.SubScore, now time.Time) (map[string]any, bool) {
+	if r.Status == app.StackStatusNight {
+		r.Status = app.StackStatusAdded
+		cols, _ := p.lateColumns(r, s, now)
+		return cols, false
+	}
 	cols := map[string]any{"metadata_source": app.MetadataSourceTS}
 	if r.Status != app.StackStatusAdded {
 		if slices.Contains(retried(), r.Status) {

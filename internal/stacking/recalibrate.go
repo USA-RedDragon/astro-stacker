@@ -180,7 +180,7 @@ func (p *Pipeline) dueForDarks(ctx context.Context, now time.Time) ([]darkDue, e
 			"f.filter AS f_filter, f.exposure AS f_exposure, f.gain AS f_gain, f.\"offset\" AS f_offset, "+
 			"f.set_temp AS f_set_temp, f.bin_x AS f_bin_x, f.rotator AS f_rotator").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
-		Where("sf.status = ? AND sf.stack_id IS NOT NULL", app.StackStatusAdded).Scan(&rows).Error; err != nil {
+		Where("sf.status IN ? AND sf.stack_id IS NOT NULL", stackedStatuses()).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {

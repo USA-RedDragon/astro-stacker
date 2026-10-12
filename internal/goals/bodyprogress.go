@@ -79,7 +79,7 @@ func NightSubs(ctx context.Context, appDB *gorm.DB, night time.Time) (map[Key]in
 		Select("s.object AS object, s.filter AS filter, count(*) AS n").
 		Joins("JOIN stacks s ON s.id = sf.stack_id").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
-		Where("sf.status = ? AND sf.registered_key IS NOT NULL AND sf.weight > 0 AND sf.exposure > 0", app.StackStatusAdded).
+		Where("sf.status IN ? AND sf.registered_key IS NOT NULL AND sf.weight > 0 AND sf.exposure > 0", []string{app.StackStatusAdded, app.StackStatusNight}).
 		Where("f.night >= ? AND f.night < ?", night, night.AddDate(0, 0, 1)).
 		Group("s.object, s.filter").Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("count tonight's subs: %w", err)

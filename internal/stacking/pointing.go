@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
 )
 
@@ -132,9 +133,15 @@ const (
 // one. The caller holds the target's claim.
 func (p *Pipeline) maybeReReference(ctx context.Context, object string) (bool, error) {
 	var counts struct{ Failed, Added int64 }
-	if err := p.db.WithContext(ctx).Model(&app.StackFrame{}).
+	q := p.db.WithContext(ctx).Model(&app.StackFrame{}).
 		Joins("JOIN frames f ON f.id = stack_frames.frame_id").
-		Where("f.object = ?", object).
+		Where("f.object = ?", object)
+	if refNight, ok, err := p.bodyReferenceNight(ctx, object); err != nil {
+		return false, err
+	} else if ok {
+		q = q.Where("f.night = ?", refNight)
+	}
+	if err := q.
 		Select("SUM(CASE WHEN stack_frames.status = ? THEN 1 ELSE 0 END) AS failed, "+
 			"SUM(CASE WHEN stack_frames.status = ? THEN 1 ELSE 0 END) AS added",
 			app.StackStatusRegistration, app.StackStatusAdded).
@@ -176,6 +183,14 @@ func (p *Pipeline) Restack(ctx context.Context, object string) error {
 // restack does Restack's work, saving reset (the automatic re-reference
 // count) with it when given.
 func (p *Pipeline) restack(ctx context.Context, object string, reset *app.ReferenceReset) error {
+	var nightRefs []time.Time
+	if has, err := tables.Has(ctx, p.db, &app.NightReference{}); err != nil {
+		return err
+	} else if has {
+		if err := p.db.WithContext(ctx).Model(&app.NightReference{}).Where("object = ?", object).Pluck("night", &nightRefs).Error; err != nil {
+			return err
+		}
+	}
 	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("frame_id IN (?)", tx.Model(&app.Frame{}).Select("id").Where("object = ?", object)).
 			Delete(&app.StackFrame{}).Error; err != nil {
@@ -187,6 +202,13 @@ func (p *Pipeline) restack(ctx context.Context, object string, reset *app.Refere
 		if err := tx.Where("object = ?", object).Delete(&app.TargetReference{}).Error; err != nil {
 			return err
 		}
+		if has, err := tables.Has(ctx, tx, &app.NightReference{}); err != nil {
+			return err
+		} else if has {
+			if err := tx.Where("object = ?", object).Delete(&app.NightReference{}).Error; err != nil {
+				return err
+			}
+		}
 		if reset != nil {
 			return tx.Save(reset).Error
 		}
@@ -197,5 +219,8 @@ func (p *Pipeline) restack(ctx context.Context, object string, reset *app.Refere
 	}
 	h := sha256.Sum256([]byte(object))
 	_ = os.Remove(filepath.Join(p.workDir, "references", hex.EncodeToString(h[:8])+".fit"))
+	for _, n := range nightRefs {
+		_ = os.Remove(p.nightReferenceFile(object, nightKey(&n)))
+	}
 	return nil
 }

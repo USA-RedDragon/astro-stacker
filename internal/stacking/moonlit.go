@@ -221,7 +221,7 @@ func (p *Pipeline) moonlitAdded(ctx context.Context, check *moonChecker) (map[in
 	if err := p.db.WithContext(ctx).Table("stack_frames sf").
 		Select("f.*, sf.id AS sf_id, sf.stack_id AS sf_stack").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
-		Where("sf.status = ?", app.StackStatusAdded).Scan(&rows).Error; err != nil {
+		Where("sf.status IN ?", stackedStatuses()).Scan(&rows).Error; err != nil {
 		return nil, nil, err
 	}
 	byStack := map[int][]int{}

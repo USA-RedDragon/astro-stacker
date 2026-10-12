@@ -269,7 +269,7 @@ func (p *Pipeline) plateSolution(ctx context.Context, tr *app.TargetReference, s
 		tr.SolveAttempts = 0
 	}
 	cards, err := p.solveMaster(ctx, in, stack, dir, masterFile)
-	updates := map[string]any{"solve_attempts": tr.SolveAttempts + 1, "solve_inputs": fp}
+	updates := map[string]any{colSolveAttempts: tr.SolveAttempts + 1, "solve_inputs": fp}
 	if err != nil {
 		msg := err.Error()
 		updates["solve_error"] = msg

@@ -375,6 +375,10 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	if err != nil {
 		return 0, err
 	}
+	moving, err := p.movingTarget(ctx, first.Object)
+	if err != nil {
+		return 0, err
+	}
 	moonlit, moonFree, err := p.moonlitFrames(ctx, positions, first, frames)
 	if err != nil {
 		return 0, err
@@ -384,7 +388,7 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 		return 0, err
 	}
 	if len(batch) > 0 {
-		if err := p.runBatch(ctx, first, batch, sets, scores, positions); err != nil {
+		if err := p.runBatch(ctx, first, batch, sets, scores, positions, moving); err != nil {
 			return 0, err
 		}
 	}
@@ -547,10 +551,10 @@ func metadataSource(s quality.SubScore) string {
 }
 
 func (p *Pipeline) runBatch(ctx context.Context, first *app.Frame, batch []candidate, sets []calmatch.Set,
-	scores map[string]quality.SubScore, positions map[string][2]float64,
+	scores map[string]quality.SubScore, positions map[string][2]float64, moving bool,
 ) error {
 	start := time.Now()
-	err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores, positions)
+	err := p.stackBatch(ctx, first.Object, first.Filter, batch, sets, scores, positions, moving)
 	metrics.BatchSeconds.Observe(time.Since(start).Seconds())
 	if err == nil {
 		metrics.Batches.WithLabelValues("ok").Inc()
@@ -736,11 +740,11 @@ func (p *Pipeline) requeueWeightless(ctx context.Context) {
 	now := time.Now()
 	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var stacks []int
-		if err := tx.Model(&app.StackFrame{}).Where("status = ? AND NOT (weight > 0) AND stack_id IS NOT NULL", app.StackStatusAdded).
+		if err := tx.Model(&app.StackFrame{}).Where("status IN ? AND NOT (weight > 0) AND stack_id IS NOT NULL", stackedStatuses()).
 			Distinct("stack_id").Pluck("stack_id", &stacks).Error; err != nil || len(stacks) == 0 {
 			return err
 		}
-		res := tx.Model(&app.StackFrame{}).Where("status = ? AND NOT (weight > 0)", app.StackStatusAdded).
+		res := tx.Model(&app.StackFrame{}).Where("status IN ? AND NOT (weight > 0)", stackedStatuses()).
 			UpdateColumns(map[string]any{columnStatus: app.StackStatusLowScore, columnNextAttemptAt: now})
 		if res.Error != nil {
 			return res.Error
