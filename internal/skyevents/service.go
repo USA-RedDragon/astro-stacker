@@ -114,16 +114,20 @@ type Service struct {
 	// Snapshot loads what drafting a project needs, for the plans the
 	// stacker makes by itself.
 	Snapshot func(ctx context.Context) (*planning.Snapshot, error)
+	// Orbits gives a comet's or asteroid's orbit, for the rarity of its
+	// events.
+	Orbits func(ctx context.Context, designation, kind string) (bodies.Orbit, error)
 
-	refresh sync.Mutex
-	planMu  sync.Mutex
-	mu      sync.Mutex
-	last    *Result
-	tables  map[string]Table
-	site    sky.Site
-	eph     *ephem.Ephemeris
-	ephErr  error
-	ephOnce sync.Once
+	refresh    sync.Mutex
+	planMu     sync.Mutex
+	backfilled bool
+	mu         sync.Mutex
+	last       *Result
+	tables     map[string]Table
+	site       sky.Site
+	eph        *ephem.Ephemeris
+	ephErr     error
+	ephOnce    sync.Once
 }
 
 func (s *Service) now() time.Time {
@@ -232,6 +236,7 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 		res.BodyErrors = append(res.BodyErrors, BodyError{Name: "designated bodies", Error: err.Error()})
 	}
 	seen := map[string]bool{}
+	var orbits []bodies.Orbit
 	for _, t := range designated {
 		key := strings.ToLower(t.Designation)
 		if !t.Active || seen[key] || s.Horizons == nil {
@@ -244,6 +249,14 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 			continue
 		}
 		tabs[key] = tab
+		if s.Orbits != nil {
+			o, err := s.Orbits(ctx, t.Designation, t.Kind)
+			if err != nil {
+				res.BodyErrors = append(res.BodyErrors, BodyError{Name: t.Designation + " orbit", Error: err.Error()})
+			} else {
+				orbits = append(orbits, o)
+			}
+		}
 		tr := TableTrack(t.Designation, t.Designation, t.Kind, tab, g)
 		tracks = append(tracks, tr)
 		res.Bodies = append(res.Bodies, BodyInfo{Name: tr.Name, Kind: tr.Kind, Source: tr.Source})
@@ -257,7 +270,7 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 		dsos = EventDSOs(ix.All())
 	}
 	res.Events = Search(g, tracks, dsos, c)
-	Rarities(e, site, c, res.Events, dsos, s.cachedRarities())
+	Rarities(e, site, c, res.Events, dsos, s.cachedRarities(), orbits)
 	s.mu.Lock()
 	s.tables, s.site = tabs, site
 	s.mu.Unlock()
@@ -563,7 +576,7 @@ func (s *Service) choiceFor(ctx context.Context, e Event) (app.SkyEventChoice, e
 
 func newChoice(e Event) app.SkyEventChoice {
 	b, o := memberKeys(e)
-	return app.SkyEventChoice{EventID: e.ID, Bodies: b, Objects: strings.Join(o, ","), Priority: PriorityNormal}
+	return app.SkyEventChoice{EventID: e.ID, Bodies: b, Objects: strings.Join(o, ","), Priority: PriorityNormal, WindowStart: &e.Start, WindowEnd: &e.End}
 }
 
 // Event is one event of the latest search with the user's choices.

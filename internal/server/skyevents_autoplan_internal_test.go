@@ -12,6 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/skyevents"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
 const rareTitle = "Jupiter with Saturn"
@@ -23,16 +24,16 @@ func str(m map[string]any, k string) string {
 	return v
 }
 
-func eventNamed(t *testing.T, out map[string]any, title string) map[string]any {
+func eventNamed(t *testing.T, out map[string]any) map[string]any {
 	t.Helper()
 	evs, _ := out["events"].([]any)
 	for _, e := range evs {
 		m, _ := e.(map[string]any)
-		if m["title"] == title {
+		if m["title"] == rareTitle {
 			return m
 		}
 	}
-	t.Fatalf("no %s in %d events", title, len(evs))
+	t.Fatalf("no %s in %d events", rareTitle, len(evs))
 	return nil
 }
 
@@ -52,7 +53,7 @@ func rareCount(out map[string]any) int {
 func autoState(t *testing.T, rig skyEventsRig) (map[string]any, map[string]any) {
 	t.Helper()
 	_, out := rig.call(http.MethodGet, "/api/v1/sky-events", "")
-	ev := eventNamed(t, out, rareTitle)
+	ev := eventNamed(t, out)
 	a, _ := ev["auto_plan"].(map[string]any)
 	return ev, a
 }
@@ -80,7 +81,7 @@ func TestRareSkyEventsPlanThemselvesOnce(t *testing.T) {
 	rig := skyEventsEngineAt(t, false, rareNow())
 	_, out := rig.call(http.MethodGet, "/api/v1/sky-events", "")
 	rare := rareCount(out)
-	ev := eventNamed(t, out, rareTitle)
+	ev := eventNamed(t, out)
 	r, _ := ev["rarity"].(map[string]any)
 	if rare == 0 || r["rare"] != true || r["previous"] == nil || r["next"] == nil {
 		t.Fatalf("rarity %v", r)
@@ -140,7 +141,7 @@ func TestLoweringARareEventTurnsDownAutoPlanning(t *testing.T) {
 	rig := skyEventsEngineAt(t, true, rareNow())
 	_, out := rig.call(http.MethodGet, "/api/v1/sky-events", "")
 	rare := rareCount(out)
-	id := str(eventNamed(t, out, rareTitle), "id")
+	id := str(eventNamed(t, out), "id")
 	if code, out := rig.call(http.MethodPost, "/api/v1/sky-events/"+id+"/priority", `{"priority":"normal"}`); code != http.StatusOK {
 		t.Fatalf("%d %v", code, out)
 	}
@@ -171,8 +172,13 @@ func TestAutoPlanReleasesOnlyUnsentClaims(t *testing.T) {
 		t.Errorf("after a failed attempt: %v", a)
 	}
 	rig.svc.Snapshot = works
+	if err := rig.svc.AutoPlanRare(ctx); err != nil || projectCreates(rig.tr) != rare-1 {
+		t.Fatalf("the failed event was tried again at once: %v, %d sent for %d", err, projectCreates(rig.tr), rare)
+	}
+	later := rareNow().Add(skyevents.AutoRetry + time.Hour)
+	rig.svc.Now = func() time.Time { return later }
 	if err := rig.svc.AutoPlanRare(ctx); err != nil || projectCreates(rig.tr) != rare {
-		t.Fatalf("retry: %v, %d sent for %d", err, projectCreates(rig.tr), rare)
+		t.Fatalf("retry after the wait: %v, %d sent for %d", err, projectCreates(rig.tr), rare)
 	}
 }
 
@@ -241,5 +247,74 @@ func restartAndAutoPlan(t *testing.T, rig skyEventsRig, rare int) {
 	}
 	if err := restarted.AutoPlanRare(ctx); err != nil || projectCreates(rig.tr) != rare {
 		t.Fatalf("after a restart and a new search: %v, %d sent", err, projectCreates(rig.tr))
+	}
+}
+
+func TestTurningDownSurvivesANewEventID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rig := skyEventsEngineAt(t, true, rareNow())
+	_, out := rig.call(http.MethodGet, "/api/v1/sky-events", "")
+	rare := rareCount(out)
+	ev := eventNamed(t, out)
+	id := str(ev, "id")
+	if code, out := rig.call(http.MethodPost, "/api/v1/sky-events/"+id+"/priority", `{"priority":"normal"}`); code != http.StatusOK {
+		t.Fatalf("%d %v", code, out)
+	}
+	if err := rig.app.DB().Model(&app.SkyEventChoice{}).Where("event_id = ?", id).Update("event_id", "jupiter-saturn-2020-11-24").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.svc.AutoPlanRare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if projectCreates(rig.tr) != rare-1 {
+		t.Fatalf("%d project.create for %d rare events, one turned down under an older id", projectCreates(rig.tr), rare)
+	}
+	if _, a := autoState(t, rig); a["state"] != skyevents.AutoDeclined {
+		t.Errorf("after the id changed: %v", a)
+	}
+}
+
+func TestOlderNormalChoicesCountAsTurnedDown(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rig := skyEventsEngineAt(t, true, rareNow())
+	_, out := rig.call(http.MethodGet, "/api/v1/sky-events", "")
+	rare := rareCount(out)
+	id := str(eventNamed(t, out), "id")
+	saved := rareNow().Add(-48 * time.Hour)
+	if err := rig.app.DB().Create(&app.SkyEventChoice{EventID: id, Bodies: "body:jupiter,body:saturn", Priority: skyevents.PriorityNormal, UpdatedAt: saved}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.svc.AutoPlanRare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if projectCreates(rig.tr) != rare-1 {
+		t.Fatalf("%d project.create for %d rare events, one turned down before", projectCreates(rig.tr), rare)
+	}
+	var row app.SkyEventChoice
+	if err := rig.app.DB().First(&row, "event_id = ?", id).Error; err != nil || row.AutoDeclinedAt == nil || !row.AutoDeclinedAt.Equal(saved) {
+		t.Errorf("row %+v %v", row, err)
+	}
+}
+
+func TestPlanByHandWaitsForAnAutoPlanInFlight(t *testing.T) {
+	t.Parallel()
+	rig := skyEventsEngineAt(t, true, rareNow())
+	_, out := rig.call(http.MethodGet, "/api/v1/sky-events", "")
+	ev := eventNamed(t, out)
+	id := str(ev, "id")
+	at := rareNow()
+	if err := rig.app.DB().Create(&app.SkyEventChoice{EventID: id, Bodies: "body:jupiter,body:saturn", Priority: skyevents.PriorityNormal, AutoPlannedAt: &at}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if code, out := rig.call(http.MethodPost, "/api/v1/sky-events/"+id+"/plan", `{"priority":"high"}`); code != http.StatusConflict || len(rig.tr.sent) != 0 {
+		t.Fatalf("plan by hand during an automatic plan: %d %v, %d sent", code, out, len(rig.tr.sent))
+	}
+	if err := rig.app.DB().Model(&app.SkyEventChoice{}).Where("event_id = ?", id).Update("auto_command_id", "elsewhere").Error; err != nil {
+		t.Fatal(err)
+	}
+	if code, out := rig.call(http.MethodPost, "/api/v1/sky-events/"+id+"/plan", `{"priority":"high"}`); code != http.StatusOK {
+		t.Fatalf("plan by hand after the automatic one finished: %d %v", code, out)
 	}
 }

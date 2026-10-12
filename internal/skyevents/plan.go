@@ -137,7 +137,7 @@ func (s *Service) Draft(ctx context.Context, snap *planning.Snapshot, e Event, p
 // planning columns change only through their own guarded updates.
 func choiceColumns() []string {
 	return []string{"bodies", "objects", "priority", "project_guid", "target_guid", "target_name", "command_id", "window_command",
-		"designation", "moving", "ignore_moon", "window_start", "window_end", "planned_at", "updated_at"}
+		"designation", "moving", "ignore_moon", colWindowStart, colWindowEnd, "planned_at", "updated_at"}
 }
 
 // saveChoice stores the choice under its event id, replacing the row it was
@@ -177,10 +177,51 @@ func (s *Service) Plan(ctx context.Context, snap *planning.Snapshot, id, priorit
 	if err != nil {
 		return e, rec, err
 	}
-	return s.plan(ctx, snap, e, c, priority, author)
+	if activePlan(e.Plan) {
+		return e, rec, ErrAlreadyPlanned
+	}
+	if err := s.holdForHand(ctx, e, c); err != nil {
+		return e, rec, err
+	}
+	e, rec, err = s.plan(ctx, snap, e, c, priority, author, "")
+	if rec.ID == "" {
+		if rerr := s.unholdForHand(ctx, c); rerr != nil {
+			err = errors.Join(err, rerr)
+		}
+	}
+	return e, rec, err
 }
 
-func (s *Service) plan(ctx context.Context, snap *planning.Snapshot, e Event, c app.SkyEventChoice, priority, author string) (Event, schedcmd.Record, error) {
+// holdForHand marks a choice as being planned by hand, unless the stacker
+// holds it for an automatic plan that has not sent its command yet; an
+// automatic claim needs planned_at empty, so the two cannot both send.
+func (s *Service) holdForHand(ctx context.Context, e Event, c app.SkyEventChoice) error {
+	db := s.App.WithContext(ctx)
+	if c.WindowStart == nil || c.WindowEnd == nil {
+		c.WindowStart, c.WindowEnd = &e.Start, &e.End
+	}
+	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&c).Error; err != nil {
+		return err
+	}
+	r := db.Model(&app.SkyEventChoice{}).Where("event_id = ? AND (auto_planned_at IS NULL OR auto_command_id IS NOT NULL)", c.EventID).
+		Updates(map[string]any{"planned_at": s.now().UTC(), colWindowStart: gorm.Expr("COALESCE(window_start, ?)", e.Start), colWindowEnd: gorm.Expr("COALESCE(window_end, ?)", e.End)})
+	if r.Error != nil {
+		return r.Error
+	}
+	if r.RowsAffected != 1 {
+		return fmt.Errorf("%w: the stacker is planning this rare event by itself right now", ErrAlreadyPlanned)
+	}
+	return nil
+}
+
+// unholdForHand gives back a hold when no command was sent.
+func (s *Service) unholdForHand(ctx context.Context, c app.SkyEventChoice) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseTimeout)
+	defer cancel()
+	return s.App.WithContext(ctx).Model(&app.SkyEventChoice{}).Where("event_id = ?", c.EventID).Update("planned_at", c.PlannedAt).Error
+}
+
+func (s *Service) plan(ctx context.Context, snap *planning.Snapshot, e Event, c app.SkyEventChoice, priority, author, cmdID string) (Event, schedcmd.Record, error) {
 	var rec schedcmd.Record
 	if p := s.Planning(ctx); !p.Available {
 		return e, rec, fmt.Errorf("%w: %s", ErrCannotPlan, *p.Reason)
@@ -199,7 +240,11 @@ func (s *Service) plan(ctx context.Context, snap *planning.Snapshot, e Event, c 
 	if err != nil {
 		return e, rec, err
 	}
-	rec, err = s.Commands.Submit(ctx, schedcmd.KindProjectCreate, raw, author)
+	if cmdID != "" {
+		rec, err = s.Commands.SubmitOnce(ctx, cmdID, schedcmd.KindProjectCreate, raw, author)
+	} else {
+		rec, err = s.Commands.Submit(ctx, schedcmd.KindProjectCreate, raw, author)
+	}
 	if err != nil {
 		return e, rec, err
 	}
@@ -254,21 +299,18 @@ func (s *Service) SetPriority(ctx context.Context, id, priority, author string) 
 	}
 	readAs := c.EventID
 	c.Priority = priority
+	if c.WindowStart == nil || c.WindowEnd == nil {
+		c.WindowStart, c.WindowEnd = &e.Start, &e.End
+	}
 	var out *schedcmd.Record
-	if activePlan(e.Plan) && before != priority && c.WindowStart != nil && c.WindowEnd != nil && s.Commands != nil {
-		w := func(p string) *schedcmd.EventWindow {
-			return &schedcmd.EventWindow{Start: *c.WindowStart, End: *c.WindowEnd, Priority: p, EventID: c.EventID, IgnoreMoon: c.IgnoreMoon}
-		}
-		raw, err := json.Marshal(schedcmd.TargetWindowPayload{TargetGUID: c.TargetGUID, TargetName: c.TargetName, Window: w(priority), Before: w(before)})
-		if err != nil {
+	if activePlan(e.Plan) && before != priority {
+		switch out, err = s.sendWindow(ctx, c, priority, before, author); {
+		case errors.Is(err, errNothingToSend):
+		case err != nil:
 			return e, nil, err
+		default:
+			c.WindowCommand = out.ID
 		}
-		rec, err := s.Commands.Submit(ctx, schedcmd.KindTargetWindow, raw, author)
-		if err != nil {
-			return e, nil, err
-		}
-		out = &rec
-		c.WindowCommand = rec.ID
 	}
 	if err := s.saveChoice(ctx, c, readAs); err != nil {
 		return e, out, err
@@ -277,9 +319,55 @@ func (s *Service) SetPriority(ctx context.Context, id, priority, author string) 
 		if err := s.decline(ctx, c); err != nil {
 			return e, out, err
 		}
+		switch late, err := s.lowerLateAutoPlan(ctx, e, c, author); {
+		case errors.Is(err, errNothingToSend):
+		case err != nil:
+			return e, out, err
+		default:
+			out = late
+		}
 	}
 	e, err = s.Event(ctx, id)
 	return e, out, err
+}
+
+func (s *Service) sendWindow(ctx context.Context, c app.SkyEventChoice, priority, before, author string) (*schedcmd.Record, error) {
+	if c.WindowStart == nil || c.WindowEnd == nil || s.Commands == nil {
+		return nil, errNothingToSend
+	}
+	w := func(p string) *schedcmd.EventWindow {
+		return &schedcmd.EventWindow{Start: *c.WindowStart, End: *c.WindowEnd, Priority: p, EventID: c.EventID, IgnoreMoon: c.IgnoreMoon}
+	}
+	raw, err := json.Marshal(schedcmd.TargetWindowPayload{TargetGUID: c.TargetGUID, TargetName: c.TargetName, Window: w(priority), Before: w(before)})
+	if err != nil {
+		return nil, err
+	}
+	rec, err := s.Commands.Submit(ctx, schedcmd.KindTargetWindow, raw, author)
+	if err != nil {
+		return nil, err
+	}
+	return &rec, s.App.WithContext(ctx).Model(&app.SkyEventChoice{}).Where("event_id = ?", c.EventID).Update("window_command", rec.ID).Error
+}
+
+var errNothingToSend = errors.New("nothing to send")
+
+// lowerLateAutoPlan catches an automatic plan another stacker sent while
+// the user lowered the event: it lowers that plan's window too.
+func (s *Service) lowerLateAutoPlan(ctx context.Context, e Event, was app.SkyEventChoice, author string) (*schedcmd.Record, error) {
+	cs, err := s.choices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now, ok := matchChoice(cs, e)
+	if !ok || now.AutoCommandID == nil || now.CommandID == "" || now.CommandID == was.CommandID || now.Priority == PriorityNormal ||
+		!activePlan(s.planState(ctx, now)) {
+		return nil, errNothingToSend
+	}
+	rec, err := s.sendWindow(ctx, now, PriorityNormal, now.Priority, author)
+	if err != nil {
+		return nil, err
+	}
+	return rec, s.App.WithContext(ctx).Model(&app.SkyEventChoice{}).Where("event_id = ?", now.EventID).Update("priority", PriorityNormal).Error
 }
 
 // Unplan undoes the event's project.create, which deletes the project, and
