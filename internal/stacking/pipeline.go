@@ -288,6 +288,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 	wg.Go(func() { p.runRegisteredBackfill(ctx) })
 	if p.opts.MosaicInterval > 0 {
 		wg.Go(func() { p.runMosaics(ctx, p.opts.MosaicInterval) })
+		wg.Go(func() { p.runBodyNights(ctx) })
 	}
 	if m := p.opts.Verdicts.Mode; m == verdictModeOn || m == verdictModeDryRun {
 		wg.Go(func() { p.runVerdicts(ctx, p.opts.Verdicts) })

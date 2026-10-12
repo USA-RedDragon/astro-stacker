@@ -90,6 +90,7 @@ type targetMap struct {
 	guids   map[string]string
 	links   map[string]tslink.ObjectLink
 	known   map[string]bool
+	names   map[string]string
 }
 
 func loadTargetMap(ctx context.Context, appDB, sched *gorm.DB) (targetMap, error) {
@@ -106,12 +107,14 @@ func loadTargetMap(ctx context.Context, appDB, sched *gorm.DB) (targetMap, error
 		guids[obj] = l.TargetGUID
 	}
 	known := make(map[string]bool, len(targets))
+	names := make(map[string]string, len(targets))
 	for _, t := range targets {
 		if t.GUID != "" {
 			known[t.GUID] = true
+			names[t.GUID] = t.Name
 		}
 	}
-	return targetMap{objects: tslink.TargetObjects(guids), guids: guids, links: links, known: known}, nil
+	return targetMap{objects: tslink.TargetObjects(guids), guids: guids, links: links, known: known, names: names}, nil
 }
 
 func ObjectGUIDs(ctx context.Context, appDB, sched *gorm.DB) (map[string]string, error) {
@@ -370,11 +373,37 @@ type Publisher struct {
 	Sched        *gorm.DB
 	Mode         string
 	SeasonBoosts SeasonBoostSource
+	Longitude    func(ctx context.Context) (float64, error)
 	Now          func() time.Time
 	Log          *slog.Logger
 
 	mu      sync.Mutex
 	outcome string
+	lon     *float64
+}
+
+func (p *Publisher) now() time.Time {
+	if p.Now != nil {
+		return p.Now()
+	}
+	return time.Now().UTC()
+}
+
+func (p *Publisher) longitude(ctx context.Context) *float64 {
+	p.mu.Lock()
+	lon := p.lon
+	p.mu.Unlock()
+	if lon != nil || p.Longitude == nil {
+		return lon
+	}
+	v, err := p.Longitude(ctx)
+	if err != nil {
+		return nil
+	}
+	p.mu.Lock()
+	p.lon = &v
+	p.mu.Unlock()
+	return &v
 }
 
 func (p *Publisher) logger() *slog.Logger {
@@ -557,9 +586,17 @@ func (p *Publisher) progressRows(ctx context.Context, byGUID map[string]map[stri
 			return nil, err
 		}
 	}
+	bodyIn, err := LoadBodyInputs(ctx, p.App, p.Sched, p.now(), p.longitude(ctx))
+	if err != nil {
+		p.logger().Warn("Could not load the moving-body targets; publishing them like fixed targets", "error", err)
+	}
 	var out []wantedProgress
 	for _, guid := range guids {
 		objs := tm.objects[guid]
+		if kind, ok := bodyIn.KindOf(append([]string{tm.names[guid]}, objs...)...); ok {
+			out = append(out, p.bodyRows(guid, kind, objs, byGUID[guid], filters, bodyIn, readiness)...)
+			continue
+		}
 		measured, failed := map[string]app.GoalMeasurement{}, map[string]app.GoalMeasurement{}
 		for _, m := range ms {
 			if !slices.Contains(objs, m.Object) {

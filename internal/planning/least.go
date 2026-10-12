@@ -118,6 +118,8 @@ func finishFilter(g *FilterGoal) {
 	g.PlateauAt = goals.Plateau{GainPct: goals.PlateauGainPct}
 	if g.Measurement != nil {
 		g.PlateauAt = g.Measurement.PlateauAt
+	} else if g.Body != nil && g.Progress != nil {
+		g.PlateauAt = g.Progress.PlateauAt
 	}
 	if g.PlateauAt.Progress == nil {
 		g.PlateauAt.Unmeasured = plateauReason(*g)

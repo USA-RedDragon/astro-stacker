@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"slices"
 	"sort"
@@ -87,26 +88,27 @@ type Plan struct {
 }
 
 type FilterGoal struct {
-	Filter       string           `json:"filter"`
-	StackKey     string           `json:"stackFilter"`
-	Goal         *goals.Goal      `json:"goal"`
-	GoalSet      bool             `json:"goalSet"`
-	DefaultGoal  goals.Goal       `json:"defaultGoal"`
-	Measured     bool             `json:"measured"`
-	Status       string           `json:"status"`
-	Measurement  *Measurement     `json:"measurement,omitempty"`
-	Progress     *goals.Progress  `json:"progress,omitempty"`
-	Readiness    *goals.Readiness `json:"readiness,omitempty"`
-	Error        string           `json:"error,omitempty"`
-	Percent      float64          `json:"percentComplete"`
-	Basis        string           `json:"completionBasis"`
-	Accepted     int              `json:"accepted"`
-	Desired      int              `json:"desired"`
-	ExposureHr   float64          `json:"acceptedHours"`
-	Enough       bool             `json:"enough"`
-	GoalProgress *float64         `json:"goalProgress"`
-	NotMeasured  string           `json:"notMeasured,omitempty"`
-	PlateauAt    goals.Plateau    `json:"plateauAt"`
+	Filter       string            `json:"filter"`
+	StackKey     string            `json:"stackFilter"`
+	Goal         *goals.Goal       `json:"goal"`
+	GoalSet      bool              `json:"goalSet"`
+	DefaultGoal  goals.Goal        `json:"defaultGoal"`
+	Measured     bool              `json:"measured"`
+	Status       string            `json:"status"`
+	Measurement  *Measurement      `json:"measurement,omitempty"`
+	Progress     *goals.Progress   `json:"progress,omitempty"`
+	Readiness    *goals.Readiness  `json:"readiness,omitempty"`
+	Error        string            `json:"error,omitempty"`
+	Percent      float64           `json:"percentComplete"`
+	Basis        string            `json:"completionBasis"`
+	Accepted     int               `json:"accepted"`
+	Desired      int               `json:"desired"`
+	ExposureHr   float64           `json:"acceptedHours"`
+	Enough       bool              `json:"enough"`
+	GoalProgress *float64          `json:"goalProgress"`
+	NotMeasured  string            `json:"notMeasured,omitempty"`
+	PlateauAt    goals.Plateau     `json:"plateauAt"`
+	Body         *goals.BodyStatus `json:"body,omitempty"`
 }
 
 type Season struct {
@@ -141,6 +143,7 @@ type Target struct {
 	SetName  string              `json:"exposureSet"`
 	GoalMode goals.Kind          `json:"goalMode"`
 	Links    []tslink.ObjectLink `json:"objectLinks"`
+	BodyKind string              `json:"bodyKind,omitempty"`
 }
 
 type Project struct {
@@ -308,9 +311,10 @@ type rows struct {
 	stacks    map[goals.Key]bool
 	subs      map[goals.Key]int
 	prefs     map[string]Prefs
+	bodies    goals.BodyInputs
 }
 
-func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
+func loadRows(ctx context.Context, sched, appDB *gorm.DB, now time.Time) (*rows, error) {
 	db := sched.WithContext(ctx)
 	r := &rows{seasons: map[string]Season{}, lastBy: map[int]time.Time{}, meas: map[goals.Key]app.GoalMeasurement{}, stacks: map[goals.Key]bool{}}
 	for _, q := range []any{&r.projects, &r.targets, &r.plans, &r.templates} {
@@ -380,6 +384,9 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB) (*rows, error) {
 		}
 		r.subs = subs
 	}
+	if r.bodies, err = goals.LoadBodyInputs(ctx, appDB, sched, now, nil); err != nil {
+		slog.Warn("Could not load the moving-body targets for planning", "error", err)
+	}
 	if r.prefs, err = loadPrefs(ctx, db); err != nil {
 		return nil, err
 	}
@@ -438,7 +445,11 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 	if sched == nil {
 		return nil, errors.New("no scheduler database")
 	}
-	r, err := loadRows(ctx, sched, appDB)
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	r, err := loadRows(ctx, sched, appDB, now)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +496,7 @@ func buildProject(pr projectRow, r *rows, x index, in Inputs) Project {
 	p.DitherEvery, p.FilterSwitchFrequency, p.FlatsHandling = pr.DitherEvery, pr.FilterSwitchFrequency, pr.FlatsHandling
 	p.SmartExposureOrder, p.MeridianWindow, p.UseCustomHorizon = intFlag(pr.SmartExposureOrder), pr.MeridianWindow, intFlag(pr.UseCustomHorizon)
 	p.HorizonOffset, p.MaximumAltitude = pr.HorizonOffset, pr.MaximumAltitude
-	env := targetEnv{meas: r.meas, stacks: r.stacks, subs: r.subs, grader: p.Grader, prefs: p.Completion}
+	env := targetEnv{meas: r.meas, stacks: r.stacks, subs: r.subs, grader: p.Grader, prefs: p.Completion, bodies: r.bodies}
 	for _, rule := range Rules() {
 		w, ok := x.weightsBy[pr.ID][rule.Name]
 		p.RuleWeights = append(p.RuleWeights, RuleWeight{Name: rule.Name, Weight: w, Missing: !ok})
@@ -577,6 +588,7 @@ type targetEnv struct {
 	subs   map[goals.Key]int
 	grader bool
 	prefs  Prefs
+	bodies goals.BodyInputs
 }
 
 func (in Inputs) targetGoalDriven(tr targetRow) bool {
@@ -610,7 +622,49 @@ func (in Inputs) measurementFor(tr targetRow, filter string, env targetEnv) (app
 	return m, key, found, stacked, subs
 }
 
+func (in Inputs) resolveBodyGoal(tr targetRow, g *FilterGoal, env targetEnv, guid, kind string) goals.Kind {
+	objs := in.objectsFor(tr)
+	g.DefaultGoal = goals.DefaultBodyGoal(kind, g.StackKey)
+	g.DefaultGoal.TargetGUID, g.DefaultGoal.Filter = guid, g.Filter
+	goal, set := goals.Goal{}, false
+	for _, o := range objs {
+		if goal, set = in.Goals[goals.Key{Object: o, Filter: g.StackKey}]; set {
+			break
+		}
+	}
+	if !set {
+		goal = g.DefaultGoal
+	}
+	goal.Kind = goals.KindSNR
+	if goal.SNR <= 0 {
+		goal.SNR = g.DefaultGoal.SNR
+	}
+	goal.TargetGUID, goal.Filter = guid, g.Filter
+	g.GoalSet = set
+	g.Goal = &goal
+	nights, subs := env.bodies.For(objs, g.StackKey)
+	prog, rd, st := goals.EvaluateBody(kind, nights, goal, env.bodies.Tonight, subs)
+	g.Body = &st
+	g.Progress = prog
+	switch {
+	case prog != nil:
+		g.Status, g.Measured = StatusMeasured, true
+	case len(nights) > 0 || subs > 0:
+		g.Status = StatusNotMeasured
+	default:
+		g.Status = StatusNoMaster
+	}
+	if set {
+		g.Readiness = &rd
+		return goals.KindSNR
+	}
+	return ""
+}
+
 func (in Inputs) resolveGoal(tr targetRow, g *FilterGoal, env targetEnv, guid string, driven bool) goals.Kind {
+	if kind, ok := env.bodies.KindOf(in.objectsFor(tr)...); ok {
+		return in.resolveBodyGoal(tr, g, env, guid, kind)
+	}
 	f := g.Filter
 	m, key, found, stacked, subs := in.measurementFor(tr, g.StackKey, env)
 	g.DefaultGoal = goals.DefaultGoal(g.StackKey)
@@ -657,6 +711,9 @@ func (in Inputs) resolveGoal(tr targetRow, g *FilterGoal, env targetEnv, guid st
 func buildTarget(tr targetRow, plans []planRow, tmplBy map[int]templateRow, env targetEnv, in Inputs) Target {
 	t := Target{ID: tr.ID, GUID: deref(tr.GUID), Name: tr.Name, Active: tr.Active != 0, RAHours: tr.RA, Dec: tr.Dec, Rotation: tr.Rotation, Panel: panelNumber(tr.Name), GoalMode: goals.KindSNR, Links: in.linksFor(tr)}
 	t.Driven = in.targetGoalDriven(tr)
+	if kind, ok := env.bodies.KindOf(in.objectsFor(tr)...); ok {
+		t.BodyKind = kind
+	}
 	byFilter := map[string]*FilterGoal{}
 	var order []string
 	var setNames []string

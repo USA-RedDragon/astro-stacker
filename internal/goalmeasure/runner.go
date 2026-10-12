@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
@@ -62,6 +63,7 @@ type Options struct {
 	SeasonBoosts goals.SeasonBoostSource
 	Workers      int
 	Busy         func() bool
+	Longitude    func(ctx context.Context) (float64, error)
 }
 
 type Runner struct {
@@ -99,7 +101,7 @@ func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Optio
 		opts.Workers = DefaultWorkers
 	}
 	return &Runner{db: db, sched: sched, objects: objects, stars: stars, opts: opts,
-		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts},
+		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts, Longitude: opts.Longitude},
 		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll, pubPoll: publishPoll, pubEvery: publishEvery,
 		drain: make(chan struct{}), failed: map[int]time.Time{},
 		live: goals.BackfillLive{State: goals.BackfillIdle, Workers: opts.Workers}}
@@ -382,9 +384,19 @@ func (r *Runner) due(ctx context.Context, goalsByKey map[goals.Key]goals.Goal) (
 		tier int
 		at   time.Time
 	}
+	var stored map[string]bodies.Target
+	if r.sched != nil {
+		var err error
+		if stored, err = bodies.TargetsByName(ctx, r.sched); err != nil {
+			slog.Warn("Could not load the moving-body targets; measuring every stack", "error", err)
+		}
+	}
 	var todo []item
 	fresh := 0
 	for _, s := range stacks {
+		if _, ok := bodies.OwnBody(stored, s.Object); ok {
+			continue
+		}
 		k := goals.Key{Object: s.Object, Filter: s.Filter}
 		m := byKey[k]
 		hash := goals.RegionHash(goalsByKey[k].Region)
