@@ -54,7 +54,7 @@ func goalMaskEngine(t *testing.T) *gin.Engine {
 	}
 	r := gin.New()
 	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{Goals: config.Goals{Enabled: true}}, AppStore: appStore, SchedulerDBStore: memStore(t)}))
-	applyPlanningRoutes(r.Group("/api/v1"), nil, nil)
+	applyPlanningRoutes(r.Group("/api/v1"), nil, nil, nil)
 	return r
 }
 

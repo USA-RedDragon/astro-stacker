@@ -94,8 +94,9 @@ func TestDraftProjectMosaic(t *testing.T) {
 	if _, err := s.DraftProject(ProjectDraft{Name: "garlic nebula", SetID: hoo, MinimumTime: 60, Panels: []PanelDraft{{}}}, seq()); err == nil {
 		t.Fatal("duplicate name should fail")
 	}
-	if _, err := s.DraftProject(ProjectDraft{Name: "No time", SetID: hoo, Panels: []PanelDraft{{}}}, seq()); err == nil {
-		t.Fatal("a missing minimum time should fail")
+	if p, err := s.DraftProject(ProjectDraft{Name: "No time", SetID: hoo, MinimumAltitude: -1, Panels: []PanelDraft{{}}}, seq()); err != nil ||
+		p.Project.MinimumTime != DraftMinimumTime || p.Project.MinimumAltitude != DraftMinimumAltitude {
+		t.Fatalf("a draft without times takes the defaults: %+v %v", p, err)
 	}
 	d, err := s.DraftProject(ProjectDraft{Name: "Deep", SetID: hoo, MinimumTime: 30, Goal: GoalDraft{Kind: "depth"}, Panels: []PanelDraft{{RAHours: 1, Dec: 2}}}, seq())
 	if err != nil || d.Goals[0].Setting.DepthGoal == nil || *d.Goals[0].Setting.DepthGoal != 25.5 || d.Project.IsMosaic || d.Project.MinimumAltitude != 0 {
