@@ -23,10 +23,16 @@ const (
 	// table covers: the 365 nights the plugin's season scan looks at, and
 	// one more.
 	SeasonNights = 366
-	NightStep    = 24 * time.Hour
-	NightBasis   = "One position per night, at local mean midnight, from one JPL Horizons table per body (1 day steps, tonight to a year ahead, refreshed daily). " +
+	// SeasonScan is how many nights from tonight a season is counted
+	// over, as in the plugin's SeasonCounter.
+	SeasonScan = 365
+	NightStep  = 24 * time.Hour
+	// SeasonNearEarth is the geocentric range, in au, under which a night
+	// gets no row: one position a day is too coarse that near.
+	SeasonNearEarth = 0.05
+	NightBasis      = "One position per night, at local mean midnight, from one JPL Horizons table per body (1 day steps, tonight to a year ahead, refreshed daily). " +
 		"mag is the brightness estimate: for a comet the brighter of JPL's T-mag (M1 + 5 log10(delta) + K1 log10(r)) and the MPC's H + 5 log10(delta) + 2.5 G log10(r) from its daily comet elements, " +
-		"for an asteroid Horizons' APmag (H, G). Both are model estimates, not measurements. mag_limit is the Finder's limit (V 15 for comets, V 12 for asteroids); " +
+		"for an asteroid Horizons' APmag (H, G). Nights when the body is nearer than 0.05 au get no row, so they are not in its season.  Both are model estimates, not measurements. mag_limit is the Finder's limit (V 15 for comets, V 12 for asteroids); " +
 		"a night counts toward the season only when mag is no fainter than mag_limit. mag_limit is empty when no estimate exists, and then brightness does not limit the night. " +
 		"The plugin counts the season from these positions with the same rules as fixed targets: horizon and minimum altitude, twilight, moon avoidance and minimum time."
 )
@@ -118,7 +124,7 @@ func SeasonRows(t Target, site sky.Site, tab horizons.Table, el *Elements, at ti
 	seen := map[string]bool{}
 	for _, r := range tab.Rows {
 		night := NightOf(site, r.At)
-		if seen[night] {
+		if seen[night] || (r.Delta != nil && *r.Delta < SeasonNearEarth) {
 			continue
 		}
 		seen[night] = true
@@ -160,7 +166,18 @@ type NightResult struct {
 	rows        []NightRow
 	site        *sky.Site
 	guids       map[string]bool
+	hasRows     map[string]bool
 	index       map[nightKey]NightRow
+}
+
+// keepFrom is the first night a failed target keeps: the night before
+// tonight, whose row the plugin needs for tonight's evening.
+func (r *NightResult) keepFrom() string {
+	d, err := time.Parse(time.DateOnly, r.From)
+	if err != nil {
+		return r.From
+	}
+	return d.AddDate(0, 0, -1).Format(time.DateOnly)
 }
 
 // Nights are the computed rows of one target, or all of them for "".
@@ -225,23 +242,49 @@ func (s *NightService) keep(res *NightResult) *NightResult {
 		res.PublishedAt = s.last.PublishedAt
 	}
 	res.index = make(map[nightKey]NightRow, len(res.rows))
+	res.hasRows = map[string]bool{}
 	for _, r := range res.rows {
 		res.index[r.key()] = r
+		res.hasRows[r.key().guid] = true
 	}
 	s.last = res
 	return res
 }
 
+func (s *NightService) isBodyTarget(guid string) bool {
+	if s.Sched == nil {
+		return false
+	}
+	ts, err := Targets(context.Background(), s.Sched)
+	if err != nil {
+		return false
+	}
+	for _, t := range ts {
+		if strings.EqualFold(t.GUID, guid) {
+			return true
+		}
+	}
+	return false
+}
+
 // NightPoint is where an active body target is on night, from the latest
 // table, and whether it is bright enough then. isBody is false for a
-// target that is not an active moving body; usable is false for a night
-// without a row.
+// target that is not a moving body; usable is false for a night without a
+// row. For night "", usable reports whether the body has any rows; a body
+// is reported without rows until its table is built.
 func (s *NightService) NightPoint(guid, night string) (raDeg, dec float64, usable, isBody bool) {
+	g := strings.ToLower(guid)
 	res := s.Latest()
-	if res == nil || !res.guids[strings.ToLower(guid)] {
+	if res == nil || res.guids == nil {
+		return 0, 0, false, s.isBodyTarget(g)
+	}
+	if !res.guids[g] {
 		return 0, 0, false, false
 	}
-	r, ok := res.index[nightKey{strings.ToLower(guid), night}]
+	if night == "" {
+		return 0, 0, res.hasRows[g], true
+	}
+	r, ok := res.index[nightKey{g, night}]
 	if !ok {
 		return 0, 0, false, true
 	}
@@ -361,7 +404,7 @@ func (s *NightService) Publish(ctx context.Context, res *NightResult) error {
 		if want[k] {
 			continue
 		}
-		if des, ok := failed[k.guid]; ok && des == r.Designation && r.Night >= res.From {
+		if des, ok := failed[k.guid]; ok && des == r.Designation && r.Night >= res.keepFrom() {
 			continue
 		}
 		res.Deleted++
