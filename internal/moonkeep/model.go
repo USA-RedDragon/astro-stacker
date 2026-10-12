@@ -112,6 +112,7 @@ type Sample struct {
 	Start      time.Time
 	Moon       State
 	Quality    *float64
+	Altitude   float64
 }
 
 // Row is the kept rate of one filter, or of all broadband or all
