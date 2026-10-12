@@ -26,6 +26,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
+	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/publicframe"
@@ -224,7 +225,10 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		Rig: func(ctx context.Context) (rigsource.Rig, error) {
 			return rigsource.Measure(ctx, appStore.DB(), schedulerDBStore.DB(), time.Now())
 		},
-		Catalog: sync.OnceValues(catalog.LoadEmbedded), Commands: commands}
+		Catalog: sync.OnceValues(catalog.LoadEmbedded), Commands: commands,
+		Snapshot: func(ctx context.Context) (*planning.Snapshot, error) {
+			return server.LoadPlanningSnapshot(ctx, appStore.DB(), schedulerDBStore.DB(), backfill)
+		}}
 	go skyEvents.Run(indexCtx, skyevents.Interval)
 	slog.Info("Sky event finder started", "interval", skyevents.Interval)
 	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,

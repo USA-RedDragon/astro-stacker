@@ -237,6 +237,7 @@ type Event struct {
 	Priority     string        `json:"priority"`
 	Plan         *PlanState    `json:"plan"`
 	Rarity       *Rarity       `json:"rarity"`
+	AutoPlan     *AutoPlan     `json:"auto_plan"`
 
 	bodies   []int
 	dsos     []int

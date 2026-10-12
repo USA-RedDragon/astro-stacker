@@ -12,6 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -26,10 +27,17 @@ type skyEventsRig struct {
 	tr    *sentCommands
 	call  func(method, path, body string) (int, map[string]any)
 	sched testStore
+	app   testStore
+	cmds  *schedcmd.Service
 	svc   *skyevents.Service
 }
 
 func skyEventsEngine(t *testing.T, withWindows bool) skyEventsRig {
+	t.Helper()
+	return skyEventsEngineAt(t, withWindows, time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC))
+}
+
+func skyEventsEngineAt(t *testing.T, withWindows bool, now time.Time) skyEventsRig {
 	t.Helper()
 	tr := &sentCommands{}
 	cmds := &schedcmd.Service{Transports: []schedcmd.Transport{tr}}
@@ -56,19 +64,25 @@ func skyEventsEngine(t *testing.T, withWindows bool) skyEventsRig {
 	if err := appStore.DB().Create(&app.GoalMeasurement{Object: "M 45", Filter: "L", ZeroPoint: &zp, DepthSystem: goals.SystemGaiaG, ZeroPointStars: 40}).Error; err != nil {
 		t.Fatal(err)
 	}
-	w, h, scale, hfr := 3.32, 2.22, 1.91, 4.0
-	now := time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)
-	svc := &skyevents.Service{App: appStore.DB(), Sched: sched.DB(), Commands: cmds, Now: func() time.Time { return now },
-		Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 32, Longitude: -100}, nil },
-		Rig: func(context.Context) (rigsource.Rig, error) {
-			return rigsource.Rig{WidthDeg: &w, HeightDeg: &h, Scale: &scale, TypicalHFR: &hfr}, nil
-		},
-		Catalog: sync.OnceValues(catalog.LoadEmbedded)}
+	svc := newSkyEventsService(appStore, sched, cmds, now)
 	if _, err := svc.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	applySkyEventRoutes(r.Group("/api/v1"), svc, nil)
-	return skyEventsRig{tr: tr, sched: sched, svc: svc, call: func(method, path, body string) (int, map[string]any) { return get(t, r, method, path, body) }}
+	return skyEventsRig{tr: tr, sched: sched, app: appStore, cmds: cmds, svc: svc, call: func(method, path, body string) (int, map[string]any) { return get(t, r, method, path, body) }}
+}
+
+func newSkyEventsService(appStore, sched testStore, cmds *schedcmd.Service, now time.Time) *skyevents.Service {
+	w, h, scale, hfr := 3.32, 2.22, 1.91, 4.0
+	return &skyevents.Service{App: appStore.DB(), Sched: sched.DB(), Commands: cmds, Now: func() time.Time { return now },
+		Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 32, Longitude: -100}, nil },
+		Rig: func(context.Context) (rigsource.Rig, error) {
+			return rigsource.Rig{WidthDeg: &w, HeightDeg: &h, Scale: &scale, TypicalHFR: &hfr}, nil
+		},
+		Catalog: sync.OnceValues(catalog.LoadEmbedded),
+		Snapshot: func(ctx context.Context) (*planning.Snapshot, error) {
+			return LoadPlanningSnapshot(ctx, appStore.DB(), sched.DB(), nil)
+		}}
 }
 
 func eventID(t *testing.T, out map[string]any, title string) string {

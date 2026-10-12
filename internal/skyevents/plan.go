@@ -133,9 +133,32 @@ func (s *Service) Draft(ctx context.Context, snap *planning.Snapshot, e Event, p
 	}, nil
 }
 
-func (s *Service) saveChoice(ctx context.Context, c app.SkyEventChoice) error {
+// choiceColumns are the columns a saved choice overwrites; the automatic
+// planning columns change only through their own guarded updates.
+func choiceColumns() []string {
+	return []string{"bodies", "objects", "priority", "project_guid", "target_guid", "target_name", "command_id", "window_command",
+		"designation", "moving", "ignore_moon", "window_start", "window_end", "planned_at", "updated_at"}
+}
+
+// saveChoice stores the choice under its event id, replacing the row it was
+// read from when an earlier search gave the event another id.
+func (s *Service) saveChoice(ctx context.Context, c app.SkyEventChoice, readAs string) error {
 	c.UpdatedAt = s.now().UTC()
-	return s.App.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&c).Error
+	return s.App.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if readAs != "" && readAs != c.EventID {
+			var old app.SkyEventChoice
+			if err := tx.Limit(1).Find(&old, "event_id = ?", readAs).Error; err != nil {
+				return err
+			}
+			if old.EventID != "" {
+				c.AutoPlannedAt, c.AutoCommandID, c.AutoDeclinedAt, c.AutoError = old.AutoPlannedAt, old.AutoCommandID, old.AutoDeclinedAt, old.AutoError
+			}
+			if err := tx.Delete(&app.SkyEventChoice{}, "event_id = ?", readAs).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "event_id"}}, DoUpdates: clause.AssignmentColumns(choiceColumns())}).Create(&c).Error
+	})
 }
 
 // Plan sends the project.create for an event and remembers it.
@@ -144,10 +167,21 @@ func (s *Service) Plan(ctx context.Context, snap *planning.Snapshot, id, priorit
 	if !validPriority(priority) {
 		return Event{}, rec, fmt.Errorf("%w: priority %q", schedcmd.ErrInvalid, priority)
 	}
+	s.planMu.Lock()
+	defer s.planMu.Unlock()
 	e, err := s.Event(ctx, id)
 	if err != nil {
 		return e, rec, err
 	}
+	c, err := s.choiceFor(ctx, e)
+	if err != nil {
+		return e, rec, err
+	}
+	return s.plan(ctx, snap, e, c, priority, author)
+}
+
+func (s *Service) plan(ctx context.Context, snap *planning.Snapshot, e Event, c app.SkyEventChoice, priority, author string) (Event, schedcmd.Record, error) {
+	var rec schedcmd.Record
 	if p := s.Planning(ctx); !p.Available {
 		return e, rec, fmt.Errorf("%w: %s", ErrCannotPlan, *p.Reason)
 	}
@@ -156,10 +190,6 @@ func (s *Service) Plan(ctx context.Context, snap *planning.Snapshot, id, priorit
 	}
 	if activePlan(e.Plan) {
 		return e, rec, ErrAlreadyPlanned
-	}
-	c, err := s.choiceFor(ctx, e)
-	if err != nil {
-		return e, rec, err
 	}
 	payload, err := s.Draft(ctx, snap, e, priority, schedcmd.NewID)
 	if err != nil {
@@ -175,26 +205,41 @@ func (s *Service) Plan(ctx context.Context, snap *planning.Snapshot, id, priorit
 	}
 	at := s.now().UTC()
 	tg := payload.Targets[0]
+	readAs := c.EventID
 	c.EventID, c.Priority, c.ProjectGUID, c.TargetGUID, c.TargetName, c.CommandID = e.ID, priority, payload.Project.GUID, tg.GUID, tg.Name, rec.ID
 	c.Designation, c.Moving, c.IgnoreMoon, c.WindowStart, c.WindowEnd, c.PlannedAt, c.WindowCommand = tg.Designation, e.MovingCenter, tg.Window.IgnoreMoon, &e.Start, &e.End, &at, ""
-	if err := s.saveChoice(ctx, c); err != nil {
-		return e, rec, err
+	if err := s.saveChoice(ctx, c, readAs); err != nil {
+		return e, rec, fmt.Errorf("the project was sent (command %s), but saving the plan failed: %w", rec.ID, err)
 	}
 	if e.MovingCenter {
 		if err := s.PublishCentres(ctx); err != nil {
 			return e, rec, fmt.Errorf("the project was sent, but publishing its frame centres failed: %w", err)
 		}
 	}
-	e, err = s.Event(ctx, id)
+	e, err = s.Event(ctx, e.ID)
 	return e, rec, err
 }
 
+// decline records that the user turned an event down, so the stacker never
+// plans it by itself.
+func (s *Service) decline(ctx context.Context, c app.SkyEventChoice) error {
+	at := s.now().UTC()
+	if c.AutoDeclinedAt != nil {
+		return nil
+	}
+	return s.App.WithContext(ctx).Model(&app.SkyEventChoice{}).Where("event_id = ? AND auto_declined_at IS NULL", c.EventID).
+		Update("auto_declined_at", at).Error
+}
+
 // SetPriority stores the priority and, for a planned event, sends a
-// target.window command with it.
+// target.window command with it. Lowering an event to normal turns down
+// planning it automatically.
 func (s *Service) SetPriority(ctx context.Context, id, priority, author string) (Event, *schedcmd.Record, error) {
 	if !validPriority(priority) {
 		return Event{}, nil, fmt.Errorf("%w: priority %q", schedcmd.ErrInvalid, priority)
 	}
+	s.planMu.Lock()
+	defer s.planMu.Unlock()
 	e, err := s.Event(ctx, id)
 	if err != nil {
 		return e, nil, err
@@ -207,6 +252,7 @@ func (s *Service) SetPriority(ctx context.Context, id, priority, author string) 
 	if before == "" {
 		before = PriorityNormal
 	}
+	readAs := c.EventID
 	c.Priority = priority
 	var out *schedcmd.Record
 	if activePlan(e.Plan) && before != priority && c.WindowStart != nil && c.WindowEnd != nil && s.Commands != nil {
@@ -224,22 +270,37 @@ func (s *Service) SetPriority(ctx context.Context, id, priority, author string) 
 		out = &rec
 		c.WindowCommand = rec.ID
 	}
-	if err := s.saveChoice(ctx, c); err != nil {
+	if err := s.saveChoice(ctx, c, readAs); err != nil {
 		return e, out, err
+	}
+	if priority == PriorityNormal {
+		if err := s.decline(ctx, c); err != nil {
+			return e, out, err
+		}
 	}
 	e, err = s.Event(ctx, id)
 	return e, out, err
 }
 
-// Unplan undoes the event's project.create, which deletes the project.
+// Unplan undoes the event's project.create, which deletes the project, and
+// turns down planning the event automatically.
 func (s *Service) Unplan(ctx context.Context, id, author string) (Event, schedcmd.Record, error) {
 	var rec schedcmd.Record
+	s.planMu.Lock()
+	defer s.planMu.Unlock()
 	e, err := s.Event(ctx, id)
 	if err != nil {
 		return e, rec, err
 	}
 	if !activePlan(e.Plan) || s.Commands == nil {
 		return e, rec, ErrNotPlanned
+	}
+	c, err := s.choiceFor(ctx, e)
+	if err != nil {
+		return e, rec, err
+	}
+	if err := s.decline(ctx, c); err != nil {
+		return e, rec, err
 	}
 	rec, err = s.Commands.Undo(ctx, e.Plan.CommandID, author)
 	if err != nil {
