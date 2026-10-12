@@ -177,6 +177,7 @@ type bodiesShadow struct {
 	IntervalMinutes  *int    `json:"interval-minutes"   toml:"interval-minutes"   yaml:"interval-minutes"`
 	HorizonsURL      *string `json:"horizons-url"       toml:"horizons-url"       yaml:"horizons-url"`
 	CometElementsURL *string `json:"comet-elements-url" toml:"comet-elements-url" yaml:"comet-elements-url"`
+	CometSBDBURL     *string `json:"comet-sbdb-url"     toml:"comet-sbdb-url"     yaml:"comet-sbdb-url"`
 }
 
 type configShadow struct {
@@ -361,6 +362,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("bodies.horizons-url", configulator.LayerDefault, "default tag")
 	cfg.Bodies.CometElementsURL = "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
 	set("bodies.comet-elements-url", configulator.LayerDefault, "default tag")
+	cfg.Bodies.CometSBDBURL = "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c"
+	set("bodies.comet-sbdb-url", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -841,6 +844,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Bodies.CometElementsURL != nil {
 			cfg.Bodies.CometElementsURL = *s.Bodies.CometElementsURL
 			set("bodies.comet-elements-url", configulator.LayerFile, file)
+		}
+		if s.Bodies.CometSBDBURL != nil {
+			cfg.Bodies.CometSBDBURL = *s.Bodies.CometSBDBURL
+			set("bodies.comet-sbdb-url", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -1887,6 +1894,10 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Bodies.CometElementsURL = v
 		set("bodies.comet-elements-url", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "bodies", "comet-sbdb-url"); ok {
+		cfg.Bodies.CometSBDBURL = v
+		set("bodies.comet-sbdb-url", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -2008,6 +2019,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"bodies" + o.Separator + "interval-minutes",
 		"bodies" + o.Separator + "horizons-url",
 		"bodies" + o.Separator + "comet-elements-url",
+		"bodies" + o.Separator + "comet-sbdb-url",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -2131,6 +2143,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(60), names[105], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
 	fs.String(names[106], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
 	fs.String(names[107], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
+	fs.String(names[108], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
 	return nil
 }
 
@@ -3431,6 +3444,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Bodies.CometElementsURL = v
 		set("bodies.comet-elements-url", configulator.LayerCLI, "--"+n)
+	}
+	if n := "bodies" + o.Separator + "comet-sbdb-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "bodies.comet-sbdb-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.Bodies.CometSBDBURL = v
+		set("bodies.comet-sbdb-url", configulator.LayerCLI, "--"+n)
 	}
 	return nil
 }
@@ -5934,6 +5959,19 @@ func (s *bodiesShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".comet-elements-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
+		case "comet-sbdb-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.CometSBDBURL = &str
+			default:
+				return configJSONError(path+".comet-sbdb-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -6071,6 +6109,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "bodies.interval-minutes = %v\n", c.Bodies.IntervalMinutes)
 	fmt.Fprintf(&b, "bodies.horizons-url = %v\n", c.Bodies.HorizonsURL)
 	fmt.Fprintf(&b, "bodies.comet-elements-url = %v\n", c.Bodies.CometElementsURL)
+	fmt.Fprintf(&b, "bodies.comet-sbdb-url = %v\n", c.Bodies.CometSBDBURL)
 	return b.String()
 }
 

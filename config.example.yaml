@@ -249,3 +249,5 @@ bodies:
   horizons-url: "https://ssd.jpl.nasa.gov/api/horizons.api"
   # Minor Planet Center comet elements, for the list of comets observable tonight
   comet-elements-url: "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
+  # JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list
+  comet-sbdb-url: "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c"

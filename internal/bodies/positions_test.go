@@ -21,6 +21,8 @@ import (
 
 const (
 	night12   = "2026-10-12"
+	swan      = "C/2025 R2"
+	r1b       = "C/2023 R1-B"
 	cometGUID = "aaaa-comet"
 	moonGUID  = "bbbb-near"
 	idleGUID  = "cccc-idle"
@@ -64,7 +66,7 @@ func scheduler(t *testing.T, withTargets, withPositions bool) *gorm.DB {
 		`insert into target values (1, 'C/2025 R2 (SWAN)', 1, 1, '`+cometGUID+`', 5, 27), (2, 'Close one', 1, 1, '`+moonGUID+`', 14, -22), (3, 'Old', 1, 2, '`+idleGUID+`', 1, 1), (4, 'M 31', 1, 1, 'dddd-fixed', 0.7, 41)`)
 	if withTargets {
 		exec(t, db, bodies.TargetSchema,
-			`insert into ts_target_body (target_guid, designation) values ('`+cometGUID+`', 'C/2025 R2'), ('`+idleGUID+`', '2P')`)
+			`insert into ts_target_body (target_guid, designation) values ('`+cometGUID+`', '`+swan+`'), ('`+idleGUID+`', '2P')`)
 	}
 	if withPositions {
 		exec(t, db, bodies.Schema)
@@ -200,7 +202,7 @@ func TestPublishesOncePerTargetNightAndPrunes(t *testing.T) {
 	if err := sched.Table(bodies.PositionTable).Where("target_guid = ?", cometGUID).Order("at").First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if row.Designation != "C/2025 R2" || row.RA < 76.19 || row.RA > 76.2 || row.RARate > -13 || row.Mag == nil || row.Delta == nil {
+	if row.Designation != swan || row.RA < 76.19 || row.RA > 76.2 || row.RARate > -13 || row.Mag == nil || row.Delta == nil {
 		t.Errorf("row %+v", row)
 	}
 
@@ -309,7 +311,7 @@ func TestDesignationsByName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m["C/2025 R2 (SWAN)"] != "C/2025 R2" || m["Old"] != "2P" || len(m) != 2 {
+	if m["C/2025 R2 (SWAN)"] != swan || m["Old"] != "2P" || len(m) != 2 {
 		t.Errorf("%v", m)
 	}
 	if m, err := bodies.DesignationsByName(context.Background(), scheduler(t, false, false)); err != nil || len(m) != 0 {
