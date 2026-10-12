@@ -203,6 +203,8 @@ type Template struct {
 	MaximumHumidity float64 `json:"maximumHumidity"`
 	UsedByPlans     int     `json:"usedByPlans"`
 	UsedByTargets   int     `json:"usedByTargets"`
+	Retired         bool    `json:"retired"`
+	Managed         bool    `json:"-"`
 }
 
 type Inputs struct {
@@ -246,6 +248,7 @@ type Snapshot struct {
 	Frame     Frame           `json:"frame"`
 	Projects  []Project       `json:"projects"`
 	Templates []Template      `json:"templates"`
+	Filters   []Filter        `json:"filters"`
 	Sets      []ExposureSet   `json:"sets"`
 	Rules     []Rule          `json:"rules"`
 	Defaults  Defaults        `json:"defaults"`
@@ -253,6 +256,7 @@ type Snapshot struct {
 	GlobalWeights GlobalWeights `json:"globalWeights"`
 
 	projectRows      []projectRow
+	all              []Template
 	templateProfiles map[int]string
 	weightsBy        map[int]map[string]float64
 	goalSettings     goals.Settings
@@ -303,6 +307,7 @@ type rows struct {
 	targets   []targetRow
 	plans     []planRow
 	templates []templateRow
+	roles     map[int]string
 	weights   []ruleWeightRow
 	saved     ruleweights.Saved
 	seasons   map[string]Season
@@ -325,6 +330,11 @@ func loadRows(ctx context.Context, sched, appDB *gorm.DB, now time.Time) (*rows,
 	if err := db.Find(&r.weights).Error; err != nil {
 		return nil, err
 	}
+	roles, err := loadRoles(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	r.roles = roles
 	hasSeasons, err := tables.Has(ctx, db, "ts_target_season")
 	if err != nil {
 		return nil, err
@@ -469,19 +479,26 @@ func Load(ctx context.Context, sched, appDB *gorm.DB, in Inputs) (*Snapshot, err
 	for i := range out.Projects {
 		out.Projects[i].WeightDiffs = ProjectDiffs(out.GlobalWeights.Weights, x.weightsBy[out.Projects[i].ID], out.Projects[i].IsMosaic)
 	}
+	out.all = []Template{}
 	for _, t := range r.templates {
 		out.templateProfiles[t.ID] = t.ProfileID
-		out.Templates = append(out.Templates, Template{
+		tm := Template{
 			ID: t.ID, GUID: deref(t.GUID), Name: t.Name, Filter: t.FilterName, DefaultExposure: t.DefaultExposure,
 			Gain: t.Gain, Offset: t.Offset, Bin: t.Bin, TwilightLevel: twilightName(t.TwilightLevel),
 			MoonEnabled: deref(t.MoonEnabled) != 0, MoonSeparation: t.MoonSeparation, MoonWidth: deref(t.MoonWidth),
 			MoonDown: deref(t.MoonDownEnabled) != 0, MaximumHumidity: t.MaximumHumidity,
 			UsedByPlans: x.usedPlans[t.ID], UsedByTargets: len(x.usedTargets[t.ID]),
-		})
+			Managed: r.roles[t.ID] == RoleManaged, Retired: r.roles[t.ID] == RoleRetired,
+		}
+		out.all = append(out.all, tm)
+		if !tm.Managed {
+			out.Templates = append(out.Templates, tm)
+		}
 	}
-	out.Sets, out.Defaults = DeriveSets(out.Projects), defaultsFor(out.Templates)
+	out.Sets, out.Defaults = DeriveSets(out.Projects), defaultsFor(out.all)
 	out.Defaults.PanelDeficitWeight = out.GlobalWeights.Weights[ruleweights.PanelDeficit]
 	out.Defaults.ProjectSettings = out.ProjectSettingsFor(defaultProfile(r.projects))
+	out.Filters = out.buildFilters(out.FilterProfile())
 	return out, nil
 }
 
