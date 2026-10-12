@@ -189,3 +189,22 @@ func TestParseSBDB(t *testing.T) {
 		t.Error("a query without M1 parsed")
 	}
 }
+
+func TestHyperbolicPropagationFarFromPerihelion(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	for _, o := range []struct{ q, e float64 }{{0.255, 1.2}, {1.36, 6.14}, {0.3, 1.2}, {3.57, 1.0022}, {11, 1.004}} {
+		for _, days := range []float64{1, 100, 5940, 14340, 40000, -5940, -40000} {
+			el := bodies.Elements{Q: o.q, E: o.e, Perihelion: at.Add(-time.Duration(days * 86400e9))}
+			got := el.Heliocentric(at)
+			r := math.Sqrt(got[0]*got[0] + got[1]*got[1] + got[2]*got[2])
+			want := keplerRadius(o.q, o.e, days)
+			if math.IsNaN(r) || math.Abs(r-want) > 1e-7*want {
+				t.Errorf("q %v e %v %v days: r %v, Kepler %v", o.q, o.e, days, r, want)
+			}
+			if s := el.Seen(at); !s.Finite() {
+				t.Errorf("q %v e %v %v days: sighting %+v", o.q, o.e, days, s)
+			}
+		}
+	}
+}

@@ -2,6 +2,9 @@ package bodies_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -49,7 +52,7 @@ func TestCometListTonight(t *testing.T) {
 	now := time.Date(2026, 10, 12, 22, 0, 0, 0, time.UTC)
 	c := cometList(t, &fail, &hits, &now)
 	ctx := context.Background()
-	all, err := c.List(ctx, 99, 30, true)
+	all, err := c.List(ctx, 99, alt(30), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +70,7 @@ func TestCometListTonight(t *testing.T) {
 		}
 	}
 	checkSwan(t, all.Comets)
-	listed, err := c.List(ctx, 15, 30, false)
+	listed, err := c.List(ctx, 15, alt(30), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +88,7 @@ func TestCometListTonight(t *testing.T) {
 
 	now = now.Add(25 * time.Hour)
 	fail.Store(true)
-	stale, err := c.List(ctx, 99, 30, true)
+	stale, err := c.List(ctx, 99, alt(30), true)
 	if err != nil || stale.Elements.Error == "" || len(stale.Comets) != 9 {
 		t.Fatalf("stale fallback: %v %+v", err, stale.Elements)
 	}
@@ -101,7 +104,7 @@ func TestCometListWithoutElements(t *testing.T) {
 	fail.Store(true)
 	now := time.Date(2026, 10, 12, 22, 0, 0, 0, time.UTC)
 	c := cometList(t, &fail, &hits, &now)
-	if _, err := c.List(context.Background(), 15, 30, false); err == nil {
+	if _, err := c.List(context.Background(), 15, nil, false); err == nil {
 		t.Fatal("listed comets with no elements")
 	}
 }
@@ -123,5 +126,37 @@ func checkSwan(t *testing.T, comets []bodies.Comet) {
 	}
 	if r2.Window.Hours <= 0 || r2.Window.Start == nil || r2.Window.PeakAlt < 60 {
 		t.Errorf("C/2025 R2 should be high late tonight: %+v", r2.Window)
+	}
+}
+
+func alt(v float64) *float64 { return &v }
+
+func TestCometListAltitudeAndJSON(t *testing.T) {
+	t.Parallel()
+	var fail atomic.Bool
+	var hits atomic.Int32
+	now := time.Date(2026, 10, 12, 22, 0, 0, 0, time.UTC)
+	c := cometList(t, &fail, &hits, &now)
+	ctx := context.Background()
+	def, err := c.List(ctx, 99, nil, false)
+	if err != nil || def.MinAltitude != bodies.DefaultMinAlt {
+		t.Fatalf("default altitude %v %v", def.MinAltitude, err)
+	}
+	low, err := c.List(ctx, 99, alt(0), false)
+	if err != nil || low.MinAltitude != 0 || len(low.Comets) < len(def.Comets) {
+		t.Fatalf("min_alt 0: %v, %d comets against %d at 30", err, len(low.Comets), len(def.Comets))
+	}
+	for _, at := range []time.Time{now, now.AddDate(16, 0, 0), now.AddDate(-60, 0, 0)} {
+		now = at
+		all, err := c.List(ctx, 99, alt(0), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := json.Marshal(all); err != nil {
+			t.Fatalf("at %v the list does not encode: %v", at, err)
+		}
+	}
+	if _, err := c.List(ctx, math.NaN(), nil, false); !errors.Is(err, bodies.ErrBadQuery) {
+		t.Errorf("NaN max_mag: %v", err)
 	}
 }

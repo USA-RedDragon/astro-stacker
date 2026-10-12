@@ -144,16 +144,27 @@ func perifocal(q, e, dt float64) (x, y float64) {
 		return (1-alpha*q)*chi*chi*chi*s + q*chi - sm*dt, chi*chi*c + q*(1-z*c), (1 - alpha*q) * chi * (1 - z*s)
 	}
 	chi := sm * dt / q
-	if alpha > 0 {
+	switch {
+	case alpha > 0:
 		chi = sm * dt * alpha
+	case alpha < 0:
+		// Vallado's starter for hyperbolic orbits, from perihelion.
+		a := 1 / alpha
+		if ratio := -2 * mu * alpha * math.Abs(dt) / (math.Sqrt(-mu*a) * (1 - q*alpha)); ratio > 1 {
+			chi = math.Copysign(math.Sqrt(-a)*math.Log(ratio), dt)
+		}
 	}
-	if math.Abs(chi) > 1e3 {
+	if math.Abs(chi) > 1e3 && alpha >= 0 {
 		chi = math.Copysign(math.Cbrt(6*sm*math.Abs(dt)), dt)
 	}
 	// Laguerre's method (n=5) converges from poor starts at any eccentricity.
 	const n = 5.0
 	for range 200 {
 		f, df, d2f := kepler(chi)
+		if math.IsNaN(f) || math.IsInf(f, 0) || math.IsNaN(df) || math.IsInf(df, 0) {
+			chi /= 2
+			continue
+		}
 		den := df + math.Copysign(math.Sqrt(math.Abs((n-1)*(n-1)*df*df-n*(n-1)*f*d2f)), df)
 		if den == 0 {
 			break
@@ -181,7 +192,8 @@ func rotate(x, y, argPeri, node, incl float64) vec {
 	}
 }
 
-// Heliocentric is the comet's position on the J2000 ecliptic, in au.
+// Heliocentric is the comet's position on the J2000 ecliptic, in au; NaN
+// when the propagation fails.
 func (el Elements) Heliocentric(t time.Time) vec {
 	x, y := perifocal(el.Q, el.E, julian(t)-julian(el.Perihelion))
 	return rotate(x, y, el.ArgPeri, el.Node, el.Incl)
@@ -219,10 +231,23 @@ type Sighting struct {
 	Delta float64
 }
 
+// Finite reports whether every value of s is a number.
+func (s Sighting) Finite() bool {
+	for _, v := range []float64{s.RA, s.Dec, s.R, s.Delta} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return false
+		}
+	}
+	return true
+}
+
 func (el Elements) Seen(t time.Time) Sighting {
 	e := earth(t)
 	p := el.Heliocentric(t)
 	d := p.sub(e).norm()
+	if math.IsNaN(d) || math.IsInf(d, 0) {
+		return Sighting{RA: math.NaN(), Dec: math.NaN(), R: math.NaN(), Delta: math.NaN()}
+	}
 	for range 2 {
 		p = el.Heliocentric(t.Add(-time.Duration(d * lightDay * 86400e9)))
 		d = p.sub(e).norm()
