@@ -52,7 +52,7 @@ func NightQuality(ctx context.Context, appDB *gorm.DB, now time.Time) (*float64,
 		Select("sf.score AS score, f.date_obs AS date_obs").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
 		Where("f.type = ? AND f.date_obs IS NOT NULL AND f.date_obs > ? AND f.date_obs <= ?", "LIGHT", now.Add(-NightQualityWindow), now).
-		Where("sf.status IN ?", []string{app.StackStatusAdded, app.StackStatusLowScore}).
+		Where("sf.status IN ?", []string{app.StackStatusAdded, app.StackStatusNight, app.StackStatusLowScore}).
 		Scan(&rows).Error; err != nil {
 		return nil, nil, fmt.Errorf("load tonight's sub scores: %w", err)
 	}

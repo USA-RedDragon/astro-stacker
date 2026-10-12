@@ -192,7 +192,7 @@ func wantedVerdict(status string) int {
 	switch status {
 	case app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon:
 		return app.TSVerdictReject
-	case app.StackStatusAdded:
+	case app.StackStatusAdded, app.StackStatusNight:
 		return app.TSVerdictAccept
 	}
 	return 0
@@ -263,8 +263,8 @@ func (p *Pipeline) verdictFrames(ctx context.Context, opts VerdictOptions) ([]ve
 	q := p.db.WithContext(ctx).Table("stack_frames sf").
 		Select("sf.frame_id, f.key, f.object, f.filter, sf.status, coalesce(sf.metadata_source, '') AS source").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
-		Where("sf.status IN ? OR (sf.status = ? AND EXISTS (SELECT 1 FROM ts_verdicts v WHERE v.frame_id = sf.frame_id))",
-			[]string{app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon}, app.StackStatusAdded)
+		Where("sf.status IN ? OR (sf.status IN ? AND EXISTS (SELECT 1 FROM ts_verdicts v WHERE v.frame_id = sf.frame_id))",
+			[]string{app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon}, stackedStatuses())
 	if !opts.Since.IsZero() {
 		q = q.Where("f.date_obs >= ?", opts.Since)
 	}

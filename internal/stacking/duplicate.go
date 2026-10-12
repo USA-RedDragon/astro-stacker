@@ -47,7 +47,7 @@ func (p *Pipeline) dropDuplicates(ctx context.Context) error {
 	var n int64
 	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		added := tx.Table("stack_frames sf").Joins("JOIN frames f ON f.id = sf.frame_id").
-			Where("sf.status = ?", app.StackStatusAdded).Where(earlierTwin)
+			Where("sf.status IN ?", stackedStatuses()).Where(earlierTwin)
 		var ids []int
 		if err := added.Session(&gorm.Session{}).Pluck("sf.id", &ids).Error; err != nil || len(ids) == 0 {
 			return err

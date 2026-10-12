@@ -149,7 +149,7 @@ func TestBodyNightSignature(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 13, 3, 0, 0, 0, time.UTC)
 	rows := []nightSub{{RegisteredKey: "a", Exposure: 60, Weight: 1, Score: 0.8, DateObs: at}, {RegisteredKey: "b", Exposure: 60, Weight: 1, Score: 0.6, DateObs: at.Add(time.Minute)}}
-	comet := bodies.Target{Designation: "161P", Kind: bodies.KindComet}
+	comet := bodies.Target{Designation: hartley, Kind: bodies.KindComet}
 	sig := bodyNightSignature(rows, comet)
 	if sig != bodyNightSignature(slices.Clone(rows), comet) {
 		t.Error("unstable")
@@ -160,7 +160,7 @@ func TestBodyNightSignature(t *testing.T) {
 	for name, other := range map[string]string{
 		"a new sub":   bodyNightSignature(more, comet),
 		"a new score": bodyNightSignature(rescored, comet),
-		"asteroid":    bodyNightSignature(rows, bodies.Target{Designation: "161P", Kind: bodies.KindAsteroid}),
+		"asteroid":    bodyNightSignature(rows, bodies.Target{Designation: hartley, Kind: bodies.KindAsteroid}),
 	} {
 		if other == sig {
 			t.Errorf("%s keeps the signature", name)

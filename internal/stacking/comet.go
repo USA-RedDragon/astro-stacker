@@ -237,6 +237,11 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 		if !ok || s.CometSignature == sig || time.Since(s.UpdatedAt) < p.opts.MosaicQuiet {
 			continue
 		}
+		if isMovingBody(stored, s.Object) {
+			if multi, err := p.combinesNights(ctx, s); err != nil || multi {
+				continue
+			}
+		}
 		if !p.hold(s.Object) {
 			continue
 		}
@@ -249,7 +254,7 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 			// Recorded so it isn't retried until the master changes.
 			slog.Error("Comet master failed", "object", s.Object, "filter", s.Filter, "error", err)
 			msg := err.Error()
-			p.db.WithContext(ctx).Model(s).UpdateColumns(map[string]any{"comet_signature": sig, "comet_error": msg})
+			p.db.WithContext(ctx).Model(s).UpdateColumns(map[string]any{colCometSignature: sig, colCometError: msg})
 		}
 	}
 	return nil
@@ -1049,7 +1054,7 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 		"comet_key": keys["comet.fit"], "comet_xisf_key": keys["comet.xisf"], "comet_preview_key": keys["comet.jpg"],
 		"comet_linear_key": keys["comet-linear.bin"], "comet_subs": subs,
 		"comet_crop_x": r.X, "comet_crop_y": r.Y, "comet_crop_w": r.W, "comet_crop_h": r.H,
-		"comet_signature": signature, "comet_error": nil, "comet_method": cometMethod,
+		colCometSignature: signature, colCometError: nil, "comet_method": cometMethod,
 	}).Error; err != nil {
 		return err
 	}

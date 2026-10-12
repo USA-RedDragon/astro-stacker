@@ -40,7 +40,7 @@ type calibrated struct {
 	bias, dark, flat string
 }
 
-func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch []candidate, sets []calmatch.Set, scores map[string]quality.SubScore, positions map[string][2]float64) error {
+func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch []candidate, sets []calmatch.Set, scores map[string]quality.SubScore, positions map[string][2]float64, moving bool) error {
 	start := time.Now()
 	stack, err := p.loadStack(ctx, object, filter)
 	if err != nil {
@@ -66,6 +66,13 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 		// Missed at startup (reregisterPrecalibrated) while being stacked.
 		slog.Warn("Restacking target to register its calibrated subs with the optics' distortion", "object", object)
 		return p.restack(ctx, object, nil)
+	}
+	if moving {
+		main, err := p.splitBodyBatch(ctx, stack, tr, batch, sets, scores, positions)
+		if err != nil || len(main) == 0 {
+			return err
+		}
+		batch = main
 	}
 	disto := registerWithDistortion(tr, refFrame, batch)
 
