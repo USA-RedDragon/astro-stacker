@@ -422,3 +422,18 @@ func TestListPagesWithoutSkippingTies(t *testing.T) {
 		t.Fatalf("limit %d", len(got))
 	}
 }
+
+func TestSubmitOnceSendsOnePerID(t *testing.T) {
+	t.Parallel()
+	api := &fakeTransport{name: apiName, up: true, status: schedcmd.StatusPending}
+	s := newService(t, api)
+	ctx := context.Background()
+	a, err := s.SubmitOnce(ctx, "fixed-1", schedcmd.KindProjectEdit, priorityEdit(1, 0), author)
+	if err != nil || a.ID != "fixed-1" {
+		t.Fatalf("%+v %v", a, err)
+	}
+	b, err := s.SubmitOnce(ctx, "fixed-1", schedcmd.KindProjectEdit, priorityEdit(1, 0), author)
+	if err != nil || b.ID != "fixed-1" || len(api.sent) != 1 {
+		t.Fatalf("second: %+v %v, %d sent", b, err, len(api.sent))
+	}
+}

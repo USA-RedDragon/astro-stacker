@@ -1,6 +1,7 @@
 package schedcmd
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -95,10 +96,22 @@ func (s *Service) notify(r Record) {
 }
 
 func (s *Service) Submit(ctx context.Context, kind Kind, payload json.RawMessage, author string) (Record, error) {
-	return s.submit(ctx, kind, payload, author, "")
+	return s.submit(ctx, kind, payload, author, "", "")
 }
 
-func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage, author, undoOf string) (Record, error) {
+// SubmitOnce submits a command under a caller's id, or returns the command
+// already recorded under it, so a retry after a lost answer cannot send the
+// change twice.
+func (s *Service) SubmitOnce(ctx context.Context, id string, kind Kind, payload json.RawMessage, author string) (Record, error) {
+	if r, err := s.Log.Get(ctx, id); err == nil {
+		return r, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return Record{}, err
+	}
+	return s.submit(ctx, kind, payload, author, "", id)
+}
+
+func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage, author, undoOf, id string) (Record, error) {
 	ctx = WithAuthor(ctx, author)
 	spec, err := s.registry().Get(kind)
 	if err != nil {
@@ -125,7 +138,7 @@ func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage
 	}
 	now := s.now()
 	r := Record{
-		ID:          s.newID(),
+		ID:          cmp.Or(id, s.newID()),
 		Kind:        kind,
 		Payload:     payload,
 		Author:      author,
@@ -155,6 +168,11 @@ func (s *Service) submit(ctx context.Context, kind Kind, payload json.RawMessage
 		r.AppliedAt = &now
 	}
 	if err := s.Log.Create(ctx, &r); err != nil {
+		if id != "" {
+			if prev, gerr := s.Log.Get(ctx, id); gerr == nil {
+				return prev, nil
+			}
+		}
 		return Record{}, err
 	}
 	if r.Destination == DestinationObservatory {
@@ -244,7 +262,7 @@ func (s *Service) Undo(ctx context.Context, id, author string) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	nr, err := s.submit(ctx, kind, inv, author, r.ID)
+	nr, err := s.submit(ctx, kind, inv, author, r.ID, "")
 	if err != nil {
 		return Record{}, err
 	}
