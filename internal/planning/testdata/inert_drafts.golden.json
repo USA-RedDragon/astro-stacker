@@ -1,0 +1,554 @@
+{
+  "applyset_add": {
+    "payload": {
+      "set_id": "set-e18b64aafde5b30c",
+      "set_name": "H-a, O-III",
+      "mode": "add",
+      "targets": [
+        {
+          "target_id": 30,
+          "target_guid": "g30",
+          "target_name": "Pacman",
+          "project": "Pacman",
+          "create": [
+            {
+              "guid": "id-1",
+              "template_id": 2,
+              "template_name": "O-III",
+              "exposure": -1,
+              "desired": 25
+            }
+          ]
+        }
+      ]
+    },
+    "effects": [
+      {
+        "targetId": 30,
+        "name": "Pacman",
+        "project": "Pacman",
+        "current": "S-II, H-a, Red",
+        "effect": "adds O-III",
+        "changes": true
+      }
+    ]
+  },
+  "applyset_replace": {
+    "payload": {
+      "set_id": "set-26cedca3800e8caf",
+      "set_name": "S-II, H-a, Red",
+      "mode": "replace",
+      "targets": [
+        {
+          "target_id": 20,
+          "target_guid": "g20",
+          "target_name": "Garlic Nebula",
+          "project": "Garlic Nebula",
+          "create": [
+            {
+              "guid": "id-1",
+              "template_id": 4,
+              "template_name": "S-II",
+              "exposure": -1,
+              "desired": 40
+            },
+            {
+              "guid": "id-2",
+              "template_id": 5,
+              "template_name": "Red",
+              "exposure": -1,
+              "desired": 90
+            }
+          ],
+          "disable": [
+            {
+              "id": 51,
+              "guid": "e51",
+              "template_name": "O-III"
+            }
+          ]
+        },
+        {
+          "target_id": 12,
+          "target_guid": "g12",
+          "target_name": "Cygnis Loop Panel 1",
+          "project": "Cygnis Loop",
+          "create": [
+            {
+              "guid": "id-3",
+              "template_id": 4,
+              "template_name": "S-II",
+              "exposure": -1,
+              "desired": 40
+            },
+            {
+              "guid": "id-4",
+              "template_id": 5,
+              "template_name": "Red",
+              "exposure": -1,
+              "desired": 90
+            }
+          ],
+          "disable": [
+            {
+              "id": 41,
+              "guid": "e41",
+              "template_name": "O-III"
+            }
+          ]
+        }
+      ]
+    },
+    "effects": [
+      {
+        "targetId": 20,
+        "name": "Garlic Nebula",
+        "project": "Garlic Nebula",
+        "current": "H-a, O-III",
+        "effect": "adds S-II, Red, turns off O-III (counts kept)",
+        "changes": true
+      },
+      {
+        "targetId": 12,
+        "name": "Cygnis Loop Panel 1",
+        "project": "Cygnis Loop",
+        "current": "H-a, O-III",
+        "effect": "adds S-II, Red, turns off O-III (counts kept)",
+        "changes": true
+      }
+    ]
+  },
+  "defaults": {
+    "goal": {
+      "kind": "snr",
+      "snr": 10,
+      "depthSnr": 3,
+      "depths": [
+        {
+          "filter": "H-a",
+          "depth": 25.5
+        },
+        {
+          "filter": "O-III",
+          "depth": 25.5
+        },
+        {
+          "filter": "Luminance",
+          "depth": 25.8
+        },
+        {
+          "filter": "S-II",
+          "depth": 25.5
+        },
+        {
+          "filter": "Red",
+          "depth": 25.8
+        }
+      ],
+      "plateauStop": true,
+      "plateauGainPct": 1.5,
+      "bandLowPercentile": 20,
+      "bandHighPercentile": 40
+    },
+    "panelDeficitWeight": 0,
+    "projectSettings": {
+      "ditherEvery": 0,
+      "filterSwitchFrequency": 0,
+      "flatsHandling": 0,
+      "smartExposureOrder": false,
+      "meridianWindow": 0,
+      "useCustomHorizon": false,
+      "horizonOffset": 0,
+      "maximumAltitude": 0,
+      "enableGrader": true,
+      "basis": "profile",
+      "projects": 3,
+      "profileId": "p"
+    }
+  },
+  "project_plans": {
+    "project": {
+      "guid": "id-1",
+      "name": "Eagle",
+      "priority": 1,
+      "state": 1,
+      "minimumtime": 30,
+      "minimumaltitude": 30,
+      "is_mosaic": false,
+      "ditherevery": 0,
+      "filterswitchfrequency": 0,
+      "flatshandling": 0,
+      "smartexposureorder": false,
+      "meridianwindow": 0,
+      "usecustomhorizon": false,
+      "horizonoffset": 0,
+      "maximumaltitude": 0,
+      "enablegrader": true
+    },
+    "targets": [
+      {
+        "guid": "id-2",
+        "name": "Eagle",
+        "ra_hours": 18.3,
+        "dec": -13.8,
+        "rotation": 0,
+        "plans": [
+          {
+            "guid": "id-3",
+            "template_id": 1,
+            "template_name": "H-a",
+            "exposure": 180,
+            "desired": 200
+          },
+          {
+            "guid": "id-4",
+            "template_id": 5,
+            "template_name": "Red",
+            "exposure": -1,
+            "desired": 90
+          },
+          {
+            "guid": "id-5",
+            "template_id": 3,
+            "template_name": "Luminance",
+            "exposure": 120,
+            "desired": 1
+          }
+        ]
+      }
+    ],
+    "goals": [
+      {
+        "target_guid": "id-2",
+        "filter": "H-a",
+        "setting": {
+          "kind": 0,
+          "snr_goal": 10,
+          "plateau_stop": true
+        }
+      },
+      {
+        "target_guid": "id-2",
+        "filter": "Red",
+        "setting": {
+          "kind": 0,
+          "snr_goal": 10,
+          "plateau_stop": true
+        }
+      },
+      {
+        "target_guid": "id-2",
+        "filter": "Luminance",
+        "setting": {
+          "kind": 0,
+          "snr_goal": 10,
+          "plateau_stop": true
+        }
+      }
+    ],
+    "rule_weights": {
+      "Condition Match": 0,
+      "Even Panels": 0,
+      "Filter Steering": 0,
+      "Meridian Flip Penalty": 0,
+      "Meridian Window Priority": 0,
+      "Mosaic Completion": 0,
+      "Novelty": 0,
+      "Panel Deficit": 0,
+      "Percent Complete": 0,
+      "Project Priority": 0,
+      "Rarity": 0,
+      "Season Priority": 0,
+      "Seasonal Runway": 0,
+      "Setting Soonest": 0,
+      "Smart Exposure Order": 0,
+      "Target Switch Penalty": 0
+    }
+  },
+  "project_set": {
+    "project": {
+      "guid": "id-1",
+      "name": "Gecko Nebula",
+      "description": "Catalogue: LBN 437",
+      "priority": 2,
+      "state": 1,
+      "minimumtime": 60,
+      "minimumaltitude": 15,
+      "is_mosaic": true,
+      "ditherevery": 0,
+      "filterswitchfrequency": 0,
+      "flatshandling": 0,
+      "smartexposureorder": false,
+      "meridianwindow": 0,
+      "usecustomhorizon": false,
+      "horizonoffset": 0,
+      "maximumaltitude": 0,
+      "enablegrader": true
+    },
+    "targets": [
+      {
+        "guid": "id-2",
+        "name": "Gecko Nebula Panel 1",
+        "ra_hours": 22.5,
+        "dec": 40.8,
+        "rotation": 0,
+        "plans": [
+          {
+            "guid": "id-3",
+            "template_id": 1,
+            "template_name": "H-a",
+            "exposure": -1,
+            "desired": 300
+          },
+          {
+            "guid": "id-4",
+            "template_id": 2,
+            "template_name": "O-III",
+            "exposure": -1,
+            "desired": 300
+          }
+        ]
+      },
+      {
+        "guid": "id-5",
+        "name": "Gecko Nebula Panel 2",
+        "ra_hours": 22.7,
+        "dec": 40.8,
+        "rotation": 0,
+        "plans": [
+          {
+            "guid": "id-6",
+            "template_id": 1,
+            "template_name": "H-a",
+            "exposure": -1,
+            "desired": 300
+          },
+          {
+            "guid": "id-7",
+            "template_id": 2,
+            "template_name": "O-III",
+            "exposure": -1,
+            "desired": 300
+          }
+        ]
+      }
+    ],
+    "goals": [
+      {
+        "target_guid": "id-2",
+        "filter": "H-a",
+        "setting": {
+          "kind": 0,
+          "snr_goal": 12,
+          "plateau_stop": true
+        }
+      },
+      {
+        "target_guid": "id-2",
+        "filter": "O-III",
+        "setting": {
+          "kind": 0,
+          "snr_goal": 12,
+          "plateau_stop": true
+        }
+      },
+      {
+        "target_guid": "id-5",
+        "filter": "H-a",
+        "setting": {
+          "kind": 0,
+          "snr_goal": 12,
+          "plateau_stop": true
+        }
+      },
+      {
+        "target_guid": "id-5",
+        "filter": "O-III",
+        "setting": {
+          "kind": 0,
+          "snr_goal": 12,
+          "plateau_stop": true
+        }
+      }
+    ],
+    "rule_weights": {
+      "Condition Match": 0,
+      "Even Panels": 0,
+      "Filter Steering": 0,
+      "Meridian Flip Penalty": 0,
+      "Meridian Window Priority": 0,
+      "Mosaic Completion": 0,
+      "Novelty": 0,
+      "Panel Deficit": 0,
+      "Percent Complete": 0,
+      "Project Priority": 0,
+      "Rarity": 0,
+      "Season Priority": 0,
+      "Seasonal Runway": 0,
+      "Setting Soonest": 0,
+      "Smart Exposure Order": 0,
+      "Target Switch Penalty": 0
+    },
+    "catalog": "LBN 437"
+  },
+  "sets": [
+    {
+      "id": "set-e18b64aafde5b30c",
+      "name": "H-a, O-III",
+      "hint": "Used on 2 projects, e.g. Cygnis Loop, Garlic Nebula",
+      "items": [
+        {
+          "template": "H-a",
+          "exposure": 600,
+          "desired": 300
+        },
+        {
+          "template": "O-III",
+          "exposure": 600,
+          "desired": 300
+        }
+      ],
+      "projects": 2,
+      "projectIds": [
+        5,
+        7
+      ],
+      "examples": [
+        "Cygnis Loop",
+        "Garlic Nebula"
+      ]
+    },
+    {
+      "id": "set-26cedca3800e8caf",
+      "name": "S-II, H-a, Red",
+      "hint": "Used on 1 project, e.g. Pacman",
+      "items": [
+        {
+          "template": "S-II",
+          "exposure": 600,
+          "desired": 40
+        },
+        {
+          "template": "H-a",
+          "exposure": 600,
+          "desired": 40
+        },
+        {
+          "template": "Red",
+          "exposure": 300,
+          "desired": 90
+        }
+      ],
+      "projects": 1,
+      "projectIds": [
+        9
+      ],
+      "examples": [
+        "Pacman"
+      ]
+    }
+  ],
+  "settings_red": {
+    "ditherevery": 0,
+    "filterswitchfrequency": 0,
+    "flatshandling": 0,
+    "smartexposureorder": false,
+    "meridianwindow": 0,
+    "usecustomhorizon": false,
+    "horizonoffset": 0,
+    "maximumaltitude": 0,
+    "enablegrader": true
+  },
+  "templates": [
+    {
+      "id": 1,
+      "guid": "t1",
+      "name": "H-a",
+      "filter": "H-a",
+      "defaultExposure": 600,
+      "gain": 100,
+      "offset": 10,
+      "bin": 1,
+      "twilight": "Nautical",
+      "moonEnabled": true,
+      "moonSeparation": 45,
+      "moonWidth": 7,
+      "moonDown": false,
+      "maximumHumidity": 85,
+      "usedByPlans": 4,
+      "usedByTargets": 4
+    },
+    {
+      "id": 2,
+      "guid": "t2",
+      "name": "O-III",
+      "filter": "O-III",
+      "defaultExposure": 600,
+      "gain": 100,
+      "offset": 10,
+      "bin": 1,
+      "twilight": "Nautical",
+      "moonEnabled": true,
+      "moonSeparation": 45,
+      "moonWidth": 7,
+      "moonDown": false,
+      "maximumHumidity": 85,
+      "usedByPlans": 3,
+      "usedByTargets": 3
+    },
+    {
+      "id": 3,
+      "guid": "t3",
+      "name": "Luminance",
+      "filter": "Luminance",
+      "defaultExposure": 300,
+      "gain": 0,
+      "offset": 50,
+      "bin": 1,
+      "twilight": "Nighttime",
+      "moonEnabled": true,
+      "moonSeparation": 30,
+      "moonWidth": 7,
+      "moonDown": false,
+      "maximumHumidity": 85,
+      "usedByPlans": 1,
+      "usedByTargets": 1
+    },
+    {
+      "id": 4,
+      "guid": "t4",
+      "name": "S-II",
+      "filter": "S-II",
+      "defaultExposure": 600,
+      "gain": 100,
+      "offset": 10,
+      "bin": 1,
+      "twilight": "Nautical",
+      "moonEnabled": true,
+      "moonSeparation": 45,
+      "moonWidth": 7,
+      "moonDown": false,
+      "maximumHumidity": 85,
+      "usedByPlans": 1,
+      "usedByTargets": 1
+    },
+    {
+      "id": 5,
+      "guid": "t5",
+      "name": "Red",
+      "filter": "Red",
+      "defaultExposure": 300,
+      "gain": 0,
+      "offset": 10,
+      "bin": 1,
+      "twilight": "Nighttime",
+      "moonEnabled": true,
+      "moonSeparation": 30,
+      "moonWidth": 7,
+      "moonDown": false,
+      "maximumHumidity": 85,
+      "usedByPlans": 1,
+      "usedByTargets": 1
+    }
+  ]
+}
