@@ -53,6 +53,9 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applyBodiesRoutes(r.Group("/api/v1"), extras.Bodies)
 	applyCometRoutes(r.Group("/api/v1"), extras.Comets)
 	applyBodyFramingRoutes(r.Group("/api/v1"), extras.Framing)
+	asteroids := r.Group("/api/v1")
+	asteroids.Use(ExtendWriteDeadline(asteroidWriteTimeout))
+	applyAsteroidRoutes(asteroids, extras.Asteroids)
 	applySkyEventRoutes(r.Group("/api/v1"), extras.SkyEvents, extras.Backfill)
 	applyWebUI(r, config.HTTP.WebURL)
 

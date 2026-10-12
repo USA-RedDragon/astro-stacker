@@ -53,11 +53,20 @@ type Extras struct {
 	Bodies       *bodies.Service
 	Comets       *bodies.CometList
 	Framing      *BodyFraming
+	Asteroids    *bodies.AsteroidList
 	SkyEvents    *skyevents.Service
 	Site         SiteSource
 }
 
 const schedulerWriteTimeout = 45 * time.Second
+
+// asteroidRequestTimeout bounds an asteroid list request: its SBDB and
+// close-approach fetches and its Horizons budget. asteroidWriteTimeout
+// outlasts it, so the answer, an error at worst, is always written.
+const (
+	asteroidRequestTimeout = 100 * time.Second
+	asteroidWriteTimeout   = 2 * time.Minute
+)
 
 func ExtendWriteDeadline(d time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {

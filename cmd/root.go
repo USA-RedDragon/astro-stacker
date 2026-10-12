@@ -223,6 +223,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	})
 	comets := &bodies.CometList{DB: appStore.DB(), URL: cfg.Bodies.CometElementsURL, SBDBURL: cfg.Bodies.CometSBDBURL, UserAgent: horizons.UserAgent(cmd.Annotations["version"]),
 		Site: bodies.SiteFunc(siteFunc(cfg, appStore)), MinAlt: cfg.Discover.MinAltitude}
+	asteroids := &bodies.AsteroidList{Comets: comets, Horizons: hz}
+	go asteroids.Run(indexCtx, bodies.AsteroidWarmInterval)
 	skyEvents := &skyevents.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Horizons: hz, Site: skyevents.SiteFunc(siteFunc(cfg, appStore)),
 		Rig: func(ctx context.Context) (rigsource.Rig, error) {
 			return rigsource.Measure(ctx, appStore.DB(), schedulerDBStore.DB(), time.Now())
@@ -235,6 +237,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	slog.Info("Sky event finder started", "interval", skyevents.Interval)
 	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Comets:     comets,
+		Asteroids:  asteroids,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	extras.Framing = &server.BodyFraming{Tracker: &bodies.Tracker{Horizons: hz, Site: bodies.SiteFunc(siteFunc(cfg, appStore))},

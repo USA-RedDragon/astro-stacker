@@ -407,11 +407,11 @@ func TestAsteroidTargetsUseTheSmallBodyCommand(t *testing.T) {
 	for c := range f.cmds {
 		got[c]++
 	}
-	if got["'1;'"] != bodies.Nights || got["'DES=2026 TC6;'"] != bodies.Nights || len(got) != 2 {
+	if got["'1;'"] != bodies.Nights || got["'"+tc6Cmd+"'"] != bodies.Nights || len(got) != 2 {
 		t.Errorf("commands %v", got)
 	}
 	for _, tab := range res.Tables {
-		if want := map[string]string{"1": "1;", "2026 TC6": "DES=2026 TC6;"}[tab.Designation]; tab.Command != want {
+		if want := map[string]string{"1": "1;", tc6: tc6Cmd}[tab.Designation]; tab.Command != want {
 			t.Errorf("%s: command %q, want %q", tab.Designation, tab.Command, want)
 		}
 	}

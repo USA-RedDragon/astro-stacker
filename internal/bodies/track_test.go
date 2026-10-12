@@ -122,7 +122,7 @@ func TestTrackAsksForAsteroidsAsSmallBodies(t *testing.T) {
 	now := time.Date(2026, 10, 12, 18, 0, 0, 0, time.UTC)
 	tr := &bodies.Tracker{Horizons: &horizons.Client{BaseURL: srv.URL, Now: func() time.Time { return now }},
 		Site: func(context.Context) (sky.Site, error) { return testSite(), nil }, Now: func() time.Time { return now }}
-	for des, want := range map[string]string{"1": "1;", "2026 TC6": "DES=2026 TC6;"} {
+	for des, want := range map[string]string{"1": "1;", tc6: tc6Cmd} {
 		view, _ := tr.Track(context.Background(), des, bodies.KindAsteroid)
 		if view.Command != want {
 			t.Errorf("%s: command %q, want %q", des, view.Command, want)
