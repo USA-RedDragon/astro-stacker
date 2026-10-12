@@ -11,8 +11,8 @@ func TestMosaicDueThrottlesInsteadOfWaitingForQuiet(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 12, 4, 30, 0, 0, time.UTC)
 	every := 30 * time.Minute
-	built := app.Mosaic{Signature: "old", Panels: 4, UpdatedAt: now.Add(-10 * time.Minute)}
-	if mosaicDue(built, "old", 4, every, now) {
+	built := app.Mosaic{Signature: keyOld, Panels: 4, UpdatedAt: now.Add(-10 * time.Minute)}
+	if mosaicDue(built, keyOld, 4, every, now) {
 		t.Fatal("unchanged mosaic rebuilt")
 	}
 	if mosaicDue(built, "new", 4, every, now) {

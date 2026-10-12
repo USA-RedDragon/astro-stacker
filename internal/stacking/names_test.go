@@ -7,4 +7,5 @@ const (
 	objectHorsehead   = "Horsehead"
 	objectRhoOphiuchi = "Rho Ophiuchi"
 	objectOther       = "Other"
+	keyOld            = "old"
 )
