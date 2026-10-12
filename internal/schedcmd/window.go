@@ -68,6 +68,12 @@ func (t NewTarget) checkBody() error {
 	if t.BodyKind != "" && d == "" {
 		return fmt.Errorf("%w: %s has a body kind but no designation", ErrInvalid, t.Name)
 	}
+	if err := checkFraming(t.RotationDeg, t.OffsetFrac); err != nil {
+		return fmt.Errorf("%s: %w", t.Name, err)
+	}
+	if t.RotationDeg != nil && d == "" {
+		return fmt.Errorf("%w: %s has framing but no designation", ErrInvalid, t.Name)
+	}
 	if t.Window != nil {
 		if err := t.Window.Validate(); err != nil {
 			return fmt.Errorf("%s: %w", t.Name, err)
