@@ -5,6 +5,7 @@ cmd/stack.go	62	0
 internal/astrometry/index.go	86	69
 internal/astrometry/procgroup_unix.go	3	3
 internal/astrometry/solvefield.go	52	44
+internal/autofocus/autofocus.go	51	49
 internal/calmatch/calmatch.go	85	81
 internal/calpublish/calpublish.go	121	100
 internal/calreq/calreq.go	112	94
@@ -96,7 +97,7 @@ internal/mosaicstore/mosaicstore.go	66	56
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -137,8 +138,9 @@ internal/schedcmd/planning.go	404	335
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	226	201
+internal/schedcmd/service.go	226	199
 internal/schedcmd/settings.go	84	78
+internal/server/autofocus.go	26	22
 internal/server/calibration.go	37	29
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	20	14
@@ -151,7 +153,7 @@ internal/server/public.go	12	12
 internal/server/routes.go	367	104
 internal/server/scheddata.go	279	236
 internal/server/schedpreview.go	225	210
-internal/server/scheduler.go	91	51
+internal/server/scheduler.go	92	52
 internal/server/server.go	91	30
 internal/server/skycutout.go	24	20
 internal/server/sublength.go	11	9
