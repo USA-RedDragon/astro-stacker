@@ -51,6 +51,20 @@ func SameDesignation(a, b string) bool {
 	return norm(a) != "" && norm(a) == norm(b)
 }
 
+// ElementsOf finds a comet's elements in the stored MPC elements.
+func (c *CometList) ElementsOf(ctx context.Context, designation string) (Elements, bool) {
+	els, _, err := c.elements(ctx)
+	if err != nil {
+		return Elements{}, false
+	}
+	for _, el := range els {
+		if SameDesignation(el.Designation, designation) {
+			return el, true
+		}
+	}
+	return Elements{}, false
+}
+
 // Orbit finds a comet in the stored MPC elements.
 func (c *CometList) Orbit(ctx context.Context, designation string) (Orbit, error) {
 	els, _, err := c.elements(ctx)

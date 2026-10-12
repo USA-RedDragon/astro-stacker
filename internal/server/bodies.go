@@ -34,6 +34,34 @@ func applyBodiesRoutes(g *gin.RouterGroup, s *bodies.Service) {
 	})
 }
 
+func applyBodyNightRoutes(g *gin.RouterGroup, s *bodies.NightService) {
+	g.GET("/bodies/nights", func(c *gin.Context) {
+		if s == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "body season nights are not built: the stacker has no scheduler database"})
+			return
+		}
+		res := s.Latest()
+		if res == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "the body season nights have not been built yet"})
+			return
+		}
+		guid := strings.TrimSpace(c.Query("target_guid"))
+		if guid == "" {
+			c.JSON(http.StatusOK, res)
+			return
+		}
+		v, ok, err := s.View(c.Request.Context(), guid)
+		switch {
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		case !ok:
+			c.JSON(http.StatusNotFound, gin.H{errorKey: "no season nights for this target: it is not an active moving-body target, or its Horizons table failed"})
+		default:
+			c.JSON(http.StatusOK, v)
+		}
+	})
+}
+
 func latestBodies(c *gin.Context, s *bodies.Service) *bodies.Result {
 	if s == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "body positions are not built: the stacker has no scheduler database"})

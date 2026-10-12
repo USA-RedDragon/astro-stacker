@@ -241,7 +241,7 @@ calibration:
   publish: "off"
 # Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight
 bodies:
-  # Write each moving target's nightly position table into ts_body_position in the scheduler database, which the plugin uses for visibility, centering and sub length: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table
+  # Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table
   publish: "on"
   # Minutes between rebuilding the position tables; tables already fetched for a night come from the cache
   interval-minutes: 60

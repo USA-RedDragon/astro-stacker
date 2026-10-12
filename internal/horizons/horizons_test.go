@@ -309,6 +309,39 @@ func TestEphemerisCachedPerTargetNight(t *testing.T) {
 	}
 }
 
+func TestPruneEarlierDropsOnlySupersededTablesOfTheSameCommandAndStep(t *testing.T) {
+	t.Parallel()
+	body := fixture(t, "comet-c2025r2-10m.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+	defer srv.Close()
+	db := cacheDB(t)
+	c := &horizons.Client{BaseURL: srv.URL, Cache: db}
+	ctx := context.Background()
+	day := func(r horizons.Request, d int) horizons.Request {
+		r.Start, r.Stop = r.Start.AddDate(0, 0, d), r.Stop.AddDate(0, 0, d)
+		return r
+	}
+	other := request()
+	other.Command = horizons.Command("2P")
+	coarse := request()
+	coarse.Step = time.Hour
+	for _, r := range []horizons.Request{request(), day(request(), 1), day(request(), 2), day(other, -1), day(coarse, -1)} {
+		if _, err := c.Ephemeris(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := c.PruneEarlier(ctx, day(request(), 2)); err != nil || n != 2 {
+		t.Fatalf("pruned %d, %v", n, err)
+	}
+	var left int64
+	if err := db.Model(&app.HorizonsCache{}).Count(&left).Error; err != nil || left != 3 {
+		t.Fatalf("%d tables left, %v", left, err)
+	}
+	if n, err := (&horizons.Client{}).PruneEarlier(ctx, request()); err != nil || n != 0 {
+		t.Fatalf("no cache: %d, %v", n, err)
+	}
+}
+
 func TestBacksOffOn503AndSerializes(t *testing.T) {
 	t.Parallel()
 	body := fixture(t, "comet-c2025r2-10m.json")

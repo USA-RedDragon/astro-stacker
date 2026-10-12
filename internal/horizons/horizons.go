@@ -447,6 +447,16 @@ func (c *Client) EphemerisWithAngles(ctx context.Context, r Request) (Table, err
 	return t, nil
 }
 
+// PruneEarlier drops cached tables of r's command and step that start
+// before r, which r supersedes.
+func (c *Client) PruneEarlier(ctx context.Context, r Request) (int64, error) {
+	if c.Cache == nil {
+		return 0, nil
+	}
+	res := c.Cache.WithContext(ctx).Where("command = ? AND step = ? AND start < ?", r.Command, r.stepText(), r.Start.UTC()).Delete(&app.HorizonsCache{})
+	return res.RowsAffected, res.Error
+}
+
 // Prune drops cached tables that ended before cutoff.
 func (c *Client) Prune(ctx context.Context, cutoff time.Time) (int64, error) {
 	if c.Cache == nil {

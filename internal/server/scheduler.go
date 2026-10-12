@@ -51,6 +51,7 @@ type Extras struct {
 	FlatRequests *calpublish.FlatPublisher
 	SubLength    *sublength.Service
 	Bodies       *bodies.Service
+	BodyNights   *bodies.NightService
 	Comets       *bodies.CometList
 	Framing      *BodyFraming
 	Asteroids    *bodies.AsteroidList
