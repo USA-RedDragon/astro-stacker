@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -541,7 +542,7 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 // for the current masters, wait is set and the cover as it is kept, rather
 // than shown half and half; with nothing on its way, the star-aligned
 // masters make it.
-func cometCover(stacks []app.Stack, stored map[string]string) (comet, wait bool) {
+func cometCover(stacks []app.Stack, stored map[string]bodies.Target) (comet, wait bool) {
 	some, current := false, len(stacks) > 0
 	for i := range stacks {
 		s := &stacks[i]

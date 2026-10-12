@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
@@ -245,7 +246,7 @@ func TestCometCover(t *testing.T) {
 		}
 		s.CometMethod = method
 		if done {
-			s.CometSignature = cometSignature(&s, "")
+			s.CometSignature = cometSignature(&s, bodies.Target{})
 		}
 		return s
 	}

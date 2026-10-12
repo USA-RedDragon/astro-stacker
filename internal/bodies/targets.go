@@ -132,20 +132,20 @@ func TargetByGUID(ctx context.Context, sched *gorm.DB, guid string) (Target, boo
 	return Target{}, false, nil
 }
 
-// DesignationsByName maps target names to their stored designations, for
-// the stacker, which knows targets by name.
-func DesignationsByName(ctx context.Context, sched *gorm.DB) (map[string]string, error) {
+// TargetsByName maps target names to their stored designations and kinds,
+// for the stacker, which knows targets by name.
+func TargetsByName(ctx context.Context, sched *gorm.DB) (map[string]Target, error) {
 	targets, err := Targets(ctx, sched)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]string{}
+	out := map[string]Target{}
 	for _, t := range targets {
 		if t.Name == "" {
 			continue
 		}
 		if _, ok := out[t.Name]; !ok {
-			out[t.Name] = t.Designation
+			out[t.Name] = t
 		}
 	}
 	return out, nil

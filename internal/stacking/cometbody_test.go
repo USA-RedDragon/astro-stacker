@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
@@ -25,23 +26,29 @@ const (
 	encke    = "Encke"
 )
 
+func comet(designation string) bodies.Target {
+	return bodies.Target{Designation: designation, Kind: bodies.KindComet}
+}
+
 func TestBodyDesignationPrefersStored(t *testing.T) {
 	t.Parallel()
-	stored := map[string]string{encke: enckeCmd, swanName: " C/2025 R2 ", "Blank": "  "}
-	for name, want := range map[string]string{
-		encke:    enckeCmd,
-		swanName: "C/2025 R2",
-		ponsName: ponsDes,
-		"Blank":  "",
-		"M 31":   "",
+	stored := map[string]bodies.Target{encke: comet(enckeCmd), swanName: comet(" C/2025 R2 "), "Blank": comet("  "),
+		"1 Ceres": {Designation: " 1 ", Kind: bodies.KindAsteroid}}
+	for name, want := range map[string]bodies.Target{
+		encke:     comet(enckeCmd),
+		swanName:  comet("C/2025 R2"),
+		ponsName:  comet(ponsDes),
+		"Blank":   comet(""),
+		"M 31":    comet(""),
+		"1 Ceres": {Designation: "1", Kind: bodies.KindAsteroid},
 	} {
 		got, ok := bodyDesignation(stored, name)
-		if got != want || ok != (want != "") {
-			t.Errorf("bodyDesignation(%q) = %q %v, want %q", name, got, ok, want)
+		if got.Designation != want.Designation || got.Kind != want.Kind || ok != (want.Designation != "") {
+			t.Errorf("bodyDesignation(%q) = %+v %v, want %+v", name, got, ok, want)
 		}
 	}
-	if got, ok := bodyDesignation(nil, ponsName); !ok || got != ponsDes {
-		t.Errorf("name fallback without stored designations: %q %v", got, ok)
+	if got, ok := bodyDesignation(nil, ponsName); !ok || got.Designation != ponsDes || got.Kind != bodies.KindComet {
+		t.Errorf("name fallback without stored designations: %+v %v", got, ok)
 	}
 }
 
@@ -76,7 +83,7 @@ func TestStoredDesignations(t *testing.T) {
 		}
 	}
 	m := p.storedDesignations(context.Background())
-	if len(m) != 1 || m[encke] != enckeCmd {
+	if len(m) != 1 || m[encke].Designation != enckeCmd || m[encke].Kind != bodies.KindComet {
 		t.Errorf("stored %v", m)
 	}
 	if m := (&Pipeline{}).storedDesignations(context.Background()); m != nil {
@@ -94,14 +101,22 @@ func TestCometEphemerisSendsStoredCommand(t *testing.T) {
 	defer srv.Close()
 	at := time.Date(2026, 10, 13, 0, 1, 0, 0, time.UTC)
 	hz := &horizons.Client{BaseURL: srv.URL, UserAgent: horizons.UserAgent("v9")}
-	if _, err := cometEphemeris(context.Background(), hz, enckeCmd, []time.Time{at}, -97, 32, 200); err != nil {
+	if _, err := cometEphemeris(context.Background(), hz, comet(enckeCmd), []time.Time{at}, -97, 32, 200); err != nil {
 		t.Fatal(err)
 	}
 	if cmd != "'DES=2P;CAP;NOFRAG'" || agent != "astro-stacker/v9 (jacob@mcswain.dev)" {
 		t.Errorf("COMMAND %s, User-Agent %s", cmd, agent)
 	}
-	if _, err := cometEphemeris(context.Background(), hz, "C/2025 R2", []time.Time{at}, -97, 32, 200); err != nil || cmd != "'DES=C/2025 R2;CAP;NOFRAG'" {
+	if _, err := cometEphemeris(context.Background(), hz, comet("C/2025 R2"), []time.Time{at}, -97, 32, 200); err != nil || cmd != "'DES=C/2025 R2;CAP;NOFRAG'" {
 		t.Errorf("COMMAND %s, %v", cmd, err)
+	}
+	if _, err := cometEphemeris(context.Background(), hz, bodies.Target{Designation: "C/2025 R2"}, []time.Time{at}, -97, 32, 200); err != nil || cmd != "'DES=C/2025 R2;CAP;NOFRAG'" {
+		t.Errorf("no kind: COMMAND %s, %v", cmd, err)
+	}
+	for des, want := range map[string]string{"1": "'1;'", "2026 TC6": "'DES=2026 TC6;'"} {
+		if _, err := cometEphemeris(context.Background(), hz, bodies.Target{Designation: des, Kind: bodies.KindAsteroid}, []time.Time{at}, -97, 32, 200); err != nil || cmd != want {
+			t.Errorf("asteroid %s: COMMAND %s, %v", des, cmd, err)
+		}
 	}
 }
 
@@ -109,20 +124,43 @@ func TestCometSignatureFollowsTheStoredDesignation(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
 	s := &app.Stack{Object: encke, Subs: 12, UpdatedAt: at}
-	name := cometSignature(s, "")
-	if name != cometSignature(s, "  ") {
+	name := cometSignature(s, bodies.Target{})
+	if name != cometSignature(s, comet("  ")) {
 		t.Error("a blank designation changed the signature")
 	}
 	h := sha256.Sum256(fmt.Appendf(nil, "%d\x00%d\x00%d", s.Subs, s.UpdatedAt.UnixNano(), cometMethod))
 	if name != hex.EncodeToString(h[:16]) {
 		t.Error("targets known by name got a new signature, which would stack every comet again")
 	}
-	first, second := cometSignature(s, "2P"), cometSignature(s, enckeCmd)
+	before := sha256.Sum256(fmt.Appendf(nil, "%d\x00%d\x00%d\x002P", s.Subs, s.UpdatedAt.UnixNano(), cometMethod))
+	for _, kind := range []string{bodies.KindComet, "", " comet "} {
+		if got := cometSignature(s, bodies.Target{Designation: " 2P ", Kind: kind}); got != hex.EncodeToString(before[:16]) {
+			t.Errorf("kind %q: a stored comet got a new signature, which would stack it again", kind)
+		}
+	}
+	first, second := cometSignature(s, comet("2P")), cometSignature(s, comet(enckeCmd))
 	if first == name || second == first {
 		t.Error("storing or changing a designation kept the signature, so the comet is not stacked again")
 	}
+	asteroid := cometSignature(s, bodies.Target{Designation: "2P", Kind: bodies.KindAsteroid})
+	if asteroid == first || asteroid == name {
+		t.Error("an asteroid shares a comet's signature")
+	}
 	s.CometSignature = first
-	if _, wait := cometCover([]app.Stack{*s}, map[string]string{encke: "2P"}); wait {
+	if _, wait := cometCover([]app.Stack{*s}, map[string]bodies.Target{encke: comet("2P")}); wait {
 		t.Error("the cover waits on a comet master that is current")
+	}
+}
+
+func TestAlignedOnNamesTheBody(t *testing.T) {
+	t.Parallel()
+	if got := alignedOn(comet("2P")); got != "aligned on the comet" {
+		t.Errorf("comet: %q", got)
+	}
+	if got := alignedOn(bodies.Target{Designation: "2P"}); got != "aligned on the comet" {
+		t.Errorf("no kind: %q", got)
+	}
+	if got := alignedOn(bodies.Target{Designation: "1", Kind: bodies.KindAsteroid}); got != "aligned on the asteroid" {
+		t.Errorf("asteroid: %q", got)
 	}
 }

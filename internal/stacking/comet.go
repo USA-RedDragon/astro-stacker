@@ -76,23 +76,24 @@ func cometDesignation(object string) (string, bool) {
 	return d, d != ""
 }
 
-// bodyDesignation is the designation stored on the scheduler target named
-// object, or, for targets without one, the comet designation its name
-// starts with.
-func bodyDesignation(stored map[string]string, object string) (string, bool) {
-	if d := strings.TrimSpace(stored[object]); d != "" {
-		return d, true
+// bodyDesignation is the body stored on the scheduler target named object,
+// or, for targets without one, the comet designation its name starts with.
+func bodyDesignation(stored map[string]bodies.Target, object string) (bodies.Target, bool) {
+	if b := stored[object]; strings.TrimSpace(b.Designation) != "" {
+		b.Designation = strings.TrimSpace(b.Designation)
+		return b, true
 	}
-	return cometDesignation(object)
+	d, ok := cometDesignation(object)
+	return bodies.Target{Designation: d, Kind: bodies.KindComet}, ok
 }
 
-// storedDesignations are the scheduler targets' stored body designations by
-// target name; none when the scheduler has no ts_target_body table.
-func (p *Pipeline) storedDesignations(ctx context.Context) map[string]string {
+// storedDesignations are the scheduler targets' stored bodies by target
+// name; none when the scheduler has no ts_target_body table.
+func (p *Pipeline) storedDesignations(ctx context.Context) map[string]bodies.Target {
 	if p.sched == nil {
 		return nil
 	}
-	m, err := bodies.DesignationsByName(ctx, p.sched)
+	m, err := bodies.TargetsByName(ctx, p.sched)
 	if err != nil {
 		slog.Warn("Could not read the targets' body designations; using comet names", "error", err)
 		return nil
@@ -131,10 +132,10 @@ func (e ephemeris) at(t time.Time) (ra, dec float64, ok bool) {
 // fetchEphemeris fetches a comet's positions each minute between from and
 // to, seen from the site (east longitude and latitude in degrees, elevation
 // in m).
-func fetchEphemeris(ctx context.Context, hz *horizons.Client, designation string, from, to time.Time, lon, lat, elev float64) (ephemeris, error) {
+func fetchEphemeris(ctx context.Context, hz *horizons.Client, b bodies.Target, from, to time.Time, lon, lat, elev float64) (ephemeris, error) {
 	q := url.Values{}
 	for k, v := range map[string]string{
-		"COMMAND":  "'" + horizons.Command(designation) + "'",
+		"COMMAND":  "'" + horizons.CommandFor(b.Designation, b.Kind) + "'",
 		"OBJ_DATA": "'NO'", "MAKE_EPHEM": "'YES'", "EPHEM_TYPE": "'OBSERVER'",
 		"CENTER": "'coord@399'", "COORD_TYPE": "'GEODETIC'",
 		"SITE_COORD": fmt.Sprintf("'%.6f,%.6f,%.4f'", lon, lat, elev/1000),
@@ -161,7 +162,7 @@ const (
 // cometEphemeris fetches the comet's positions around each of times, one
 // Horizons request per run of times, since Horizons refuses a table of more
 // than 90024 rows, about 62 days at one per minute.
-func cometEphemeris(ctx context.Context, hz *horizons.Client, designation string, times []time.Time, lon, lat, elev float64) (ephemeris, error) {
+func cometEphemeris(ctx context.Context, hz *horizons.Client, b bodies.Target, times []time.Time, lon, lat, elev float64) (ephemeris, error) {
 	sorted := slices.SortedFunc(slices.Values(times), time.Time.Compare)
 	var out ephemeris
 	for i := 0; i < len(sorted); {
@@ -169,7 +170,7 @@ func cometEphemeris(ctx context.Context, hz *horizons.Client, designation string
 		for i++; i < len(sorted) && sorted[i].Sub(to) <= ephemerisGap && sorted[i].Sub(from) <= ephemerisSpan; i++ {
 			to = sorted[i]
 		}
-		e, err := fetchEphemeris(ctx, hz, designation, from, to, lon, lat, elev)
+		e, err := fetchEphemeris(ctx, hz, b, from, to, lon, lat, elev)
 		if err != nil {
 			return ephemeris{}, err
 		}
@@ -222,7 +223,7 @@ func parseEphemeris(result string) (ephemeris, error) {
 	}
 	if len(e.times) < 2 {
 		if i := strings.Index(result, "No matches"); i >= 0 {
-			return e, errors.New("horizons does not know this comet")
+			return e, errors.New("horizons does not know this body")
 		}
 		return e, errors.New("horizons returned no positions")
 	}
@@ -242,7 +243,7 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 			return nil
 		}
 		s := &stacks[i]
-		des, ok := bodyDesignation(stored, s.Object)
+		body, ok := bodyDesignation(stored, s.Object)
 		sig := cometSignature(s, stored[s.Object])
 		if !ok || s.CometSignature == sig || time.Since(s.UpdatedAt) < p.opts.MosaicQuiet {
 			continue
@@ -250,7 +251,7 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 		if !p.hold(s.Object) {
 			continue
 		}
-		err := p.stackComet(ctx, s, des, sig)
+		err := p.stackComet(ctx, s, body, sig)
 		p.release(s.Object)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -271,11 +272,15 @@ const cometMethod = 2 // stars taken out before stacking on the comet
 
 // cometSignature also holds the designation stored on the target, so
 // storing or changing one stacks the comet again; targets known by name
-// alone keep the signature they had.
-func cometSignature(s *app.Stack, stored string) string {
+// alone keep the signature they had. An asteroid's signature also holds its
+// kind; a comet's is what it was before asteroids were stacked.
+func cometSignature(s *app.Stack, stored bodies.Target) string {
 	in := fmt.Appendf(nil, "%d\x00%d\x00%d", s.Subs, s.UpdatedAt.UnixNano(), cometMethod)
-	if stored = strings.TrimSpace(stored); stored != "" {
-		in = fmt.Appendf(in, "\x00%s", stored)
+	if d := strings.TrimSpace(stored.Designation); d != "" {
+		in = fmt.Appendf(in, "\x00%s", d)
+		if k := strings.TrimSpace(stored.Kind); k == bodies.KindAsteroid {
+			in = fmt.Appendf(in, "\x00%s", k)
+		}
 	}
 	h := sha256.Sum256(in)
 	return hex.EncodeToString(h[:16])
@@ -287,7 +292,7 @@ type cometSub struct {
 	mid    time.Time
 }
 
-func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation, signature string) error {
+func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, body bodies.Target, signature string) error {
 	var tr app.TargetReference
 	if err := p.db.WithContext(ctx).Where("object = ?", stack.Object).First(&tr).Error; err != nil {
 		return fmt.Errorf("registration reference: %w", err)
@@ -356,7 +361,7 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 		subs[i] = cometSub{stored: storedSub{key: r.RegisteredKey, exposure: exp, weight: r.Weight}, mid: mid}
 		times = append(times, mid)
 	}
-	eph, err := cometEphemeris(ctx, p.horizonsClient(), designation, times, lon, lat, elev)
+	eph, err := cometEphemeris(ctx, p.horizonsClient(), body, times, lon, lat, elev)
 	if err != nil {
 		return err
 	}
@@ -423,7 +428,7 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 	if err != nil {
 		return err
 	}
-	return p.publishComet(ctx, stack, layers, refTime, len(subs), signature)
+	return p.publishComet(ctx, stack, layers, refTime, len(subs), signature, alignedOn(body))
 }
 
 // cometLayers are a comet master's two layers, on the reference sub's
@@ -932,7 +937,15 @@ func shiftImage(src []float32, w, h int, dx, dy float64) []float32 {
 // XISF, a cropped preview and a linear preview for covers. The master is the
 // comet with the stars added back sharp; the comet alone is kept beside it
 // as comet-starless.{fit,xisf}.
-func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers cometLayers, refTime time.Time, subs int, signature string) error {
+// alignedOn is the master's IMAGETYP comment for the body it is aligned on.
+func alignedOn(b bodies.Target) string {
+	if strings.TrimSpace(b.Kind) == bodies.KindAsteroid {
+		return "aligned on the asteroid"
+	}
+	return "aligned on the comet"
+}
+
+func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers cometLayers, refTime time.Time, subs int, signature, aligned string) error {
 	dir, err := os.MkdirTemp(p.workDir, "comet-publish-")
 	if err != nil {
 		return err
@@ -944,7 +957,7 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 	own := []imagedata.Card{
 		imagedata.StringCard("OBJECT", stack.Object, "target"),
 		imagedata.StringCard("FILTER", stack.Filter, "filter"),
-		imagedata.StringCard("IMAGETYP", "Master Light", "aligned on the comet"),
+		imagedata.StringCard("IMAGETYP", "Master Light", aligned),
 		imagedata.IntCard("NCOMBINE", subs, "subs stacked"),
 		imagedata.FloatCard("EXPTIME", stack.ScaleExposure, "[s] scaled to one sub of this length"),
 		imagedata.StringCard("COMETREF", refTime.UTC().Format("2006-01-02T15:04:05"), "comet held where it was at this time (UTC)"),
