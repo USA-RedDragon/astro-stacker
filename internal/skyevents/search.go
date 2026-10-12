@@ -65,7 +65,7 @@ const (
 func NewCriteria(w, h float64) Criteria {
 	c := Criteria{SunBelow: DefaultSunBelow, MinAlt: DefaultMinAlt, Step: DefaultStep, StepMin: int(DefaultStep / time.Minute),
 		FrameW: w, FrameH: h, UsableW: round(w-2*FrameMargin, 3), UsableH: round(h-2*FrameMargin, 3), MergeGap: MergeGap, FrameEdge: FrameMargin}
-	c.Basis = fmt.Sprintf("Every %d minutes while the Sun is below %g° and every member is above %g°; the members fit inside the %.2f° × %.2f° frame less %.2f° on each side (%.2f° × %.2f°) at some rotator angle, and no two are more than %.2f° apart edge to edge. Steps up to %d hours apart join into one event. Positions: Moon and planets from JPL DE440s, comets and asteroids from JPL Horizons, deep-sky objects from the stacker catalogue (Messier, and named objects of 20′ or more).",
+	c.Basis = fmt.Sprintf("Every %d minutes while the Sun is below %g° and every member is above %g°; the members fit inside the %.2f° × %.2f° frame less %.2f° on each side (%.2f° × %.2f°) at some rotator angle, and no two are more than %.2f° apart edge to edge. Steps up to %d hours apart join into one event. Positions: Moon and planets from NASA JPL's planetary tables, comets and asteroids from JPL Horizons, deep-sky objects from the stacker catalogue (Messier, and named objects of 20′ or more).",
 		c.StepMin, c.SunBelow, c.MinAlt, w, h, FrameMargin, c.UsableW, c.UsableH, c.UsableW, int(MergeGap.Hours()))
 	return c
 }
