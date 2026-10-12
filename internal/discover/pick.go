@@ -780,7 +780,7 @@ func templateFor(snap *planning.Snapshot, canon string) (*PickTemplate, string) 
 // template that is not retired.
 func pickTemplate(snap *planning.Snapshot, canon string) (planning.Template, bool) {
 	profile := snap.FilterProfile()
-	if snap.HasManaged(profile) {
+	if snap.Migrated(profile) {
 		filter, most := "", -1
 		for _, f := range snap.Filters {
 			if rigsource.CanonicalFilter(f.Name) != canon {

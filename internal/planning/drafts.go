@@ -577,9 +577,9 @@ func (s *Snapshot) SettingsFor(templateID int, minAltitude float64) (schedcmd.Pr
 }
 
 // PlanFilter is the filter a new plan on the template sends: the template's
-// filter once its profile has managed templates, else none.
+// filter once its profile is migrated, else none.
 func (s *Snapshot) PlanFilter(t Template) string {
-	if !s.HasManaged(s.templateProfiles[t.ID]) {
+	if !s.Migrated(s.templateProfiles[t.ID]) {
 		return ""
 	}
 	return t.Filter
@@ -589,7 +589,7 @@ func (s *Snapshot) PlanFilter(t Template) string {
 // the migration the managed template of its filter.
 func (s *Snapshot) planTemplate(t Template) Template {
 	profile := s.templateProfiles[t.ID]
-	if t.Managed || !s.HasManaged(profile) {
+	if t.Managed || !s.Migrated(profile) {
 		return t
 	}
 	if r, ok := s.ResolveFilter(profile, t.Filter); ok {

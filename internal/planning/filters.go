@@ -85,24 +85,26 @@ func (s *Snapshot) inProfile(t Template, profile string) bool {
 	return profile == "" || s.templateProfiles[t.ID] == profile
 }
 
-// HasManaged reports whether the profile has templates the plugin manages,
-// which it has only after the template migration.
-func (s *Snapshot) HasManaged(profile string) bool {
-	return slices.ContainsFunc(s.allTemplates(), func(t Template) bool { return t.Managed && s.inProfile(t, profile) })
+// Migrated reports whether the profile's templates are migrated: it has a
+// retired template. A revert deletes the retired rows.
+func (s *Snapshot) Migrated(profile string) bool {
+	return slices.ContainsFunc(s.allTemplates(), func(t Template) bool { return t.Retired && s.inProfile(t, profile) })
 }
 
 func better(t, best Template, found bool) bool {
 	return !found || t.UsedByPlans > best.UsedByPlans
 }
 
-// ResolveFilter is the template a new plan on the filter uses: the managed
-// template when there is one; else the most used template of the filter
-// that is not retired and has the type's fixed gain; else the most used
-// one not retired; else the most used one.
+// ResolveFilter is the template a new plan on the filter uses: once the
+// profile is migrated the managed template when there is one; else the most
+// used template of the filter that is neither managed nor retired and has
+// the type's fixed gain; else the most used one neither managed nor
+// retired; else the most used retired one; else the managed one.
 func (s *Snapshot) ResolveFilter(profile, filter string) (Template, bool) {
 	var managed, gainMatch, live, last Template
 	var hasManaged, hasGain, hasLive, hasLast bool
 	gain := FixedGain(filter)
+	migrated := s.Migrated(profile)
 	for _, t := range s.allTemplates() {
 		if !sameFilter(t.Filter, filter) || !s.inProfile(t, profile) {
 			continue
@@ -126,14 +128,16 @@ func (s *Snapshot) ResolveFilter(profile, filter string) (Template, bool) {
 		}
 	}
 	switch {
-	case hasManaged:
+	case hasManaged && migrated:
 		return managed, true
 	case hasGain:
 		return gainMatch, true
 	case hasLive:
 		return live, true
+	case hasLast:
+		return last, true
 	}
-	return last, hasLast
+	return managed, hasManaged
 }
 
 // MostPlans is the most plans any one template of the filter has.
