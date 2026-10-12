@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -458,16 +459,71 @@ func (s *Service) Refresh(ctx context.Context) (*Result, error) {
 	return s.keep(res), err
 }
 
+// WatchEvery is how often Run looks for added, removed or changed body
+// targets between full refreshes.
+const WatchEvery = 2 * time.Minute
+
+// TargetsKey identifies the set of body targets and their designations,
+// kinds and active flags, so a change to any of them can be noticed.
+func TargetsKey(ts []Target) string {
+	keys := make([]string, 0, len(ts))
+	for _, t := range ts {
+		keys = append(keys, fmt.Sprintf("%s|%s|%s|%t", t.GUID, t.Designation, t.Kind, t.Active))
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\n")
+}
+
+func (s *Service) targetsKey(ctx context.Context) (string, error) {
+	if s.Sched == nil {
+		return "", nil
+	}
+	has, err := tables.Has(ctx, s.Sched, TargetTable)
+	if err != nil || !has {
+		return "", err
+	}
+	ts, err := Targets(ctx, s.Sched)
+	if err != nil {
+		return "", err
+	}
+	return TargetsKey(ts), nil
+}
+
+// RefreshDue reports whether the tables are due: the interval has passed or
+// the body targets changed.
+func RefreshDue(now, next time.Time, key, last string) bool {
+	return !now.Before(next) || key != last
+}
+
 func (s *Service) Run(ctx context.Context, every time.Duration) {
+	watch := min(WatchEvery, every)
+	var next time.Time
+	last, _ := s.targetsKey(ctx)
+	key := last
 	for {
-		if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("Building body position tables failed", "error", err)
+		if RefreshDue(time.Now(), next, key, last) {
+			if key != last {
+				slog.Info("Body targets changed; building position tables now")
+			}
+			if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("Building body position tables failed", "error", err)
+			}
+			next = time.Now().Add(every)
+			last = key
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(every):
+		case <-time.After(watch):
 		}
+		k, err := s.targetsKey(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Warn("Checking body targets failed", "error", err)
+			}
+			continue
+		}
+		key = k
 	}
 }
 
