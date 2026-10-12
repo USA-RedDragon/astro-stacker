@@ -1,6 +1,6 @@
 cmd/discover.go	52	0
 cmd/mosaics.go	10	0
-cmd/root.go	201	9
+cmd/root.go	205	9
 cmd/stack.go	62	0
 internal/astrometry/index.go	86	69
 internal/astrometry/procgroup_unix.go	3	3
@@ -9,7 +9,7 @@ internal/autofocus/autofocus.go	51	49
 internal/bodies/comets.go	209	184
 internal/bodies/orbit.go	130	118
 internal/bodies/positions.go	196	173
-internal/bodies/targets.go	30	25
+internal/bodies/targets.go	34	29
 internal/calmatch/calmatch.go	85	81
 internal/calpublish/calpublish.go	121	100
 internal/calreq/calreq.go	112	94
@@ -50,6 +50,9 @@ internal/discover/match.go	175	162
 internal/discover/pick.go	565	520
 internal/discover/service.go	214	202
 internal/discover/subjects.go	251	222
+internal/ephem/ephem.go	86	74
+internal/ephem/gen/main.go	91	0
+internal/ephem/observe.go	96	90
 internal/events/events.go	104	91
 internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	109
@@ -107,7 +110,7 @@ internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
 internal/planning/defaults.go	9	8
-internal/planning/drafts.go	243	222
+internal/planning/drafts.go	247	225
 internal/planning/frame.go	5	5
 internal/planning/globalweights.go	144	142
 internal/planning/judge.go	38	36
@@ -139,12 +142,13 @@ internal/schedcmd/kinds.go	122	101
 internal/schedcmd/log.go	53	45
 internal/schedcmd/matching.go	57	53
 internal/schedcmd/mosaics.go	51	44
-internal/schedcmd/planning.go	404	335
+internal/schedcmd/planning.go	409	341
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	226	199
+internal/schedcmd/service.go	226	200
 internal/schedcmd/settings.go	84	78
+internal/schedcmd/window.go	54	47
 internal/server/autofocus.go	26	22
 internal/server/bodies.go	42	36
 internal/server/calibration.go	37	29
@@ -159,9 +163,10 @@ internal/server/public.go	12	12
 internal/server/routes.go	367	104
 internal/server/scheddata.go	279	236
 internal/server/schedpreview.go	225	210
-internal/server/scheduler.go	92	52
-internal/server/server.go	93	32
+internal/server/scheduler.go	92	54
+internal/server/server.go	94	33
 internal/server/skycutout.go	24	20
+internal/server/skyevents.go	65	51
 internal/server/sublength.go	11	9
 internal/server/subs.go	55	39
 internal/server/webui.go	25	25
@@ -171,6 +176,12 @@ internal/sky/sky.go	92	91
 internal/sky/sunset.go	20	20
 internal/skybright/skybright.go	114	111
 internal/skycutout/skycutout.go	157	137
+internal/skyevents/exposure.go	44	41
+internal/skyevents/geometry.go	43	40
+internal/skyevents/plan.go	216	167
+internal/skyevents/search.go	290	270
+internal/skyevents/service.go	278	192
+internal/skyevents/tracks.go	54	33
 internal/stacking/accumulator.go	161	157
 internal/stacking/astrometry.go	8	0
 internal/stacking/comet.go	528	285
