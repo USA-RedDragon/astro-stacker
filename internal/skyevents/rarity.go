@@ -3,11 +3,13 @@ package skyevents
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/ephem"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -74,8 +76,17 @@ type Rarity struct {
 	NextYears     *float64    `json:"next_years"`
 	IntervalYears *float64    `json:"interval_years"`
 	Rare          bool        `json:"rare"`
+	Method        string      `json:"method"`
 	Basis         string      `json:"basis"`
 }
+
+const (
+	MethodSearch = "search"
+	MethodOrbit  = "orbit"
+	// LifetimeYears is the orbital period beyond which a comet counts as
+	// coming back once in a lifetime.
+	LifetimeYears = 50
+)
 
 // IsRare reports whether the event's rarity was searched and found rare.
 func (e Event) IsRare() bool {
@@ -116,7 +127,7 @@ func pairingOf(e Event, dsos []DSO) (pairing, string) {
 			p.bodies = append(p.bodies, b)
 			ids = append(ids, m.ID)
 		case KindComet, KindAsteroid:
-			return p, "Recurrence is searched for the Moon and planets only; comet and asteroid positions come from Horizons for this search's months only."
+			return p, "Recurrence of a comet or asteroid pairing comes from its orbit."
 		case KindDSO:
 		}
 	}
@@ -138,8 +149,17 @@ func pairingOf(e Event, dsos []DSO) (pairing, string) {
 // rarityKey names everything a rarity result depends on, so a later search
 // reuses it while nothing changed.
 func rarityKey(p pairing, e Event, site sky.Site, c Criteria, from, to time.Time) string {
-	return fmt.Sprintf("v%d|%s|%s|%.4f,%.4f|%.3f,%.3f,%g,%g,%d|%s,%s", rarityVersion, p.key, e.Best.At.UTC().Format(time.RFC3339),
-		site.Latitude, site.Longitude, c.UsableW, c.UsableH, c.MinAlt, c.SunBelow, c.StepMin, from.Format(time.DateOnly), to.Format(time.DateOnly))
+	var b strings.Builder
+	fmt.Fprintf(&b, "v%d|%s|%s|%s|%s|%.4f,%.4f", rarityVersion, p.key, e.Best.At.UTC().Format(time.RFC3339), e.Start.UTC().Format(time.RFC3339),
+		e.End.UTC().Format(time.RFC3339), site.Latitude, site.Longitude)
+	if site.Elevation != nil {
+		fmt.Fprintf(&b, ",%.0f", *site.Elevation)
+	}
+	fmt.Fprintf(&b, "|%.3f,%.3f,%g,%g,%d,%s|%s,%s", c.UsableW, c.UsableH, c.MinAlt, c.SunBelow, c.StepMin, c.MergeGap, from.Format(time.DateOnly), to.Format(time.DateOnly))
+	for _, d := range p.dsos {
+		fmt.Fprintf(&b, "|%s:%.5f,%.5f,%.4f", d.ID, d.RA, d.Dec, d.Diameter)
+	}
+	return b.String()
 }
 
 func years(d time.Duration) float64 { return d.Hours() / 24 / yearDays }
@@ -182,7 +202,7 @@ func newScanner(e *ephem.Ephemeris, site sky.Site, c Criteria, from, to time.Tim
 	if base.After(from) {
 		base = base.Add(-CoarseStep)
 	}
-	days := int(to.Sub(base)/CoarseStep) + 1
+	days := int((to.Sub(base)+CoarseStep/2)/CoarseStep) + 1
 	return &scanner{eph: e, site: site, c: c, base: base, days: days, coarse: map[ephem.Body][]coarseSample{}, dark: map[int64]bool{}}
 }
 
@@ -373,7 +393,7 @@ func rarityBasis(c Criteria) string {
 
 // judge places the event among the pairing's occurrences.
 func judge(e Event, occ []Occurrence, from, to time.Time, c Criteria) *Rarity {
-	r := &Rarity{Status: StatusReady, SearchedFrom: &from, SearchedTo: &to, Basis: rarityBasis(c)}
+	r := &Rarity{Status: StatusReady, SearchedFrom: &from, SearchedTo: &to, Basis: rarityBasis(c), Method: MethodSearch}
 	selfStart, selfEnd := e.Start, e.End
 	for _, o := range occ {
 		if o.Start.Before(selfEnd) && selfStart.Before(o.End) {
@@ -389,31 +409,23 @@ func judge(e Event, occ []Occurrence, from, to time.Time, c Criteria) *Rarity {
 		}
 	}
 	at := e.Best.At
-	backSpan, foreSpan := years(at.Sub(from)), years(to.Sub(at))
-	if r.Previous != nil {
-		v := round(years(at.Sub(r.Previous.Best)), 2)
-		r.PreviousYears = &v
+	back, fore := years(at.Sub(from)), years(to.Sub(at))
+	backKnown, foreKnown := r.Previous != nil, r.Next != nil
+	if backKnown {
+		back = years(at.Sub(r.Previous.Best))
+		r.PreviousYears = ptr(round(back, 2))
 	}
-	if r.Next != nil {
-		v := round(years(r.Next.Best.Sub(at)), 2)
-		r.NextYears = &v
+	if foreKnown {
+		fore = years(r.Next.Best.Sub(at))
+		r.NextYears = ptr(round(fore, 2))
 	}
-	gapOr := func(found *float64, span float64) (float64, bool) {
-		if found != nil {
-			return *found, true
-		}
-		return span, false
-	}
-	back, backKnown := gapOr(r.PreviousYears, backSpan)
-	fore, foreKnown := gapOr(r.NextYears, foreSpan)
 	switch {
 	case backKnown && foreKnown:
-		v := math.Min(back, fore)
-		r.IntervalYears = &v
+		r.IntervalYears = ptr(round(math.Min(back, fore), 2))
 	case backKnown && back <= fore:
-		r.IntervalYears = &back
+		r.IntervalYears = ptr(round(back, 2))
 	case foreKnown && fore <= back:
-		r.IntervalYears = &fore
+		r.IntervalYears = ptr(round(fore, 2))
 	}
 	r.Rare = back > RareYears && fore > RareYears
 	return r
@@ -421,7 +433,7 @@ func judge(e Event, occ []Occurrence, from, to time.Time, c Criteria) *Rarity {
 
 // Rarities searches each event's pairing over the decades around it,
 // reusing earlier results whose key still matches.
-func Rarities(e *ephem.Ephemeris, site sky.Site, c Criteria, events []Event, dsos []DSO, cached map[string]*Rarity) {
+func Rarities(e *ephem.Ephemeris, site sky.Site, c Criteria, events []Event, dsos []DSO, cached map[string]*Rarity, orbits []bodies.Orbit) {
 	lo, hi := e.Range()
 	type job struct {
 		p        pairing
@@ -431,6 +443,10 @@ func Rarities(e *ephem.Ephemeris, site sky.Site, c Criteria, events []Event, dso
 	jobs := map[string]*job{}
 	var order []string
 	for i := range events {
+		if hasSmallBody(events[i]) {
+			events[i].Rarity = orbitRarity(events[i], orbits)
+			continue
+		}
 		p, reason := pairingOf(events[i], dsos)
 		if reason != "" {
 			events[i].Rarity = rarityUnavailable(reason)
@@ -514,4 +530,54 @@ func minTime(a, b time.Time) time.Time {
 		return a
 	}
 	return b
+}
+
+func hasSmallBody(e Event) bool {
+	return slices.ContainsFunc(e.Members, func(m Member) bool { return m.Kind == KindComet || m.Kind == KindAsteroid })
+}
+
+// orbitRarity judges a pairing with a comet or asteroid from its orbit: the
+// same pairing cannot come back sooner than the body does, so a body on an
+// open orbit or one longer than LifetimeYears makes the event once in a
+// lifetime, and otherwise its period is the recurrence interval.
+func orbitRarity(e Event, orbits []bodies.Orbit) *Rarity {
+	var longest *bodies.Orbit
+	var names []string
+	open := false
+	for _, m := range e.Members {
+		if m.Kind != KindComet && m.Kind != KindAsteroid {
+			continue
+		}
+		des := m.Name
+		if m.Designation != nil {
+			des = *m.Designation
+		}
+		i := slices.IndexFunc(orbits, func(o bodies.Orbit) bool { return bodies.SameDesignation(o.Designation, des) })
+		if i < 0 {
+			return rarityUnavailable("No orbit is known for " + des + ", so its return cannot be judged.")
+		}
+		o := orbits[i]
+		if o.PeriodYears == nil {
+			open = true
+			names = append(names, fmt.Sprintf("%s is on an open orbit (e = %.4f, %s)", des, o.E, o.Source))
+		} else {
+			names = append(names, fmt.Sprintf("%s returns every %.1f years (e = %.4f, %s)", des, *o.PeriodYears, o.E, o.Source))
+			if *o.PeriodYears > LifetimeYears {
+				open = true
+			}
+			if longest == nil || *o.PeriodYears > *longest.PeriodYears {
+				longest = &o
+			}
+		}
+	}
+	r := &Rarity{Status: StatusReady, Method: MethodOrbit}
+	basis := "From the orbit, not a search: " + strings.Join(names, "; ") + fmt.Sprintf(". The same pairing cannot come back sooner than the body does. Rare means a period over %d years; over %d years, or an open orbit, counts as once in a lifetime.", RareYears, LifetimeYears)
+	r.Basis = basis
+	if open {
+		r.Rare = true
+		return r
+	}
+	r.IntervalYears = ptr(round(*longest.PeriodYears, 2))
+	r.Rare = *longest.PeriodYears > RareYears
+	return r
 }

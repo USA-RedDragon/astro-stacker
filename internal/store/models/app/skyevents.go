@@ -36,4 +36,5 @@ type SkyEventChoice struct {
 	AutoCommandID  *string
 	AutoDeclinedAt *time.Time
 	AutoError      *string
+	AutoFailedAt   *time.Time
 }

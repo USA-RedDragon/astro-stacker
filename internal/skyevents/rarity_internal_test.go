@@ -5,9 +5,11 @@ import (
 	"math"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/ephem"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -28,6 +30,8 @@ type recurrenceFixture struct {
 		} `json:"occurrences"`
 	} `json:"cases"`
 }
+
+const mars = "Mars"
 
 func rarityInputs(t *testing.T) (*ephem.Ephemeris, []DSO, recurrenceFixture) {
 	t.Helper()
@@ -166,7 +170,7 @@ func TestRarityOfACommonAndARarePairing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		evs := search(t, e, fx.Site, dsos, tc.from, tc.to)
-		Rarities(e, fx.Site, NewCriteria(3.32, 2.22), evs, dsos, nil)
+		Rarities(e, fx.Site, NewCriteria(3.32, 2.22), evs, dsos, nil, nil)
 		ev := titled(t, evs, tc.title)
 		r := ev.Rarity
 		if r == nil || r.Status != StatusReady || r.Previous == nil || r.Next == nil {
@@ -261,7 +265,7 @@ func TestRaritiesReuseAndComets(t *testing.T) {
 	e, dsos, fx := rarityInputs(t)
 	c := NewCriteria(3.32, 2.22)
 	evs := search(t, e, fx.Site, dsos, time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC), time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC))
-	Rarities(e, fx.Site, c, evs, dsos, nil)
+	Rarities(e, fx.Site, c, evs, dsos, nil, nil)
 	cached := map[string]*Rarity{}
 	for _, ev := range evs {
 		r := *ev.Rarity
@@ -272,16 +276,83 @@ func TestRaritiesReuseAndComets(t *testing.T) {
 	stale := *cached[again[0].ID]
 	stale.Key = "old"
 	cached[again[0].ID] = &stale
-	Rarities(e, fx.Site, c, again, dsos, cached)
+	Rarities(e, fx.Site, c, again, dsos, cached, nil)
 	for i, ev := range again {
 		if (i == 0) == (ev.Rarity.Basis == "cached") {
 			t.Errorf("%s: basis %q", ev.ID, ev.Rarity.Basis)
 		}
 	}
-	comet := Event{ID: "c", Members: []Member{{Name: "C/2025 R2", Kind: KindComet}, {Name: "Mars", Kind: KindPlanet}}}
+	comet := Event{ID: "c", Members: []Member{{Name: "C/2025 R2", Kind: KindComet}, {Name: mars, Kind: KindPlanet}}}
 	one := []Event{comet}
-	Rarities(e, fx.Site, c, one, dsos, nil)
+	Rarities(e, fx.Site, c, one, dsos, nil, nil)
 	if one[0].Rarity == nil || one[0].Rarity.Status != StatusUnavailable || one[0].Rarity.Reason == nil || one[0].IsRare() {
 		t.Errorf("comet: %+v", one[0].Rarity)
+	}
+}
+
+func TestScannerCoversTheWholeSpan(t *testing.T) {
+	t.Parallel()
+	e, _, _ := rarityInputs(t)
+	c := NewCriteria(3.32, 2.22)
+	from, to := time.Date(2030, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2030, 3, 20, 0, 0, 0, 0, time.UTC)
+	for _, lon := range []float64{-179, -100, 0, 100, 150, 179} {
+		for _, shift := range []time.Duration{0, 5 * time.Hour, 13 * time.Hour, 23 * time.Hour} {
+			sc := newScanner(e, sky.Site{Latitude: 30, Longitude: lon}, c, from, to.Add(shift))
+			half := CoarseStep / 2
+			if sc.day(0).Add(-half).After(from) || sc.day(sc.days-1).Add(half).Before(to.Add(shift)) {
+				t.Errorf("lon %g, end +%s: days %s to %s", lon, shift, sc.day(0).Add(-half), sc.day(sc.days-1).Add(half))
+			}
+		}
+	}
+}
+
+func TestRarityFromTheOrbit(t *testing.T) {
+	t.Parallel()
+	e, _, _ := rarityInputs(t)
+	lines := []string{
+		"0161P         2026 11 27.1781  1.265111  0.836180   47.0650    1.4736   95.7919  20261011   8.5  6.0  161P/Hartley-IRAS                                        MPEC 2026-TI5",
+		"0002P         2027 02 10.2277  0.338605  0.847318  187.2872  334.0197   11.3480  20261011  14.4  4.0  2P/Encke                                                 MPC xxxxx",
+		"    CK25R020  2025 09 12.8052  0.504283  0.994157  308.3755  335.3139    4.4729  20261011  12.4  4.0  C/2025 R2 (SWAN)                                         MPEC 2026-N12",
+	}
+	orbits := make([]bodies.Orbit, 0, len(lines)+1)
+	for _, l := range lines {
+		el, err := bodies.ParseCometLine(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		orbits = append(orbits, bodies.OrbitOf(el, "MPC comet elements"))
+	}
+	orbits = append(orbits, bodies.Orbit{Designation: "C/2026 A1", E: 1.0003, Source: "JPL SBDB"})
+	cases := []struct {
+		des      string
+		rare     bool
+		interval float64
+	}{
+		{"161P", true, 21.4},
+		{"2P", false, 3.3},
+		{"C/2025 R2", true, 0},
+		{"C/2026 A1", true, 0},
+	}
+	for _, tc := range cases {
+		d := tc.des
+		ev := Event{ID: d, Members: []Member{{Name: mars, Kind: KindPlanet}, {Name: d, Kind: KindComet, Designation: &d}}}
+		evs := []Event{ev}
+		Rarities(e, sky.Site{}, NewCriteria(3.32, 2.22), evs, nil, nil, orbits)
+		r := evs[0].Rarity
+		if r == nil || r.Status != StatusReady || r.Method != MethodOrbit || r.Rare != tc.rare || !strings.Contains(r.Basis, "orbit") {
+			t.Fatalf("%s: %+v", d, r)
+		}
+		switch {
+		case tc.interval == 0 && r.IntervalYears != nil:
+			t.Errorf("%s: interval %v, want none", d, *r.IntervalYears)
+		case tc.interval != 0 && (r.IntervalYears == nil || math.Abs(*r.IntervalYears-tc.interval) > 0.1):
+			t.Errorf("%s: interval %v, want %v", d, r.IntervalYears, tc.interval)
+		}
+	}
+	unknown := "C/2099 Z9"
+	evs := []Event{{ID: "u", Members: []Member{{Name: unknown, Kind: KindComet, Designation: &unknown}, {Name: mars, Kind: KindPlanet}}}}
+	Rarities(e, sky.Site{}, NewCriteria(3.32, 2.22), evs, nil, nil, orbits)
+	if evs[0].Rarity.Status != StatusUnavailable {
+		t.Errorf("unknown orbit: %+v", evs[0].Rarity)
 	}
 }
