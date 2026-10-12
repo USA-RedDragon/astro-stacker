@@ -8,6 +8,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
@@ -94,6 +95,7 @@ func Samples(in []Input, lat, lon float64) []Sample {
 	sort.Slice(scores, func(i, j int) bool { return scores[i].at.Before(scores[j].at) })
 	out := make([]Sample, 0, len(in))
 	names := map[string]string{}
+	site := sky.Site{Latitude: lat, Longitude: lon}
 	for _, r := range in {
 		kept, ok := Verdict(r.Status)
 		if !ok || !r.HasPos || !(r.Exposure > 0) || r.Start.IsZero() {
@@ -109,6 +111,7 @@ func Samples(in []Input, lat, lon float64) []Sample {
 		out = append(out, Sample{
 			Night: NightOf(r.Start, lon), Object: r.Object, Filter: f, Narrowband: goals.IsNarrowband(f), Kept: kept,
 			Exposure: r.Exposure, Start: r.Start, Moon: At(mid, r.RA, r.Dec, lat, lon), Quality: qualityBefore(scores, r.Start),
+			Altitude: site.Altitude(r.RA, r.Dec, mid),
 		})
 	}
 	return out

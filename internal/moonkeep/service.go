@@ -69,18 +69,20 @@ func rules() Rules {
 
 // Result is one fit.
 type Result struct {
-	ComputedAt *time.Time `json:"computed_at"`
-	Mode       string     `json:"mode"`
-	Rules      Rules      `json:"rules"`
-	Subs       int        `json:"subs"`
-	Kept       int        `json:"kept"`
-	Nights     int        `json:"nights"`
-	From       *time.Time `json:"from"`
-	To         *time.Time `json:"to"`
-	Rows       []Row      `json:"rows"`
-	Replay     *Replay    `json:"replay"`
-	Publish    Status     `json:"publish"`
-	Reason     string     `json:"reason,omitempty"`
+	ComputedAt *time.Time          `json:"computed_at"`
+	Mode       string              `json:"mode"`
+	Rules      Rules               `json:"rules"`
+	Subs       int                 `json:"subs"`
+	Kept       int                 `json:"kept"`
+	Nights     int                 `json:"nights"`
+	From       *time.Time          `json:"from"`
+	To         *time.Time          `json:"to"`
+	Rows       []Row               `json:"rows"`
+	Replay     *Replay             `json:"replay"`
+	Altitude   []AltitudeFloor     `json:"altitude_floors"`
+	AltReplay  []AltitudeReplayRow `json:"altitude_replay"`
+	Publish    Status              `json:"publish"`
+	Reason     string              `json:"reason,omitempty"`
 	model      *Model
 	candidates []Candidate
 }
@@ -308,6 +310,8 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	}
 	rp := Run(samples, filters)
 	res.Replay = &rp
+	res.Altitude = FitAltitude(samples)
+	res.AltReplay = AltitudeReplay(samples, AltitudeThresholds())
 	return res, nil
 }
 
