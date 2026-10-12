@@ -145,7 +145,7 @@ type Stacking struct {
 	AstrometryTimeout  int     `name:"astrometry-timeout-seconds" description:"Seconds one solve-field run may take" default:"300"`
 	Workers            int     `name:"workers" description:"Targets stacked at once; each holds up to about 1.5 GB besides Siril" default:"1"`
 	MosaicMinutes      int     `name:"mosaic-minutes" description:"Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off" default:"10"`
-	MosaicQuiet        int     `name:"mosaic-quiet-minutes" description:"Minutes a mosaic's panel masters must be unchanged before it is rebuilt" default:"30"`
+	MosaicQuiet        int     `name:"mosaic-quiet-minutes" description:"Minimum minutes between rebuilds of a mosaic whose panel masters keep changing; a new panel rebuilds it at once" default:"30"`
 	MosaicSeams        bool    `name:"mosaic-seams" description:"Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way" default:"true"`
 	Pedestal           float64 `name:"pedestal" description:"Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset" default:"506"`
 	CalibrationSettle  int     `name:"calibration-settle-minutes" description:"Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile" default:"180"`
