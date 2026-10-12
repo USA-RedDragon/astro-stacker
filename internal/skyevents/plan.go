@@ -2,6 +2,7 @@ package skyevents
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/ephem"
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
@@ -112,25 +114,94 @@ func (s *Service) Draft(ctx context.Context, snap *planning.Snapshot, e Event, p
 		return nil, err
 	}
 	budget := min(time.Duration(e.Hours*float64(time.Hour)), PlanBudget)
-	nt := schedcmd.NewTarget{GUID: newID(), Name: e.Title, RAHours: e.Frame.CenterRA / 15, Dec: e.Frame.CenterDec, Rotation: e.Frame.Rotation,
-		Window: &schedcmd.EventWindow{Start: e.Start, End: e.End, Priority: priority, EventID: e.ID, IgnoreMoon: hasMoon(e)}}
-	if e.MovingCenter {
-		nt.Designation, nt.BodyKind = bodies.EventPrefix+e.ID, bodies.KindEvent
+	window := schedcmd.EventWindow{Start: e.Start, End: e.End, Priority: priority, EventID: e.ID, IgnoreMoon: hasMoon(e)}
+	type frame struct {
+		guid, name    string
+		ra, dec, turn float64
 	}
-	for _, l := range lengths {
-		nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Exposure: l, Desired: desired(budget, len(lengths), l)})
+	mosaic := e.Frame.Mosaic
+	var projectGUID string
+	frames := []frame{{name: e.Title, ra: e.Frame.CenterRA, dec: e.Frame.CenterDec, turn: e.Frame.Rotation}}
+	if mosaic != nil {
+		projectGUID = newID()
+		frames = frames[:0]
+		for _, p := range mosaic.Panels {
+			frames = append(frames, frame{guid: panelGUID(projectGUID, p.N), name: panelName(e.Title, p.N), ra: p.CenterRA, dec: p.CenterDec, turn: p.Rotation})
+		}
+	}
+	targets := make([]schedcmd.NewTarget, 0, len(frames))
+	for _, f := range frames {
+		if f.guid == "" {
+			f.guid = newID()
+		}
+		w := window
+		nt := schedcmd.NewTarget{GUID: f.guid, Name: f.name, RAHours: f.ra / 15, Dec: f.dec, Rotation: f.turn, Window: &w}
+		if e.MovingCenter {
+			nt.Designation, nt.BodyKind = bodies.EventPrefix+e.ID, bodies.KindEvent
+		}
+		for _, l := range lengths {
+			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Exposure: l,
+				Desired: desired(budget, len(lengths)*len(frames), l)})
+		}
+		targets = append(targets, nt)
 	}
 	prio := 1
 	if priority == PriorityHigh {
 		prio = 2
 	}
 	desc := fmt.Sprintf("Sky event %s: %s. Closest %s UTC at %.2f°. %s", e.ID, e.Title, e.Best.At.UTC().Format("2006-01-02 15:04"), e.Best.Separation, exp.Basis)
-	return &schedcmd.ProjectCreatePayload{
-		Project: schedcmd.NewProject{GUID: newID(), Name: s.projectName(snap, e), Description: desc, Priority: prio, State: 1,
+	if projectGUID == "" {
+		projectGUID = newID()
+	}
+	out := &schedcmd.ProjectCreatePayload{
+		Project: schedcmd.NewProject{GUID: projectGUID, Name: s.projectName(snap, e), Description: desc, Priority: prio, State: 1,
 			MinimumTime: MinimumTime, MinimumAltitude: DefaultMinAlt, ProjectSettings: settings},
-		Targets:     []schedcmd.NewTarget{nt},
-		RuleWeights: planning.WeightsFor(snap.GlobalWeights.Weights, false),
-	}, nil
+		Targets:     targets,
+		RuleWeights: planning.WeightsFor(snap.GlobalWeights.Weights, mosaic != nil),
+	}
+	if mosaic != nil {
+		out.Project.IsMosaic = true
+		out.Project.Description = fmt.Sprintf("Sky event %s: %s, %d-panel mosaic. Closest %s UTC at %.2f°. %s", e.ID, e.Title, len(frames),
+			e.Best.At.UTC().Format("2006-01-02 15:04"), e.Best.Separation, exp.Basis)
+		out.Mosaic = &schedcmd.MosaicPlan{Layout: fmt.Sprintf("grid-%dx%d", mosaic.Rows, mosaic.Cols), Rotation: e.Frame.Rotation, Overlap: mosaic.Overlap,
+			Cols: mosaic.Cols, Rows: mosaic.Rows}
+	}
+	return out, nil
+}
+
+func panelName(title string, n int) string { return fmt.Sprintf("%s Panel %d", title, n) }
+
+func uuidFrom(seed string) string {
+	h := sha256.Sum256([]byte(seed))
+	h[6] = (h[6] & 0x0f) | 0x50
+	h[8] = (h[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
+}
+
+// panelGUID is the target guid of a mosaic event's panel, made from the
+// project guid, so later commands find every panel from the stored project.
+func panelGUID(project string, n int) string {
+	return uuidFrom(fmt.Sprintf("sky-event-panel:%s:%d", project, n))
+}
+
+type eventTarget struct {
+	guid, name string
+	x, y       float64
+}
+
+// eventTargets are the scheduler targets of a planned event: one, or one
+// per panel of a mosaic.
+func eventTargets(e Event, c app.SkyEventChoice) []eventTarget {
+	m := e.Frame.Mosaic
+	if m == nil || c.ProjectGUID == "" || c.TargetGUID != panelGUID(c.ProjectGUID, 1) {
+		return []eventTarget{{guid: c.TargetGUID, name: c.TargetName}}
+	}
+	title := strings.TrimSuffix(c.TargetName, " Panel 1")
+	out := make([]eventTarget, 0, len(m.Panels))
+	for _, p := range m.Panels {
+		out = append(out, eventTarget{guid: panelGUID(c.ProjectGUID, p.N), name: panelName(title, p.N), x: p.X, y: p.Y})
+	}
+	return out
 }
 
 // choiceColumns are the columns a saved choice overwrites; the automatic
@@ -304,7 +375,7 @@ func (s *Service) SetPriority(ctx context.Context, id, priority, author string) 
 	}
 	var out *schedcmd.Record
 	if activePlan(e.Plan) && before != priority {
-		switch out, err = s.sendWindow(ctx, c, priority, before, author); {
+		switch out, err = s.sendWindow(ctx, c, e, priority, before, author); {
 		case errors.Is(err, errNothingToSend):
 		case err != nil:
 			return e, nil, err
@@ -331,22 +402,31 @@ func (s *Service) SetPriority(ctx context.Context, id, priority, author string) 
 	return e, out, err
 }
 
-func (s *Service) sendWindow(ctx context.Context, c app.SkyEventChoice, priority, before, author string) (*schedcmd.Record, error) {
+// sendWindow sends a target.window for every target of the planned event
+// and remembers the last command.
+func (s *Service) sendWindow(ctx context.Context, c app.SkyEventChoice, e Event, priority, before, author string) (*schedcmd.Record, error) {
 	if c.WindowStart == nil || c.WindowEnd == nil || s.Commands == nil {
 		return nil, errNothingToSend
 	}
 	w := func(p string) *schedcmd.EventWindow {
 		return &schedcmd.EventWindow{Start: *c.WindowStart, End: *c.WindowEnd, Priority: p, EventID: c.EventID, IgnoreMoon: c.IgnoreMoon}
 	}
-	raw, err := json.Marshal(schedcmd.TargetWindowPayload{TargetGUID: c.TargetGUID, TargetName: c.TargetName, Window: w(priority), Before: w(before)})
-	if err != nil {
-		return nil, err
+	var last *schedcmd.Record
+	for _, tg := range eventTargets(e, c) {
+		raw, err := json.Marshal(schedcmd.TargetWindowPayload{TargetGUID: tg.guid, TargetName: tg.name, Window: w(priority), Before: w(before)})
+		if err != nil {
+			return last, err
+		}
+		rec, err := s.Commands.Submit(ctx, schedcmd.KindTargetWindow, raw, author)
+		if err != nil {
+			return last, err
+		}
+		last = &rec
+		if err := s.App.WithContext(ctx).Model(&app.SkyEventChoice{}).Where("event_id = ?", c.EventID).Update("window_command", rec.ID).Error; err != nil {
+			return last, err
+		}
 	}
-	rec, err := s.Commands.Submit(ctx, schedcmd.KindTargetWindow, raw, author)
-	if err != nil {
-		return nil, err
-	}
-	return &rec, s.App.WithContext(ctx).Model(&app.SkyEventChoice{}).Where("event_id = ?", c.EventID).Update("window_command", rec.ID).Error
+	return last, nil
 }
 
 var errNothingToSend = errors.New("nothing to send")
@@ -363,7 +443,7 @@ func (s *Service) lowerLateAutoPlan(ctx context.Context, e Event, was app.SkyEve
 		!activePlan(s.planState(ctx, now)) {
 		return nil, errNothingToSend
 	}
-	rec, err := s.sendWindow(ctx, now, PriorityNormal, now.Priority, author)
+	rec, err := s.sendWindow(ctx, now, e, PriorityNormal, now.Priority, author)
 	if err != nil {
 		return nil, err
 	}
@@ -401,8 +481,11 @@ func (s *Service) Unplan(ctx context.Context, id, author string) (Event, schedcm
 	return e, rec, err
 }
 
-// centreRows are the moving frame centre of a planned two-body event, every
-// CentreStep over each night window, as ts_body_position rows.
+// centreRows are the moving frame centre of a planned event without
+// deep-sky objects, or of each panel of its mosaic, every CentreStep over
+// each night window, as ts_body_position rows. A centre is published while
+// the members fit the field at some rotation, and placed for the target's
+// rotation.
 func (s *Service) centreRows(c app.SkyEventChoice, e Event, at time.Time) []bodies.PositionRow {
 	eph, err := s.ephemeris()
 	if err != nil {
@@ -435,35 +518,48 @@ func (s *Service) centreRows(c app.SkyEventChoice, e Event, at time.Time) []bodi
 	if res == nil || res.Criteria == nil {
 		return nil
 	}
-	centre := func(t time.Time) (float64, float64, bool) {
+	w, h := res.Criteria.frame()
+	reach := math.Max(w, h)
+	if m := e.Frame.Mosaic; m != nil {
+		w, h = m.Width, m.Height
+		reach = math.Hypot(w, h)
+	}
+	rot := e.Frame.Rotation
+	targets := eventTargets(e, c)
+	centre := func(t time.Time) (mosaics.Point, bool) {
 		ds := make([]disc, 0, len(place))
 		for _, p := range place {
 			d, ok := p(t)
 			if !ok {
-				return 0, 0, false
+				return mosaics.Point{}, false
 			}
 			ds = append(ds, d)
 		}
-		f, ok := fitFrame(ds, res.Criteria.UsableW+2*FrameMargin, res.Criteria.UsableH+2*FrameMargin)
-		return f.center.RA, f.center.Dec, ok
+		if _, ok := fitRect(ds, w, h, reach); !ok {
+			return mosaics.Point{}, false
+		}
+		return centreAt(ds, rot), true
 	}
 	var out []bodies.PositionRow
 	for _, n := range e.NightWindows {
 		for t := n.Start.Add(-CentrePad).Truncate(CentreStep); !t.After(n.End.Add(CentrePad)); t = t.Add(CentreStep) {
-			ra, dec, ok := centre(t)
-			ra2, dec2, ok2 := centre(t.Add(time.Minute))
+			c0, ok := centre(t)
+			c1, ok2 := centre(t.Add(time.Minute))
 			if !ok || !ok2 {
 				continue
 			}
-			raRate := math.Remainder(ra2-ra, 360) * math.Cos(dec*deg) * 3600 * 60
-			out = append(out, bodies.PositionRow{TargetGUID: c.TargetGUID, At: t.UTC(), Designation: c.Designation, Night: n.Night,
-				RA: ra, Dec: dec, RARate: raRate, DecRate: (dec2 - dec) * 3600 * 60, ComputedAt: at})
+			for _, tg := range targets {
+				p0, p1 := mosaics.Offset(c0, rot, tg.x, tg.y), mosaics.Offset(c1, rot, tg.x, tg.y)
+				raRate := math.Remainder(p1.RA-p0.RA, 360) * math.Cos(p0.Dec*deg) * 3600 * 60
+				out = append(out, bodies.PositionRow{TargetGUID: tg.guid, At: t.UTC(), Designation: c.Designation, Night: n.Night,
+					RA: p0.RA, Dec: p0.Dec, RARate: raRate, DecRate: (p1.Dec - p0.Dec) * 3600 * 60, ComputedAt: at})
+			}
 		}
 	}
 	return out
 }
 
-// PublishCentres writes the moving centres of planned two-body events into
+// PublishCentres writes the moving centres of planned events of bodies into
 // ts_body_position and removes event rows no longer wanted. It does nothing
 // until the plugin's position table exists.
 func (s *Service) PublishCentres(ctx context.Context) error {

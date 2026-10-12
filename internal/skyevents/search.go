@@ -1,6 +1,7 @@
-// Package skyevents finds sky events: two or more solar-system bodies, or a
-// body and deep-sky objects, that fit in one camera frame while the sky is
-// dark and they are high enough, over the coming months.
+// Package skyevents finds sky events: two or more solar-system bodies, or
+// bodies and deep-sky objects, that fit in one camera frame or a two-panel
+// mosaic while the sky is dark and they are high enough, over the coming
+// months.
 package skyevents
 
 import (
@@ -32,6 +33,7 @@ const (
 
 	EventBodyDSO  = "body-dso"
 	EventBodyBody = "body-body"
+	EventMosaic2  = "mosaic-2"
 
 	SourceDE440    = "DE440"
 	SourceHorizons = "JPL Horizons"
@@ -50,6 +52,7 @@ type Criteria struct {
 	MergeGap  time.Duration `json:"-"`
 	Basis     string        `json:"basis"`
 	FrameEdge float64       `json:"-"`
+	Overlap   float64       `json:"mosaic_overlap_pct"`
 }
 
 const (
@@ -59,15 +62,54 @@ const (
 	// FrameMargin is kept clear on every side of the frame.
 	FrameMargin = 0.16
 	MergeGap    = 36 * time.Hour
+	// MosaicOverlap is the overlap of two-panel event mosaics, in percent,
+	// the mosaic planner's default.
+	MosaicOverlap  = 15.0
+	mosaicIDPrefix = "2-panel"
 )
 
 // NewCriteria are the defaults for a w by h degree frame.
 func NewCriteria(w, h float64) Criteria {
 	c := Criteria{SunBelow: DefaultSunBelow, MinAlt: DefaultMinAlt, Step: DefaultStep, StepMin: int(DefaultStep / time.Minute),
-		FrameW: w, FrameH: h, UsableW: round(w-2*FrameMargin, 3), UsableH: round(h-2*FrameMargin, 3), MergeGap: MergeGap, FrameEdge: FrameMargin}
-	c.Basis = fmt.Sprintf("Every %d minutes while the Sun is below %g° and every member is above %g°; the members fit inside the %.2f° × %.2f° frame less %.2f° on each side (%.2f° × %.2f°) at some rotator angle, and no two are more than %.2f° apart edge to edge. Steps up to %d hours apart join into one event. Positions: Moon and planets from NASA JPL's planetary tables, comets and asteroids from JPL Horizons, deep-sky objects from the stacker catalogue (Messier, and named objects of 20′ or more).",
-		c.StepMin, c.SunBelow, c.MinAlt, w, h, FrameMargin, c.UsableW, c.UsableH, c.UsableW, int(MergeGap.Hours()))
+		FrameW: w, FrameH: h, UsableW: round(w-2*FrameMargin, 3), UsableH: round(h-2*FrameMargin, 3), MergeGap: MergeGap, FrameEdge: FrameMargin, Overlap: MosaicOverlap}
+	m := c.mosaic()
+	c.Basis = fmt.Sprintf("Every %d minutes while the Sun is below %g° and every member is above %g°; the members fit inside the %.2f° × %.2f° frame less %.2f° on each side (%.2f° × %.2f°) at some rotator angle, and no two are more than %.2f° apart edge to edge. When three or more members fit together, that group replaces its smaller groups at the same times. A group that does not fit one frame but fits two frames side by side, overlapping %g%% as the mosaic planner does (%.2f° × %.2f° or %.2f° × %.2f° less the same margin, in any arrangement), is listed as a 2-panel mosaic, unless it fits one frame within %d hours. Steps up to %d hours apart join into one event. Positions: Moon and planets from NASA JPL's planetary tables, comets and asteroids from JPL Horizons, deep-sky objects from the stacker catalogue (Messier, and named objects of 20′ or more).",
+		c.StepMin, c.SunBelow, c.MinAlt, w, h, FrameMargin, c.UsableW, c.UsableH, c.UsableW, MosaicOverlap,
+		m[0].w+2*FrameMargin, m[0].h+2*FrameMargin, m[1].w+2*FrameMargin, m[1].h+2*FrameMargin, int(MergeGap.Hours()), int(MergeGap.Hours()))
 	return c
+}
+
+func (c Criteria) frame() (float64, float64) {
+	return c.UsableW + 2*FrameMargin, c.UsableH + 2*FrameMargin
+}
+
+func (c Criteria) overlap() float64 {
+	if c.Overlap > 0 {
+		return c.Overlap
+	}
+	return MosaicOverlap
+}
+
+func (c Criteria) single() []shape {
+	return []shape{{w: c.UsableW, h: c.UsableH, cols: 1, rows: 1}}
+}
+
+// mosaic is two frames side by side, along the long or the short side,
+// less the margin around the whole.
+func (c Criteria) mosaic() []shape {
+	fw, fh := c.frame()
+	along := 2 - c.overlap()/100
+	return []shape{
+		{w: round(along*fw-2*FrameMargin, 3), h: c.UsableH, cols: 2, rows: 1},
+		{w: c.UsableW, h: round(along*fh-2*FrameMargin, 3), cols: 1, rows: 2},
+	}
+}
+
+func (c Criteria) shapes(mosaic bool) []shape {
+	if mosaic {
+		return c.mosaic()
+	}
+	return c.single()
 }
 
 func round(v float64, places int) float64 {
@@ -194,6 +236,29 @@ type FrameObject struct {
 	Diameter float64 `json:"diameter_deg"`
 }
 
+// Panel is one frame of a mosaic: its centre, its rotation and its offset
+// from the mosaic centre, along the frame axes and east and north.
+type Panel struct {
+	N         int     `json:"n"`
+	CenterRA  float64 `json:"center_ra"`
+	CenterDec float64 `json:"center_dec"`
+	Rotation  float64 `json:"rotation_deg"`
+	X         float64 `json:"x_deg"`
+	Y         float64 `json:"y_deg"`
+	East      float64 `json:"east_deg"`
+	North     float64 `json:"north_deg"`
+}
+
+// Mosaic is how an event's frames are laid out when one frame is too small.
+type Mosaic struct {
+	Cols    int     `json:"cols"`
+	Rows    int     `json:"rows"`
+	Overlap float64 `json:"overlap_pct"`
+	Width   float64 `json:"width_deg"`
+	Height  float64 `json:"height_deg"`
+	Panels  []Panel `json:"panels"`
+}
+
 type Frame struct {
 	CenterRA  float64       `json:"center_ra"`
 	CenterDec float64       `json:"center_dec"`
@@ -201,6 +266,7 @@ type Frame struct {
 	Width     float64       `json:"width_deg"`
 	Height    float64       `json:"height_deg"`
 	Objects   []FrameObject `json:"objects"`
+	Mosaic    *Mosaic       `json:"mosaic,omitempty"`
 }
 
 type NightWindow struct {
@@ -259,47 +325,304 @@ func bodyDisc(s Sample) disc { return disc{ra: s.RA, dec: s.Dec, radius: s.Diame
 
 func dsoDisc(d DSO) disc { return disc{ra: d.RA, dec: d.Dec, radius: d.Diameter / 2} }
 
+// group is a set of members at one step: bodies first, then deep-sky
+// objects, with their discs in the same order.
+type group struct {
+	bodies []int
+	dsos   []int
+	ds     []disc
+}
+
+func bodiesKey(bodies []int) string {
+	parts := make([]string, len(bodies))
+	for i, b := range bodies {
+		parts[i] = strconv.Itoa(b)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (gr group) within(o group) bool {
+	for _, b := range gr.bodies {
+		if !slices.Contains(o.bodies, b) {
+			return false
+		}
+	}
+	for _, d := range gr.dsos {
+		if !slices.Contains(o.dsos, d) {
+			return false
+		}
+	}
+	return true
+}
+
+// spread is the figure an event reports: the widest separation of its
+// bodies, or for one body the separation from it to the nearest deep-sky
+// object.
+func spread(ds []disc, bodies int) float64 {
+	if bodies >= 2 {
+		widest := 0.0
+		for i := range bodies {
+			for j := i + 1; j < bodies; j++ {
+				widest = math.Max(widest, catalog.Separation(ds[i].ra, ds[i].dec, ds[j].ra, ds[j].dec))
+			}
+		}
+		return widest
+	}
+	nearest := math.Inf(1)
+	for _, d := range ds[1:] {
+		nearest = math.Min(nearest, catalog.Separation(ds[0].ra, ds[0].dec, d.ra, d.dec))
+	}
+	return nearest
+}
+
+// step is one dark time step of the search.
+type step struct {
+	g      Grid
+	i      int
+	tracks []Track
+	up     []int
+	dsos   []DSO
+	c      Criteria
+	alt    map[int]bool
+}
+
+func (s *step) dsoUp(k int) bool {
+	if v, ok := s.alt[k]; ok {
+		return v
+	}
+	d := s.dsos[k]
+	v := s.g.Observers[s.i].Altitude(d.RA, d.Dec) > s.c.MinAlt
+	s.alt[k] = v
+	return v
+}
+
+// bodySets is every set of bodies up at the step that fits the shapes.
+func (s *step) bodySets(shapes []shape) []group {
+	long := longest(shapes)
+	var out []group
+	var grow func(cur group, from int)
+	grow = func(cur group, from int) {
+		for x := from; x < len(s.up); x++ {
+			b := s.up[x]
+			d := bodyDisc(s.tracks[b].Samples[s.i])
+			if slices.ContainsFunc(cur.ds, func(o disc) bool {
+				return catalog.Separation(o.ra, o.dec, d.ra, d.dec)+o.radius+d.radius > long
+			}) {
+				continue
+			}
+			next := group{bodies: append(slices.Clone(cur.bodies), b), ds: append(slices.Clone(cur.ds), d)}
+			if len(next.ds) > 1 {
+				if _, _, ok := fitShapes(next.ds, shapes); !ok {
+					continue
+				}
+			}
+			out = append(out, next)
+			grow(next, x+1)
+		}
+	}
+	grow(group{}, 0)
+	return out
+}
+
+// dsoGroups adds deep-sky objects to a set of bodies: nearest first, each
+// object starts a group and takes in every later one that still fits.
+func (s *step) dsoGroups(set group, shapes []shape) []group {
+	type cand struct {
+		idx int
+		sep float64
+	}
+	long := longest(shapes)
+	mid := meanPoint(set.ds)
+	var cands []cand
+	for k, d := range s.dsos {
+		if math.Abs(d.Dec-mid.Dec) > long {
+			continue
+		}
+		dd := dsoDisc(d)
+		if slices.ContainsFunc(set.ds, func(o disc) bool {
+			return catalog.Separation(o.ra, o.dec, dd.ra, dd.dec)+o.radius+dd.radius > long
+		}) {
+			continue
+		}
+		if !s.dsoUp(k) {
+			continue
+		}
+		cands = append(cands, cand{k, catalog.Separation(mid.RA, mid.Dec, d.RA, d.Dec)})
+	}
+	slices.SortStableFunc(cands, func(a, b cand) int { return cmp.Compare(a.sep, b.sep) })
+	used := make([]bool, len(cands))
+	var out []group
+	for x := range cands {
+		if used[x] {
+			continue
+		}
+		used[x] = true
+		gr := group{bodies: set.bodies, dsos: []int{cands[x].idx}, ds: append(slices.Clone(set.ds), dsoDisc(s.dsos[cands[x].idx]))}
+		if _, _, ok := fitShapes(gr.ds, shapes); !ok {
+			continue
+		}
+		for y := x + 1; y < len(cands); y++ {
+			if used[y] {
+				continue
+			}
+			try := append(slices.Clone(gr.ds), dsoDisc(s.dsos[cands[y].idx]))
+			if _, _, ok := fitShapes(try, shapes); ok {
+				gr.ds = try
+				gr.dsos = append(gr.dsos, cands[y].idx)
+				used[y] = true
+			}
+		}
+		out = append(out, gr)
+	}
+	return out
+}
+
+func (s *step) hasMoon(bodies []int) bool {
+	return slices.ContainsFunc(bodies, func(b int) bool { return s.tracks[b].Kind == KindMoon })
+}
+
+// groups is every group at the step that fits the shapes, and the ones no
+// larger group holds. The Moon is never grouped with deep-sky objects.
+func (s *step) groups(shapes []shape) (sets, all, top []group) {
+	sets = s.bodySets(shapes)
+	for _, set := range sets {
+		if len(set.bodies) > 1 {
+			all = append(all, set)
+		}
+		if !s.hasMoon(set.bodies) {
+			all = append(all, s.dsoGroups(set, shapes)...)
+		}
+	}
+	for i, a := range all {
+		held := false
+		for j, b := range all {
+			if i != j && a.within(b) && (!b.within(a) || j < i) {
+				held = true
+				break
+			}
+		}
+		if !held {
+			top = append(top, a)
+		}
+	}
+	return sets, all, top
+}
+
+func (s *step) hit(gr group) hit {
+	alt := math.Inf(1)
+	for _, b := range gr.bodies {
+		alt = math.Min(alt, s.tracks[b].Samples[s.i].Alt)
+	}
+	return hit{step: s.i, sep: spread(gr.ds, len(gr.bodies)), alt: alt, dsos: slices.Clone(gr.dsos)}
+}
+
+// series is the hits of one set of bodies, alone or with deep-sky objects,
+// in one frame or a mosaic.
+type series struct {
+	bodies []int
+	dso    bool
+	mosaic bool
+	hits   []hit
+}
+
+func seriesKey(mosaic, dso bool, bodies []int) string {
+	return fmt.Sprintf("%t|%t|%s", mosaic, dso, bodiesKey(bodies))
+}
+
+// collector gathers the series, and for each set of bodies every step it
+// fits one frame (narrow) or two (wide), with the deep-sky objects it
+// takes there, whether or not a larger group holds it.
+type collector struct {
+	series map[string]*series
+	narrow map[string][]hit
+	wide   map[string][]hit
+}
+
+func fitKey(dso bool, bodies []int) string {
+	return fmt.Sprintf("%t|%s", dso, bodiesKey(bodies))
+}
+
+func (a *collector) note(to map[string][]hit, sets, all []group, s *step) {
+	for _, set := range sets {
+		if len(set.bodies) > 1 {
+			k := fitKey(false, set.bodies)
+			to[k] = append(to[k], hit{step: s.i})
+		}
+	}
+	for _, gr := range all {
+		if len(gr.dsos) > 0 {
+			k := fitKey(true, gr.bodies)
+			to[k] = append(to[k], hit{step: s.i, dsos: gr.dsos})
+		}
+	}
+}
+
+func (a *collector) add(mosaic bool, gr group, h hit) {
+	k := seriesKey(mosaic, len(gr.dsos) > 0, gr.bodies)
+	sr, ok := a.series[k]
+	if !ok {
+		sr = &series{bodies: gr.bodies, dso: len(gr.dsos) > 0, mosaic: mosaic}
+		a.series[k] = sr
+	}
+	sr.hits = append(sr.hits, h)
+}
+
 // Search finds every event over the grid.
 func Search(g Grid, tracks []Track, dsos []DSO, c Criteria) []Event {
-	pairs := map[[2]int][]hit{}
-	near := make([][]hit, len(tracks))
+	single, mosaic := c.single(), c.mosaic()
+	acc := &collector{series: map[string]*series{}, narrow: map[string][]hit{}, wide: map[string][]hit{}}
 	for i := range g.Times {
 		if !g.Dark[i] {
 			continue
 		}
-		up := []int{}
+		s := &step{g: g, i: i, tracks: tracks, dsos: dsos, c: c, alt: map[int]bool{}}
 		for b, t := range tracks {
-			if s := t.Samples[i]; s.OK && s.Alt > c.MinAlt {
-				up = append(up, b)
+			if smp := t.Samples[i]; smp.OK && smp.Alt > c.MinAlt {
+				s.up = append(s.up, b)
 			}
 		}
-		for x, a := range up {
-			sa := tracks[a].Samples[i]
-			for _, b := range up[x+1:] {
-				sb := tracks[b].Samples[i]
-				sep := catalog.Separation(sa.RA, sa.Dec, sb.RA, sb.Dec)
-				if sep+sa.Diameter/2+sb.Diameter/2 > c.UsableW {
-					continue
-				}
-				if _, ok := fitFrame([]disc{bodyDisc(sa), bodyDisc(sb)}, c.UsableW, c.UsableH); ok {
-					pairs[[2]int{a, b}] = append(pairs[[2]int{a, b}], hit{step: i, sep: sep, alt: math.Min(sa.Alt, sb.Alt)})
-				}
-			}
-			if tracks[a].Kind == KindMoon {
+		sets, all, top := s.groups(single)
+		acc.note(acc.narrow, sets, all, s)
+		fitsHere := map[string]bool{}
+		for _, set := range sets {
+			fitsHere[bodiesKey(set.bodies)] = true
+		}
+		for _, gr := range top {
+			acc.add(false, gr, s.hit(gr))
+		}
+		wsets, wall, wide := s.groups(mosaic)
+		acc.note(acc.wide, wsets, wall, s)
+		for _, gr := range wide {
+			if len(gr.dsos) == 0 && fitsHere[bodiesKey(gr.bodies)] {
 				continue
 			}
-			near[a] = append(near[a], dsoHits(g, i, sa, dsos, c)...)
+			if len(gr.dsos) > 0 {
+				if _, _, ok := fitShapes(gr.ds, single); ok {
+					continue
+				}
+			}
+			acc.add(true, gr, s.hit(gr))
 		}
 	}
+	keys := make([]string, 0, len(acc.series))
+	for k := range acc.series {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
 	var out []Event
-	for key, hs := range pairs {
-		for _, run := range runs(g, hs, c.MergeGap) {
-			out = append(out, bodyBodyEvent(g, tracks, key, run, c))
+	for _, k := range keys {
+		sr := acc.series[k]
+		var rs [][]hit
+		if sr.dso {
+			rs = dsoRuns(g, sr.hits, c.MergeGap)
+		} else {
+			rs = runs(g, sr.hits, c.MergeGap)
 		}
-	}
-	for b, hs := range near {
-		for _, run := range dsoRuns(g, hs, c.MergeGap) {
-			out = append(out, bodyDSOEvent(g, tracks, b, dsos, run, c))
+		for _, run := range rs {
+			if sr.mosaic && acc.oneFrameNear(g, sr, run, c.MergeGap) {
+				continue
+			}
+			out = append(out, groupEvent(g, tracks, dsos, sr, run, c))
 		}
 	}
 	slices.SortFunc(out, func(a, b Event) int {
@@ -308,53 +631,50 @@ func Search(g Grid, tracks []Track, dsos []DSO, c Criteria) []Event {
 	return out
 }
 
-func dsoHits(g Grid, i int, s Sample, dsos []DSO, c Criteria) []hit {
-	type cand struct {
-		idx int
-		sep float64
-	}
-	var cands []cand
-	for k, d := range dsos {
-		if math.Abs(d.Dec-s.Dec) > c.UsableW {
-			continue
-		}
-		sep := catalog.Separation(s.RA, s.Dec, d.RA, d.Dec)
-		if sep+d.Diameter/2+s.Diameter/2 > c.UsableW {
-			continue
-		}
-		if g.Observers[i].Altitude(d.RA, d.Dec) <= c.MinAlt {
-			continue
-		}
-		cands = append(cands, cand{k, sep})
-	}
-	slices.SortFunc(cands, func(a, b cand) int { return cmp.Compare(a.sep, b.sep) })
-	used := make([]bool, len(cands))
-	var out []hit
-	for x := range cands {
-		if used[x] {
-			continue
-		}
-		group := []disc{bodyDisc(s), dsoDisc(dsos[cands[x].idx])}
-		if _, ok := fitFrame(group, c.UsableW, c.UsableH); !ok {
-			used[x] = true
-			continue
-		}
-		h := hit{step: i, sep: cands[x].sep, alt: s.Alt, dsos: []int{cands[x].idx}}
-		used[x] = true
-		for y := x + 1; y < len(cands); y++ {
-			if used[y] {
-				continue
-			}
-			try := append(slices.Clone(group), dsoDisc(dsos[cands[y].idx]))
-			if _, ok := fitFrame(try, c.UsableW, c.UsableH); ok {
-				group = try
-				h.dsos = append(h.dsos, cands[y].idx)
-				used[y] = true
+// oneFrameNear reports whether the members of a mosaic run fit one frame
+// during the same pass: the stretch of steps, no more than the merge gap
+// apart, over which they fit two frames, whether or not a larger group
+// held them, widened by the merge gap. The one-frame event covers that
+// pass.
+func (a *collector) oneFrameNear(g Grid, sr *series, run []hit, gap time.Duration) bool {
+	var want []int
+	for _, h := range run {
+		for _, d := range h.dsos {
+			if !slices.Contains(want, d) {
+				want = append(want, d)
 			}
 		}
-		out = append(out, h)
 	}
-	return out
+	holds := func(h hit) bool {
+		return !slices.ContainsFunc(want, func(d int) bool { return !slices.Contains(h.dsos, d) })
+	}
+	shares := func(h hit) bool {
+		return len(want) == 0 || slices.ContainsFunc(want, func(d int) bool { return slices.Contains(h.dsos, d) })
+	}
+	k := fitKey(sr.dso, sr.bodies)
+	var steps []int
+	for _, h := range a.wide[k] {
+		if shares(h) && (len(steps) == 0 || steps[len(steps)-1] != h.step) {
+			steps = append(steps, h.step)
+		}
+	}
+	first, last := g.Times[run[0].step], g.Times[run[len(run)-1].step]
+	lo := slices.Index(steps, run[0].step)
+	hi := slices.Index(steps, run[len(run)-1].step)
+	if lo >= 0 && hi >= 0 {
+		for lo > 0 && g.Times[steps[lo]].Sub(g.Times[steps[lo-1]]) <= gap {
+			lo--
+		}
+		for hi < len(steps)-1 && g.Times[steps[hi+1]].Sub(g.Times[steps[hi]]) <= gap {
+			hi++
+		}
+		first, last = g.Times[steps[lo]], g.Times[steps[hi]]
+	}
+	from, to := first.Add(-gap), last.Add(gap)
+	return slices.ContainsFunc(a.narrow[k], func(h hit) bool {
+		t := g.Times[h.step]
+		return !t.Before(from) && !t.After(to) && holds(h)
+	})
 }
 
 func runs(g Grid, hs []hit, gap time.Duration) [][]hit {
@@ -547,51 +867,13 @@ func (e *Event) finish(g Grid, hs []hit, step time.Duration) {
 	e.Priority = PriorityNormal
 }
 
-func bodyBodyEvent(g Grid, tracks []Track, key [2]int, hs []hit, c Criteria) Event {
-	best := hs[0]
-	for _, h := range hs {
-		if h.sep < best.sep {
-			best = h
-		}
-	}
-	idx := orderBodies(tracks, key[:])
-	e := Event{Kind: EventBodyBody, MovingCenter: true, bodies: idx}
-	names := make([]string, 0, len(idx))
-	ds := make([]disc, 0, len(idx))
-	objs := make([]FrameObject, 0, len(idx))
-	for _, b := range idx {
-		s := tracks[b].Samples[best.step]
-		e.Members = append(e.Members, bodyMember(tracks[b], s))
-		names = append(names, tracks[b].Name)
-		ds = append(ds, bodyDisc(s))
-		objs = append(objs, FrameObject{Name: tracks[b].Name, Kind: tracks[b].Kind, Diameter: round(s.Diameter, 5)})
-	}
-	e.Title = names[0] + " with " + strings.Join(names[1:], ", ")
-	e.Best = Best{At: g.Times[best.step], Separation: round(best.sep, 3), Altitude: round(best.alt, 1)}
-	f, _ := fitFrame(ds, c.UsableW, c.UsableH)
-	e.Frame = frameAt(f.center, f.rotation, c, objs, ds)
-	e.finish(g, hs, c.Step)
-	e.ID = slug(append(names, e.FirstNight)...)
-	for i, n := range e.NightWindows {
-		var mid []hit
-		for _, h := range hs {
-			if nightOf(g.Site, g.Times[h.step]) == n.Night {
-				mid = append(mid, h)
-			}
-		}
-		step := mid[len(mid)/2].step
-		nd := make([]disc, 0, len(idx))
-		for _, b := range idx {
-			nd = append(nd, bodyDisc(tracks[b].Samples[step]))
-		}
-		if nf, ok := fitFrame(nd, c.UsableW, c.UsableH); ok {
-			e.NightWindows[i].CenterRA, e.NightWindows[i].CenterDec = round(nf.center.RA, 5), round(nf.center.Dec, 5)
-		}
-	}
-	return e
+func listNames(names []string) string {
+	return names[0] + " with " + strings.Join(names[1:], ", ")
 }
 
-func bodyDSOEvent(g Grid, tracks []Track, b int, dsos []DSO, hs []hit, c Criteria) Event {
+// groupEvent builds the event of one run of a series. A series without
+// deep-sky objects follows the bodies with a moving frame centre.
+func groupEvent(g Grid, tracks []Track, dsos []DSO, sr *series, hs []hit, c Criteria) Event {
 	best := hs[0]
 	for _, h := range hs {
 		if len(h.dsos) > len(best.dsos) || (len(h.dsos) == len(best.dsos) && h.sep < best.sep) {
@@ -609,21 +891,35 @@ func bodyDSOEvent(g Grid, tracks []Track, b int, dsos []DSO, hs []hit, c Criteri
 		all = append(all, d)
 	}
 	slices.SortFunc(all, func(x, y int) int { return naturalLess(dsos[x].Designation, dsos[y].Designation) })
-	t := tracks[b]
-	s := t.Samples[best.step]
-	e := Event{Kind: EventBodyDSO, bodies: []int{b}, dsos: all, Members: []Member{bodyMember(t, s)}}
-	names := make([]string, 0, len(all)+1)
-	names = append(names, t.Name)
+	idx := orderBodies(tracks, sr.bodies)
+	e := Event{Kind: EventBodyBody, bodies: idx, dsos: all}
+	switch {
+	case sr.mosaic:
+		e.Kind = EventMosaic2
+	case sr.dso:
+		e.Kind = EventBodyDSO
+	}
+	e.MovingCenter = !sr.dso
+	names := make([]string, 0, len(idx)+len(all))
+	ids := make([]string, 0, len(idx)+len(all)+2)
+	if sr.mosaic {
+		ids = append(ids, mosaicIDPrefix)
+	}
+	ds := make([]disc, 0, len(idx)+len(best.dsos))
+	objs := make([]FrameObject, 0, len(idx)+len(best.dsos))
+	for _, b := range idx {
+		smp := tracks[b].Samples[best.step]
+		e.Members = append(e.Members, bodyMember(tracks[b], smp))
+		names = append(names, tracks[b].Name)
+		ids = append(ids, tracks[b].Name)
+		ds = append(ds, bodyDisc(smp))
+		objs = append(objs, FrameObject{Name: tracks[b].Name, Kind: tracks[b].Kind, Diameter: round(smp.Diameter, 5)})
+	}
 	for _, d := range all {
 		e.Members = append(e.Members, dsoMember(dsos[d]))
 		names = append(names, dsos[d].Label())
+		ids = append(ids, dsos[d].Designation)
 	}
-	e.Title = t.Name + " with " + strings.Join(names[1:], ", ")
-	e.Best = Best{At: g.Times[best.step], Separation: round(best.sep, 3), Altitude: round(best.alt, 1)}
-	ds := make([]disc, 0, len(best.dsos)+1)
-	ds = append(ds, bodyDisc(s))
-	objs := make([]FrameObject, 0, len(best.dsos)+1)
-	objs = append(objs, FrameObject{Name: t.Name, Kind: t.Kind, Diameter: round(s.Diameter, 5)})
 	inBest := slices.Clone(best.dsos)
 	slices.SortFunc(inBest, func(x, y int) int { return naturalLess(dsos[x].Designation, dsos[y].Designation) })
 	e.bestDSOs = inBest
@@ -632,14 +928,51 @@ func bodyDSOEvent(g Grid, tracks []Track, b int, dsos []DSO, hs []hit, c Criteri
 		typ := dsos[d].Type
 		objs = append(objs, FrameObject{Name: dsos[d].Label(), Kind: KindDSO, Type: &typ, Diameter: round(dsos[d].Diameter, 4)})
 	}
-	f, _ := fitFrame(ds, c.UsableW, c.UsableH)
+	e.Title = listNames(names)
+	e.Best = Best{At: g.Times[best.step], Separation: round(best.sep, 3), Altitude: round(best.alt, 1)}
+	shapes := c.shapes(sr.mosaic)
+	f, at, _ := fitShapes(ds, shapes)
 	e.Frame = frameAt(f.center, f.rotation, c, objs, ds)
-	e.finish(g, hs, c.Step)
-	ids := make([]string, 0, len(all)+2)
-	ids = append(ids, t.Name)
-	for _, d := range all {
-		ids = append(ids, dsos[d].Designation)
+	if sr.mosaic {
+		e.Frame.Mosaic = mosaicFrame(f.center, e.Frame.Rotation, shapes[at], c)
 	}
+	e.finish(g, hs, c.Step)
 	e.ID = slug(append(ids, e.FirstNight)...)
+	if !e.MovingCenter {
+		return e
+	}
+	for i, n := range e.NightWindows {
+		var mid []hit
+		for _, x := range hs {
+			if nightOf(g.Site, g.Times[x.step]) == n.Night {
+				mid = append(mid, x)
+			}
+		}
+		st := mid[len(mid)/2].step
+		nd := make([]disc, 0, len(idx))
+		for _, b := range idx {
+			nd = append(nd, bodyDisc(tracks[b].Samples[st]))
+		}
+		if _, _, ok := fitShapes(nd, shapes); ok {
+			ctr := centreAt(nd, e.Frame.Rotation)
+			e.NightWindows[i].CenterRA, e.NightWindows[i].CenterDec = round(ctr.RA, 5), round(ctr.Dec, 5)
+		}
+	}
 	return e
+}
+
+// mosaicFrame lays out the panels of a mosaic around its centre the way the
+// mosaic planner does.
+func mosaicFrame(center mosaics.Point, rotation float64, sh shape, c Criteria) *Mosaic {
+	fw, fh := c.frame()
+	o := c.overlap()
+	l := mosaics.Grid(mosaics.Outline{Centre: center}, sh.rows, sh.cols, rotation, o, mosaics.Rig{WidthDeg: fw, HeightDeg: fh})
+	m := &Mosaic{Cols: sh.cols, Rows: sh.rows, Overlap: o, Width: round(sh.w+2*FrameMargin, 3), Height: round(sh.h+2*FrameMargin, 3)}
+	for _, p := range l.Panels {
+		e, n := mosaics.Project(center, p.Centre)
+		x, y := frameXY(e, n, rotation)
+		m.Panels = append(m.Panels, Panel{N: p.N, CenterRA: round(p.Centre.RA, 5), CenterDec: round(p.Centre.Dec, 5), Rotation: round(p.RotationDeg, 2),
+			X: round(x, 4), Y: round(y, 4), East: round(e, 4), North: round(n, 4)})
+	}
+	return m
 }

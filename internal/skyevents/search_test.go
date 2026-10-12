@@ -200,6 +200,10 @@ func highlights(t *testing.T, m *memo) {
 	if len(mj.NightWindows) != mj.Nights || mj.NightWindows[0].CenterRA == mj.NightWindows[len(mj.NightWindows)-1].CenterRA {
 		t.Errorf("Mars and Jupiter night centres do not move: %+v", mj.NightWindows)
 	}
+	mmj := find(events, []string{"Moon", mars, "Jupiter"}, time.Date(2026, 11, 30, 8, 30, 0, 0, time.UTC))
+	if mmj == nil || mmj.Kind != skyevents.EventMosaic2 || mmj.Frame.Mosaic == nil || !mmj.MovingCenter || mmj.Title != "Moon with Mars, Jupiter" {
+		t.Fatalf("Moon, Mars and Jupiter as a 2-panel mosaic: %+v", mmj)
+	}
 	leo := find(events, []string{mars, "M 95", "M 96", "M 105"}, time.Date(2027, 1, 25, 0, 0, 0, 0, time.UTC))
 	if leo == nil {
 		t.Fatal("Mars with M 95, M 96 and M 105 is not one event")
@@ -216,6 +220,9 @@ func highlights(t *testing.T, m *memo) {
 func splitsGroups(t *testing.T, m *memo) {
 	events, _ := m.get(t)
 	for _, e := range events {
+		if e.Kind == skyevents.EventMosaic2 {
+			continue
+		}
 		got := names(e)
 		hasM23 := slices.Contains(got, "M 23")
 		hasM20 := slices.ContainsFunc(got, func(n string) bool { return strings.HasPrefix(n, "M 20 ") })
@@ -241,10 +248,32 @@ func framesHold(t *testing.T, m *memo) {
 		seen[e.ID] = true
 		f := e.Frame
 		centre := mosaics.Point{RA: f.CenterRA, Dec: f.CenterDec}
+		w, h := f.Width, f.Height
+		if m := f.Mosaic; m != nil {
+			w, h = m.Width, m.Height
+			if e.Kind != skyevents.EventMosaic2 || len(m.Panels) != 2 || m.Cols*m.Rows != 2 {
+				t.Errorf("%s: mosaic %+v", e.Title, m)
+				continue
+			}
+			step := f.Width * (1 - m.Overlap/100)
+			if m.Rows == 2 {
+				step = f.Height * (1 - m.Overlap/100)
+			}
+			a, b := m.Panels[0], m.Panels[1]
+			if d := catalog.Separation(a.CenterRA, a.CenterDec, b.CenterRA, b.CenterDec); math.Abs(d-step) > 0.01 {
+				t.Errorf("%s: panels %.3f° apart, want %.3f°", e.Title, d, step)
+			}
+			if math.Abs(w-(float64(m.Cols)*f.Width-float64(m.Cols-1)*f.Width*m.Overlap/100)) > 0.01 ||
+				math.Abs(h-(float64(m.Rows)*f.Height-float64(m.Rows-1)*f.Height*m.Overlap/100)) > 0.01 {
+				t.Errorf("%s: mosaic %.3f x %.3f", e.Title, w, h)
+			}
+		} else if e.Kind == skyevents.EventMosaic2 {
+			t.Errorf("%s: a mosaic event without panels", e.Title)
+		}
 		for _, o := range f.Objects {
 			r := o.Diameter / 2
-			if math.Abs(o.X)+r > f.Width/2 || math.Abs(o.Y)+r > f.Height/2 {
-				t.Errorf("%s: %s at (%.2f, %.2f) r %.2f is outside the %.2f x %.2f frame", e.Title, o.Name, o.X, o.Y, r, f.Width, f.Height)
+			if math.Abs(o.X)+r > w/2 || math.Abs(o.Y)+r > h/2 {
+				t.Errorf("%s: %s at (%.2f, %.2f) r %.2f is outside the %.2f x %.2f frame", e.Title, o.Name, o.X, o.Y, r, w, h)
 			}
 			back := mosaics.Offset(centre, f.Rotation, o.X, o.Y)
 			fwd := mosaics.Offset(centre, 0, o.East, o.North)

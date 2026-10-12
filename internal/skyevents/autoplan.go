@@ -2,7 +2,6 @@ package skyevents
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -141,10 +140,7 @@ func (s *Service) backfillDeclines(ctx context.Context) error {
 // autoCommandID is the project.create id for a claim, the same on every
 // retry, so a retry after a lost answer finds the command it already sent.
 func autoCommandID(claim string) string {
-	h := sha256.Sum256([]byte("sky-event-auto:" + claim))
-	h[6] = (h[6] & 0x0f) | 0x50
-	h[8] = (h[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
+	return uuidFrom("sky-event-auto:" + claim)
 }
 
 // AutoPlanRare plans every rare event still to come at high priority, the

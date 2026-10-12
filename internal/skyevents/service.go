@@ -276,6 +276,7 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	}
 	res.Events = Search(g, tracks, dsos, c)
 	Rarities(e, site, c, res.Events, dsos, s.cachedRarities(), orbits)
+	res.Events = WorthAMosaic(res.Events)
 	s.mu.Lock()
 	s.tables, s.site = tabs, site
 	s.mu.Unlock()
@@ -431,11 +432,14 @@ func memberKeys(e Event) (string, []string) {
 }
 
 // matches ties a stored choice to an event of a later search: the same id,
-// or the same bodies, a shared object (or none on either side) and an
-// overlapping window.
+// or the same bodies, a shared object (or none on either side), the same
+// framing (one frame or a mosaic) and an overlapping window.
 func matches(c app.SkyEventChoice, e Event) bool {
 	if c.EventID == e.ID {
 		return true
+	}
+	if strings.HasPrefix(c.EventID, mosaicIDPrefix+"-") != (e.Kind == EventMosaic2) {
+		return false
 	}
 	b, o := memberKeys(e)
 	if c.Bodies != b || c.WindowStart == nil || c.WindowEnd == nil {
@@ -637,4 +641,12 @@ func (s *Service) photometry(ctx context.Context, filter string) Photometry {
 		p.ZeroPoint, p.ZPSamples = &m, len(vals)
 	}
 	return p
+}
+
+// WorthAMosaic drops 2-panel mosaic events of fewer than three members that
+// are not rare; one-frame events all stay.
+func WorthAMosaic(events []Event) []Event {
+	return slices.DeleteFunc(events, func(e Event) bool {
+		return e.Kind == EventMosaic2 && len(e.Members) < 3 && !e.IsRare()
+	})
 }

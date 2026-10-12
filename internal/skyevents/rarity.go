@@ -23,7 +23,7 @@ const (
 	RareYears = 10
 	// CoarseStep is the step of the first pass over the decades.
 	CoarseStep    = 24 * time.Hour
-	rarityVersion = 2
+	rarityVersion = 3
 	yearDays      = 365.25
 	moonParallax  = 2.0
 )
@@ -103,6 +103,7 @@ type pairing struct {
 	key    string
 	bodies []ephem.Body
 	dsos   []DSO
+	mosaic bool
 }
 
 func ephemerisBody(name string) (ephem.Body, bool) {
@@ -142,6 +143,10 @@ func pairingOf(e Event, dsos []DSO) (pairing, string) {
 		return p, "The event has no fixed pairing to search for."
 	}
 	sort.Strings(ids)
+	p.mosaic = e.Kind == EventMosaic2
+	if p.mosaic {
+		ids = append([]string{mosaicIDPrefix}, ids...)
+	}
 	p.key = strings.Join(ids, "|")
 	return p, ""
 }
@@ -276,7 +281,7 @@ func (s *scanner) scan(p pairing, from, to time.Time) ([]rhit, error) {
 		}
 		tracks[i] = t
 	}
-	limit := s.c.UsableW + margin(p.bodies)
+	limit := longest(s.c.shapes(p.mosaic)) + margin(p.bodies)
 	var out []rhit
 	half := CoarseStep / 2
 	for i := range s.days {
@@ -346,18 +351,10 @@ func (s *scanner) fits(p pairing, at time.Time) (rhit, bool, error) {
 		}
 		ds = append(ds, dsoDisc(d))
 	}
-	if _, ok := fitFrame(ds, s.c.UsableW, s.c.UsableH); !ok {
+	if _, _, ok := fitShapes(ds, s.c.shapes(p.mosaic)); !ok {
 		return rhit{}, false, nil
 	}
-	sep := math.Inf(1)
-	if len(p.dsos) == 0 {
-		sep = catalog.Separation(ds[0].ra, ds[0].dec, ds[1].ra, ds[1].dec)
-	} else {
-		for _, d := range ds[len(p.bodies):] {
-			sep = math.Min(sep, catalog.Separation(ds[0].ra, ds[0].dec, d.ra, d.dec))
-		}
-	}
-	return rhit{at: at, sep: sep}, true, nil
+	return rhit{at: at, sep: spread(ds, len(p.bodies))}, true, nil
 }
 
 func (s *scanner) occurrences(hs []rhit) []Occurrence {
@@ -386,14 +383,19 @@ func (s *scanner) occurrences(hs []rhit) []Occurrence {
 	return out
 }
 
-func rarityBasis(c Criteria) string {
-	return fmt.Sprintf("The same members (the bodies and the deep-sky objects of the best frame) checked every %d minutes, %d years before and after, under the event rules: Sun below %g°, every member above %g°, all inside %.2f° × %.2f° at some rotator angle. Times up to %d hours apart count as one occurrence. Rare means no other occurrence within %d years either way. Moon and planets from NASA JPL's planetary tables.",
-		c.StepMin, RecurrenceYears, c.SunBelow, c.MinAlt, c.UsableW, c.UsableH, int(c.MergeGap.Hours()), RareYears)
+func rarityBasis(c Criteria, mosaic bool) string {
+	inside := fmt.Sprintf("all inside %.2f° × %.2f° at some rotator angle", c.UsableW, c.UsableH)
+	if mosaic {
+		m := c.mosaic()
+		inside = fmt.Sprintf("all inside two frames side by side (%.2f° × %.2f° or %.2f° × %.2f°) at some rotator angle; times they fit one frame count too", m[0].w, m[0].h, m[1].w, m[1].h)
+	}
+	return fmt.Sprintf("The same members (the bodies and the deep-sky objects of the best frame) checked every %d minutes, %d years before and after, under the event rules: Sun below %g°, every member above %g°, %s. Times up to %d hours apart count as one occurrence. Rare means no other occurrence within %d years either way. Moon and planets from NASA JPL's planetary tables.",
+		c.StepMin, RecurrenceYears, c.SunBelow, c.MinAlt, inside, int(c.MergeGap.Hours()), RareYears)
 }
 
 // judge places the event among the pairing's occurrences.
 func judge(e Event, occ []Occurrence, from, to time.Time, c Criteria) *Rarity {
-	r := &Rarity{Status: StatusReady, SearchedFrom: &from, SearchedTo: &to, Basis: rarityBasis(c), Method: MethodSearch}
+	r := &Rarity{Status: StatusReady, SearchedFrom: &from, SearchedTo: &to, Basis: rarityBasis(c, e.Kind == EventMosaic2), Method: MethodSearch}
 	selfStart, selfEnd := e.Start, e.End
 	for _, o := range occ {
 		if o.Start.Before(selfEnd) && selfStart.Before(o.End) {

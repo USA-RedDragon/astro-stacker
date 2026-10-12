@@ -42,7 +42,14 @@ func skyEventsEngineAt(t *testing.T, withWindows bool, now time.Time) skyEventsR
 	tr := &sentCommands{}
 	cmds := &schedcmd.Service{Transports: []schedcmd.Transport{tr}}
 	r, sched, appStore := planningEngineWith(t, cmds)
-	if err := appStore.DB().AutoMigrate(&schedcmd.Record{}, &app.GlobalRuleWeight{}, &app.SkyEventRun{}, &app.SkyEventChoice{}, &app.HorizonsCache{}); err != nil {
+	if err := appStore.DB().AutoMigrate(&schedcmd.Record{}, &app.GlobalRuleWeight{}, &app.SkyEventRun{}, &app.SkyEventChoice{}, &app.HorizonsCache{},
+		&app.Frame{}, &app.MosaicPanel{}); err != nil {
+		t.Fatal(err)
+	}
+	lit := now.Add(-24 * time.Hour)
+	pw, ph, fl, px := 6248, 4176, 405.0, 3.76
+	if err := appStore.DB().Create(&app.Frame{Key: "rig-light", ETag: "e", Type: "LIGHT", Object: "Rig", DateObs: &lit, LastModified: lit,
+		Width: &pw, Height: &ph, FocalLength: &fl, PixelSize: &px}).Error; err != nil {
 		t.Fatal(err)
 	}
 	cmds.Log, cmds.AppDB = schedcmd.NewGormLog(appStore.DB()), appStore.DB()
@@ -228,5 +235,82 @@ func TestSkyEventTwoBodiesFollowAPublishedCentre(t *testing.T) {
 	}
 	if code, out := rig.call(http.MethodPost, "/api/v1/sky-events/"+id+"/plan", `{"priority":"high"}`); code != http.StatusOK {
 		t.Fatalf("planning again after unplan: %d %v", code, out)
+	}
+}
+
+func checkPanelTargets(t *testing.T, p schedcmd.ProjectCreatePayload, id string) {
+	t.Helper()
+	if !p.Project.IsMosaic || len(p.Targets) != 2 || p.Mosaic == nil || p.Mosaic.Cols != 2 || p.Mosaic.Rows != 1 || p.Mosaic.Overlap != skyevents.MosaicOverlap {
+		t.Fatalf("project %+v mosaic %+v, %d targets", p.Project, p.Mosaic, len(p.Targets))
+	}
+	a, b := p.Targets[0], p.Targets[1]
+	if a.Name != "Moon with Mars, Jupiter Panel 1" || b.Name != "Moon with Mars, Jupiter Panel 2" || a.GUID == b.GUID {
+		t.Fatalf("targets %+v %+v", a, b)
+	}
+	for _, tg := range p.Targets {
+		if tg.Designation != bodies.EventPrefix+id || tg.BodyKind != schedcmd.BodyKindEvent || tg.Window == nil || tg.Window.Priority != schedcmd.EventPriorityHigh ||
+			!tg.Window.IgnoreMoon || len(tg.Plans) == 0 {
+			t.Fatalf("target %+v", tg)
+		}
+	}
+	if d := catalog.Separation(a.RAHours*15, a.Dec, b.RAHours*15, b.Dec); d < 2.8 || d > 2.84 {
+		t.Errorf("panel centres %.3f° apart, want 15%% overlap of 3.32°", d)
+	}
+}
+
+func checkPanelCentres(t *testing.T, rig skyEventsRig, a, b string) {
+	t.Helper()
+	var rows []bodies.PositionRow
+	if err := rig.sched.DB().Table(bodies.PositionTable).Order("at").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	per := map[string][]bodies.PositionRow{}
+	for _, r := range rows {
+		per[r.TargetGUID] = append(per[r.TargetGUID], r)
+	}
+	if len(per) != 2 || len(per[a]) == 0 || len(per[a]) != len(per[b]) {
+		t.Fatalf("centre rows per target: %d and %d of %d", len(per[a]), len(per[b]), len(rows))
+	}
+	for i, r := range per[a] {
+		q := per[b][i]
+		if d := catalog.Separation(r.RA, r.Dec, q.RA, q.Dec); !r.At.Equal(q.At) || d < 2.8 || d > 2.84 || r.RARate == 0 {
+			t.Fatalf("panel rows %+v %+v are %.3f° apart", r, q, d)
+		}
+	}
+}
+
+func TestSkyEventMosaicPlansTwoPanels(t *testing.T) {
+	t.Parallel()
+	rig := skyEventsEngine(t, true)
+	_, out := rig.call(http.MethodGet, "/api/v1/sky-events", "")
+	id := eventID(t, out, "Moon with Mars, Jupiter")
+	if code, out := rig.call(http.MethodPost, "/api/v1/sky-events/"+id+"/plan", `{"priority":"high"}`); code != http.StatusOK {
+		t.Fatalf("%d %v", code, out)
+	}
+	var p schedcmd.ProjectCreatePayload
+	sentPayload(t, rig.tr, 0, schedcmd.KindProjectCreate, &p)
+	checkPanelTargets(t, p, id)
+	a, b := p.Targets[0], p.Targets[1]
+	var panels int64
+	if err := rig.app.DB().Model(&app.MosaicPanel{}).Where("project_guid = ?", p.Project.GUID).Count(&panels).Error; err != nil || panels != 2 {
+		t.Errorf("%d mosaic panels recorded: %v", panels, err)
+	}
+	checkPanelCentres(t, rig, a.GUID, b.GUID)
+	code, out := rig.call(http.MethodPost, "/api/v1/sky-events/"+id+"/priority", `{"priority":"normal"}`)
+	if code != http.StatusOK || out["command"] == nil {
+		t.Fatalf("priority: %d %v", code, out)
+	}
+	var w1, w2 schedcmd.TargetWindowPayload
+	sentPayload(t, rig.tr, 1, schedcmd.KindTargetWindow, &w1)
+	sentPayload(t, rig.tr, 2, schedcmd.KindTargetWindow, &w2)
+	if w1.TargetGUID != a.GUID || w2.TargetGUID != b.GUID || w2.TargetName != b.Name || w1.Window.Priority != schedcmd.EventPriorityNormal {
+		t.Fatalf("windows %+v %+v", w1, w2)
+	}
+	if code, out := rig.call(http.MethodPost, "/api/v1/sky-events/"+id+"/unplan", ``); code != http.StatusOK {
+		t.Fatalf("unplan %d %v", code, out)
+	}
+	var left int64
+	if err := rig.sched.DB().Table(bodies.PositionTable).Count(&left).Error; err != nil || left != 0 {
+		t.Errorf("%d centre rows left after unplanning: %v", left, err)
 	}
 }
