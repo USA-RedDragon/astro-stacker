@@ -382,16 +382,41 @@ func (s *NightService) Refresh(ctx context.Context) (*NightResult, error) {
 	return s.keep(res), err
 }
 
+func (s *NightService) targetsKey(ctx context.Context) (string, error) {
+	return (&Service{Sched: s.Sched}).targetsKey(ctx)
+}
+
+// Run refreshes every interval, and within WatchEvery of a body target
+// being added, removed or changed.
 func (s *NightService) Run(ctx context.Context, every time.Duration) {
+	watch := min(WatchEvery, every)
+	var next time.Time
+	last, _ := s.targetsKey(ctx)
+	key := last
 	for {
-		if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("Building body season nights failed", "error", err)
+		if RefreshDue(time.Now(), next, key, last) {
+			if key != last {
+				slog.Info("Body targets changed; building season nights now")
+			}
+			if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("Building body season nights failed", "error", err)
+			}
+			next = time.Now().Add(every)
+			last = key
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(every):
+		case <-time.After(watch):
 		}
+		k, err := s.targetsKey(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Warn("Checking body targets failed", "error", err)
+			}
+			continue
+		}
+		key = k
 	}
 }
 
