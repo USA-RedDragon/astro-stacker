@@ -275,3 +275,169 @@ func TestRejectsOversizedSpan(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+func TestHonorsRetryAfterSeconds(t *testing.T) {
+	t.Parallel()
+	body := fixture(t, "comet-c2025r2-10m.json")
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	c := &horizons.Client{BaseURL: srv.URL, Backoff: time.Millisecond}
+	start := time.Now()
+	if _, err := c.Ephemeris(context.Background(), request()); err != nil {
+		t.Fatal(err)
+	}
+	if waited := time.Since(start); waited < time.Second {
+		t.Errorf("retried after %v, Retry-After said 1 s", waited)
+	}
+}
+
+func TestRetriesBrokenConnections(t *testing.T) {
+	t.Parallel()
+	body := fixture(t, "comet-c2025r2-10m.json")
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+				}
+			}
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	c := &horizons.Client{BaseURL: srv.URL, Backoff: time.Millisecond}
+	if _, err := c.Ephemeris(context.Background(), request()); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("%d calls, want a retry after the dropped connection", calls.Load())
+	}
+}
+
+func TestWaitersHonorContext(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		<-release
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	defer close(release)
+	c := &horizons.Client{BaseURL: srv.URL, Attempts: 1}
+	go func() { _, _ = c.Ephemeris(context.Background(), request()) }()
+	for c.Requests() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	other := request()
+	other.Start, other.Stop = other.Start.Add(24*time.Hour), other.Stop.Add(24*time.Hour)
+	start := time.Now()
+	if _, err := c.Ephemeris(ctx, other); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v", err)
+	}
+	if time.Since(start) > time.Second || c.Requests() != 1 {
+		t.Errorf("a waiter ignored its context: %v, %d requests", time.Since(start), c.Requests())
+	}
+}
+
+func TestFailuresAreRememberedForAWhile(t *testing.T) {
+	t.Parallel()
+	body := fixture(t, "nomatch.json")
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	now := time.Date(2026, 10, 12, 20, 0, 0, 0, time.UTC)
+	c := &horizons.Client{BaseURL: srv.URL, Cache: cacheDB(t), Now: func() time.Time { return now }}
+	for range 3 {
+		if _, err := c.Ephemeris(context.Background(), request()); !errors.Is(err, horizons.ErrUnknownBody) {
+			t.Fatalf("err %v", err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("%d requests for a remembered failure", calls.Load())
+	}
+	now = now.Add(horizons.DefaultFailureTTL + time.Minute)
+	if _, err := c.Ephemeris(context.Background(), request()); !errors.Is(err, horizons.ErrUnknownBody) || calls.Load() != 2 {
+		t.Fatalf("after the TTL: %v, %d requests", err, calls.Load())
+	}
+}
+
+func TestStaleTablesAreRefreshed(t *testing.T) {
+	t.Parallel()
+	body := fixture(t, "comet-c2025r2-10m.json")
+	var calls atomic.Int32
+	var fail atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		if fail.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	now := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
+	c := &horizons.Client{BaseURL: srv.URL, Cache: cacheDB(t), Attempts: 1, Now: func() time.Time { return now }}
+	ctx := context.Background()
+	if _, err := c.Ephemeris(ctx, request()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(25 * time.Hour)
+	fresh, err := c.Ephemeris(ctx, request())
+	if err != nil || fresh.Cached || calls.Load() != 2 {
+		t.Fatalf("a day-old table of a coming night was not fetched again: cached=%v %v %d", fresh.Cached, err, calls.Load())
+	}
+	now = now.Add(25 * time.Hour)
+	fail.Store(true)
+	stale, err := c.Ephemeris(ctx, request())
+	if err != nil || !stale.Cached || len(stale.Rows) != 73 || calls.Load() != 3 {
+		t.Fatalf("a failed refresh did not keep the cached table: %v %v %d", stale.Cached, err, calls.Load())
+	}
+	now = time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	if done, err := c.Ephemeris(ctx, request()); err != nil || !done.Cached || calls.Load() != 3 {
+		t.Fatalf("a past night was fetched again: %v %d", err, calls.Load())
+	}
+}
+
+func TestCacheKeyIncludesTheSite(t *testing.T) {
+	t.Parallel()
+	body := fixture(t, "comet-c2025r2-10m.json")
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	c := &horizons.Client{BaseURL: srv.URL, Cache: cacheDB(t)}
+	other := request()
+	other.Site.Latitude = 40
+	for _, r := range []horizons.Request{request(), other, request(), other} {
+		if _, err := c.Ephemeris(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Errorf("%d requests for two sites, want 2", calls.Load())
+	}
+}
+
+func TestMultipleMajorBodiesIsAmbiguous(t *testing.T) {
+	t.Parallel()
+	if _, err := horizons.Parse(" Multiple major-bodies match string \"MAR*\"\n\n  ID#      Name\n  499      Mars\n"); !errors.Is(err, horizons.ErrAmbiguous) {
+		t.Errorf("err %v", err)
+	}
+}
