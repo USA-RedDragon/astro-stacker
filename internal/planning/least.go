@@ -38,6 +38,7 @@ type LeastPlateau struct {
 const (
 	NoPlansReason   = "no enabled exposure plans"
 	NoGoalReason    = "no goal set"
+	NoSubsYet       = "no subs taken yet"
 	CollectingFirst = "collecting subs for the first measurement"
 	WaitingFirst    = "waiting for the first measurement"
 	FailedReason    = "the last measurement failed"
@@ -58,6 +59,10 @@ func goalProgressOf(g FilterGoal) *float64 {
 	return &v
 }
 
+func collectingText(r *goals.Readiness) string {
+	return fmt.Sprintf("%s, %d of %d", CollectingFirst, r.StackSubs, r.MinSubs)
+}
+
 func notMeasuredReason(g FilterGoal) string {
 	switch {
 	case g.Goal == nil:
@@ -66,8 +71,10 @@ func notMeasuredReason(g FilterGoal) string {
 		return g.Progress.Unmeasured
 	case g.Readiness != nil && g.Readiness.State == goals.StateUnmeasurable:
 		return g.Readiness.Reason
+	case g.Readiness != nil && g.Readiness.StackSubs == 0:
+		return NoSubsYet
 	case g.Readiness != nil && g.Readiness.StackSubs < g.Readiness.MinSubs:
-		return CollectingFirst
+		return collectingText(g.Readiness)
 	case g.Status == StatusFailed && g.Error != "":
 		return FailedReason + ": " + g.Error
 	case g.Status == StatusFailed:
@@ -84,8 +91,10 @@ func plateauReason(g FilterGoal) string {
 	switch {
 	case g.Measurement != nil:
 		return g.Measurement.PlateauAt.Unmeasured
+	case g.Readiness != nil && g.Readiness.StackSubs == 0:
+		return NoSubsYet
 	case g.Readiness != nil && g.Readiness.StackSubs < g.Readiness.MinSubs:
-		return CollectingFirst
+		return collectingText(g.Readiness)
 	case g.Status == StatusFailed && g.Error != "":
 		return FailedReason + ": " + g.Error
 	case g.Status == StatusFailed:
