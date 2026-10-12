@@ -195,8 +195,8 @@ func TestRecalibrateDarks(t *testing.T) {
 	}
 	during := light("f.xisf", app.StackFrame{ProcessedAt: time.Date(2026, 9, 29, 6, 0, 0, 0, time.UTC)})
 	after := light("g.xisf", app.StackFrame{ProcessedAt: time.Date(2026, 9, 30, 6, 0, 0, 0, time.UTC)})
-	recorded := light("h.xisf", app.StackFrame{DarkMaster: s("old"), ProcessedAt: time.Date(2026, 9, 30, 6, 0, 0, 0, time.UTC)})
-	if err := db.Create(&app.CalibrationMaster{SetKey: "old", Type: frameTypeDark, ObjectKey: "z", Frames: 20,
+	recorded := light("h.xisf", app.StackFrame{DarkMaster: s(keyOld), ProcessedAt: time.Date(2026, 9, 30, 6, 0, 0, 0, time.UTC)})
+	if err := db.Create(&app.CalibrationMaster{SetKey: keyOld, Type: frameTypeDark, ObjectKey: "z", Frames: 20,
 		Exposure: fp(600), Gain: fp(0), Offset: fp(50), SetTemp: fp(0), BinX: fp(1)}).Error; err != nil {
 		t.Fatal(err)
 	}

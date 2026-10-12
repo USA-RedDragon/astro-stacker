@@ -266,7 +266,7 @@ func TestLightsWaitForPhotometry(t *testing.T) {
 		t.Fatal(err)
 	}
 	old, cur := measure.PhotometryRevision-1, measure.PhotometryRevision
-	for key, rev := range map[string]*int{"none": nil, "old": &old, "measured": &cur} {
+	for key, rev := range map[string]*int{"none": nil, keyOld: &old, "measured": &cur} {
 		if err := db.Create(&app.Frame{Key: key, Type: frameTypeLight, Object: objectOrion, Filter: filterRed, LastModified: time.Now(), PhotometryRev: rev}).Error; err != nil {
 			t.Fatal(err)
 		}
