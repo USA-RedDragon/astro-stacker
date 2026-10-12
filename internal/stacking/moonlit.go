@@ -112,11 +112,16 @@ func ignoreMoon(ctx context.Context, sched *gorm.DB) (map[string]bool, error) {
 	return out, nil
 }
 
-// floorWhy is why a light broke the moon floor: the Moon above the horizon
-// and within MoonFloorDegrees of the target at mid-exposure.
+func midExposure(start time.Time, seconds float64) time.Time {
+	return start.Add(time.Duration(seconds / 2 * float64(time.Second)))
+}
+
+// floorWhy is why a light broke the moon floor: the Moon, seen from the
+// site, above the horizon and within MoonFloorDegrees of the target at
+// mid-exposure.
 func floorWhy(start time.Time, seconds, ra, dec, lat, lon float64) string {
-	mid := start.Add(time.Duration(seconds / 2 * float64(time.Second)))
-	m := moon.At(mid)
+	mid := midExposure(start, seconds)
+	m := moon.At(mid).Topocentric(mid, lat, lon)
 	if m.Altitude(mid, lat, lon) <= 0 {
 		return ""
 	}
@@ -162,6 +167,7 @@ type moonChecker struct {
 	positions map[string][2]float64
 	floor     *floorPlans
 	ignore    map[string]bool
+	bodies    *bodyPositions
 }
 
 func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]float64) (*moonChecker, error) {
@@ -177,7 +183,7 @@ func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]floa
 	if err != nil {
 		return nil, err
 	}
-	return &moonChecker{p: p, rules: rules, positions: positions, floor: floor, ignore: ignore}, nil
+	return &moonChecker{p: p, rules: rules, positions: positions, floor: floor, ignore: ignore, bodies: newBodyPositions(ctx, p.sched)}, nil
 }
 
 // moonlit reports whether f breaks its filter's rule. A light it can't place
@@ -196,6 +202,12 @@ func (c *moonChecker) why(ctx context.Context, f app.Frame) string {
 		return ""
 	}
 	pos, ok := c.positions[f.Object]
+	if floor && c.bodies.moving(f.Object) {
+		pos, ok = c.bodies.at(ctx, f, midExposure(*f.DateObs, *f.Exposure))
+		if !ok {
+			return ""
+		}
+	}
 	if !ok {
 		if f.MountRA == nil || f.MountDec == nil {
 			return ""

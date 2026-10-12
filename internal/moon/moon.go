@@ -77,6 +77,24 @@ func (p Position) Altitude(t time.Time, lat, lon float64) float64 {
 	return alt - p.Parallax*cos(alt)
 }
 
+// Topocentric is the Moon as seen from latitude lat and east longitude lon
+// (degrees) rather than from the Earth's centre: RA and Dec shifted by the
+// parallax (Meeus chapter 40), and no parallax left, so Altitude needs no
+// further correction.
+func (p Position) Topocentric(t time.Time, lat, lon float64) Position {
+	u := math.Atan(0.99664719*math.Tan(lat*deg)) / deg
+	rhoSin, rhoCos := 0.99664719*sin(u), cos(u)
+	gmst := 280.46061837 + 360.98564736629*(julianDay(t)-2451545)
+	h := gmst + lon - p.RA
+	sinPi := sin(p.Parallax)
+	den := cos(p.Dec) - rhoCos*sinPi*cos(h)
+	dRA := math.Atan2(-rhoCos*sinPi*sin(h), den)
+	dec := math.Atan2((sin(p.Dec)-rhoSin*sinPi)*math.Cos(dRA), den) / deg
+	out := p
+	out.RA, out.Dec, out.Parallax = math.Mod(p.RA+dRA/deg+360, 360), dec, 0
+	return out
+}
+
 // Separation is the angle in degrees between the Moon and ra, dec.
 func (p Position) Separation(ra, dec float64) float64 {
 	c := sin(dec)*sin(p.Dec) + cos(dec)*cos(p.Dec)*cos(ra-p.RA)
