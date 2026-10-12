@@ -33,7 +33,7 @@ const (
 	ModeOn     = "on"
 	// SyncGrace is how long a project is left alone after an automatic
 	// edit, so the home copy of the scheduler database catches up first.
-	SyncGrace = 2 * time.Hour
+	SyncGrace = 30 * time.Minute
 	cacheFor  = time.Hour
 )
 

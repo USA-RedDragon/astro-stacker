@@ -46,38 +46,29 @@ func windowText(h float64) string {
 	return fmt.Sprintf("%.1f h", h)
 }
 
-// MinTimeFor is the switching floor, or the whole of the shorter of
-// tonight's and the typical window when that is shorter, rounded down to
-// MinTimeStep and at least MinTimeStep, so a short window can still be
-// imaged. With no window it is the floor.
+// MinTimeFor is always the switching floor, so a stint never spends more
+// than MaxSwitchShare switching. A target whose window is shorter is not
+// picked that night, and is picked once its window grows. The window is
+// kept for the reason.
 func MinTimeFor(w Window, floor int) *MinTime {
-	type pick struct {
-		label string
-		h     float64
-	}
-	var picks []pick
+	m := &MinTime{Minutes: floor, Basis: fmt.Sprintf("the %d min switching floor", floor)}
+	var best *float64
+	label := ""
 	if w.Tonight != nil && *w.Tonight > 0 {
-		picks = append(picks, pick{"tonight", *w.Tonight})
+		best, label = w.Tonight, "tonight"
 	}
-	if w.Typical != nil && *w.Typical > 0 {
-		picks = append(picks, pick{fmt.Sprintf("typical over the next %d nights", TypicalNights), *w.Typical})
+	if w.Typical != nil && *w.Typical > 0 && (best == nil || *w.Typical < *best) {
+		best, label = w.Typical, fmt.Sprintf("typical over the next %d nights", TypicalNights)
 	}
-	if len(picks) == 0 {
-		return &MinTime{Minutes: floor, Basis: fmt.Sprintf("the %d min switching floor", floor)}
+	if best == nil {
+		return m
 	}
-	p := picks[0]
-	for _, q := range picks[1:] {
-		if q.h < p.h {
-			p = q
-		}
+	win := fmt.Sprintf("%s window %s", windowText(*best), label)
+	m.Window, m.Hours = &win, *best
+	if *best*60 < float64(floor) {
+		m.Basis = fmt.Sprintf("the %d min switching floor; its %s is shorter, so it is not picked until the window grows", floor, win)
 	}
-	win := fmt.Sprintf("%s window %s", windowText(p.h), p.label)
-	m := MinTime{Window: &win, Hours: p.h, Minutes: floor, Basis: fmt.Sprintf("the %d min switching floor", floor)}
-	if whole := int(math.Floor(p.h*60/MinTimeStep)) * MinTimeStep; whole < floor {
-		m.Minutes = max(MinTimeStep, whole)
-		m.Basis = fmt.Sprintf("the whole %s, which is shorter than the %d min switching floor", win, floor)
-	}
-	return &m
+	return m
 }
 
 // MinAltitude is a project's automatic minimum altitude and why.
