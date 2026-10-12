@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/calreq"
+	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
@@ -27,10 +29,12 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/publicframe"
+	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
+	"github.com/USA-RedDragon/astro-stacker/internal/skyevents"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/astro-stacker/internal/sublength"
 	"github.com/USA-RedDragon/astro-stacker/internal/wake"
@@ -216,7 +220,14 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 		previews.Notice(r)
 	})
-	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	skyEvents := &skyevents.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Horizons: hz, Site: skyevents.SiteFunc(siteFunc(cfg, appStore)),
+		Rig: func(ctx context.Context) (rigsource.Rig, error) {
+			return rigsource.Measure(ctx, appStore.DB(), schedulerDBStore.DB(), time.Now())
+		},
+		Catalog: sync.OnceValues(catalog.LoadEmbedded), Commands: commands}
+	go skyEvents.Run(indexCtx, skyevents.Interval)
+	slog.Info("Sky event finder started", "interval", skyevents.Interval)
+	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Comets: &bodies.CometList{DB: appStore.DB(), URL: cfg.Bodies.CometElementsURL, SBDBURL: cfg.Bodies.CometSBDBURL, UserAgent: horizons.UserAgent(cmd.Annotations["version"]),
 			Site: bodies.SiteFunc(siteFunc(cfg, appStore)), MinAlt: cfg.Discover.MinAltitude},
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
