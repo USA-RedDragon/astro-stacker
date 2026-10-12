@@ -51,6 +51,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applyCalibrationRoutes(r.Group("/api/v1"), extras)
 	applySubLengthRoutes(r.Group("/api/v1"), extras.SubLength)
 	applyBodiesRoutes(r.Group("/api/v1"), extras.Bodies)
+	applyBodyNightRoutes(r.Group("/api/v1"), extras.BodyNights)
 	applyCometRoutes(r.Group("/api/v1"), extras.Comets)
 	applyBodyFramingRoutes(r.Group("/api/v1"), extras.Framing)
 	asteroids := r.Group("/api/v1")

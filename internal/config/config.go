@@ -41,7 +41,7 @@ type Config struct {
 }
 
 type Bodies struct {
-	Publish          string `name:"publish" description:"Write each moving target's nightly position table into ts_body_position in the scheduler database, which the plugin uses for visibility, centering and sub length: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table" default:"on"`
+	Publish          string `name:"publish" description:"Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table" default:"on"`
 	IntervalMinutes  int    `name:"interval-minutes" description:"Minutes between rebuilding the position tables; tables already fetched for a night come from the cache" default:"60"`
 	HorizonsURL      string `name:"horizons-url" description:"JPL Horizons API" default:"https://ssd.jpl.nasa.gov/api/horizons.api"`
 	CometElementsURL string `name:"comet-elements-url" description:"Minor Planet Center comet elements, for the list of comets observable tonight" default:"https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"`

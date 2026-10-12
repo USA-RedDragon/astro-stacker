@@ -223,6 +223,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	})
 	comets := &bodies.CometList{DB: appStore.DB(), URL: cfg.Bodies.CometElementsURL, SBDBURL: cfg.Bodies.CometSBDBURL, UserAgent: horizons.UserAgent(cmd.Annotations["version"]),
 		Site: bodies.SiteFunc(siteFunc(cfg, appStore)), MinAlt: cfg.Discover.MinAltitude}
+	bodyNights := &bodies.NightService{Sched: schedulerDBStore.DB(), Horizons: hz, Elements: comets.ElementsOf, Site: bodies.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.Bodies.Publish}
+	go bodyNights.Run(indexCtx, time.Duration(cfg.Bodies.IntervalMinutes)*time.Minute)
 	asteroids := &bodies.AsteroidList{Comets: comets, Horizons: hz}
 	go asteroids.Run(indexCtx, bodies.AsteroidWarmInterval)
 	skyEvents := &skyevents.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Horizons: hz, Site: skyevents.SiteFunc(siteFunc(cfg, appStore)),
@@ -235,7 +237,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}}
 	go skyEvents.Run(indexCtx, skyevents.Interval)
 	slog.Info("Sky event finder started", "interval", skyevents.Interval)
-	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BodyNights: bodyNights, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Comets:     comets,
 		Asteroids:  asteroids,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},

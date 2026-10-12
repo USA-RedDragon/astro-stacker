@@ -45,6 +45,36 @@ func TestBodiesRoutes(t *testing.T) {
 	}
 }
 
+func TestBodyNightRoutes(t *testing.T) {
+	t.Parallel()
+	get := func(s *bodies.NightService, path string) (int, map[string]any) {
+		r := gin.New()
+		applyBodyNightRoutes(r.Group("/api/v1"), s)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil))
+		var body map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return w.Code, body
+	}
+	if code, _ := get(nil, "/api/v1/bodies/nights"); code != http.StatusServiceUnavailable {
+		t.Errorf("no service: %d", code)
+	}
+	s := &bodies.NightService{}
+	if code, body := get(s, "/api/v1/bodies/nights?target_guid=x"); code != http.StatusServiceUnavailable || body[errorKey] == nil {
+		t.Errorf("before the first build: %d %v", code, body)
+	}
+	if _, err := s.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	code, body := get(s, "/api/v1/bodies/nights")
+	if code != http.StatusOK || body["skipped"] != bodies.SkipNoScheduler || body["basis"] != bodies.NightBasis {
+		t.Errorf("status: %d %v", code, body)
+	}
+	if code, body := get(s, "/api/v1/bodies/nights?target_guid=x"); code != http.StatusNotFound || body[errorKey] == nil {
+		t.Errorf("unknown target: %d %v", code, body)
+	}
+}
+
 func TestCometRoute(t *testing.T) {
 	t.Parallel()
 	get := func(l *bodies.CometList, path string) (int, map[string]any) {
