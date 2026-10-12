@@ -3,15 +3,14 @@ package schedauto
 import (
 	"fmt"
 	"math"
-
-	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 )
 
 const (
 	// MaxSwitchShare is the most of the night target switches may take.
 	MaxSwitchShare = 0.15
-	// MinTimeMax is the longest automatic minimum time, in minutes.
-	MinTimeMax = 90
+	// HardMinAltitude is the minimum altitude until the observatory
+	// horizon is set: below it there are too few subs to judge.
+	HardMinAltitude = 15.0
 	// MinTimeStep is what minimum times are rounded to, in minutes.
 	MinTimeStep = 5
 	// DefaultSwitchMinutes is the switch time used until the stacker has
@@ -45,10 +44,10 @@ func windowText(h float64) string {
 	return fmt.Sprintf("%.1f h", h)
 }
 
-// MinTimeFor is half of the shorter of tonight's and the typical window,
-// rounded down to MinTimeStep, from floor to MinTimeMax. A target whose
-// window is shorter than floor gets its whole window rounded down, at least
-// MinTimeStep, so it can still be imaged. With no window it is nil.
+// MinTimeFor is the switching floor, or the whole of the shorter of
+// tonight's and the typical window when that is shorter, rounded down to
+// MinTimeStep and at least MinTimeStep, so a short window can still be
+// imaged. With no window it is the floor.
 func MinTimeFor(w Window, floor int) *MinTime {
 	type pick struct {
 		label string
@@ -62,7 +61,7 @@ func MinTimeFor(w Window, floor int) *MinTime {
 		picks = append(picks, pick{fmt.Sprintf("typical over the next %d nights", TypicalNights), *w.Typical})
 	}
 	if len(picks) == 0 {
-		return nil
+		return &MinTime{Minutes: floor, Basis: fmt.Sprintf("the %d min switching floor; no window in the next %d nights", floor, TypicalNights)}
 	}
 	p := picks[0]
 	for _, q := range picks[1:] {
@@ -71,22 +70,10 @@ func MinTimeFor(w Window, floor int) *MinTime {
 		}
 	}
 	win := fmt.Sprintf("%s window %s", windowText(p.h), p.label)
-	m := MinTime{Window: &win, Hours: p.h}
-	whole := int(math.Floor(p.h*60/MinTimeStep)) * MinTimeStep
-	half := int(math.Floor(p.h*60/2/MinTimeStep)) * MinTimeStep
-	switch {
-	case whole < floor:
+	m := MinTime{Window: &win, Hours: p.h, Minutes: floor, Basis: fmt.Sprintf("the %d min switching floor", floor)}
+	if whole := int(math.Floor(p.h*60/MinTimeStep)) * MinTimeStep; whole < floor {
 		m.Minutes = max(MinTimeStep, whole)
 		m.Basis = fmt.Sprintf("the whole %s, which is shorter than the %d min switching floor", win, floor)
-	case half < floor:
-		m.Minutes = floor
-		m.Basis = fmt.Sprintf("the %d min switching floor; half the %s is shorter", floor, win)
-	case half > MinTimeMax:
-		m.Minutes = MinTimeMax
-		m.Basis = fmt.Sprintf("the %d min cap; half the %s is longer", MinTimeMax, win)
-	default:
-		m.Minutes = half
-		m.Basis = fmt.Sprintf("half the %s", win)
 	}
 	return &m
 }
@@ -94,32 +81,16 @@ func MinTimeFor(w Window, floor int) *MinTime {
 // MinAltitude is a project's automatic minimum altitude and why.
 type MinAltitude struct {
 	Degrees float64 `json:"degrees"`
-	Class   string  `json:"class"`
-	Basis   string  `json:"basis"`
-	Reason  string  `json:"reason"`
 	Horizon bool    `json:"horizon"`
+	Basis   string  `json:"basis"`
 }
 
-func className(nb bool) string {
-	if nb {
-		return "narrowband"
+// MinAltitudeFor is the hard limit: HardMinAltitude until the project
+// follows the observatory horizon, then the horizon alone. Above it the
+// plugin weighs each exposure by its kept rate at the target's altitude.
+func MinAltitudeFor(horizon bool) MinAltitude {
+	if horizon {
+		return MinAltitude{Degrees: 0, Horizon: true, Basis: "the observatory horizon is the hard limit"}
 	}
-	return "broadband"
-}
-
-// MinAltitudeFor is the lowest altitude floor among the filter classes a
-// project images, so no filter is kept from altitudes where it still keeps
-// enough. classes empty means broadband and narrowband.
-func MinAltitudeFor(floors []moonkeep.AltitudeFloor, classes []bool, horizon bool) MinAltitude {
-	if len(classes) == 0 {
-		classes = []bool{false, true}
-	}
-	var best *moonkeep.AltitudeFloor
-	for _, nb := range classes {
-		f := moonkeep.AltitudeFloorFor(floors, nb)
-		if best == nil || f.Floor < best.Floor {
-			best = &f
-		}
-	}
-	return MinAltitude{Degrees: best.Floor, Class: className(best.Narrowband), Basis: best.Basis, Reason: best.Reason, Horizon: horizon}
+	return MinAltitude{Degrees: HardMinAltitude, Basis: fmt.Sprintf("%g°: below it there are too few subs to judge, and there is no observatory horizon yet", HardMinAltitude)}
 }

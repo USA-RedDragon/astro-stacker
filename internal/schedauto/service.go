@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
@@ -73,51 +72,41 @@ type RunStatus struct {
 
 // Rules are the constants the automatic values follow, for the UI.
 type Rules struct {
-	MaxSwitchShare        float64 `json:"maxSwitchShare"`
-	MaxSwitchGapMinutes   float64 `json:"maxSwitchGapMinutes"`
-	MinTimeMax            int     `json:"minTimeMax"`
-	MinTimeStep           int     `json:"minTimeStep"`
-	TypicalNights         int     `json:"typicalNights"`
-	AltitudeFallback      float64 `json:"altitudeFallback"`
-	AltitudeWorthBelow    float64 `json:"altitudeWorthBelow"`
-	AltitudeReferenceFrom float64 `json:"altitudeReferenceFrom"`
-	MinSubs               int     `json:"minSubs"`
-	MinNights             int     `json:"minNights"`
+	MaxSwitchShare      float64 `json:"maxSwitchShare"`
+	MaxSwitchGapMinutes float64 `json:"maxSwitchGapMinutes"`
+	MinTimeStep         int     `json:"minTimeStep"`
+	TypicalNights       int     `json:"typicalNights"`
+	HardMinAltitude     float64 `json:"hardMinAltitude"`
 }
 
 func rules() Rules {
-	return Rules{MaxSwitchShare: MaxSwitchShare, MaxSwitchGapMinutes: MaxSwitchGap.Minutes(), MinTimeMax: MinTimeMax, MinTimeStep: MinTimeStep,
-		TypicalNights: TypicalNights, AltitudeFallback: moonkeep.AltitudeFallback, AltitudeWorthBelow: moonkeep.AltitudeWorthBelow,
-		AltitudeReferenceFrom: moonkeep.AltitudeReferenceFrom, MinSubs: moonkeep.MinSubs, MinNights: moonkeep.MinNights}
+	return Rules{MaxSwitchShare: MaxSwitchShare, MaxSwitchGapMinutes: MaxSwitchGap.Minutes(), MinTimeStep: MinTimeStep,
+		TypicalNights: TypicalNights, HardMinAltitude: HardMinAltitude}
 }
 
 // Result is one computation of the global and automatic values.
 type Result struct {
-	ComputedAt  time.Time                    `json:"computedAt"`
-	Mode        string                       `json:"mode"`
-	Global      schedglobal.Settings         `json:"global"`
-	Defaults    schedglobal.Settings         `json:"defaults"`
-	Saved       bool                         `json:"saved"`
-	SavedAt     *time.Time                   `json:"savedAt,omitempty"`
-	SavedBy     string                       `json:"savedBy,omitempty"`
-	Rules       Rules                        `json:"rules"`
-	Overhead    Overhead                     `json:"overhead"`
-	SwitchFloor int                          `json:"switchFloorMinutes"`
-	Floors      []moonkeep.AltitudeFloor     `json:"altitudeFloors"`
-	AltReplay   []moonkeep.AltitudeReplayRow `json:"altitudeReplay"`
-	FloorsNote  string                       `json:"altitudeFloorsNote,omitempty"`
-	Horizon     HorizonStatus                `json:"horizon"`
-	Tonight     string                       `json:"tonight"`
-	Projects    []ProjectResult              `json:"projects"`
-	Differing   int                          `json:"differing"`
-	LastRun     *RunStatus                   `json:"lastRun,omitempty"`
+	ComputedAt  time.Time            `json:"computedAt"`
+	Mode        string               `json:"mode"`
+	Global      schedglobal.Settings `json:"global"`
+	Defaults    schedglobal.Settings `json:"defaults"`
+	Saved       bool                 `json:"saved"`
+	SavedAt     *time.Time           `json:"savedAt,omitempty"`
+	SavedBy     string               `json:"savedBy,omitempty"`
+	Rules       Rules                `json:"rules"`
+	Overhead    Overhead             `json:"overhead"`
+	SwitchFloor int                  `json:"switchFloorMinutes"`
+	Horizon     HorizonStatus        `json:"horizon"`
+	Tonight     string               `json:"tonight"`
+	Projects    []ProjectResult      `json:"projects"`
+	Differing   int                  `json:"differing"`
+	LastRun     *RunStatus           `json:"lastRun,omitempty"`
 }
 
 type Service struct {
 	App         *gorm.DB
 	Sched       *gorm.DB
 	Commands    *schedcmd.Service
-	MoonKeep    *moonkeep.Service
 	BodyWindows BodyWindowsFunc
 	Horizon     HorizonFunc
 	Site        SiteFunc
@@ -167,17 +156,6 @@ func (s *Service) lights(ctx context.Context, since time.Time) ([]Light, error) 
 		out = append(out, Light{Object: r.Object, Start: r.DateObs.UTC(), Exposure: *r.Exposure})
 	}
 	return out, nil
-}
-
-func (s *Service) floors() ([]moonkeep.AltitudeFloor, []moonkeep.AltitudeReplayRow, string) {
-	if s.MoonKeep == nil {
-		return nil, nil, fmt.Sprintf("the kept-rate fit is not running, so every project uses %g°", moonkeep.AltitudeFallback)
-	}
-	res := s.MoonKeep.Latest()
-	if res == nil {
-		return nil, nil, fmt.Sprintf("no kept-rate fit yet, so every project uses %g°", moonkeep.AltitudeFallback)
-	}
-	return res.Altitude, res.AltReplay, ""
 }
 
 func (s *Service) horizon(ctx context.Context) (*Horizon, HorizonStatus) {
@@ -234,7 +212,6 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	}
 	res.Overhead = MeasureOverhead(lights, site.Longitude, now)
 	res.SwitchFloor = SwitchFloor(res.Overhead.MeanMinutes)
-	res.Floors, res.AltReplay, res.FloorsNote = s.floors()
 	hz, status := s.horizon(ctx)
 	res.Horizon = status
 	nights := NightsFrom(site, now, TypicalNights)
@@ -257,7 +234,7 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := Inputs{Global: res.Global, Floors: res.Floors, SwitchFloor: res.SwitchFloor, Nights: nights, Horizon: hz, Events: events}
+	in := Inputs{Global: res.Global, SwitchFloor: res.SwitchFloor, Nights: nights, Horizon: hz, Events: events}
 	if s.BodyWindows != nil {
 		in.BodyWindows = func(guid string, minAlt float64) (Window, bool) {
 			t, typ, n, ok := s.BodyWindows(guid, minAlt, nights.First)

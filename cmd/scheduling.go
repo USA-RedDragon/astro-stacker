@@ -7,7 +7,6 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
-	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedauto"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
@@ -15,8 +14,8 @@ import (
 )
 
 func startScheduling(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, commands *schedcmd.Service,
-	moonKeep *moonkeep.Service, bodyNights *bodies.NightService, horizon *observatory.HorizonProvider) *schedauto.Service {
-	s := &schedauto.Service{App: appStore.DB(), Sched: schedStore.DB(), Commands: commands, MoonKeep: moonKeep,
+	bodyNights *bodies.NightService, horizon *observatory.HorizonProvider) *schedauto.Service {
+	s := &schedauto.Service{App: appStore.DB(), Sched: schedStore.DB(), Commands: commands,
 		Site: schedauto.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.Scheduling.Auto}
 	if bodyNights != nil {
 		s.BodyWindows = bodyNights.Windows

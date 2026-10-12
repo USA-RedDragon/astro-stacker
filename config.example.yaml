@@ -239,9 +239,9 @@ sub-length:
 calibration:
   # Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on
   publish: "off"
-# How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, fitted from its own verdicts for the plugin's bright-Moon decisions
+# How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, and by the target's altitude with the Moon down, fitted from its own verdicts for the plugin's weights and skips
 moon-keep:
-  # Write the fitted kept rates into ts_moon_keep in the scheduler database, which the plugin uses to weigh and skip bright-Moon exposures: off, dry-run (log what would be written) or on; nothing is written until the scheduler has the ts_moon_keep table
+  # Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it
   publish: "on"
   # Hours between refitting the kept rates
   interval-hours: 24
@@ -257,7 +257,7 @@ bodies:
   comet-elements-url: "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
   # JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list
   comet-sbdb-url: "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c"
-# One global set of scheduling settings for every Target Scheduler project, with each project's minimum time worked out from its window and its minimum altitude from the kept rates
+# One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor (or its whole window when shorter) and its minimum altitude at the hard limit
 scheduling:
   # Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on
   auto: "off"

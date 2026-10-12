@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedauto"
@@ -44,43 +43,36 @@ func TestSwitchFloorKeepsSwitchingUnderTheShare(t *testing.T) {
 	}
 }
 
-func TestMinTimeIsHalfTheShorterWindow(t *testing.T) {
+func TestMinTimeIsTheSwitchingFloorOrTheWholeWindow(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name             string
 		tonight, typical *float64
 		want             int
 	}{
-		{"tonight shorter", h(70.0 / 60), h(3), 35},
-		{"typical shorter", h(4), h(80.0 / 60), 40},
-		{"rounded down to 5", h(1.95), nil, 55},
-		{"capped", h(8), h(9), schedauto.MinTimeMax},
-		{"switch floor", h(0.75), nil, 25},
-		{"whole window when shorter than the floor", nil, h(22.0 / 60), 20},
+		{"long window", h(8), h(9), 25},
+		{"tonight short", h(22.0 / 60), h(3), 20},
+		{"typical short", h(4), h(13.0 / 60), 10},
 		{"at least one step", h(3.0 / 60), nil, schedauto.MinTimeStep},
-		{"not up tonight uses typical", nil, h(2), 60},
+		{"not up tonight uses typical", nil, h(2), 25},
 	} {
 		m := schedauto.MinTimeFor(schedauto.Window{Tonight: c.tonight, Typical: c.typical}, 25)
 		if m == nil || m.Minutes != c.want || m.Basis == "" || m.Window == nil {
 			t.Errorf("%s: %+v, want %d", c.name, m, c.want)
 		}
 	}
-	if m := schedauto.MinTimeFor(schedauto.Window{}, 25); m != nil {
+	if m := schedauto.MinTimeFor(schedauto.Window{}, 25); m == nil || m.Minutes != 25 || m.Window != nil {
 		t.Errorf("no window: %+v", m)
 	}
 }
 
-func TestMinAltitudeTakesTheLowestFloorOfTheProjectsClasses(t *testing.T) {
+func TestMinAltitudeIsTheHardLimit(t *testing.T) {
 	t.Parallel()
-	floors := []moonkeep.AltitudeFloor{{Floor: 25, Basis: moonkeep.FloorKeptRate, Reason: "bb"}, {Narrowband: true, Floor: 20, Basis: moonkeep.FloorKeptRate, Reason: "nb"}}
-	if m := schedauto.MinAltitudeFor(floors, []bool{false}, false); m.Degrees != 25 || m.Class != "broadband" {
-		t.Errorf("broadband only: %+v", m)
+	if m := schedauto.MinAltitudeFor(false); m.Degrees != schedauto.HardMinAltitude || m.Horizon {
+		t.Errorf("no horizon: %+v", m)
 	}
-	if m := schedauto.MinAltitudeFor(floors, []bool{false, true}, true); m.Degrees != 20 || m.Class != "narrowband" || !m.Horizon {
-		t.Errorf("both classes: %+v", m)
-	}
-	if m := schedauto.MinAltitudeFor(nil, nil, false); m.Degrees != moonkeep.AltitudeFallback || m.Basis != moonkeep.FloorNoData {
-		t.Errorf("no fit: %+v", m)
+	if m := schedauto.MinAltitudeFor(true); m.Degrees != 0 || !m.Horizon {
+		t.Errorf("horizon: %+v", m)
 	}
 }
 
@@ -150,7 +142,6 @@ func project(state string) planning.Project {
 
 func inputs() schedauto.Inputs {
 	return schedauto.Inputs{Global: schedglobal.Defaults(), SwitchFloor: 25,
-		Floors:  []moonkeep.AltitudeFloor{{Floor: 20, Basis: moonkeep.FloorKeptRate}, {Narrowband: true, Floor: 15, Basis: moonkeep.FloorThin}},
 		Nights:  schedauto.NightsFrom(site(), time.Date(2026, 10, 12, 21, 0, 0, 0, time.UTC), 5),
 		Horizon: nil}
 }
@@ -167,14 +158,14 @@ func TestPlanMakesAProjectEqualToTheGlobalAndAutomaticValues(t *testing.T) {
 	t.Parallel()
 	r := schedauto.Plan(project("Active"), inputs())
 	c := changed(r)
-	if c[schedcmd.FieldDitherEvery] != ditherOneToTwo || c[schedauto.FieldMinimumAltitude] != "25>15" || c[schedauto.FieldMinimumTime] != "" {
+	if c[schedcmd.FieldDitherEvery] != ditherOneToTwo || c[schedauto.FieldMinimumAltitude] != "25>15" || c[schedauto.FieldMinimumTime] != "90>25" {
 		t.Errorf("changes %v", c)
 	}
 	if _, ok := c[schedcmd.FieldFlatsHandling]; ok {
 		t.Errorf("flats already every day: %v", c)
 	}
-	if r.MinAltitude.Degrees != 15 || r.MinAltitude.Class != "narrowband" {
-		t.Errorf("the H-a panel's class sets the floor: %+v", r.MinAltitude)
+	if r.MinAltitude.Degrees != 15 {
+		t.Errorf("the hard limit: %+v", r.MinAltitude)
 	}
 	if r.MinTime == nil || r.MinTimeTarget != "Panel 1" || len(r.Targets) != 2 || r.Targets[1].MinTime == nil {
 		t.Errorf("minimum time from the active panel only: %+v %s", r.MinTime, r.MinTimeTarget)
@@ -218,7 +209,7 @@ func TestPlanUsesTheObservatoryHorizonOfTheProjectsProfile(t *testing.T) {
 	wall := mosaics.Horizon{Step: 90, Altitudes: []float64{30, 30, 30, 30}}
 	in.Horizon = &schedauto.Horizon{ProfileID: "PROF", Custom: true, Horizon: &wall}
 	r := schedauto.Plan(project("Active"), in)
-	if changed(r)[schedcmd.FieldUseCustomHorizon] != "false>true" || !r.MinAltitude.Horizon {
+	if changed(r)[schedcmd.FieldUseCustomHorizon] != "false>true" || !r.MinAltitude.Horizon || changed(r)[schedauto.FieldMinimumAltitude] != "25>0" {
 		t.Errorf("custom horizon on: %v", changed(r))
 	}
 	in.Horizon.ProfileID = "other"

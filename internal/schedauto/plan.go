@@ -6,8 +6,6 @@ import (
 	"math"
 	"strings"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/goals"
-	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
@@ -162,30 +160,11 @@ type BodyWindows func(guid string, minAlt float64) (Window, bool)
 // Inputs are what the plan is worked out from.
 type Inputs struct {
 	Global      schedglobal.Settings
-	Floors      []moonkeep.AltitudeFloor
 	SwitchFloor int
 	Nights      Nights
 	Horizon     *Horizon
 	BodyWindows BodyWindows
 	Events      map[string]bool
-}
-
-func classes(p planning.Project) []bool {
-	seen := map[bool]bool{}
-	var out []bool
-	for _, t := range p.Targets {
-		for _, pl := range t.Plans {
-			if !pl.Enabled || strings.TrimSpace(pl.Filter) == "" {
-				continue
-			}
-			nb := goals.IsNarrowband(pl.Filter)
-			if !seen[nb] {
-				seen[nb] = true
-				out = append(out, nb)
-			}
-		}
-	}
-	return out
 }
 
 // horizonFor is the horizon a project's limit follows and whether it
@@ -212,7 +191,7 @@ func Plan(p planning.Project, in Inputs) ProjectResult {
 	r := ProjectResult{ID: p.ID, GUID: p.GUID, Name: p.Name, State: p.State, IsMosaic: p.IsMosaic, Current: CurrentValues(p), Targets: []TargetResult{}}
 	g := in.Global
 	hz, useHorizon := in.horizonFor(p)
-	r.MinAltitude = MinAltitudeFor(in.Floors, classes(p), hz != nil)
+	r.MinAltitude = MinAltitudeFor(hz != nil)
 	r.Desired = Values{DitherEvery: ptr(g.DitherEvery), FilterSwitchFrequency: ptr(g.FilterSwitchFrequency), FlatsHandling: ptr(g.FlatsHandling),
 		SmartExposureOrder: ptr(g.SmartExposureOrder), MeridianWindow: ptr(g.MeridianWindow), UseCustomHorizon: useHorizon,
 		HorizonOffset: ptr(0.0), MaximumAltitude: ptr(g.MaximumAltitude), EnableGrader: ptr(g.EnableGrader), MinimumAltitude: ptr(r.MinAltitude.Degrees)}
@@ -260,7 +239,7 @@ func Plan(p planning.Project, in Inputs) ProjectResult {
 		r.Event = true
 		r.MinTime, r.MinTimeTarget = nil, ""
 		r.Desired.MinimumTime, r.Desired.MinimumAltitude = nil, nil
-		r.MinAltitude = MinAltitude{Degrees: p.MinimumAltitude, Basis: "event", Reason: "a sky event: the event planner sets its minimum time and altitude for the event's own window"}
+		r.MinAltitude = MinAltitude{Degrees: p.MinimumAltitude, Basis: "a sky event: the event planner sets its minimum time and altitude for the event's own window"}
 	}
 	r.Notes = []string{}
 	minAlt := p.MinimumAltitude
@@ -298,5 +277,5 @@ func (r ProjectResult) Summary() string {
 	if r.MinTime != nil {
 		mt = fmt.Sprintf("minimum time %d min (%s)", r.MinTime.Minutes, r.MinTime.Basis)
 	}
-	return fmt.Sprintf("%s: %s; minimum altitude %g° (%s)", r.Name, mt, r.MinAltitude.Degrees, r.MinAltitude.Reason)
+	return fmt.Sprintf("%s: %s; minimum altitude %g° (%s)", r.Name, mt, r.MinAltitude.Degrees, r.MinAltitude.Basis)
 }

@@ -53,7 +53,7 @@ func fixture(t *testing.T, mode string) (*schedauto.Service, *sentCommands, *gor
 		`create table exposureplan ("Id" integer primary key, "profileId" text, exposure real, desired integer, acquired integer, accepted integer, targetid integer, "exposureTemplateId" integer, enabled integer, guid text)`,
 		`create table ruleweight ("Id" integer primary key, name text, weight real, projectid integer)`,
 		`create table acquiredimage ("Id" integer primary key, "projectId" integer, "targetId" integer, acquireddate integer)`,
-		`insert into project values (7,'p','Garlic Nebula',null,1,1,60,25,0,0,1,'pg7',1,1,1,0,0,0,0),(8,'p','Equal',null,1,1,90,15,0,0,1,'pg8',2,1,1,0,0,0,0),(9,'p','Closed one',null,3,1,60,25,0,0,1,'pg9',1,1,0,0,0,0,0)`,
+		`insert into project values (7,'p','Garlic Nebula',null,1,1,60,25,0,0,1,'pg7',1,1,1,0,0,0,0),(8,'p','Equal',null,1,1,25,15,0,0,1,'pg8',2,1,1,0,0,0,0),(9,'p','Closed one',null,3,1,60,25,0,0,1,'pg9',1,1,0,0,0,0,0)`,
 		`insert into target values (20,'Garlic Nebula',1,23.987,62.44,0,7,'g20'),(21,'Equal',1,0.712,41.27,0,8,'g21'),(22,'Closed one',1,5,20,0,9,'g22')`,
 		`insert into exposuretemplate values (1,'p','H-a','H-a',100,10,1,2,1,45,7,85,600,0,0,1,'t1')`,
 		`insert into exposureplan values (50,'p',-1,100,64,64,20,1,1,'e50'),(51,'p',-1,100,64,64,21,1,1,'e51'),(52,'p',-1,100,64,64,22,1,1,'e52')`,
