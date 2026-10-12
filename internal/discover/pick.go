@@ -771,7 +771,11 @@ func templateFor(snap *planning.Snapshot, canon string) (*PickTemplate, string) 
 	if !ok {
 		return nil, fmt.Sprintf("no exposure template for %s", filterLabel(canon))
 	}
-	return &PickTemplate{ID: t.ID, Name: t.Name, Filter: t.Filter}, fmt.Sprintf("your %s filter", t.Filter)
+	pick := &PickTemplate{ID: t.ID, Name: t.Name, Filter: t.Filter}
+	if snap.Migrated(snap.FilterProfile()) {
+		return pick, fmt.Sprintf("your %s filter", t.Filter)
+	}
+	return pick, fmt.Sprintf("your %s template used by the most plans (%d)", filterLabel(canon), t.UsedByPlans)
 }
 
 // pickTemplate is the template a plan on the canonical filter uses: after
