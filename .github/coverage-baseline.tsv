@@ -10,7 +10,7 @@ internal/bodies/asteroids.go	387	350
 internal/bodies/comets.go	209	184
 internal/bodies/orbit.go	130	118
 internal/bodies/period.go	49	31
-internal/bodies/positions.go	196	173
+internal/bodies/positions.go	226	179
 internal/bodies/targets.go	54	47
 internal/bodies/track.go	52	47
 internal/calmatch/calmatch.go	85	81
@@ -61,7 +61,7 @@ internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	109
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	397	337
+internal/goalmeasure/runner.go	397	338
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/fit.go	92	87
@@ -108,7 +108,7 @@ internal/mosaicstore/mosaicstore.go	66	56
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	204	175
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -150,7 +150,7 @@ internal/schedcmd/planning.go	409	341
 internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
-internal/schedcmd/service.go	234	206
+internal/schedcmd/service.go	234	204
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/window.go	58	52
 internal/server/autofocus.go	26	22
