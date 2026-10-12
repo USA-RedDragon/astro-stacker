@@ -93,6 +93,14 @@ linters:
         linters:
           - gosec
         text: G703
+      - path: internal/horizonsurvey/(phd2|runner)\.go$
+        linters:
+          - gosec
+        text: G204|G703
+      - path: internal/horizonsurvey/sim/sim\.go$
+        linters:
+          - gosec
+        text: G404
       - path: internal/metrics/metrics\.go$
         linters:
           - gochecknoglobals
