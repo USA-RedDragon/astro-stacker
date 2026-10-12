@@ -1,21 +1,21 @@
-L: 5 Luminance Luminance
-R: 4 R 600 Red
-G: 8 Green Green
-B: none
-H: 2 HA Low H-a
-O: 7 O-III O-III
-S: none
-L: 5 Luminance Luminance
-R: 4 R 600 Red
-G: 8 Green Green
-B: none
-H: 2 HA Low H-a
-O: 7 O-III O-III
-S: none
-L: 3 Lum 300 L
-R: 9 Ared red
-G: none
-B: none
-H: 1 Ha H-alpha
-O: 2 OIII OIII
-S: none
+L: 5 Luminance Luminance; your L template used by the most plans (1)
+R: 4 R 600 Red; your R template used by the most plans (1)
+G: 8 Green Green; your G template used by the most plans (0)
+B: none; no exposure template for B
+H: 2 HA Low H-a; your H-α template used by the most plans (2)
+O: 7 O-III O-III; your O-III template used by the most plans (1)
+S: none; no exposure template for S-II
+L: 5 Luminance Luminance; your L template used by the most plans (1)
+R: 4 R 600 Red; your R template used by the most plans (1)
+G: 8 Green Green; your G template used by the most plans (0)
+B: none; no exposure template for B
+H: 2 HA Low H-a; your H-α template used by the most plans (2)
+O: 7 O-III O-III; your O-III template used by the most plans (1)
+S: none; no exposure template for S-II
+L: 3 Lum 300 L; your L template used by the most plans (4)
+R: 9 Ared red; your R template used by the most plans (0)
+G: none; no exposure template for G
+B: none; no exposure template for B
+H: 1 Ha H-alpha; your H-α template used by the most plans (3)
+O: 2 OIII OIII; your O-III template used by the most plans (2)
+S: none; no exposure template for S-II

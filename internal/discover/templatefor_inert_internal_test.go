@@ -60,10 +60,10 @@ func pickSnap(t *testing.T, db *gorm.DB) *planning.Snapshot {
 func picks(snap *planning.Snapshot) string {
 	var b strings.Builder
 	for _, c := range []string{"L", "R", "G", "B", "H", "O", "S"} {
-		if tm, _ := templateFor(snap, c); tm != nil {
-			fmt.Fprintf(&b, "%s: %d %s %s\n", c, tm.ID, tm.Name, tm.Filter)
+		if tm, basis := templateFor(snap, c); tm != nil {
+			fmt.Fprintf(&b, "%s: %d %s %s; %s\n", c, tm.ID, tm.Name, tm.Filter, basis)
 		} else {
-			fmt.Fprintf(&b, "%s: none\n", c)
+			fmt.Fprintf(&b, "%s: none; %s\n", c, basis)
 		}
 	}
 	return b.String()

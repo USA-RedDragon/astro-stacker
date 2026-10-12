@@ -39,10 +39,10 @@ func TestTemplateForAfterMigration(t *testing.T) {
 	}
 }
 
-func TestTemplateForBasisNamesTheFilter(t *testing.T) {
+func TestTemplateForBasisBeforeMigration(t *testing.T) {
 	t.Parallel()
 	snap := pickSnap(t, pickSched(t))
-	if tm, basis := templateFor(snap, "R"); tm == nil || tm.ID != 4 || basis != "your Red filter" {
+	if tm, basis := templateFor(snap, "R"); tm == nil || tm.ID != 4 || basis != "your R template used by the most plans (1)" {
 		t.Errorf("%+v %q", tm, basis)
 	}
 }
