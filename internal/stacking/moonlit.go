@@ -26,7 +26,10 @@ import (
 // is up, once the exposure templates are retired.
 const MoonFloorDegrees = 20.0
 
-const roleTable = "ts_template_role"
+const (
+	roleTable   = "ts_template_role"
+	windowTable = "ts_target_window"
+)
 
 // moonRule is one filter's moon avoidance, from its exposure templates.
 type moonRule struct {
@@ -114,6 +117,25 @@ func parseChangedAt(v string) (time.Time, error) {
 	return time.Time{}, err
 }
 
+// ignoreMoon is the targets whose event window lets them image beside the
+// Moon: no template rule and no floor applies to their lights.
+func ignoreMoon(ctx context.Context, sched *gorm.DB) (map[string]bool, error) {
+	out := map[string]bool{}
+	has, err := tables.Has(ctx, sched, windowTable)
+	if err != nil || !has {
+		return out, err
+	}
+	var names []string
+	if err := sched.WithContext(ctx).Table(windowTable+" w").Joins("JOIN target t ON t.guid = w.target_guid").
+		Where("w.ignore_moon = 1").Pluck("t.name", &names).Error; err != nil {
+		return nil, fmt.Errorf("load event windows: %w", err)
+	}
+	for _, n := range names {
+		out[n] = true
+	}
+	return out, nil
+}
+
 // floorWhy is why a light broke the moon floor: the Moon above the horizon
 // and within MoonFloorDegrees of the target at mid-exposure.
 func floorWhy(start time.Time, seconds, ra, dec, lat, lon float64) string {
@@ -162,6 +184,7 @@ type moonChecker struct {
 	rules     map[string]moonRule
 	positions map[string][2]float64
 	retiredAt *time.Time
+	ignore    map[string]bool
 }
 
 func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]float64) (*moonChecker, error) {
@@ -173,7 +196,11 @@ func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]floa
 	if err != nil {
 		return nil, err
 	}
-	return &moonChecker{p: p, rules: rules, positions: positions, retiredAt: retired}, nil
+	ignore, err := ignoreMoon(ctx, p.sched)
+	if err != nil {
+		return nil, err
+	}
+	return &moonChecker{p: p, rules: rules, positions: positions, retiredAt: retired, ignore: ignore}, nil
 }
 
 // moonlit reports whether f breaks its filter's rule. A light it can't place
@@ -183,7 +210,7 @@ func (c *moonChecker) moonlit(ctx context.Context, f app.Frame) bool {
 }
 
 func (c *moonChecker) why(ctx context.Context, f app.Frame) string {
-	if f.DateObs == nil || f.Exposure == nil {
+	if f.DateObs == nil || f.Exposure == nil || c.ignore[f.Object] {
 		return ""
 	}
 	floor := c.retiredAt != nil && !f.DateObs.Before(*c.retiredAt)

@@ -40,8 +40,8 @@ func moonSched(t *testing.T, extra ...string) *gorm.DB {
 	return db
 }
 
-func moonFrame(object, filter string, at time.Time, seconds float64) app.Frame {
-	d, e := at, seconds
+func moonFrame(object, filter string, at time.Time) app.Frame {
+	d, e := at, 300.0
 	return app.Frame{Key: object + at.String(), Type: frameTypeLight, Object: object, Filter: filter, Exposure: &e, DateObs: &d}
 }
 
@@ -62,7 +62,7 @@ func moonDecisions(t *testing.T, db *gorm.DB) []byte {
 				positions[obj] = [2]float64{m.RA, max(-89, min(89, m.Dec+off))}
 				p.sites.Store(obj, [2]float64{siteLat, siteLon})
 				for _, f := range []string{filterRed, filterHa, filterLuminance, filterSII, filterOIII} {
-					frames = append(frames, moonFrame(obj, f, start, 300))
+					frames = append(frames, moonFrame(obj, f, start))
 				}
 			}
 		}
@@ -85,6 +85,12 @@ func TestMoonSweepInertBeforeMigration(t *testing.T) {
 	for name, extra := range map[string][]string{
 		"no table":    nil,
 		"empty table": {`CREATE TABLE ts_template_role (template_id integer not null primary key, template_guid text, profile_id text not null, filter text not null, role text not null, changed_at text not null)`},
+		"windows without ignore_moon": {
+			`CREATE TABLE target ("Id" integer primary key, name text, guid text)`,
+			`CREATE TABLE ts_target_window (target_guid text primary key, start_utc text, end_utc text, priority text, event_id text, ignore_moon integer, updated_at text)`,
+			`INSERT INTO target VALUES (1, 'd0 h0 o0', 'g1')`,
+			`INSERT INTO ts_target_window VALUES ('g1', '2025-10-20T00:00:00Z', '2025-10-22T00:00:00Z', 'normal', 'ev', 0, null)`,
+		},
 	} {
 		got := moonDecisions(t, moonSched(t, extra...))
 		if os.Getenv("ASTRO_GOLDEN_WRITE") != "" {

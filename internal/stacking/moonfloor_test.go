@@ -18,9 +18,9 @@ const (
 	ruleWhy    = "the filter's moon avoidance needed"
 )
 
-func moonAt(t *testing.T, start time.Time, seconds float64) moon.Position {
+func moonAt(t *testing.T, start time.Time) moon.Position {
 	t.Helper()
-	mid := start.Add(time.Duration(seconds / 2 * float64(time.Second)))
+	mid := start.Add(150 * time.Second)
 	m := moon.At(mid)
 	if alt := m.Altitude(mid, siteLat, siteLon); alt <= 0 {
 		t.Fatalf("the Moon is at %.1f° at %s; the test needs it up", alt, mid)
@@ -31,7 +31,7 @@ func moonAt(t *testing.T, start time.Time, seconds float64) moon.Position {
 func TestMoonFloor(t *testing.T) {
 	t.Parallel()
 	start := fullMoonUp()
-	m := moonAt(t, start, 300)
+	m := moonAt(t, start)
 	why := floorWhy(start, 300, m.RA, m.Dec+19.9, siteLat, siteLon)
 	if why != "the Moon was 19.9° from the target at mid-exposure; the scheduler never images within 20° of the Moon" {
 		t.Errorf("19.9°: %q", why)
@@ -86,7 +86,7 @@ func TestMoonCheckerSplitsAtRetirement(t *testing.T) {
 		`INSERT INTO ts_template_role VALUES (2, 't2', 'p', 'Red', 'retired', '`+retired.Format(time.RFC3339)+`')`,
 		`INSERT INTO ts_template_role VALUES (5, 't5', 'p', 'S-II', 'retired', '`+retired.Add(2*time.Hour).Format(time.RFC3339)+`')`)
 	p := &Pipeline{sched: db}
-	mb, ma := moonAt(t, before, 300), moonAt(t, after, 300)
+	mb, ma := moonAt(t, before), moonAt(t, after)
 	positions := map[string][2]float64{
 		nearBefore:   {mb.RA, mb.Dec + 15},
 		"far before": {mb.RA, mb.Dec + 25},
@@ -123,7 +123,7 @@ func TestMoonCheckerSplitsAtRetirement(t *testing.T) {
 		{nearAfter, filterRed, retired.Add(-time.Second), ruleWhy},
 	}
 	for _, c := range cases {
-		got := check.why(context.Background(), moonFrame(c.obj, c.filter, c.at, 300))
+		got := check.why(context.Background(), moonFrame(c.obj, c.filter, c.at))
 		if (c.want == "") != (got == "") || !strings.Contains(got, c.want) {
 			t.Errorf("%s %s at %s: %q, want %q", c.obj, c.filter, c.at.Format(time.RFC3339), got, c.want)
 		}
@@ -137,7 +137,7 @@ func TestMoonCheckerSplitsAtRetirement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := check.why(context.Background(), moonFrame("moon down", filterRed, night, 300)); got != "" {
+	if got := check.why(context.Background(), moonFrame("moon down", filterRed, night)); got != "" {
 		t.Errorf("a light under a Moon below the horizon broke the floor: %q", got)
 	}
 }
@@ -152,5 +152,39 @@ func TestRetiredAtReadsTimestamps(t *testing.T) {
 	}
 	if _, err := parseChangedAt("yesterday"); err == nil {
 		t.Error("parsed a bad time")
+	}
+}
+
+// An event window with ignore_moon lets its target image beside the Moon:
+// neither the templates' rules nor the floor take its lights out.
+func TestMoonCheckerHonorsIgnoreMoon(t *testing.T) {
+	t.Parallel()
+	before := fullMoonUp()
+	retired := before.Add(time.Hour)
+	after := before.Add(2 * time.Hour)
+	db := moonSched(t, roleTableSQL,
+		`CREATE TABLE target ("Id" integer primary key, name text, guid text)`,
+		`CREATE TABLE ts_target_window (target_guid text primary key, start_utc text, end_utc text, priority text, event_id text, ignore_moon integer, updated_at text)`,
+		`INSERT INTO target VALUES (1, 'Moon and Pleiades', 'gm'), (2, 'Mars and M 44', 'gx')`,
+		`INSERT INTO ts_target_window VALUES ('gm', '2025-11-04T00:00:00Z', '2025-11-06T00:00:00Z', 'high', 'ev-moon', 1, null), ('gx', '2025-11-04T00:00:00Z', '2025-11-06T00:00:00Z', 'high', 'ev-mars', 0, null)`,
+		`INSERT INTO ts_template_role VALUES (1, 't1', 'p', 'Red', 'retired', '`+retired.Format(time.RFC3339)+`')`)
+	p := &Pipeline{sched: db}
+	mb, ma := moonAt(t, before), moonAt(t, after)
+	check, err := p.moonChecker(context.Background(), map[string][2]float64{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, obj := range []string{"Moon and Pleiades", "Mars and M 44"} {
+		p.sites.Store(obj, [2]float64{siteLat, siteLon})
+		for _, c := range []struct {
+			at  time.Time
+			pos [2]float64
+		}{{before, [2]float64{mb.RA, mb.Dec + 5}}, {after, [2]float64{ma.RA, ma.Dec + 5}}} {
+			check.positions[obj] = c.pos
+			got := check.why(context.Background(), moonFrame(obj, filterRed, c.at))
+			if (obj == "Moon and Pleiades") != (got == "") {
+				t.Errorf("%s at %s: %q", obj, c.at.Format(time.RFC3339), got)
+			}
+		}
 	}
 }
