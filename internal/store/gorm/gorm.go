@@ -32,7 +32,7 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 		app.CalibrationMaster{}, app.TargetReference{}, app.Stack{}, app.StackFrame{}, app.Mosaic{}, app.Cover{}, app.ReferenceReset{},
 		app.TSVerdict{}, app.PublicFrame{}, app.RegisteredOrphan{}, app.GoalMeasurement{}, app.GoalMask{}, schedcmd.Record{},
 		app.MosaicPanel{}, app.MosaicAdoption{}, app.FrameTarget{}, app.MosaicSeam{}, app.MosaicPanelHealth{}, app.GaiaField{}, app.XPField{}, app.SkySample{}, app.HAlphaMap{}, app.SkyCutout{},
-		app.GlobalRuleWeight{}, app.CalibrationRequest{})
+		app.GlobalRuleWeight{}, app.CalibrationRequest{}, app.HorizonsCache{})
 	if err != nil {
 		return nil, err
 	}

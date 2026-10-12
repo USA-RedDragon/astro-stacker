@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 )
 
 func fakeHorizons(t *testing.T) *httptest.Server {
@@ -48,7 +50,7 @@ func TestCometEphemerisOverMonths(t *testing.T) {
 			times = append(times, d.Add(time.Duration(i)*5*time.Minute+30*time.Second))
 		}
 	}
-	e, err := cometEphemeris(context.Background(), srv.URL, "C/2025 R2", times, -99.4, 31.5, 473)
+	e, err := cometEphemeris(context.Background(), &horizons.Client{BaseURL: srv.URL}, "C/2025 R2", times, -99.4, 31.5, 473)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +70,7 @@ func TestCometEphemerisContinuousRun(t *testing.T) {
 	for at := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC); at.Before(time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)); at = at.Add(2*time.Minute + 30*time.Second) {
 		times = append(times, at)
 	}
-	e, err := cometEphemeris(context.Background(), srv.URL, "C/2025 R2", times, -99.4, 31.5, 473)
+	e, err := cometEphemeris(context.Background(), &horizons.Client{BaseURL: srv.URL}, "C/2025 R2", times, -99.4, 31.5, 473)
 	if err != nil {
 		t.Fatal(err)
 	}

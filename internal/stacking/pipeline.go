@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
@@ -153,6 +154,10 @@ type Pipeline struct {
 	// Wake, if set, ends idle workers' wait early, as when new lights are
 	// ready to score.
 	Wake *wake.Signal
+	// Horizons, if set, is the process's one Horizons client, so comet
+	// masters share its one-request-at-a-time limit.
+	Horizons     *horizons.Client
+	horizonsOnce sync.Once
 
 	statusMu sync.Mutex
 	working  map[string]*events.Worker // by object
