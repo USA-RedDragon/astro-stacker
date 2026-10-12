@@ -256,7 +256,7 @@ func rowsOf(t Target, ns NightSpan, tab horizons.Table, at time.Time) []Position
 }
 
 func summary(t Target, ns NightSpan, step time.Duration, tab horizons.Table) TableSummary {
-	sm := TableSummary{TargetGUID: t.GUID, Name: t.Name, Designation: t.Designation, Command: horizons.Command(t.Designation),
+	sm := TableSummary{TargetGUID: t.GUID, Name: t.Name, Designation: t.Designation, Command: horizons.CommandFor(t.Designation, t.Kind),
 		Night: ns.Night, Start: ns.Start, Stop: ns.Stop, StepSeconds: int(step / time.Second), Rows: len(tab.Rows), Cached: tab.Cached}
 	if d, ok := tab.MinDelta(); ok {
 		sm.MinDelta = &d
@@ -279,7 +279,7 @@ func summary(t Target, ns NightSpan, step time.Duration, tab horizons.Table) Tab
 // Table fetches one target's night: at CoarseStep, then again at FineStep
 // when the body comes nearer than NearEarth.
 func (s *Service) Table(ctx context.Context, t Target, site sky.Site, ns NightSpan) (horizons.Table, time.Duration, error) {
-	req := horizons.Request{Command: horizons.Command(t.Designation), Site: site, Start: ns.Start, Stop: ns.Stop, Step: CoarseStep}
+	req := horizons.Request{Command: horizons.CommandFor(t.Designation, t.Kind), Site: site, Start: ns.Start, Stop: ns.Stop, Step: CoarseStep}
 	tab, err := s.Horizons.Ephemeris(ctx, req)
 	if err != nil {
 		return tab, CoarseStep, err

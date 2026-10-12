@@ -26,6 +26,7 @@ func TestHorizonsCommandForAsteroids(t *testing.T) {
 		{"C/2025 R2", bodies.KindComet}:     "DES=C/2025 R2;CAP;NOFRAG",
 		{"2000 SG344", bodies.KindAsteroid}: "DES=2000 SG344;",
 		{"DES=433;", bodies.KindAsteroid}:   "DES=433;",
+		{"433", bodies.KindAsteroid}:        "433;",
 	} {
 		if got := skyevents.HorizonsCommand(in[0], in[1]); got != want {
 			t.Errorf("%v: %q, want %q", in, got, want)

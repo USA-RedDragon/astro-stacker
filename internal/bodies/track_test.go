@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -103,6 +105,37 @@ func TestTrackUsesThePositionTablesCacheKey(t *testing.T) {
 	}
 	if !view.Night.Start.Equal(ns.Start) || !view.Night.Stop.Equal(ns.Stop) {
 		t.Fatalf("night %+v, want %+v", view.Night, ns)
+	}
+}
+
+func TestTrackAsksForAsteroidsAsSmallBodies(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var cmds []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		cmds = append(cmds, r.URL.Query().Get("COMMAND"))
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"result":"No matches found."}`))
+	}))
+	defer srv.Close()
+	now := time.Date(2026, 10, 12, 18, 0, 0, 0, time.UTC)
+	tr := &bodies.Tracker{Horizons: &horizons.Client{BaseURL: srv.URL, Now: func() time.Time { return now }},
+		Site: func(context.Context) (sky.Site, error) { return testSite(), nil }, Now: func() time.Time { return now }}
+	for des, want := range map[string]string{"1": "1;", "2026 TC6": "DES=2026 TC6;"} {
+		view, _ := tr.Track(context.Background(), des, bodies.KindAsteroid)
+		if view.Command != want {
+			t.Errorf("%s: command %q, want %q", des, view.Command, want)
+		}
+	}
+	view, _ := tr.Track(context.Background(), "1", "")
+	if view.Command != "DES=1;CAP;NOFRAG" {
+		t.Errorf("a target with no kind is a comet: %q", view.Command)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(cmds, ",") != "'1;','DES=2026 TC6;','DES=1;CAP;NOFRAG'" && strings.Join(cmds, ",") != "'DES=2026 TC6;','1;','DES=1;CAP;NOFRAG'" {
+		t.Errorf("commands %v", cmds)
 	}
 }
 

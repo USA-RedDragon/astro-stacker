@@ -114,18 +114,123 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
+const enckeSelector = "DES=2P;CAP;NOFRAG"
+
 func TestCommand(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[string]string{
-		"C/2025 R2":         "DES=C/2025 R2;CAP;NOFRAG",
-		" 12P ":             "DES=12P;CAP;NOFRAG",
-		"DES=2P;CAP;NOFRAG": "DES=2P;CAP;NOFRAG",
-		"DES=1000351;":      "DES=1000351;",
-		"":                  "",
+		"C/2025 R2":    "DES=C/2025 R2;CAP;NOFRAG",
+		" 12P ":        "DES=12P;CAP;NOFRAG",
+		enckeSelector:  enckeSelector,
+		"DES=1000351;": "DES=1000351;",
+		"":             "",
 	} {
 		if got := horizons.Command(in); got != want {
 			t.Errorf("Command(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestCommandFor(t *testing.T) {
+	t.Parallel()
+	ast := horizons.KindAsteroid
+	for in, want := range map[[2]string]string{
+		{"1", ast}:             "1;",
+		{" 0004 ", ast}:        "4;",
+		{"2026 TC6", ast}:      "DES=2026 TC6;",
+		{"2000  SG344", ast}:   "DES=2000 SG344;",
+		{"DES=433;", ast}:      "DES=433;",
+		{"0", ast}:             "DES=0;",
+		{"C/2025 R2", "comet"}: "DES=C/2025 R2;CAP;NOFRAG",
+		{"12P", ""}:            "DES=12P;CAP;NOFRAG",
+		{"1", "comet"}:         "DES=1;CAP;NOFRAG",
+		{enckeSelector, ast}:   enckeSelector,
+		{"", ast}:              "",
+	} {
+		if got := horizons.CommandFor(in[0], in[1]); got != want {
+			t.Errorf("CommandFor(%q, %q) = %q, want %q", in[0], in[1], got, want)
+		}
+	}
+}
+
+func TestParseAsteroidFixtures(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		file, name     string
+		ra, dec, mag   float64
+		delta, uncRA   float64
+		rows           int
+		nearEarthTable bool
+	}{
+		{"asteroid-ceres-10m.json", "1 Ceres (A801 AA)", 110.404856724, 23.422443551, 8.526, 2.45914598430954, 0, 73, false},
+		{"asteroid-vesta-10m.json", "4 Vesta (A807 FA)", 22.591356055, -3.337871234, 6.391, 1.48242183208473, 0.023, 73, false},
+		{"asteroid-2026tc6-10m.json", "(2026 TC6)", 328.783274073, -5.043807588, 20.019, 0.02561149448120, 8.621, 73, true},
+	} {
+		raw := result(t, c.file)
+		if !strings.Contains(raw, "Target body name: "+c.name) {
+			t.Errorf("%s is not of %s", c.file, c.name)
+		}
+		tab, err := horizons.Parse(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", c.file, err)
+		}
+		if len(tab.Rows) != c.rows {
+			t.Errorf("%s: %d rows", c.file, len(tab.Rows))
+		}
+		r := tab.Rows[0]
+		if !r.At.Equal(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)) || !near(r.RA, c.ra, 1e-9) || !near(r.Dec, c.dec, 1e-9) {
+			t.Errorf("%s: row %+v", c.file, r)
+		}
+		if r.Mag == nil || !near(*r.Mag, c.mag, 1e-9) {
+			t.Errorf("%s: APmag %v", c.file, r.Mag)
+		}
+		if r.Delta == nil || !near(*r.Delta, c.delta, 1e-12) {
+			t.Errorf("%s: delta %v", c.file, r.Delta)
+		}
+		if r.UncRA == nil || !near(*r.UncRA, c.uncRA, 1e-9) {
+			t.Errorf("%s: RA uncertainty %v", c.file, r.UncRA)
+		}
+		if d, ok := tab.MinDelta(); !ok || (d < 0.1) != c.nearEarthTable {
+			t.Errorf("%s: min delta %v %v", c.file, d, ok)
+		}
+	}
+}
+
+func TestEphemerisSendsAsteroidCommands(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{"'1;'": "asteroid-ceres-10m.json", "'4;'": "asteroid-vesta-10m.json", "'DES=2026 TC6;'": "asteroid-2026tc6-10m.json"}
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cmd := r.URL.Query().Get("COMMAND")
+		mu.Lock()
+		got = append(got, cmd)
+		mu.Unlock()
+		name, ok := files[cmd]
+		if !ok {
+			_, _ = w.Write([]byte(fixture(t, "nomatch.json")))
+			return
+		}
+		_, _ = w.Write([]byte(fixture(t, name)))
+	}))
+	defer srv.Close()
+	c := &horizons.Client{BaseURL: srv.URL, UserAgent: "test"}
+	e := 200.0
+	site := sky.Site{Latitude: 32, Longitude: -97, Elevation: &e}
+	start := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	for _, des := range []string{"1", "4", "2026 TC6"} {
+		tab, err := c.Ephemeris(context.Background(), horizons.Request{Command: horizons.CommandFor(des, horizons.KindAsteroid), Site: site, Start: start, Stop: start.Add(12 * time.Hour), Step: 10 * time.Minute})
+		if err != nil || len(tab.Rows) != 73 {
+			t.Errorf("%s: %d rows, %v", des, len(tab.Rows), err)
+		}
+	}
+	if _, err := c.Ephemeris(context.Background(), horizons.Request{Command: horizons.Command("1"), Site: site, Start: start, Stop: start.Add(12 * time.Hour), Step: 10 * time.Minute}); !errors.Is(err, horizons.ErrUnknownBody) {
+		t.Errorf("the comet form of an asteroid number: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(got, ",") != "'1;','4;','DES=2026 TC6;','DES=1;CAP;NOFRAG'" {
+		t.Errorf("commands %v", got)
 	}
 }
 

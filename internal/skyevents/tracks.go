@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
@@ -23,11 +22,7 @@ const horizonsStepText = "60 m"
 
 // HorizonsCommand is the Horizons COMMAND for a designated body.
 func HorizonsCommand(designation, kind string) string {
-	d := strings.TrimSpace(designation)
-	if kind == bodies.KindAsteroid && d != "" && !strings.ContainsAny(d, "=;") {
-		return "DES=" + d + ";"
-	}
-	return horizons.Command(d)
+	return horizons.CommandFor(designation, kind)
 }
 
 // Table is a body's hourly positions, kept to place it at any time.
