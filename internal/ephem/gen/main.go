@@ -28,8 +28,8 @@ type summary struct {
 func main() {
 	in := flag.String("in", "de440s.bsp", "JPL DE440s SPK file (https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de440s.bsp)")
 	out := flag.String("out", "internal/ephem/data/de440s.bin.zst", "output file")
-	from := flag.String("from", "2025-01-01", "first UTC date kept")
-	to := flag.String("to", "2041-01-01", "UTC date after the last kept")
+	from := flag.String("from", "1970-01-01", "first UTC date kept")
+	to := flag.String("to", "2091-01-01", "UTC date after the last kept")
 	flag.Parse()
 	if err := run(*in, *out, *from, *to); err != nil {
 		log.Fatal(err)
