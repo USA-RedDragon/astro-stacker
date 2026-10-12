@@ -11,7 +11,7 @@ const (
 	KindTargetFraming Kind = "target.framing"
 	// MaxOffsetFrac is the furthest from the frame centre, in long sides,
 	// the plugin lets a body sit.
-	MaxOffsetFrac = 0.5
+	MaxOffsetFrac = 0.45
 )
 
 // Framing is how a moving body sits in the frame: RotationDeg is the
@@ -79,6 +79,13 @@ func decodeTargetFraming(p json.RawMessage) (TargetFramingPayload, error) {
 	v, err := decodeInto[TargetFramingPayload](p)
 	if err != nil {
 		return v, err
+	}
+	keys, err := decodeInto[map[string]json.RawMessage](p)
+	if err != nil {
+		return v, err
+	}
+	if _, ok := keys["framing"]; !ok {
+		return v, fmt.Errorf("%w: framing is required; send null to clear it", ErrInvalid)
 	}
 	if v.TargetGUID == "" {
 		return v, fmt.Errorf("%w: missing target_guid", ErrInvalid)
