@@ -113,10 +113,11 @@ func ParseComets(text string) ([]Elements, int) {
 	return out, bad
 }
 
-type vec [3]float64
+// Vec is a position on the J2000 ecliptic, in au.
+type Vec [3]float64
 
-func (a vec) sub(b vec) vec { return vec{a[0] - b[0], a[1] - b[1], a[2] - b[2]} }
-func (a vec) norm() float64 { return math.Sqrt(a[0]*a[0] + a[1]*a[1] + a[2]*a[2]) }
+func (a Vec) sub(b Vec) Vec { return Vec{a[0] - b[0], a[1] - b[1], a[2] - b[2]} }
+func (a Vec) norm() float64 { return math.Sqrt(a[0]*a[0] + a[1]*a[1] + a[2]*a[2]) }
 
 func stumpff(z float64) (c, s float64) {
 	switch {
@@ -182,10 +183,10 @@ func perifocal(q, e, dt float64) (x, y float64) {
 	return ff * q, g * v0
 }
 
-func rotate(x, y, argPeri, node, incl float64) vec {
+func rotate(x, y, argPeri, node, incl float64) Vec {
 	w, o, i := argPeri*degree, node*degree, incl*degree
 	cw, sw, co, so, ci, si := math.Cos(w), math.Sin(w), math.Cos(o), math.Sin(o), math.Cos(i), math.Sin(i)
-	return vec{
+	return Vec{
 		(co*cw-so*sw*ci)*x + (-co*sw-so*cw*ci)*y,
 		(so*cw+co*sw*ci)*x + (-so*sw+co*cw*ci)*y,
 		(sw*si)*x + (cw*si)*y,
@@ -194,14 +195,14 @@ func rotate(x, y, argPeri, node, incl float64) vec {
 
 // Heliocentric is the comet's position on the J2000 ecliptic, in au; NaN
 // when the propagation fails.
-func (el Elements) Heliocentric(t time.Time) vec {
+func (el Elements) Heliocentric(t time.Time) Vec {
 	x, y := perifocal(el.Q, el.E, julian(t)-julian(el.Perihelion))
 	return rotate(x, y, el.ArgPeri, el.Node, el.Incl)
 }
 
 // earth is the Earth-Moon barycentre on the J2000 ecliptic, in au, from
 // JPL's approximate planetary elements valid 1800-2050 (Standish, Table 1).
-func earth(t time.Time) vec {
+func earth(t time.Time) Vec {
 	tc := (julian(t) - j2000) / 36525
 	a := 1.00000261 + 0.00000562*tc
 	e := 0.01671123 - 0.00004392*tc
