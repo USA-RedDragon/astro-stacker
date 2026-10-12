@@ -434,6 +434,7 @@ func checkView(t *testing.T, s *bodies.NightService) {
 	if v.SeasonLeft != 42 || v.SeasonEnd == nil || *v.SeasonEnd != "2026-11-22" {
 		t.Errorf("161P season counted like the plugin: %d to %v", v.SeasonLeft, v.SeasonEnd)
 	}
+	checkWindows(t, s, v)
 	if _, _, has, isBody := s.NightPoint(hartleyGUID, ""); !has || !isBody {
 		t.Errorf("161P has rows: %v %v", has, isBody)
 	}
@@ -443,6 +444,23 @@ func checkView(t *testing.T, s *bodies.NightService) {
 	}
 	if _, _, _, isBody := fresh.NightPoint("dddd-fixed", ""); isBody {
 		t.Error("before the first build a fixed target is not a body")
+	}
+}
+
+func checkWindows(t *testing.T, s *bodies.NightService, v bodies.NightView) {
+	t.Helper()
+	tonight, typical, n, ok := s.Windows(strings.ToUpper(hartleyGUID), 30, night12)
+	if !ok || typical == nil || *typical != 2.17 || tonight == nil || *tonight != v.Nights[0].DarkHours || n == 0 || n > bodies.TypicalNights {
+		t.Errorf("161P windows above 30°: tonight %v, typical %v, %d nights, %v", tonight, typical, n, ok)
+	}
+	if low, _, _, _ := s.Windows(hartleyGUID, 10, night12); low == nil || *low < *tonight {
+		t.Errorf("a lower minimum altitude can't shorten tonight's window: %v below %v", low, *tonight)
+	}
+	if _, typ, _, ok := s.Windows(hartleyGUID, 30, "2030-01-01"); !ok || typ != nil {
+		t.Errorf("no nights from 2030: %v %v", typ, ok)
+	}
+	if _, _, _, ok := s.Windows("dddd-fixed", 30, night12); ok {
+		t.Error("a target without rows has no windows")
 	}
 }
 

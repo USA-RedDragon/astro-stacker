@@ -290,3 +290,48 @@ func (s *NightService) View(ctx context.Context, guid string) (NightView, bool, 
 	summarize(&v)
 	return v, true, nil
 }
+
+// Windows is a body target's longest dark stretch above minAlt on the
+// night tonight (a local date) when it is bright enough, the typical one
+// over the TypicalNights from tonight, and how many of those nights have
+// one, from the latest night table. False when the table has no rows for
+// the target.
+func (s *NightService) Windows(guid string, minAlt float64, tonight string) (*float64, *float64, int, bool) {
+	res := s.Latest()
+	if res == nil || res.site == nil {
+		return nil, nil, 0, false
+	}
+	rows := res.Nights(guid)
+	if len(rows) == 0 {
+		return nil, nil, 0, false
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].At.Before(rows[j].At) })
+	first, err := time.Parse(time.DateOnly, res.From)
+	if err != nil {
+		return nil, nil, 0, false
+	}
+	nights := BuildNightView(*res.site, rows, first, minAlt, 0)
+	from := len(nights)
+	for i, d := range nights {
+		if d.Night >= tonight {
+			from = i
+			break
+		}
+	}
+	nights = nights[from:]
+	var t *float64
+	if len(nights) > 0 && nights[0].Night == tonight && nights[0].Bright && nights[0].DarkHours > 0 {
+		v := nights[0].DarkHours
+		t = &v
+	}
+	n := 0
+	for i, d := range nights {
+		if i >= TypicalNights {
+			break
+		}
+		if d.Bright && d.DarkHours > 0 {
+			n++
+		}
+	}
+	return t, typicalWindow(nights), n, true
+}
