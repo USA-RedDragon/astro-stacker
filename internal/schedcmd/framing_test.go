@@ -43,7 +43,8 @@ func TestTargetFramingDescribesAndSwapsOnUndo(t *testing.T) {
 		"half":     `{"target_guid":"g","framing":{"rotation_deg":10}}`,
 		"rotation": `{"target_guid":"g","framing":{"rotation_deg":360,"offset_frac":0}}`,
 		"negative": `{"target_guid":"g","framing":{"rotation_deg":-1,"offset_frac":0}}`,
-		"offset":   `{"target_guid":"g","framing":{"rotation_deg":10,"offset_frac":0.51}}`,
+		"offset":   `{"target_guid":"g","framing":{"rotation_deg":10,"offset_frac":0.46}}`,
+		"no key":   `{"target_guid":"g"}`,
 	} {
 		if err := s.Validate(json.RawMessage(bad)); !errors.Is(err, schedcmd.ErrInvalid) {
 			t.Errorf("%s: %v, want ErrInvalid", name, err)
