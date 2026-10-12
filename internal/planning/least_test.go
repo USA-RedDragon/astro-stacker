@@ -47,14 +47,14 @@ func TestLeastUnmeasuredRanksBelowMeasured(t *testing.T) {
 	finishFilter(&collecting)
 	noGoal := FilterGoal{Filter: "S-II", Status: StatusMeasured}
 	finishFilter(&noGoal)
-	if collecting.GoalProgress != nil || collecting.NotMeasured != CollectingFirst || noGoal.NotMeasured != NoGoalReason {
+	if collecting.GoalProgress != nil || collecting.NotMeasured != CollectingFirst+", 2 of 8" || noGoal.NotMeasured != NoGoalReason {
 		t.Fatalf("%+v %+v", collecting, noGoal)
 	}
 	l := leastOfGoals("x", []FilterGoal{measuredGoal(filterHa, 0.01, false), collecting, noGoal})
-	if l.Filter != "O-III" || l.Progress != nil || l.NotMeasured != CollectingFirst || l.Unmeasured != 2 {
+	if l.Filter != "O-III" || l.Progress != nil || l.NotMeasured != CollectingFirst+", 2 of 8" || l.Unmeasured != 2 {
 		t.Fatalf("%+v", l)
 	}
-	if l.Text() != "needs more data: O-III not measured yet (collecting subs for the first measurement)" {
+	if l.Text() != "needs more data: O-III not measured yet (collecting subs for the first measurement, 2 of 8)" {
 		t.Fatal(l.Text())
 	}
 	if e := leastOfGoals("x", nil); e.Enough || e.Text() != NoPlansReason {
@@ -98,7 +98,7 @@ func TestLeastOfTargetsSkipsInactive(t *testing.T) {
 func TestNotMeasuredReasonPrefersCollectingOverAFailedFirstTry(t *testing.T) {
 	t.Parallel()
 	g := FilterGoal{Filter: "L", Goal: &goals.Goal{}, Status: StatusFailed, Error: "insufficient data", Readiness: &goals.Readiness{State: goals.StateCollecting, StackSubs: 3, MinSubs: 8}}
-	if r := notMeasuredReason(g); r != CollectingFirst {
+	if r := notMeasuredReason(g); r != CollectingFirst+", 3 of 8" {
 		t.Fatal(r)
 	}
 	g.Readiness.StackSubs = 9
@@ -174,5 +174,20 @@ func TestLeastOfTargetsRollsUpThePlateauSeparately(t *testing.T) {
 	}
 	if l := leastOfTargets([]Target{c}); l.Plateau.NotMeasured != NoPlansReason {
 		t.Fatalf("%+v", l.Plateau)
+	}
+}
+
+func TestNoSubsYetBeforeCollecting(t *testing.T) {
+	t.Parallel()
+	g := FilterGoal{Filter: "L", Goal: &goals.Goal{}, Status: StatusNoMaster, Readiness: &goals.Readiness{State: goals.StateCollecting, StackSubs: 0, MinSubs: 8}}
+	if r := notMeasuredReason(g); r != NoSubsYet {
+		t.Fatal(r)
+	}
+	if r := plateauReason(g); r != NoSubsYet {
+		t.Fatal(r)
+	}
+	g.Readiness.StackSubs = 1
+	if r := notMeasuredReason(g); r != CollectingFirst+", 1 of 8" {
+		t.Fatal(r)
 	}
 }
