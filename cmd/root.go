@@ -25,6 +25,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/goalswitch"
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
+	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
@@ -133,6 +134,9 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	subLengths := &sublength.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Site: sublength.SiteFunc(siteFunc(cfg, appStore)),
 		Pedestal: cfg.Stacking.Pedestal, Mode: cfg.SubLength.Publish, NewLengths: cfg.SubLength.NewLengths,
 		Tolerance: cfg.SubLength.TolerancePct / 100}
+	moonKeep := &moonkeep.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Site: moonkeep.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.MoonKeep.Publish}
+	go moonKeep.Run(indexCtx, time.Duration(cfg.MoonKeep.IntervalHours)*time.Hour)
+	slog.Info("Moon kept rates started", "publish", cfg.MoonKeep.Publish, "interval_hours", cfg.MoonKeep.IntervalHours)
 	darkNeed.Planned = plannedDarks(subLengths)
 	go subLengths.Run(indexCtx, time.Duration(cfg.SubLength.IntervalMinutes)*time.Minute)
 	slog.Info("Sub lengths started", "publish", cfg.SubLength.Publish, "new_lengths", cfg.SubLength.NewLengths,
@@ -242,7 +246,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}}
 	go skyEvents.Run(indexCtx, skyevents.Interval)
 	slog.Info("Sky event finder started", "interval", skyevents.Interval)
-	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BodyNights: bodyNights, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, MoonKeep: moonKeep, Bodies: bodyTables, BodyNights: bodyNights, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Comets:     comets,
 		Asteroids:  asteroids,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},

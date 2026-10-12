@@ -239,6 +239,12 @@ sub-length:
 calibration:
   # Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on
   publish: "off"
+# How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, fitted from its own verdicts for the plugin's bright-Moon decisions
+moon-keep:
+  # Write the fitted kept rates into ts_moon_keep in the scheduler database, which the plugin uses to weigh and skip bright-Moon exposures: off, dry-run (log what would be written) or on; nothing is written until the scheduler has the ts_moon_keep table
+  publish: "on"
+  # Hours between refitting the kept rates
+  interval-hours: 24
 # Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight
 bodies:
   # Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table

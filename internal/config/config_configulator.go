@@ -172,6 +172,11 @@ type calibrationShadow struct {
 	Publish *string `json:"publish" toml:"publish" yaml:"publish"`
 }
 
+type moonKeepShadow struct {
+	Publish       *string `json:"publish"        toml:"publish"        yaml:"publish"`
+	IntervalHours *int    `json:"interval-hours" toml:"interval-hours" yaml:"interval-hours"`
+}
+
 type bodiesShadow struct {
 	Publish          *string `json:"publish"            toml:"publish"            yaml:"publish"`
 	IntervalMinutes  *int    `json:"interval-minutes"   toml:"interval-minutes"   yaml:"interval-minutes"`
@@ -197,6 +202,7 @@ type configShadow struct {
 	Darks        *darksShadow        `json:"darks"         toml:"darks"         yaml:"darks"`
 	SubLength    *subLengthShadow    `json:"sub-length"    toml:"sub-length"    yaml:"sub-length"`
 	Calibration  *calibrationShadow  `json:"calibration"   toml:"calibration"   yaml:"calibration"`
+	MoonKeep     *moonKeepShadow     `json:"moon-keep"     toml:"moon-keep"     yaml:"moon-keep"`
 	Bodies       *bodiesShadow       `json:"bodies"        toml:"bodies"        yaml:"bodies"`
 }
 
@@ -354,6 +360,10 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("sub-length.tolerance-percent", configulator.LayerDefault, "default tag")
 	cfg.Calibration.Publish = "off"
 	set("calibration.publish", configulator.LayerDefault, "default tag")
+	cfg.MoonKeep.Publish = "on"
+	set("moon-keep.publish", configulator.LayerDefault, "default tag")
+	cfg.MoonKeep.IntervalHours = 24
+	set("moon-keep.interval-hours", configulator.LayerDefault, "default tag")
 	cfg.Bodies.Publish = "on"
 	set("bodies.publish", configulator.LayerDefault, "default tag")
 	cfg.Bodies.IntervalMinutes = 60
@@ -826,6 +836,16 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Calibration.Publish != nil {
 			cfg.Calibration.Publish = *s.Calibration.Publish
 			set("calibration.publish", configulator.LayerFile, file)
+		}
+	}
+	if s.MoonKeep != nil {
+		if s.MoonKeep.Publish != nil {
+			cfg.MoonKeep.Publish = *s.MoonKeep.Publish
+			set("moon-keep.publish", configulator.LayerFile, file)
+		}
+		if s.MoonKeep.IntervalHours != nil {
+			cfg.MoonKeep.IntervalHours = *s.MoonKeep.IntervalHours
+			set("moon-keep.interval-hours", configulator.LayerFile, file)
 		}
 	}
 	if s.Bodies != nil {
@@ -1869,6 +1889,23 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Calibration.Publish = v
 		set("calibration.publish", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "moon-keep", "publish"); ok {
+		cfg.MoonKeep.Publish = v
+		set("moon-keep.publish", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "moon-keep", "interval-hours"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "moon-keep.interval-hours",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.MoonKeep.IntervalHours = int(p)
+		set("moon-keep.interval-hours", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "bodies", "publish"); ok {
 		cfg.Bodies.Publish = v
 		set("bodies.publish", configulator.LayerEnv, n)
@@ -2015,6 +2052,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"sub-length" + o.Separator + "interval-minutes",
 		"sub-length" + o.Separator + "tolerance-percent",
 		"calibration" + o.Separator + "publish",
+		"moon-keep" + o.Separator + "publish",
+		"moon-keep" + o.Separator + "interval-hours",
 		"bodies" + o.Separator + "publish",
 		"bodies" + o.Separator + "interval-minutes",
 		"bodies" + o.Separator + "horizons-url",
@@ -2139,11 +2178,13 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(60), names[101], "Minutes between recomputing the lengths")
 	fs.Float64(names[102], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
 	fs.String(names[103], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[104], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
-	fs.Var(impl.NewInt(60), names[105], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
-	fs.String(names[106], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
-	fs.String(names[107], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
-	fs.String(names[108], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
+	fs.String(names[104], "on", "Write the fitted kept rates into ts_moon_keep in the scheduler database, which the plugin uses to weigh and skip bright-Moon exposures: off, dry-run (log what would be written) or on; nothing is written until the scheduler has the ts_moon_keep table")
+	fs.Var(impl.NewInt(24), names[105], "Hours between refitting the kept rates")
+	fs.String(names[106], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
+	fs.Var(impl.NewInt(60), names[107], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
+	fs.String(names[108], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
+	fs.String(names[109], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
+	fs.String(names[110], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
 	return nil
 }
 
@@ -3397,6 +3438,30 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Calibration.Publish = v
 		set("calibration.publish", configulator.LayerCLI, "--"+n)
 	}
+	if n := "moon-keep" + o.Separator + "publish"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "moon-keep.publish",
+				Source: "--" + n,
+			}
+		}
+		cfg.MoonKeep.Publish = v
+		set("moon-keep.publish", configulator.LayerCLI, "--"+n)
+	}
+	if n := "moon-keep" + o.Separator + "interval-hours"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "moon-keep.interval-hours",
+				Source: "--" + n,
+			}
+		}
+		cfg.MoonKeep.IntervalHours = v
+		set("moon-keep.interval-hours", configulator.LayerCLI, "--"+n)
+	}
 	if n := "bodies" + o.Separator + "publish"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
@@ -3774,6 +3839,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Calibration = &sub
+			}
+		case "moon-keep":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("moon-keep", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub moonKeepShadow
+				if err := sub.decodeJSON(dec, "moon-keep"); err != nil {
+					return err
+				}
+				s.MoonKeep = &sub
 			}
 		case "bodies":
 			if dec.PeekKind() == jsontext.KindNull {
@@ -5890,6 +5974,62 @@ func (s *calibrationShadow) decodeJSON(dec *jsontext.Decoder, path string) error
 
 // decodeJSON decodes the members of an object whose opening brace has
 // been read. path is the object's dotted path.
+func (s *moonKeepShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "publish":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Publish = &str
+			default:
+				return configJSONError(path+".publish", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "interval-hours":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".interval-hours", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-hours", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalHours = &num
+			default:
+				return configJSONError(path+".interval-hours", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
 func (s *bodiesShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
@@ -6105,6 +6245,8 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "sub-length.interval-minutes = %v\n", c.SubLength.IntervalMinutes)
 	fmt.Fprintf(&b, "sub-length.tolerance-percent = %v\n", c.SubLength.TolerancePct)
 	fmt.Fprintf(&b, "calibration.publish = %v\n", c.Calibration.Publish)
+	fmt.Fprintf(&b, "moon-keep.publish = %v\n", c.MoonKeep.Publish)
+	fmt.Fprintf(&b, "moon-keep.interval-hours = %v\n", c.MoonKeep.IntervalHours)
 	fmt.Fprintf(&b, "bodies.publish = %v\n", c.Bodies.Publish)
 	fmt.Fprintf(&b, "bodies.interval-minutes = %v\n", c.Bodies.IntervalMinutes)
 	fmt.Fprintf(&b, "bodies.horizons-url = %v\n", c.Bodies.HorizonsURL)
