@@ -257,3 +257,9 @@ bodies:
   comet-elements-url: "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
   # JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list
   comet-sbdb-url: "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c"
+# One global set of scheduling settings for every Target Scheduler project, with each project's minimum time worked out from its window and its minimum altitude from the kept rates
+scheduling:
+  # Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on
+  auto: "off"
+  # Hours between working the values out again
+  interval-hours: 1

@@ -185,6 +185,11 @@ type bodiesShadow struct {
 	CometSBDBURL     *string `json:"comet-sbdb-url"     toml:"comet-sbdb-url"     yaml:"comet-sbdb-url"`
 }
 
+type schedulingShadow struct {
+	Auto          *string `json:"auto"           toml:"auto"           yaml:"auto"`
+	IntervalHours *int    `json:"interval-hours" toml:"interval-hours" yaml:"interval-hours"`
+}
+
 type configShadow struct {
 	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
 	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
@@ -204,6 +209,7 @@ type configShadow struct {
 	Calibration  *calibrationShadow  `json:"calibration"   toml:"calibration"   yaml:"calibration"`
 	MoonKeep     *moonKeepShadow     `json:"moon-keep"     toml:"moon-keep"     yaml:"moon-keep"`
 	Bodies       *bodiesShadow       `json:"bodies"        toml:"bodies"        yaml:"bodies"`
+	Scheduling   *schedulingShadow   `json:"scheduling"    toml:"scheduling"    yaml:"scheduling"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -374,6 +380,10 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("bodies.comet-elements-url", configulator.LayerDefault, "default tag")
 	cfg.Bodies.CometSBDBURL = "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c"
 	set("bodies.comet-sbdb-url", configulator.LayerDefault, "default tag")
+	cfg.Scheduling.Auto = "off"
+	set("scheduling.auto", configulator.LayerDefault, "default tag")
+	cfg.Scheduling.IntervalHours = 1
+	set("scheduling.interval-hours", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -868,6 +878,16 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Bodies.CometSBDBURL != nil {
 			cfg.Bodies.CometSBDBURL = *s.Bodies.CometSBDBURL
 			set("bodies.comet-sbdb-url", configulator.LayerFile, file)
+		}
+	}
+	if s.Scheduling != nil {
+		if s.Scheduling.Auto != nil {
+			cfg.Scheduling.Auto = *s.Scheduling.Auto
+			set("scheduling.auto", configulator.LayerFile, file)
+		}
+		if s.Scheduling.IntervalHours != nil {
+			cfg.Scheduling.IntervalHours = *s.Scheduling.IntervalHours
+			set("scheduling.interval-hours", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -1935,6 +1955,23 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Bodies.CometSBDBURL = v
 		set("bodies.comet-sbdb-url", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduling", "auto"); ok {
+		cfg.Scheduling.Auto = v
+		set("scheduling.auto", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduling", "interval-hours"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "scheduling.interval-hours",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Scheduling.IntervalHours = int(p)
+		set("scheduling.interval-hours", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -2059,6 +2096,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"bodies" + o.Separator + "horizons-url",
 		"bodies" + o.Separator + "comet-elements-url",
 		"bodies" + o.Separator + "comet-sbdb-url",
+		"scheduling" + o.Separator + "auto",
+		"scheduling" + o.Separator + "interval-hours",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -2185,6 +2224,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[108], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
 	fs.String(names[109], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
 	fs.String(names[110], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
+	fs.String(names[111], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
+	fs.Var(impl.NewInt(1), names[112], "Hours between working the values out again")
 	return nil
 }
 
@@ -3522,6 +3563,30 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Bodies.CometSBDBURL = v
 		set("bodies.comet-sbdb-url", configulator.LayerCLI, "--"+n)
 	}
+	if n := "scheduling" + o.Separator + "auto"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "scheduling.auto",
+				Source: "--" + n,
+			}
+		}
+		cfg.Scheduling.Auto = v
+		set("scheduling.auto", configulator.LayerCLI, "--"+n)
+	}
+	if n := "scheduling" + o.Separator + "interval-hours"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "scheduling.interval-hours",
+				Source: "--" + n,
+			}
+		}
+		cfg.Scheduling.IntervalHours = v
+		set("scheduling.interval-hours", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -3877,6 +3942,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Bodies = &sub
+			}
+		case "scheduling":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("scheduling", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub schedulingShadow
+				if err := sub.decodeJSON(dec, "scheduling"); err != nil {
+					return err
+				}
+				s.Scheduling = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -6123,6 +6207,62 @@ func (s *bodiesShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *schedulingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "auto":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Auto = &str
+			default:
+				return configJSONError(path+".auto", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "interval-hours":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".interval-hours", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-hours", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalHours = &num
+			default:
+				return configJSONError(path+".interval-hours", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -6252,6 +6392,8 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "bodies.horizons-url = %v\n", c.Bodies.HorizonsURL)
 	fmt.Fprintf(&b, "bodies.comet-elements-url = %v\n", c.Bodies.CometElementsURL)
 	fmt.Fprintf(&b, "bodies.comet-sbdb-url = %v\n", c.Bodies.CometSBDBURL)
+	fmt.Fprintf(&b, "scheduling.auto = %v\n", c.Scheduling.Auto)
+	fmt.Fprintf(&b, "scheduling.interval-hours = %v\n", c.Scheduling.IntervalHours)
 	return b.String()
 }
 

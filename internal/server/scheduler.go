@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedauto"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
 	"github.com/USA-RedDragon/astro-stacker/internal/skyevents"
@@ -52,6 +53,7 @@ type Extras struct {
 	FlatRequests *calpublish.FlatPublisher
 	SubLength    *sublength.Service
 	MoonKeep     *moonkeep.Service
+	Scheduling   *schedauto.Service
 	Bodies       *bodies.Service
 	BodyNights   *bodies.NightService
 	Comets       *bodies.CometList
