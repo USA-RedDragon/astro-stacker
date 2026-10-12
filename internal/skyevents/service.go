@@ -252,10 +252,23 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 		dsos = EventDSOs(ix.All())
 	}
 	res.Events = Search(g, tracks, dsos, c)
+	Rarities(e, site, c, res.Events, dsos, s.cachedRarities())
 	s.mu.Lock()
 	s.tables, s.site = tabs, site
 	s.mu.Unlock()
 	return res, nil
+}
+
+func (s *Service) cachedRarities() map[string]*Rarity {
+	out := map[string]*Rarity{}
+	if res := s.Latest(); res != nil {
+		for _, e := range res.Events {
+			if e.Rarity != nil && e.Rarity.Status == StatusReady {
+				out[e.ID] = e.Rarity
+			}
+		}
+	}
+	return out
 }
 
 func (s *Service) Latest() *Result {
