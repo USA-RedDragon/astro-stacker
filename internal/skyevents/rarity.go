@@ -23,7 +23,7 @@ const (
 	RareYears = 10
 	// CoarseStep is the step of the first pass over the decades.
 	CoarseStep    = 24 * time.Hour
-	rarityVersion = 1
+	rarityVersion = 2
 	yearDays      = 365.25
 	moonParallax  = 2.0
 )
