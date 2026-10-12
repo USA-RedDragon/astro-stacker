@@ -369,16 +369,24 @@ func TestSpansCoverEachNight(t *testing.T) {
 	}
 }
 
-func TestDesignationsByName(t *testing.T) {
+func TestTargetsByName(t *testing.T) {
 	t.Parallel()
-	m, err := bodies.DesignationsByName(context.Background(), scheduler(t, true, false))
+	sched := scheduler(t, true, false)
+	exec(t, sched, `insert into ts_target_body (target_guid, designation, kind) values ('dddd-fixed', '4', 'asteroid')`)
+	m, err := bodies.TargetsByName(context.Background(), sched)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m["C/2025 R2 (SWAN)"] != swan || m["Old"] != "2P" || len(m) != 2 {
+	if b := m["C/2025 R2 (SWAN)"]; b.Designation != swan || b.Kind != bodies.KindComet {
+		t.Errorf("comet %+v", b)
+	}
+	if b := m["M 31"]; b.Designation != "4" || b.Kind != bodies.KindAsteroid {
+		t.Errorf("asteroid %+v", b)
+	}
+	if m["Old"].Designation != "2P" || len(m) != 3 {
 		t.Errorf("%v", m)
 	}
-	if m, err := bodies.DesignationsByName(context.Background(), scheduler(t, false, false)); err != nil || len(m) != 0 {
+	if m, err := bodies.TargetsByName(context.Background(), scheduler(t, false, false)); err != nil || len(m) != 0 {
 		t.Errorf("without the table: %v %v", m, err)
 	}
 }
