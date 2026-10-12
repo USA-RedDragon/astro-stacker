@@ -54,7 +54,7 @@ func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive,
 			c.JSON(http.StatusNotFound, gin.H{errorKey: "no such project"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"project": p, "rules": s.Rules, "sets": s.Sets, "templates": s.Templates, "defaults": s.Defaults})
+		c.JSON(http.StatusOK, gin.H{"project": p, "rules": s.Rules, "sets": s.Sets, "templates": s.Templates, "filters": s.Filters, "defaults": s.Defaults})
 	})
 	g.GET("/planning/rule-weights", func(c *gin.Context) {
 		s, ok := planningSnapshot(c, backfill)
