@@ -36,8 +36,8 @@ const (
 	// already under way keeps its first night and its id.
 	MonthsBack = 3
 	// MonthsAhead is how far ahead the search looks; the API shows up to it.
-	MonthsAhead   = 12
-	DefaultMonths = 6
+	MonthsAhead   = 24
+	DefaultMonths = 24
 	Interval      = 24 * time.Hour
 	// WindowTable is the plugin's table of event windows; planning waits
 	// for it.

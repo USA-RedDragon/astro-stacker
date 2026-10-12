@@ -119,7 +119,7 @@ func TestSkyEventsWaitForThePluginWindows(t *testing.T) {
 	if out["months"] != 1.0 || first["id"] != id || first["priority"] != skyevents.PriorityHigh || first["plan"] != nil {
 		t.Fatalf("stored priority not shown: %v", first)
 	}
-	for _, path := range []string{"/api/v1/sky-events?months=0", "/api/v1/sky-events?months=13", "/api/v1/sky-events?months=x"} {
+	for _, path := range []string{"/api/v1/sky-events?months=0", "/api/v1/sky-events?months=25", "/api/v1/sky-events?months=x"} {
 		if code, _ := rig.call(http.MethodGet, path, ""); code != http.StatusBadRequest {
 			t.Errorf("%s: %d", path, code)
 		}
