@@ -15,6 +15,7 @@ const (
 	moon    = "Moon"
 	jupiter = "Jupiter"
 	saturn  = "Saturn"
+	venus   = "Venus"
 )
 
 func bruteSlack(ds []disc, w, h float64) float64 {
@@ -107,7 +108,7 @@ func TestGroupsMatchSkyfield(t *testing.T) {
 		{EventBodyBody, []string{moon, saturn, "Neptune"}, time.Date(2025, 7, 14, 0, 0, 0, 0, time.UTC), time.Date(2025, 7, 16, 6, 30, 0, 0, time.UTC), 2.554, 4, 0},
 		{EventBodyBody, []string{moon, mars, jupiter}, time.Date(2020, 3, 16, 0, 0, 0, 0, time.UTC), time.Date(2020, 3, 18, 11, 30, 0, 0, time.UTC), 2.501, 1, 0},
 		{EventMosaic2, []string{moon, mars, jupiter}, time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC), time.Date(2026, 11, 30, 8, 30, 0, 0, time.UTC), 5.151, 5, 2},
-		{EventMosaic2, []string{moon, "Venus", mars}, time.Date(2028, 9, 13, 0, 0, 0, 0, time.UTC), time.Date(2028, 9, 15, 10, 30, 0, 0, time.UTC), 4.113, 3, 1},
+		{EventMosaic2, []string{moon, venus, mars}, time.Date(2028, 9, 13, 0, 0, 0, 0, time.UTC), time.Date(2028, 9, 15, 10, 30, 0, 0, time.UTC), 4.113, 3, 1},
 	}
 	for _, tc := range cases {
 		evs := search(t, e, fx.Site, dsos, tc.from, tc.from.Add(96*time.Hour))
@@ -215,7 +216,7 @@ func TestRarityOfGroups(t *testing.T) {
 		prev, next time.Time
 	}{
 		{time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC), []string{moon, mars, jupiter}, false, time.Date(2020, 3, 18, 11, 30, 0, 0, time.UTC), time.Date(2033, 11, 29, 1, 0, 0, 0, time.UTC)},
-		{time.Date(2028, 9, 13, 0, 0, 0, 0, time.UTC), []string{moon, "Venus", mars}, true, time.Date(2015, 11, 7, 11, 0, 0, 0, time.UTC), time.Time{}},
+		{time.Date(2028, 9, 13, 0, 0, 0, 0, time.UTC), []string{moon, venus, mars}, true, time.Date(2015, 11, 7, 11, 0, 0, 0, time.UTC), time.Time{}},
 	}
 	for _, tc := range cases {
 		evs := search(t, e, fx.Site, dsos, tc.from, tc.from.Add(96*time.Hour))
@@ -242,9 +243,12 @@ func TestOnlyLargeOrRareMosaicsAreListed(t *testing.T) {
 	t.Parallel()
 	rare := &Rarity{Status: StatusReady, Rare: true}
 	common := &Rarity{Status: StatusReady}
-	two := []Member{{Name: moon}, {Name: mars}}
-	three := []Member{{Name: moon}, {Name: mars}, {Name: jupiter}}
+	two := []Member{{Name: moon, Kind: KindMoon}, {Name: mars, Kind: KindPlanet}}
+	three := []Member{{Name: moon, Kind: KindMoon}, {Name: mars, Kind: KindPlanet}, {Name: jupiter, Kind: KindPlanet}}
+	withDSOs := []Member{{Name: venus, Kind: KindPlanet}, {Name: "M 8", Kind: KindDSO}, {Name: "M 20", Kind: KindDSO}}
 	evs := []Event{
+		{ID: "planet-dsos-mosaic", Kind: EventMosaic2, Members: withDSOs, Rarity: common},
+		{ID: "rare-planet-dsos-mosaic", Kind: EventMosaic2, Members: withDSOs, Rarity: rare},
 		{ID: "pair", Kind: EventBodyBody, Members: two, Rarity: common},
 		{ID: "pair-mosaic", Kind: EventMosaic2, Members: two, Rarity: common},
 		{ID: "pair-mosaic-unknown", Kind: EventMosaic2, Members: two},
@@ -256,7 +260,7 @@ func TestOnlyLargeOrRareMosaicsAreListed(t *testing.T) {
 	for _, e := range kept {
 		got = append(got, e.ID)
 	}
-	if !slices.Equal(got, []string{"pair", "rare-pair-mosaic", "triple-mosaic"}) {
+	if !slices.Equal(got, []string{"rare-planet-dsos-mosaic", "pair", "rare-pair-mosaic", "triple-mosaic"}) {
 		t.Errorf("kept %v", got)
 	}
 }
