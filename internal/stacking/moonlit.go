@@ -10,6 +10,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/moon"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
@@ -20,6 +21,12 @@ import (
 // moonlit lights keeps them, as the low-score cutoff keeps a panel imaged
 // only under the moon, rather than leave a hole; once a moon-free light
 // comes, the moonlit ones go.
+
+// MoonFloorDegrees is the closest the scheduler images to the Moon while it
+// is up, once the exposure templates are retired.
+const MoonFloorDegrees = 20.0
+
+const roleTable = "ts_template_role"
 
 // moonRule is one filter's moon avoidance, from its exposure templates.
 type moonRule struct {
@@ -34,6 +41,7 @@ type moonRule struct {
 
 // moonRules reads each filter's moon avoidance from Target Scheduler's
 // exposure templates. A filter with several templates takes the strictest.
+// Templates the plugin manages make no rule.
 func moonRules(ctx context.Context, sched *gorm.DB) (map[string]moonRule, error) {
 	var rows []struct {
 		Filtername              string
@@ -43,9 +51,17 @@ func moonRules(ctx context.Context, sched *gorm.DB) (map[string]moonRule, error)
 		Moonrelaxminaltitude    float64
 		Moondownenabled         int
 	}
-	if err := sched.WithContext(ctx).Table("exposuretemplate").
+	hasRoles, err := tables.Has(ctx, sched, roleTable)
+	if err != nil {
+		return nil, fmt.Errorf("load moon avoidance: %w", err)
+	}
+	q := sched.WithContext(ctx).Table("exposuretemplate").
 		Select("filtername, moonavoidanceseparation, moonavoidancewidth, moonrelaxscale, moonrelaxminaltitude, moondownenabled").
-		Where("moonavoidanceenabled = 1").Scan(&rows).Error; err != nil {
+		Where("moonavoidanceenabled = 1")
+	if hasRoles {
+		q = q.Where(`"Id" NOT IN (SELECT template_id FROM `+roleTable+` WHERE role = ?)`, "managed")
+	}
+	if err := q.Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load moon avoidance: %w", err)
 	}
 	out := map[string]moonRule{}
@@ -61,6 +77,60 @@ func moonRules(ctx context.Context, sched *gorm.DB) (map[string]moonRule, error)
 		}
 	}
 	return out, nil
+}
+
+// retiredAt is when the profile's exposure templates were retired: the
+// earliest retired row. Nil before the migration.
+func retiredAt(ctx context.Context, sched *gorm.DB) (*time.Time, error) {
+	has, err := tables.Has(ctx, sched, roleTable)
+	if err != nil || !has {
+		return nil, err
+	}
+	var at []string
+	if err := sched.WithContext(ctx).Table(roleTable).Where("role = ?", "retired").Pluck("changed_at", &at).Error; err != nil {
+		return nil, fmt.Errorf("load template retirement: %w", err)
+	}
+	var first *time.Time
+	for _, v := range at {
+		t, err := parseChangedAt(v)
+		if err != nil {
+			return nil, fmt.Errorf("template retirement time %q: %w", v, err)
+		}
+		if first == nil || t.Before(*first) {
+			first = &t
+		}
+	}
+	return first, nil
+}
+
+func parseChangedAt(v string) (time.Time, error) {
+	var err error
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05Z07:00", "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02T15:04:05", "2006-01-02 15:04:05"} {
+		var t time.Time
+		if t, err = time.Parse(layout, v); err == nil {
+			return t.UTC(), nil
+		}
+	}
+	return time.Time{}, err
+}
+
+// floorWhy is why a light broke the moon floor: the Moon above the horizon
+// and within MoonFloorDegrees of the target at mid-exposure.
+func floorWhy(start time.Time, seconds, ra, dec, lat, lon float64) string {
+	mid := start.Add(time.Duration(seconds / 2 * float64(time.Second)))
+	m := moon.At(mid)
+	if m.Altitude(mid, lat, lon) <= 0 {
+		return ""
+	}
+	sep := m.Separation(ra, dec)
+	if sep >= MoonFloorDegrees {
+		return ""
+	}
+	shown := fmt.Sprintf("%.0f", sep)
+	if math.Round(sep) >= MoonFloorDegrees {
+		shown = fmt.Sprintf("%.1f", sep)
+	}
+	return fmt.Sprintf("the Moon was %s° from the target at mid-exposure; the scheduler never images within %.0f° of the Moon", shown, MoonFloorDegrees)
 }
 
 func (r moonRule) why(start time.Time, seconds, ra, dec, lat, lon float64) string {
@@ -85,11 +155,13 @@ func (r moonRule) why(start time.Time, seconds, ra, dec, lat, lon float64) strin
 	return ""
 }
 
-// moonChecker decides whether lights break their filter's moon avoidance.
+// moonChecker decides whether lights break their filter's moon avoidance:
+// the templates' rules before they were retired, the moon floor after.
 type moonChecker struct {
 	p         *Pipeline
 	rules     map[string]moonRule
 	positions map[string][2]float64
+	retiredAt *time.Time
 }
 
 func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]float64) (*moonChecker, error) {
@@ -97,7 +169,11 @@ func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]floa
 	if err != nil {
 		return nil, err
 	}
-	return &moonChecker{p: p, rules: rules, positions: positions}, nil
+	retired, err := retiredAt(ctx, p.sched)
+	if err != nil {
+		return nil, err
+	}
+	return &moonChecker{p: p, rules: rules, positions: positions, retiredAt: retired}, nil
 }
 
 // moonlit reports whether f breaks its filter's rule. A light it can't place
@@ -107,8 +183,12 @@ func (c *moonChecker) moonlit(ctx context.Context, f app.Frame) bool {
 }
 
 func (c *moonChecker) why(ctx context.Context, f app.Frame) string {
+	if f.DateObs == nil || f.Exposure == nil {
+		return ""
+	}
+	floor := c.retiredAt != nil && !f.DateObs.Before(*c.retiredAt)
 	r, ok := c.rules[f.Filter]
-	if !ok || f.DateObs == nil || f.Exposure == nil {
+	if !ok && !floor {
 		return ""
 	}
 	pos, ok := c.positions[f.Object]
@@ -121,6 +201,9 @@ func (c *moonChecker) why(ctx context.Context, f app.Frame) string {
 	site, ok := c.p.site(ctx, f)
 	if !ok {
 		return ""
+	}
+	if floor {
+		return floorWhy(*f.DateObs, *f.Exposure, pos[0], pos[1], site[0], site[1])
 	}
 	return r.why(*f.DateObs, *f.Exposure, pos[0], pos[1], site[0], site[1])
 }
