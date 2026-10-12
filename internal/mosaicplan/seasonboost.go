@@ -28,7 +28,8 @@ type TargetSeasonBoost struct {
 
 // BodyNightFunc is where a moving-body target is on the night (local date
 // "2006-01-02") and whether it is bright enough then; isBody is false for a
-// target that is not a moving body.
+// target that is not a moving body. For night "" usable reports whether the
+// body has nightly positions at all; a body without them gets no boost.
 type BodyNightFunc func(guid, night string) (pt mosaics.Point, usable, isBody bool)
 
 func (s *Service) SeasonBoosts(ctx context.Context, now time.Time) (map[string]float64, error) {
@@ -145,7 +146,10 @@ func ClearShare(months []MonthNights) [12]float64 {
 // target at its stored coordinates.
 func targetPoint(t planning.Target, body BodyNightFunc) (func(time.Time) (mosaics.Point, bool), bool) {
 	if body != nil {
-		if _, _, isBody := body(t.GUID, ""); isBody {
+		if _, hasRows, isBody := body(t.GUID, ""); isBody {
+			if !hasRows {
+				return nil, false
+			}
 			return func(night time.Time) (mosaics.Point, bool) {
 				pt, usable, _ := body(t.GUID, night.Format(time.DateOnly))
 				return pt, usable

@@ -180,6 +180,21 @@ func TestSeasonRowsFromRecordedHorizons(t *testing.T) {
 	}
 }
 
+func TestCloseApproachNightsGetNoRow(t *testing.T) {
+	t.Parallel()
+	near, far := 0.02, 0.2
+	at := time.Date(2026, 10, 13, 7, 20, 0, 0, time.UTC)
+	tab := horizons.Table{Rows: []horizons.Row{
+		{At: at, RA: 10, Dec: 20, Delta: &far},
+		{At: at.Add(24 * time.Hour), RA: 30, Dec: 25, Delta: &near},
+		{At: at.Add(48 * time.Hour), RA: 50, Dec: 30, Delta: &far},
+	}}
+	rows := bodies.SeasonRows(bodies.Target{GUID: "g", Designation: "2024 MK", Kind: bodies.KindAsteroid}, seasonSite(), tab, nil, seasonNow())
+	if len(rows) != 2 || rows[0].Night != night12 || rows[1].Night != "2026-10-14" {
+		t.Fatalf("%+v", rows)
+	}
+}
+
 func TestNoMagnitudeMeansNoLimit(t *testing.T) {
 	t.Parallel()
 	tab := horizons.Table{Rows: []horizons.Row{{At: time.Date(2026, 10, 13, 7, 20, 0, 0, time.UTC), RA: 10, Dec: 20}}}
@@ -200,12 +215,12 @@ func TestSeasonOfRecordedBodies(t *testing.T) {
 		seasonEnd              string
 	}{
 		{hartley, 189, 108, night12, "2027-04-18", 42, "2026-11-22"},
-		{vesta, 366, 144, night12, "2027-10-12", 126, "2027-02-14"},
+		{vesta, 365, 143, night12, "2027-10-11", 126, "2027-02-14"},
 		{k2, 0, 0, "", "", 0, ""},
 	}
 	for _, c := range cases {
 		nights := bodies.BuildNightView(site, seasonRows(t, c.name, true), seasonFirst(), 30, 60)
-		if len(nights) != bodies.SeasonNights {
+		if len(nights) != bodies.SeasonScan {
 			t.Fatalf("%s: %d nights", c.name, len(nights))
 		}
 		bright, usable, first, last := 0, 0, "", ""
@@ -379,11 +394,11 @@ func checkFailedFetchKeepsRows(t *testing.T, s *bodies.NightService, sched *gorm
 	f.setFail("DES=161P;CAP;NOFRAG", true)
 	defer f.setFail("DES=161P;CAP;NOFRAG", false)
 	res, err := s.Refresh(context.Background())
-	if err != nil || len(res.Errors) != 1 || res.Errors[0].TargetGUID != hartleyGUID || res.Deleted != 1 {
+	if err != nil || len(res.Errors) != 1 || res.Errors[0].TargetGUID != hartleyGUID || res.Deleted != 0 {
 		t.Fatalf("failed fetch %+v, %v", res, err)
 	}
-	if n := nightCount(t, sched, "target_guid = '"+hartleyGUID+"'"); n != per-1 {
-		t.Errorf("a failed fetch kept %d of 161P's rows, want all but the night before tonight", n)
+	if n := nightCount(t, sched, "target_guid = '"+hartleyGUID+"'"); n != per {
+		t.Errorf("a failed fetch kept %d of 161P's rows, want all of them, the night before tonight too", n)
 	}
 }
 
@@ -407,7 +422,7 @@ func checkView(t *testing.T, s *bodies.NightService) {
 	ctx := context.Background()
 	v, ok, err := s.View(ctx, strings.ToUpper(hartleyGUID))
 	if err != nil || !ok || v.MinAltitude != 30 || v.MinimumMinutes != 60 || v.MagLimit != 15 || v.UsableNights != 108 ||
-		v.FirstUsable == nil || *v.FirstUsable != night12 || v.Brightest == nil || v.BrightestNight == nil || len(v.Nights) != bodies.SeasonNights {
+		v.FirstUsable == nil || *v.FirstUsable != night12 || v.Brightest == nil || v.BrightestNight == nil || len(v.Nights) != bodies.SeasonScan {
 		t.Fatalf("view %+v, %v, %v", v, ok, err)
 	}
 	if _, ok, err := s.View(ctx, k2GUID); ok || err != nil {
@@ -415,6 +430,19 @@ func checkView(t *testing.T, s *bodies.NightService) {
 	}
 	if v.TypicalWindow == nil || *v.TypicalWindow != 2.17 {
 		t.Errorf("161P typical window %v", v.TypicalWindow)
+	}
+	if v.SeasonLeft != 42 || v.SeasonEnd == nil || *v.SeasonEnd != "2026-11-22" {
+		t.Errorf("161P season counted like the plugin: %d to %v", v.SeasonLeft, v.SeasonEnd)
+	}
+	if _, _, has, isBody := s.NightPoint(hartleyGUID, ""); !has || !isBody {
+		t.Errorf("161P has rows: %v %v", has, isBody)
+	}
+	fresh := &bodies.NightService{Sched: s.Sched}
+	if _, _, has, isBody := fresh.NightPoint(vestaGUID, ""); has || !isBody {
+		t.Errorf("before the first build a body is a body without rows: %v %v", has, isBody)
+	}
+	if _, _, _, isBody := fresh.NightPoint("dddd-fixed", ""); isBody {
+		t.Error("before the first build a fixed target is not a body")
 	}
 }
 
@@ -424,7 +452,7 @@ func TestNightPreviewByDesignation(t *testing.T) {
 	s := nightService(t, nil, f, bodies.ModeOn)
 	ctx := context.Background()
 	v, err := s.Preview(ctx, " 161P ", "", 30, 90)
-	if err != nil || v.Kind != bodies.KindComet || v.MagLimit != 15 || len(v.Nights) != bodies.SeasonNights || v.MinimumMinutes != 90 {
+	if err != nil || v.Kind != bodies.KindComet || v.MagLimit != 15 || len(v.Nights) != bodies.SeasonScan || v.MinimumMinutes != 90 {
 		t.Fatalf("161P preview %+v, %v", v, err)
 	}
 	if v.TypicalWindow == nil || *v.TypicalWindow != 2.17 || v.Nights[0].DarkHours != 4.83 || v.UsableNights == 0 {

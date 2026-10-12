@@ -200,6 +200,7 @@ const (
 	cometGUID    = "comet"
 	noCoordsGUID = "nocoords"
 	faintGUID    = "faint"
+	noRowsGUID   = "norows"
 )
 
 func TestSeasonBoostsPlaceMovingBodiesByNight(t *testing.T) {
@@ -211,17 +212,20 @@ func TestSeasonBoostsPlaceMovingBodiesByNight(t *testing.T) {
 		{GUID: cometGUID, Name: cometGUID, Active: true, RAHours: fp(0), Dec: fp(-85), Season: season, Plans: plans},
 		{GUID: noCoordsGUID, Name: noCoordsGUID, Active: true, Season: season, Plans: plans},
 		{GUID: faintGUID, Name: faintGUID, Active: true, RAHours: fp(0), Dec: fp(85), Season: season, Plans: plans},
+		{GUID: noRowsGUID, Name: noRowsGUID, Active: true, RAHours: fp(0), Dec: fp(85), Season: season, Plans: plans},
 	}}}
 	var asked []string
 	body := func(guid, night string) (mosaics.Point, bool, bool) {
 		switch guid {
+		case noRowsGUID:
+			return mosaics.Point{}, false, true
 		case cometGUID, noCoordsGUID:
 			if night != "" {
 				asked = append(asked, night)
 			}
 			return mosaics.Point{RA: 0, Dec: 85}, true, true
 		case faintGUID:
-			return mosaics.Point{RA: 0, Dec: 85}, false, true
+			return mosaics.Point{RA: 0, Dec: 85}, night == "", true
 		}
 		return mosaics.Point{}, false, false
 	}
@@ -236,11 +240,14 @@ func TestSeasonBoostsPlaceMovingBodiesByNight(t *testing.T) {
 	if x.Available != 0 || x.Boost != 1 {
 		t.Errorf("a body that is never bright enough has no hours: %+v", x)
 	}
+	if _, ok := got[noRowsGUID]; ok {
+		t.Errorf("a body without nightly positions gets no boost: %+v", got[noRowsGUID])
+	}
 	if len(asked) == 0 || asked[0] < "2026-10-01" {
 		t.Errorf("nights asked %v", asked)
 	}
 	without := mosaicplan.SeasonBoostsFor(projects, testSite(), nil, allClear(), 1, testNow(), nil)
-	if len(without) != 3 {
+	if len(without) != 4 {
 		t.Errorf("without body positions the target with no coordinates is skipped: %v", without)
 	}
 }

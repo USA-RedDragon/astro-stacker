@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
@@ -18,8 +19,9 @@ var ErrNightsOff = errors.New("body season nights are off (bodies.publish is off
 const NightViewBasis = "Per night, from the published night table: peak_altitude is the body's highest altitude in astronomical darkness (sun below -18 degrees), " +
 	"dark_hours the longest stretch of astronomical darkness it spends above the project's minimum altitude, positions interpolated between the nightly rows every 10 minutes. " +
 	"A night is usable when the body is bright enough and dark_hours reaches the project's minimum time. " +
+	"season_nights_left and season_end count the usable nights from tonight until 14 unusable ones in a row, as the plugin does; usable_nights counts every usable night of the 365. " +
 	"typical_window_hours is the median dark_hours over the bright nights among the next 90 that have any. " +
-	"This view does not apply the horizon, moon avoidance or twilight level of the exposure plans; the season on the project list comes from the plugin, which does."
+	"This view does not apply the horizon, moon avoidance or twilight level of the exposure plans; the season on the project list comes from the plugin, which does, so it can be shorter."
 
 // NightDetail is one night of a body's season.
 type NightDetail struct {
@@ -44,6 +46,8 @@ type NightView struct {
 	MagLimit       float64       `json:"mag_limit"`
 	BrightNights   int           `json:"bright_nights"`
 	UsableNights   int           `json:"usable_nights"`
+	SeasonLeft     int           `json:"season_nights_left"`
+	SeasonEnd      *string       `json:"season_end"`
 	FirstUsable    *string       `json:"first_usable"`
 	LastUsable     *string       `json:"last_usable"`
 	TypicalWindow  *float64      `json:"typical_window_hours"`
@@ -80,7 +84,7 @@ func BuildNightView(site sky.Site, rows []NightRow, first time.Time, minAlt floa
 		byNight[r.Night] = r
 	}
 	out := []NightDetail{}
-	for i := range SeasonNights {
+	for i := range SeasonScan {
 		date := first.AddDate(0, 0, i)
 		night := date.Format(time.DateOnly)
 		row, ok := byNight[night]
@@ -146,8 +150,32 @@ func typicalWindow(nights []NightDetail) *float64 {
 	return &m
 }
 
+// SeasonGap is how many unusable nights in a row end a season, as in the
+// plugin's SeasonCounter.
+const SeasonGap = 14
+
+// season counts like the plugin: none when tonight is unusable, else the
+// usable nights until SeasonGap unusable ones in a row.
+func season(nights []NightDetail) (int, *string) {
+	if len(nights) == 0 || !nights[0].Usable {
+		return 0, nil
+	}
+	n, gap, last := 0, 0, ""
+	for _, d := range nights {
+		if d.Usable {
+			n, gap, last = n+1, 0, d.Night
+			continue
+		}
+		if gap++; gap >= SeasonGap {
+			break
+		}
+	}
+	return n, &last
+}
+
 func summarize(v *NightView) {
 	v.TypicalWindow = typicalWindow(v.Nights)
+	v.SeasonLeft, v.SeasonEnd = season(v.Nights)
 	for _, d := range v.Nights {
 		if d.Bright {
 			v.BrightNights++
@@ -210,9 +238,13 @@ func (s *NightService) Preview(ctx context.Context, designation, kind string, mi
 	t := Target{Designation: strings.TrimSpace(designation), Kind: kind}
 	at := s.now().UTC()
 	first := Tonight(site, at)
-	tab, err := s.Horizons.Ephemeris(ctx, SeasonRequest(t, site, first))
+	req := SeasonRequest(t, site, first)
+	tab, err := s.Horizons.Ephemeris(ctx, req)
 	if err != nil {
 		return NightView{}, err
+	}
+	if _, perr := s.Horizons.PruneEarlier(ctx, req); perr != nil {
+		slog.Warn("Pruning earlier Horizons season tables failed", "designation", t.Designation, "error", perr)
 	}
 	var el *Elements
 	if kind != KindAsteroid && s.Elements != nil {
