@@ -237,9 +237,9 @@ func (p *Pipeline) runMosaics(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// MosaicsOnce builds every mosaic whose panel masters changed and have been
-// left alone for MosaicQuiet, so a mosaic isn't rebuilt after every batch
-// while its panels are still filling in.
+// MosaicsOnce builds every mosaic whose panel masters changed, at most once
+// per MosaicQuiet unless a panel joined it, so a mosaic keeps up with the
+// panel being imaged without being rebuilt after every batch.
 func (p *Pipeline) MosaicsOnce(ctx context.Context) error {
 	p.seamBudget = 1
 	if _, err := p.linker.Link(ctx, p.db, p.sched); err != nil && ctx.Err() == nil {
@@ -370,16 +370,22 @@ func (p *Pipeline) findMosaic(ctx context.Context, g mosaicGroup, filter string)
 	return mosaic, nil
 }
 
+func mosaicDue(m app.Mosaic, sig string, panels int, every time.Duration, now time.Time) bool {
+	switch {
+	case m.Signature == sig:
+		return false
+	case m.Signature == "" || panels > m.Panels:
+		return true
+	}
+	return now.Sub(m.UpdatedAt) >= every
+}
+
 func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string, masters []app.Stack) error {
 	slices.SortFunc(masters, func(a, b app.Stack) int { return strings.Compare(a.Object, b.Object) })
 	h := sha256.New()
 	fmt.Fprintf(h, "%d\x00", mosaicMethod)
-	var newest time.Time
 	for _, m := range masters {
 		fmt.Fprintf(h, "%s\x00%d\x00", m.Object, m.UpdatedAt.UnixNano())
-		if m.UpdatedAt.After(newest) {
-			newest = m.UpdatedAt
-		}
 	}
 	sig := hex.EncodeToString(h.Sum(nil))[:32]
 	mosaic, err := p.findMosaic(ctx, g, filter)
@@ -389,7 +395,7 @@ func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string
 	if mosaic.Signature == sig && mosaic.SeamSignature != seamSignature(sig) && mosaic.Error == nil && p.seamsDue() {
 		return p.measureSeamsOnly(ctx, g, filter, masters, &mosaic, sig)
 	}
-	if mosaic.Signature == sig || time.Since(newest) < p.opts.MosaicQuiet {
+	if !mosaicDue(mosaic, sig, len(masters), p.opts.MosaicQuiet, time.Now()) {
 		return nil
 	}
 	name := "Mosaic: " + g.Project
