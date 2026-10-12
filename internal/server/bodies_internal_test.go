@@ -59,8 +59,10 @@ func TestCometRoute(t *testing.T) {
 	if code, _ := get(nil, "/api/v1/comets"); code != http.StatusServiceUnavailable {
 		t.Errorf("no list: %d", code)
 	}
-	if code, _ := get(&bodies.CometList{}, "/api/v1/comets?max_mag=bright"); code != http.StatusBadRequest {
-		t.Errorf("bad max_mag: %d", code)
+	for _, q := range []string{"max_mag=bright", "max_mag=NaN", "max_mag=Inf", "min_alt=NaN", "min_alt=91"} {
+		if code, _ := get(&bodies.CometList{}, "/api/v1/comets?"+q); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", q, code)
+		}
 	}
 	if code, body := get(&bodies.CometList{}, "/api/v1/comets"); code != http.StatusServiceUnavailable || body[errorKey] == nil {
 		t.Errorf("no site: %d %v", code, body)

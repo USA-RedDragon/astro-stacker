@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 
@@ -46,22 +47,29 @@ func applyCometRoutes(g *gin.RouterGroup, list *bodies.CometList) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "the comet list is off"})
 			return
 		}
-		maxMag, minAlt := bodies.DefaultMaxMag, 0.0
-		for key, dst := range map[string]*float64{"max_mag": &maxMag, "min_alt": &minAlt} {
-			v := c.Query(key)
-			if v == "" {
-				continue
-			}
+		maxMag := bodies.DefaultMaxMag
+		var minAlt *float64
+		if v := c.Query("max_mag"); v != "" {
 			f, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{errorKey: key + " must be a number"})
+			if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+				c.JSON(http.StatusBadRequest, gin.H{errorKey: "max_mag must be a number"})
 				return
 			}
-			*dst = f
+			maxMag = f
+		}
+		if v := c.Query("min_alt"); v != "" {
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < -90 || f > 90 {
+				c.JSON(http.StatusBadRequest, gin.H{errorKey: "min_alt must be a number from -90 to 90"})
+				return
+			}
+			minAlt = &f
 		}
 		all := c.Query("all") == "1" || c.Query("all") == "true"
 		view, err := list.List(c.Request.Context(), maxMag, minAlt, all)
 		switch {
+		case errors.Is(err, bodies.ErrBadQuery):
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		case errors.Is(err, bodies.ErrNoSite), errors.Is(err, bodies.ErrNoElements):
 			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
 		case err != nil:

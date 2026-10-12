@@ -28,10 +28,15 @@ const (
 	ElementsMaxAge   = 24 * time.Hour
 	DefaultMaxMag    = 15.0
 	DefaultMinAlt    = 30.0
-	CometBasis       = "Positions are two-body from the MPC's daily comet elements, seen from the Earth's centre (tens of arcsec from JPL at most; the position tables come from Horizons). Both magnitudes are model estimates, not measurements, and often disagree by several magnitudes: magnitude_mpc is H + 5 log10(delta) + 2.5 G log10(r) from the MPC's H and G; magnitude_jpl is M1 + 5 log10(delta) + K1 log10(r) from JPL's SBDB, the T-mag Horizons gives. A comet is listed when either is no fainter than max_magnitude."
+	CometBasis       = "Positions are two-body from the MPC's daily comet elements, seen from the Earth-Moon barycentre without parallax: within about a minute of arc of JPL for comets beyond 0.5 au, several minutes for comets passing within 0.1 au. They are for the altitude window only; the position tables the plugin centres on come from Horizons. Both magnitudes are model estimates, not measurements, and often disagree by several magnitudes: magnitude_mpc is H + 5 log10(delta) + 2.5 G log10(r) from the MPC's H and G; magnitude_jpl is M1 + 5 log10(delta) + K1 log10(r) from JPL's SBDB, the T-mag Horizons gives. A comet is listed when either is no fainter than max_magnitude."
 )
 
-var ErrNoElements = errors.New("the MPC comet elements could not be fetched and none are cached")
+var (
+	ErrNoElements = errors.New("the MPC comet elements could not be fetched and none are cached")
+	ErrBadQuery   = errors.New("max_mag must be a number and min_alt a number from -90 to 90")
+)
+
+func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
 type CometWindow struct {
 	Hours   float64    `json:"hours"`
@@ -194,15 +199,21 @@ func (c *CometList) elements(ctx context.Context) ([]Elements, ElementsInfo, err
 	if err != nil {
 		return nil, info, fmt.Errorf("%w: %w", ErrNoElements, err)
 	}
-	if c.parsed == nil || !c.parseAt.Equal(stored.FetchedAt) {
-		els, bad := ParseComets(stored.Body)
+	c.mu.Lock()
+	els, at := c.parsed, c.parseAt
+	c.mu.Unlock()
+	if els == nil || !at.Equal(stored.FetchedAt) {
+		var bad int
+		els, bad = ParseComets(stored.Body)
 		if bad > 0 {
 			slog.Debug("Unreadable comet element lines", "lines", bad)
 		}
+		c.mu.Lock()
 		c.parsed, c.parseAt = els, stored.FetchedAt
+		c.mu.Unlock()
 	}
-	info.Comets = len(c.parsed)
-	return c.parsed, info, nil
+	info.Comets = len(els)
+	return els, info, nil
 }
 
 // ParseSBDB reads an SBDB query of comets' pdes, full_name, M1 and K1 into
@@ -261,16 +272,20 @@ func (c *CometList) jplMagnitudes(ctx context.Context) (map[string][2]float64, E
 		info.Error = err.Error()
 		return nil, info
 	}
-	if c.jpl == nil || !c.jplAt.Equal(stored.FetchedAt) {
-		m, err := ParseSBDB(stored.Body)
-		if err != nil {
+	c.mu.Lock()
+	m, at := c.jpl, c.jplAt
+	c.mu.Unlock()
+	if m == nil || !at.Equal(stored.FetchedAt) {
+		if m, err = ParseSBDB(stored.Body); err != nil {
 			info.Error = err.Error()
 			return nil, info
 		}
+		c.mu.Lock()
 		c.jpl, c.jplAt = m, stored.FetchedAt
+		c.mu.Unlock()
 	}
-	info.Comets = len(c.jpl)
-	return c.jpl, info
+	info.Comets = len(m)
+	return m, info
 }
 
 // window is when the comet clears minAlt in the night's darkness, and the
@@ -339,15 +354,19 @@ func round(v float64, places int) float64 {
 // estimate) that clear minAlt in tonight's astronomical darkness, brightest
 // first; all includes those that don't clear it and those with no
 // magnitude parameters.
-func (c *CometList) List(ctx context.Context, maxMag, minAlt float64, all bool) (CometView, error) {
+func (c *CometList) List(ctx context.Context, maxMag float64, minAltitude *float64, all bool) (CometView, error) {
 	now := c.now().UTC()
-	if minAlt <= 0 {
-		minAlt = c.MinAlt
-	}
+	minAlt := c.MinAlt
 	if minAlt <= 0 {
 		minAlt = DefaultMinAlt
 	}
+	if minAltitude != nil {
+		minAlt = *minAltitude
+	}
 	view := CometView{ComputedAt: now, MinAltitude: minAlt, MaxMag: maxMag, Basis: CometBasis, Comets: []Comet{}}
+	if !finite(maxMag) || !finite(minAlt) || minAlt < -90 || minAlt > 90 {
+		return view, ErrBadQuery
+	}
 	if c.Site == nil {
 		return view, ErrNoSite
 	}
@@ -355,8 +374,6 @@ func (c *CometList) List(ctx context.Context, maxMag, minAlt float64, all bool) 
 	if err != nil {
 		return view, fmt.Errorf("%w: %w", ErrNoSite, err)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	els, info, err := c.elements(ctx)
 	view.Elements = info
 	if err != nil {
@@ -371,7 +388,14 @@ func (c *CometList) List(ctx context.Context, maxMag, minAlt float64, all bool) 
 		mid = night.Dark[len(night.Dark)/2]
 	}
 	for _, el := range els {
-		cm := c.comet(el, jpl, el.Seen(mid))
+		if err := ctx.Err(); err != nil {
+			return view, err
+		}
+		seen := el.Seen(mid)
+		if !seen.Finite() {
+			continue
+		}
+		cm := c.comet(el, jpl, seen)
 		if m, ok := cm.Brightest(); !ok && !all || ok && m > maxMag {
 			continue
 		}
@@ -379,8 +403,13 @@ func (c *CometList) List(ctx context.Context, maxMag, minAlt float64, all bool) 
 		if w.Hours == 0 && !all {
 			continue
 		}
-		cm = c.comet(el, jpl, el.Seen(at))
-		cm.MotionRate = round(motion(el, at), 2)
+		seen = el.Seen(at)
+		rate := motion(el, at)
+		if !seen.Finite() || !finite(rate) {
+			continue
+		}
+		cm = c.comet(el, jpl, seen)
+		cm.MotionRate = round(rate, 2)
 		cm.Window = w
 		view.Comets = append(view.Comets, cm)
 	}
