@@ -172,6 +172,13 @@ type calibrationShadow struct {
 	Publish *string `json:"publish" toml:"publish" yaml:"publish"`
 }
 
+type bodiesShadow struct {
+	Publish          *string `json:"publish"            toml:"publish"            yaml:"publish"`
+	IntervalMinutes  *int    `json:"interval-minutes"   toml:"interval-minutes"   yaml:"interval-minutes"`
+	HorizonsURL      *string `json:"horizons-url"       toml:"horizons-url"       yaml:"horizons-url"`
+	CometElementsURL *string `json:"comet-elements-url" toml:"comet-elements-url" yaml:"comet-elements-url"`
+}
+
 type configShadow struct {
 	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
 	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
@@ -189,6 +196,7 @@ type configShadow struct {
 	Darks        *darksShadow        `json:"darks"         toml:"darks"         yaml:"darks"`
 	SubLength    *subLengthShadow    `json:"sub-length"    toml:"sub-length"    yaml:"sub-length"`
 	Calibration  *calibrationShadow  `json:"calibration"   toml:"calibration"   yaml:"calibration"`
+	Bodies       *bodiesShadow       `json:"bodies"        toml:"bodies"        yaml:"bodies"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -345,6 +353,14 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("sub-length.tolerance-percent", configulator.LayerDefault, "default tag")
 	cfg.Calibration.Publish = "off"
 	set("calibration.publish", configulator.LayerDefault, "default tag")
+	cfg.Bodies.Publish = "on"
+	set("bodies.publish", configulator.LayerDefault, "default tag")
+	cfg.Bodies.IntervalMinutes = 60
+	set("bodies.interval-minutes", configulator.LayerDefault, "default tag")
+	cfg.Bodies.HorizonsURL = "https://ssd.jpl.nasa.gov/api/horizons.api"
+	set("bodies.horizons-url", configulator.LayerDefault, "default tag")
+	cfg.Bodies.CometElementsURL = "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
+	set("bodies.comet-elements-url", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -807,6 +823,24 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Calibration.Publish != nil {
 			cfg.Calibration.Publish = *s.Calibration.Publish
 			set("calibration.publish", configulator.LayerFile, file)
+		}
+	}
+	if s.Bodies != nil {
+		if s.Bodies.Publish != nil {
+			cfg.Bodies.Publish = *s.Bodies.Publish
+			set("bodies.publish", configulator.LayerFile, file)
+		}
+		if s.Bodies.IntervalMinutes != nil {
+			cfg.Bodies.IntervalMinutes = *s.Bodies.IntervalMinutes
+			set("bodies.interval-minutes", configulator.LayerFile, file)
+		}
+		if s.Bodies.HorizonsURL != nil {
+			cfg.Bodies.HorizonsURL = *s.Bodies.HorizonsURL
+			set("bodies.horizons-url", configulator.LayerFile, file)
+		}
+		if s.Bodies.CometElementsURL != nil {
+			cfg.Bodies.CometElementsURL = *s.Bodies.CometElementsURL
+			set("bodies.comet-elements-url", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -1828,6 +1862,31 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Calibration.Publish = v
 		set("calibration.publish", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "bodies", "publish"); ok {
+		cfg.Bodies.Publish = v
+		set("bodies.publish", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "bodies", "interval-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "bodies.interval-minutes",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Bodies.IntervalMinutes = int(p)
+		set("bodies.interval-minutes", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "bodies", "horizons-url"); ok {
+		cfg.Bodies.HorizonsURL = v
+		set("bodies.horizons-url", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "bodies", "comet-elements-url"); ok {
+		cfg.Bodies.CometElementsURL = v
+		set("bodies.comet-elements-url", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -1945,6 +2004,10 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"sub-length" + o.Separator + "interval-minutes",
 		"sub-length" + o.Separator + "tolerance-percent",
 		"calibration" + o.Separator + "publish",
+		"bodies" + o.Separator + "publish",
+		"bodies" + o.Separator + "interval-minutes",
+		"bodies" + o.Separator + "horizons-url",
+		"bodies" + o.Separator + "comet-elements-url",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -2064,6 +2127,10 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(60), names[101], "Minutes between recomputing the lengths")
 	fs.Float64(names[102], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
 	fs.String(names[103], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[104], "on", "Write each moving target's nightly position table into ts_body_position in the scheduler database, which the plugin uses for visibility, centering and sub length: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
+	fs.Var(impl.NewInt(60), names[105], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
+	fs.String(names[106], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
+	fs.String(names[107], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
 	return nil
 }
 
@@ -3317,6 +3384,54 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Calibration.Publish = v
 		set("calibration.publish", configulator.LayerCLI, "--"+n)
 	}
+	if n := "bodies" + o.Separator + "publish"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "bodies.publish",
+				Source: "--" + n,
+			}
+		}
+		cfg.Bodies.Publish = v
+		set("bodies.publish", configulator.LayerCLI, "--"+n)
+	}
+	if n := "bodies" + o.Separator + "interval-minutes"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "bodies.interval-minutes",
+				Source: "--" + n,
+			}
+		}
+		cfg.Bodies.IntervalMinutes = v
+		set("bodies.interval-minutes", configulator.LayerCLI, "--"+n)
+	}
+	if n := "bodies" + o.Separator + "horizons-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "bodies.horizons-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.Bodies.HorizonsURL = v
+		set("bodies.horizons-url", configulator.LayerCLI, "--"+n)
+	}
+	if n := "bodies" + o.Separator + "comet-elements-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "bodies.comet-elements-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.Bodies.CometElementsURL = v
+		set("bodies.comet-elements-url", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -3634,6 +3749,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Calibration = &sub
+			}
+		case "bodies":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("bodies", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub bodiesShadow
+				if err := sub.decodeJSON(dec, "bodies"); err != nil {
+					return err
+				}
+				s.Bodies = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -5729,6 +5863,88 @@ func (s *calibrationShadow) decodeJSON(dec *jsontext.Decoder, path string) error
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *bodiesShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "publish":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Publish = &str
+			default:
+				return configJSONError(path+".publish", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "interval-minutes":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".interval-minutes", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalMinutes = &num
+			default:
+				return configJSONError(path+".interval-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "horizons-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.HorizonsURL = &str
+			default:
+				return configJSONError(path+".horizons-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "comet-elements-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.CometElementsURL = &str
+			default:
+				return configJSONError(path+".comet-elements-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -5851,6 +6067,10 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "sub-length.interval-minutes = %v\n", c.SubLength.IntervalMinutes)
 	fmt.Fprintf(&b, "sub-length.tolerance-percent = %v\n", c.SubLength.TolerancePct)
 	fmt.Fprintf(&b, "calibration.publish = %v\n", c.Calibration.Publish)
+	fmt.Fprintf(&b, "bodies.publish = %v\n", c.Bodies.Publish)
+	fmt.Fprintf(&b, "bodies.interval-minutes = %v\n", c.Bodies.IntervalMinutes)
+	fmt.Fprintf(&b, "bodies.horizons-url = %v\n", c.Bodies.HorizonsURL)
+	fmt.Fprintf(&b, "bodies.comet-elements-url = %v\n", c.Bodies.CometElementsURL)
 	return b.String()
 }
 

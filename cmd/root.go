@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/calreq"
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
@@ -113,6 +114,10 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	broker := events.NewBroker()
 	newFrames := &wake.Signal{}
 	hz := horizons.New(cmd.Annotations["version"], appStore.DB())
+	hz.BaseURL = cfg.Bodies.HorizonsURL
+	bodyTables := &bodies.Service{Sched: schedulerDBStore.DB(), Horizons: hz, Site: bodies.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.Bodies.Publish}
+	go bodyTables.Run(indexCtx, time.Duration(cfg.Bodies.IntervalMinutes)*time.Minute)
+	slog.Info("Body position tables started", "publish", cfg.Bodies.Publish, "interval_minutes", cfg.Bodies.IntervalMinutes)
 	darkNeed := &darkneed.Publisher{App: appStore.DB(), Sched: schedulerDBStore.DB(), Mode: cfg.Darks.Publish}
 	biasNeed := calpublish.NewBias(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
 	flatRequests := calpublish.NewFlat(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
@@ -211,7 +216,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}
 		previews.Notice(r)
 	})
-	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {

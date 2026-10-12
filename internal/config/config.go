@@ -37,6 +37,26 @@ type Config struct {
 	Darks        Darks        `name:"darks" description:"The dark backlog the observatory's Target Scheduler Darks instruction works through"`
 	SubLength    SubLength    `name:"sub-length" description:"Sub exposure lengths the system picks per target, filter and moon glare from the measured sky, read noise, overhead, star saturation, rejections and the dark library"`
 	Calibration  Calibration  `name:"calibration" description:"The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through"`
+	Bodies       Bodies       `name:"bodies" description:"Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight"`
+}
+
+type Bodies struct {
+	Publish          string `name:"publish" description:"Write each moving target's nightly position table into ts_body_position in the scheduler database, which the plugin uses for visibility, centering and sub length: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table" default:"on"`
+	IntervalMinutes  int    `name:"interval-minutes" description:"Minutes between rebuilding the position tables; tables already fetched for a night come from the cache" default:"60"`
+	HorizonsURL      string `name:"horizons-url" description:"JPL Horizons API" default:"https://ssd.jpl.nasa.gov/api/horizons.api"`
+	CometElementsURL string `name:"comet-elements-url" description:"Minor Planet Center comet elements, for the list of comets observable tonight" default:"https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"`
+}
+
+func (b Bodies) validate() error {
+	switch b.Publish {
+	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
+	default:
+		return ErrInvalidBodiesPublish
+	}
+	if b.IntervalMinutes < 1 {
+		return ErrInvalidBodiesInterval
+	}
+	return nil
 }
 
 func (d Darks) RejectSinceTime() time.Time {
@@ -260,6 +280,8 @@ var (
 	ErrInvalidSubLengthTolerance    = errors.New("sub-length.tolerance-percent must be above 0 and below 50")
 	ErrInvalidDarksRejectSince      = errors.New("darks.reject-since must be a date, YYYY-MM-DD")
 	ErrInvalidCalibrationPublish    = errors.New("calibration.publish must be off, dry-run or on")
+	ErrInvalidBodiesPublish         = errors.New("bodies.publish must be off, dry-run or on")
+	ErrInvalidBodiesInterval        = errors.New("bodies.interval-minutes must be at least 1")
 )
 
 func (c Config) validateCalibration() error {
@@ -328,6 +350,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.SubLength.validate(c.Stacking.ScorePerSecond); err != nil {
+		return err
+	}
+	if err := c.Bodies.validate(); err != nil {
 		return err
 	}
 

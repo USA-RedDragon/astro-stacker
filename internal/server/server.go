@@ -50,6 +50,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applyDarkBacklogRoutes(r.Group("/api/v1"), extras.DarkNeed, extras.Now)
 	applyCalibrationRoutes(r.Group("/api/v1"), extras)
 	applySubLengthRoutes(r.Group("/api/v1"), extras.SubLength)
+	applyBodiesRoutes(r.Group("/api/v1"), extras.Bodies)
 	applyWebUI(r, config.HTTP.WebURL)
 
 	var metricsServer *http.Server

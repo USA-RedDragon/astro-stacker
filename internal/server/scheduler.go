@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
@@ -48,6 +49,7 @@ type Extras struct {
 	BiasNeed     *calpublish.BiasPublisher
 	FlatRequests *calpublish.FlatPublisher
 	SubLength    *sublength.Service
+	Bodies       *bodies.Service
 	Site         SiteSource
 }
 
