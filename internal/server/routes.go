@@ -224,6 +224,8 @@ func v1(r *gin.RouterGroup, signer *previewer.Signer) {
 	// Stacked masters for one target, one per filter.
 	r.GET("/stacks", stacksRoute(signer))
 
+	r.GET("/body-nights", bodyNightsRoute(signer))
+
 	// Every target with lights, how many of them Target Scheduler recorded
 	// (frame_targets links from a header GUID or an acquiredimage row), and
 	// whether it has a Target Scheduler target: a linked one, one of the
