@@ -289,3 +289,33 @@ func TestRuleWeightsApplyNeedsCommands(t *testing.T) {
 		t.Fatalf("%d", code)
 	}
 }
+
+func TestPlanningFiltersDraftRoute(t *testing.T) {
+	t.Parallel()
+	r, sched, _ := planningEngineWith(t, nil)
+	for _, q := range []string{`insert into target values (21,'Garlic Nebula 2',1,23.9,62.4,0,7,'g21')`, `insert into exposureplan values (51,'p',-1,80,0,0,21,2,1,'e51')`} {
+		if err := sched.DB().Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, out := get(t, r, http.MethodPost, "/api/v1/planning/filters/draft", `{"targetIds":[20],"filters":["H-a","O-III"]}`)
+	payload, _ := out["payload"].(map[string]any)
+	if code != http.StatusOK || payload["set_id"] != "filters" || payload["mode"] != "replace" {
+		t.Fatalf("%d %v", code, out)
+	}
+	effects, _ := out["effects"].([]any)
+	if len(effects) != 1 {
+		t.Fatalf("effects %v", effects)
+	}
+	if first, _ := effects[0].(map[string]any); first["effect"] != "adds O-III" {
+		t.Fatalf("effects %v", effects)
+	}
+	code, out = get(t, r, http.MethodPost, "/api/v1/planning/filters/draft", `{"targetIds":[20],"filters":["Clear"]}`)
+	if code != http.StatusUnprocessableEntity || out["draft"] == nil {
+		t.Fatalf("an unknown filter should be 422: %d %v", code, out)
+	}
+	code, _ = get(t, r, http.MethodPost, "/api/v1/planning/filters/draft", `{"targetIds":[20],"filters":"H-a"}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("a bad body should be 400, got %d", code)
+	}
+}

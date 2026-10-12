@@ -107,6 +107,26 @@ func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive,
 		}
 		c.JSON(http.StatusOK, d)
 	})
+	g.POST("/planning/filters/draft", func(c *gin.Context) {
+		var body struct {
+			TargetIDs []int    `json:"targetIds"`
+			Filters   []string `json:"filters"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+			return
+		}
+		s, ok := planningSnapshot(c, backfill)
+		if !ok {
+			return
+		}
+		d, err := s.DraftFilters(body.TargetIDs, body.Filters, schedcmd.NewID)
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{errorKey: err.Error(), "draft": d})
+			return
+		}
+		c.JSON(http.StatusOK, d)
+	})
 	g.POST("/planning/projects/draft", func(c *gin.Context) {
 		var body planning.ProjectDraft
 		if err := c.ShouldBindJSON(&body); err != nil {

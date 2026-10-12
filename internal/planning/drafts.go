@@ -66,7 +66,7 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 	if !ok {
 		return ApplySetDraft{}, ErrUnknownSet
 	}
-	if mode != "add" && mode != "replace" {
+	if mode != "add" && mode != modeReplace {
 		return ApplySetDraft{}, fmt.Errorf("mode must be add or replace")
 	}
 	if len(targetIDs) == 0 {
@@ -130,7 +130,7 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 			filters = append(filters, w.tmpl.Filter)
 		}
 		goalParts := gc.add(s, t, p, filters)
-		if mode == "replace" {
+		if mode == modeReplace {
 			for _, pl := range t.Plans {
 				if pl.Enabled && !inSet[pl.ID] {
 					at.Disable = append(at.Disable, schedcmd.PlanRef{ID: int64(pl.ID), GUID: pl.GUID, TemplateName: pl.Template})
@@ -424,6 +424,8 @@ func (s *Snapshot) draftSettings(d ProjectDraft, items []draftItem) (schedcmd.Pr
 }
 
 const TemplateLength = -1.0
+
+const modeReplace = "replace"
 
 type draftItem struct {
 	tmpl     Template
