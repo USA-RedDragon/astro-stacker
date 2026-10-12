@@ -1,0 +1,720 @@
+d0 h0 o0 Red 2025-10-21T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 12° (60° at full moon, width 7 days)
+d0 h0 o0 H-a 2025-10-21T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 6° (30° at full moon, width 7 days)
+d0 h0 o0 Luminance 2025-10-21T00:00:00Z: 
+d0 h0 o0 S-II 2025-10-21T00:00:00Z: 
+d0 h0 o0 O-III 2025-10-21T00:00:00Z: 
+d0 h0 o10 Red 2025-10-21T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 12° (60° at full moon, width 7 days)
+d0 h0 o10 H-a 2025-10-21T00:00:00Z: 
+d0 h0 o10 Luminance 2025-10-21T00:00:00Z: 
+d0 h0 o10 S-II 2025-10-21T00:00:00Z: 
+d0 h0 o10 O-III 2025-10-21T00:00:00Z: 
+d0 h0 o19.9 Red 2025-10-21T00:00:00Z: 
+d0 h0 o19.9 H-a 2025-10-21T00:00:00Z: 
+d0 h0 o19.9 Luminance 2025-10-21T00:00:00Z: 
+d0 h0 o19.9 S-II 2025-10-21T00:00:00Z: 
+d0 h0 o19.9 O-III 2025-10-21T00:00:00Z: 
+d0 h0 o20.1 Red 2025-10-21T00:00:00Z: 
+d0 h0 o20.1 H-a 2025-10-21T00:00:00Z: 
+d0 h0 o20.1 Luminance 2025-10-21T00:00:00Z: 
+d0 h0 o20.1 S-II 2025-10-21T00:00:00Z: 
+d0 h0 o20.1 O-III 2025-10-21T00:00:00Z: 
+d0 h0 o25 Red 2025-10-21T00:00:00Z: 
+d0 h0 o25 H-a 2025-10-21T00:00:00Z: 
+d0 h0 o25 Luminance 2025-10-21T00:00:00Z: 
+d0 h0 o25 S-II 2025-10-21T00:00:00Z: 
+d0 h0 o25 O-III 2025-10-21T00:00:00Z: 
+d0 h0 o45 Red 2025-10-21T00:00:00Z: 
+d0 h0 o45 H-a 2025-10-21T00:00:00Z: 
+d0 h0 o45 Luminance 2025-10-21T00:00:00Z: 
+d0 h0 o45 S-II 2025-10-21T00:00:00Z: 
+d0 h0 o45 O-III 2025-10-21T00:00:00Z: 
+d0 h0 o70 Red 2025-10-21T00:00:00Z: 
+d0 h0 o70 H-a 2025-10-21T00:00:00Z: 
+d0 h0 o70 Luminance 2025-10-21T00:00:00Z: 
+d0 h0 o70 S-II 2025-10-21T00:00:00Z: 
+d0 h0 o70 O-III 2025-10-21T00:00:00Z: 
+d0 h0 o90 Red 2025-10-21T00:00:00Z: 
+d0 h0 o90 H-a 2025-10-21T00:00:00Z: 
+d0 h0 o90 Luminance 2025-10-21T00:00:00Z: 
+d0 h0 o90 S-II 2025-10-21T00:00:00Z: 
+d0 h0 o90 O-III 2025-10-21T00:00:00Z: 
+d0 h4 o0 Red 2025-10-21T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 11° (60° at full moon, width 7 days)
+d0 h4 o0 H-a 2025-10-21T04:00:00Z: 
+d0 h4 o0 Luminance 2025-10-21T04:00:00Z: 
+d0 h4 o0 S-II 2025-10-21T04:00:00Z: 
+d0 h4 o0 O-III 2025-10-21T04:00:00Z: 
+d0 h4 o10 Red 2025-10-21T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 11° (60° at full moon, width 7 days)
+d0 h4 o10 H-a 2025-10-21T04:00:00Z: 
+d0 h4 o10 Luminance 2025-10-21T04:00:00Z: 
+d0 h4 o10 S-II 2025-10-21T04:00:00Z: 
+d0 h4 o10 O-III 2025-10-21T04:00:00Z: 
+d0 h4 o19.9 Red 2025-10-21T04:00:00Z: 
+d0 h4 o19.9 H-a 2025-10-21T04:00:00Z: 
+d0 h4 o19.9 Luminance 2025-10-21T04:00:00Z: 
+d0 h4 o19.9 S-II 2025-10-21T04:00:00Z: 
+d0 h4 o19.9 O-III 2025-10-21T04:00:00Z: 
+d0 h4 o20.1 Red 2025-10-21T04:00:00Z: 
+d0 h4 o20.1 H-a 2025-10-21T04:00:00Z: 
+d0 h4 o20.1 Luminance 2025-10-21T04:00:00Z: 
+d0 h4 o20.1 S-II 2025-10-21T04:00:00Z: 
+d0 h4 o20.1 O-III 2025-10-21T04:00:00Z: 
+d0 h4 o25 Red 2025-10-21T04:00:00Z: 
+d0 h4 o25 H-a 2025-10-21T04:00:00Z: 
+d0 h4 o25 Luminance 2025-10-21T04:00:00Z: 
+d0 h4 o25 S-II 2025-10-21T04:00:00Z: 
+d0 h4 o25 O-III 2025-10-21T04:00:00Z: 
+d0 h4 o45 Red 2025-10-21T04:00:00Z: 
+d0 h4 o45 H-a 2025-10-21T04:00:00Z: 
+d0 h4 o45 Luminance 2025-10-21T04:00:00Z: 
+d0 h4 o45 S-II 2025-10-21T04:00:00Z: 
+d0 h4 o45 O-III 2025-10-21T04:00:00Z: 
+d0 h4 o70 Red 2025-10-21T04:00:00Z: 
+d0 h4 o70 H-a 2025-10-21T04:00:00Z: 
+d0 h4 o70 Luminance 2025-10-21T04:00:00Z: 
+d0 h4 o70 S-II 2025-10-21T04:00:00Z: 
+d0 h4 o70 O-III 2025-10-21T04:00:00Z: 
+d0 h4 o90 Red 2025-10-21T04:00:00Z: 
+d0 h4 o90 H-a 2025-10-21T04:00:00Z: 
+d0 h4 o90 Luminance 2025-10-21T04:00:00Z: 
+d0 h4 o90 S-II 2025-10-21T04:00:00Z: 
+d0 h4 o90 O-III 2025-10-21T04:00:00Z: 
+d0 h8 o0 Red 2025-10-21T08:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 11° (60° at full moon, width 7 days)
+d0 h8 o0 H-a 2025-10-21T08:00:00Z: 
+d0 h8 o0 Luminance 2025-10-21T08:00:00Z: 
+d0 h8 o0 S-II 2025-10-21T08:00:00Z: 
+d0 h8 o0 O-III 2025-10-21T08:00:00Z: 
+d0 h8 o10 Red 2025-10-21T08:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 11° (60° at full moon, width 7 days)
+d0 h8 o10 H-a 2025-10-21T08:00:00Z: 
+d0 h8 o10 Luminance 2025-10-21T08:00:00Z: 
+d0 h8 o10 S-II 2025-10-21T08:00:00Z: 
+d0 h8 o10 O-III 2025-10-21T08:00:00Z: 
+d0 h8 o19.9 Red 2025-10-21T08:00:00Z: 
+d0 h8 o19.9 H-a 2025-10-21T08:00:00Z: 
+d0 h8 o19.9 Luminance 2025-10-21T08:00:00Z: 
+d0 h8 o19.9 S-II 2025-10-21T08:00:00Z: 
+d0 h8 o19.9 O-III 2025-10-21T08:00:00Z: 
+d0 h8 o20.1 Red 2025-10-21T08:00:00Z: 
+d0 h8 o20.1 H-a 2025-10-21T08:00:00Z: 
+d0 h8 o20.1 Luminance 2025-10-21T08:00:00Z: 
+d0 h8 o20.1 S-II 2025-10-21T08:00:00Z: 
+d0 h8 o20.1 O-III 2025-10-21T08:00:00Z: 
+d0 h8 o25 Red 2025-10-21T08:00:00Z: 
+d0 h8 o25 H-a 2025-10-21T08:00:00Z: 
+d0 h8 o25 Luminance 2025-10-21T08:00:00Z: 
+d0 h8 o25 S-II 2025-10-21T08:00:00Z: 
+d0 h8 o25 O-III 2025-10-21T08:00:00Z: 
+d0 h8 o45 Red 2025-10-21T08:00:00Z: 
+d0 h8 o45 H-a 2025-10-21T08:00:00Z: 
+d0 h8 o45 Luminance 2025-10-21T08:00:00Z: 
+d0 h8 o45 S-II 2025-10-21T08:00:00Z: 
+d0 h8 o45 O-III 2025-10-21T08:00:00Z: 
+d0 h8 o70 Red 2025-10-21T08:00:00Z: 
+d0 h8 o70 H-a 2025-10-21T08:00:00Z: 
+d0 h8 o70 Luminance 2025-10-21T08:00:00Z: 
+d0 h8 o70 S-II 2025-10-21T08:00:00Z: 
+d0 h8 o70 O-III 2025-10-21T08:00:00Z: 
+d0 h8 o90 Red 2025-10-21T08:00:00Z: 
+d0 h8 o90 H-a 2025-10-21T08:00:00Z: 
+d0 h8 o90 Luminance 2025-10-21T08:00:00Z: 
+d0 h8 o90 S-II 2025-10-21T08:00:00Z: 
+d0 h8 o90 O-III 2025-10-21T08:00:00Z: 
+d3 h0 o0 Red 2025-10-24T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 14° (60° at full moon, width 7 days)
+d3 h0 o0 H-a 2025-10-24T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 7° (30° at full moon, width 7 days)
+d3 h0 o0 Luminance 2025-10-24T00:00:00Z: the Moon was at 10° altitude; the filter's exposure template needs it below 0°
+d3 h0 o0 S-II 2025-10-24T00:00:00Z: 
+d3 h0 o0 O-III 2025-10-24T00:00:00Z: 
+d3 h0 o10 Red 2025-10-24T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 14° (60° at full moon, width 7 days)
+d3 h0 o10 H-a 2025-10-24T00:00:00Z: 
+d3 h0 o10 Luminance 2025-10-24T00:00:00Z: the Moon was at 10° altitude; the filter's exposure template needs it below 0°
+d3 h0 o10 S-II 2025-10-24T00:00:00Z: 
+d3 h0 o10 O-III 2025-10-24T00:00:00Z: 
+d3 h0 o19.9 Red 2025-10-24T00:00:00Z: 
+d3 h0 o19.9 H-a 2025-10-24T00:00:00Z: 
+d3 h0 o19.9 Luminance 2025-10-24T00:00:00Z: the Moon was at 10° altitude; the filter's exposure template needs it below 0°
+d3 h0 o19.9 S-II 2025-10-24T00:00:00Z: 
+d3 h0 o19.9 O-III 2025-10-24T00:00:00Z: 
+d3 h0 o20.1 Red 2025-10-24T00:00:00Z: 
+d3 h0 o20.1 H-a 2025-10-24T00:00:00Z: 
+d3 h0 o20.1 Luminance 2025-10-24T00:00:00Z: the Moon was at 10° altitude; the filter's exposure template needs it below 0°
+d3 h0 o20.1 S-II 2025-10-24T00:00:00Z: 
+d3 h0 o20.1 O-III 2025-10-24T00:00:00Z: 
+d3 h0 o25 Red 2025-10-24T00:00:00Z: 
+d3 h0 o25 H-a 2025-10-24T00:00:00Z: 
+d3 h0 o25 Luminance 2025-10-24T00:00:00Z: the Moon was at 10° altitude; the filter's exposure template needs it below 0°
+d3 h0 o25 S-II 2025-10-24T00:00:00Z: 
+d3 h0 o25 O-III 2025-10-24T00:00:00Z: 
+d3 h0 o45 Red 2025-10-24T00:00:00Z: 
+d3 h0 o45 H-a 2025-10-24T00:00:00Z: 
+d3 h0 o45 Luminance 2025-10-24T00:00:00Z: the Moon was at 10° altitude; the filter's exposure template needs it below 0°
+d3 h0 o45 S-II 2025-10-24T00:00:00Z: 
+d3 h0 o45 O-III 2025-10-24T00:00:00Z: 
+d3 h0 o70 Red 2025-10-24T00:00:00Z: 
+d3 h0 o70 H-a 2025-10-24T00:00:00Z: 
+d3 h0 o70 Luminance 2025-10-24T00:00:00Z: the Moon was at 10° altitude; the filter's exposure template needs it below 0°
+d3 h0 o70 S-II 2025-10-24T00:00:00Z: 
+d3 h0 o70 O-III 2025-10-24T00:00:00Z: 
+d3 h0 o90 Red 2025-10-24T00:00:00Z: 
+d3 h0 o90 H-a 2025-10-24T00:00:00Z: 
+d3 h0 o90 Luminance 2025-10-24T00:00:00Z: the Moon was at 10° altitude; the filter's exposure template needs it below 0°
+d3 h0 o90 S-II 2025-10-24T00:00:00Z: 
+d3 h0 o90 O-III 2025-10-24T00:00:00Z: 
+d3 h4 o0 Red 2025-10-24T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 15° (60° at full moon, width 7 days)
+d3 h4 o0 H-a 2025-10-24T04:00:00Z: 
+d3 h4 o0 Luminance 2025-10-24T04:00:00Z: 
+d3 h4 o0 S-II 2025-10-24T04:00:00Z: 
+d3 h4 o0 O-III 2025-10-24T04:00:00Z: 
+d3 h4 o10 Red 2025-10-24T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 15° (60° at full moon, width 7 days)
+d3 h4 o10 H-a 2025-10-24T04:00:00Z: 
+d3 h4 o10 Luminance 2025-10-24T04:00:00Z: 
+d3 h4 o10 S-II 2025-10-24T04:00:00Z: 
+d3 h4 o10 O-III 2025-10-24T04:00:00Z: 
+d3 h4 o19.9 Red 2025-10-24T04:00:00Z: 
+d3 h4 o19.9 H-a 2025-10-24T04:00:00Z: 
+d3 h4 o19.9 Luminance 2025-10-24T04:00:00Z: 
+d3 h4 o19.9 S-II 2025-10-24T04:00:00Z: 
+d3 h4 o19.9 O-III 2025-10-24T04:00:00Z: 
+d3 h4 o20.1 Red 2025-10-24T04:00:00Z: 
+d3 h4 o20.1 H-a 2025-10-24T04:00:00Z: 
+d3 h4 o20.1 Luminance 2025-10-24T04:00:00Z: 
+d3 h4 o20.1 S-II 2025-10-24T04:00:00Z: 
+d3 h4 o20.1 O-III 2025-10-24T04:00:00Z: 
+d3 h4 o25 Red 2025-10-24T04:00:00Z: 
+d3 h4 o25 H-a 2025-10-24T04:00:00Z: 
+d3 h4 o25 Luminance 2025-10-24T04:00:00Z: 
+d3 h4 o25 S-II 2025-10-24T04:00:00Z: 
+d3 h4 o25 O-III 2025-10-24T04:00:00Z: 
+d3 h4 o45 Red 2025-10-24T04:00:00Z: 
+d3 h4 o45 H-a 2025-10-24T04:00:00Z: 
+d3 h4 o45 Luminance 2025-10-24T04:00:00Z: 
+d3 h4 o45 S-II 2025-10-24T04:00:00Z: 
+d3 h4 o45 O-III 2025-10-24T04:00:00Z: 
+d3 h4 o70 Red 2025-10-24T04:00:00Z: 
+d3 h4 o70 H-a 2025-10-24T04:00:00Z: 
+d3 h4 o70 Luminance 2025-10-24T04:00:00Z: 
+d3 h4 o70 S-II 2025-10-24T04:00:00Z: 
+d3 h4 o70 O-III 2025-10-24T04:00:00Z: 
+d3 h4 o90 Red 2025-10-24T04:00:00Z: 
+d3 h4 o90 H-a 2025-10-24T04:00:00Z: 
+d3 h4 o90 Luminance 2025-10-24T04:00:00Z: 
+d3 h4 o90 S-II 2025-10-24T04:00:00Z: 
+d3 h4 o90 O-III 2025-10-24T04:00:00Z: 
+d3 h8 o0 Red 2025-10-24T08:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 15° (60° at full moon, width 7 days)
+d3 h8 o0 H-a 2025-10-24T08:00:00Z: 
+d3 h8 o0 Luminance 2025-10-24T08:00:00Z: 
+d3 h8 o0 S-II 2025-10-24T08:00:00Z: 
+d3 h8 o0 O-III 2025-10-24T08:00:00Z: 
+d3 h8 o10 Red 2025-10-24T08:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 15° (60° at full moon, width 7 days)
+d3 h8 o10 H-a 2025-10-24T08:00:00Z: 
+d3 h8 o10 Luminance 2025-10-24T08:00:00Z: 
+d3 h8 o10 S-II 2025-10-24T08:00:00Z: 
+d3 h8 o10 O-III 2025-10-24T08:00:00Z: 
+d3 h8 o19.9 Red 2025-10-24T08:00:00Z: 
+d3 h8 o19.9 H-a 2025-10-24T08:00:00Z: 
+d3 h8 o19.9 Luminance 2025-10-24T08:00:00Z: 
+d3 h8 o19.9 S-II 2025-10-24T08:00:00Z: 
+d3 h8 o19.9 O-III 2025-10-24T08:00:00Z: 
+d3 h8 o20.1 Red 2025-10-24T08:00:00Z: 
+d3 h8 o20.1 H-a 2025-10-24T08:00:00Z: 
+d3 h8 o20.1 Luminance 2025-10-24T08:00:00Z: 
+d3 h8 o20.1 S-II 2025-10-24T08:00:00Z: 
+d3 h8 o20.1 O-III 2025-10-24T08:00:00Z: 
+d3 h8 o25 Red 2025-10-24T08:00:00Z: 
+d3 h8 o25 H-a 2025-10-24T08:00:00Z: 
+d3 h8 o25 Luminance 2025-10-24T08:00:00Z: 
+d3 h8 o25 S-II 2025-10-24T08:00:00Z: 
+d3 h8 o25 O-III 2025-10-24T08:00:00Z: 
+d3 h8 o45 Red 2025-10-24T08:00:00Z: 
+d3 h8 o45 H-a 2025-10-24T08:00:00Z: 
+d3 h8 o45 Luminance 2025-10-24T08:00:00Z: 
+d3 h8 o45 S-II 2025-10-24T08:00:00Z: 
+d3 h8 o45 O-III 2025-10-24T08:00:00Z: 
+d3 h8 o70 Red 2025-10-24T08:00:00Z: 
+d3 h8 o70 H-a 2025-10-24T08:00:00Z: 
+d3 h8 o70 Luminance 2025-10-24T08:00:00Z: 
+d3 h8 o70 S-II 2025-10-24T08:00:00Z: 
+d3 h8 o70 O-III 2025-10-24T08:00:00Z: 
+d3 h8 o90 Red 2025-10-24T08:00:00Z: 
+d3 h8 o90 H-a 2025-10-24T08:00:00Z: 
+d3 h8 o90 Luminance 2025-10-24T08:00:00Z: 
+d3 h8 o90 S-II 2025-10-24T08:00:00Z: 
+d3 h8 o90 O-III 2025-10-24T08:00:00Z: 
+d6 h0 o0 Red 2025-10-27T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 20° (60° at full moon, width 7 days)
+d6 h0 o0 H-a 2025-10-27T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 10° (30° at full moon, width 7 days)
+d6 h0 o0 Luminance 2025-10-27T00:00:00Z: the Moon was at 26° altitude; the filter's exposure template needs it below 0°
+d6 h0 o0 S-II 2025-10-27T00:00:00Z: 
+d6 h0 o0 O-III 2025-10-27T00:00:00Z: 
+d6 h0 o10 Red 2025-10-27T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 20° (60° at full moon, width 7 days)
+d6 h0 o10 H-a 2025-10-27T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 10° (30° at full moon, width 7 days)
+d6 h0 o10 Luminance 2025-10-27T00:00:00Z: the Moon was at 26° altitude; the filter's exposure template needs it below 0°
+d6 h0 o10 S-II 2025-10-27T00:00:00Z: 
+d6 h0 o10 O-III 2025-10-27T00:00:00Z: 
+d6 h0 o19.9 Red 2025-10-27T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 20° (60° at full moon, width 7 days)
+d6 h0 o19.9 H-a 2025-10-27T00:00:00Z: 
+d6 h0 o19.9 Luminance 2025-10-27T00:00:00Z: the Moon was at 26° altitude; the filter's exposure template needs it below 0°
+d6 h0 o19.9 S-II 2025-10-27T00:00:00Z: 
+d6 h0 o19.9 O-III 2025-10-27T00:00:00Z: 
+d6 h0 o20.1 Red 2025-10-27T00:00:00Z: 
+d6 h0 o20.1 H-a 2025-10-27T00:00:00Z: 
+d6 h0 o20.1 Luminance 2025-10-27T00:00:00Z: the Moon was at 26° altitude; the filter's exposure template needs it below 0°
+d6 h0 o20.1 S-II 2025-10-27T00:00:00Z: 
+d6 h0 o20.1 O-III 2025-10-27T00:00:00Z: 
+d6 h0 o25 Red 2025-10-27T00:00:00Z: 
+d6 h0 o25 H-a 2025-10-27T00:00:00Z: 
+d6 h0 o25 Luminance 2025-10-27T00:00:00Z: the Moon was at 26° altitude; the filter's exposure template needs it below 0°
+d6 h0 o25 S-II 2025-10-27T00:00:00Z: 
+d6 h0 o25 O-III 2025-10-27T00:00:00Z: 
+d6 h0 o45 Red 2025-10-27T00:00:00Z: 
+d6 h0 o45 H-a 2025-10-27T00:00:00Z: 
+d6 h0 o45 Luminance 2025-10-27T00:00:00Z: the Moon was at 26° altitude; the filter's exposure template needs it below 0°
+d6 h0 o45 S-II 2025-10-27T00:00:00Z: 
+d6 h0 o45 O-III 2025-10-27T00:00:00Z: 
+d6 h0 o70 Red 2025-10-27T00:00:00Z: 
+d6 h0 o70 H-a 2025-10-27T00:00:00Z: 
+d6 h0 o70 Luminance 2025-10-27T00:00:00Z: the Moon was at 26° altitude; the filter's exposure template needs it below 0°
+d6 h0 o70 S-II 2025-10-27T00:00:00Z: 
+d6 h0 o70 O-III 2025-10-27T00:00:00Z: 
+d6 h0 o90 Red 2025-10-27T00:00:00Z: 
+d6 h0 o90 H-a 2025-10-27T00:00:00Z: 
+d6 h0 o90 Luminance 2025-10-27T00:00:00Z: the Moon was at 26° altitude; the filter's exposure template needs it below 0°
+d6 h0 o90 S-II 2025-10-27T00:00:00Z: 
+d6 h0 o90 O-III 2025-10-27T00:00:00Z: 
+d6 h4 o0 Red 2025-10-27T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 21° (60° at full moon, width 7 days)
+d6 h4 o0 H-a 2025-10-27T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 10° (30° at full moon, width 7 days)
+d6 h4 o0 Luminance 2025-10-27T04:00:00Z: 
+d6 h4 o0 S-II 2025-10-27T04:00:00Z: 
+d6 h4 o0 O-III 2025-10-27T04:00:00Z: 
+d6 h4 o10 Red 2025-10-27T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 21° (60° at full moon, width 7 days)
+d6 h4 o10 H-a 2025-10-27T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 10° (30° at full moon, width 7 days)
+d6 h4 o10 Luminance 2025-10-27T04:00:00Z: 
+d6 h4 o10 S-II 2025-10-27T04:00:00Z: 
+d6 h4 o10 O-III 2025-10-27T04:00:00Z: 
+d6 h4 o19.9 Red 2025-10-27T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 21° (60° at full moon, width 7 days)
+d6 h4 o19.9 H-a 2025-10-27T04:00:00Z: 
+d6 h4 o19.9 Luminance 2025-10-27T04:00:00Z: 
+d6 h4 o19.9 S-II 2025-10-27T04:00:00Z: 
+d6 h4 o19.9 O-III 2025-10-27T04:00:00Z: 
+d6 h4 o20.1 Red 2025-10-27T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 21° (60° at full moon, width 7 days)
+d6 h4 o20.1 H-a 2025-10-27T04:00:00Z: 
+d6 h4 o20.1 Luminance 2025-10-27T04:00:00Z: 
+d6 h4 o20.1 S-II 2025-10-27T04:00:00Z: 
+d6 h4 o20.1 O-III 2025-10-27T04:00:00Z: 
+d6 h4 o25 Red 2025-10-27T04:00:00Z: 
+d6 h4 o25 H-a 2025-10-27T04:00:00Z: 
+d6 h4 o25 Luminance 2025-10-27T04:00:00Z: 
+d6 h4 o25 S-II 2025-10-27T04:00:00Z: 
+d6 h4 o25 O-III 2025-10-27T04:00:00Z: 
+d6 h4 o45 Red 2025-10-27T04:00:00Z: 
+d6 h4 o45 H-a 2025-10-27T04:00:00Z: 
+d6 h4 o45 Luminance 2025-10-27T04:00:00Z: 
+d6 h4 o45 S-II 2025-10-27T04:00:00Z: 
+d6 h4 o45 O-III 2025-10-27T04:00:00Z: 
+d6 h4 o70 Red 2025-10-27T04:00:00Z: 
+d6 h4 o70 H-a 2025-10-27T04:00:00Z: 
+d6 h4 o70 Luminance 2025-10-27T04:00:00Z: 
+d6 h4 o70 S-II 2025-10-27T04:00:00Z: 
+d6 h4 o70 O-III 2025-10-27T04:00:00Z: 
+d6 h4 o90 Red 2025-10-27T04:00:00Z: 
+d6 h4 o90 H-a 2025-10-27T04:00:00Z: 
+d6 h4 o90 Luminance 2025-10-27T04:00:00Z: 
+d6 h4 o90 S-II 2025-10-27T04:00:00Z: 
+d6 h4 o90 O-III 2025-10-27T04:00:00Z: 
+d6 h8 o0 Red 2025-10-27T08:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 21° (60° at full moon, width 7 days)
+d6 h8 o0 H-a 2025-10-27T08:00:00Z: 
+d6 h8 o0 Luminance 2025-10-27T08:00:00Z: 
+d6 h8 o0 S-II 2025-10-27T08:00:00Z: 
+d6 h8 o0 O-III 2025-10-27T08:00:00Z: 
+d6 h8 o10 Red 2025-10-27T08:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 21° (60° at full moon, width 7 days)
+d6 h8 o10 H-a 2025-10-27T08:00:00Z: 
+d6 h8 o10 Luminance 2025-10-27T08:00:00Z: 
+d6 h8 o10 S-II 2025-10-27T08:00:00Z: 
+d6 h8 o10 O-III 2025-10-27T08:00:00Z: 
+d6 h8 o19.9 Red 2025-10-27T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 21° (60° at full moon, width 7 days)
+d6 h8 o19.9 H-a 2025-10-27T08:00:00Z: 
+d6 h8 o19.9 Luminance 2025-10-27T08:00:00Z: 
+d6 h8 o19.9 S-II 2025-10-27T08:00:00Z: 
+d6 h8 o19.9 O-III 2025-10-27T08:00:00Z: 
+d6 h8 o20.1 Red 2025-10-27T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 21° (60° at full moon, width 7 days)
+d6 h8 o20.1 H-a 2025-10-27T08:00:00Z: 
+d6 h8 o20.1 Luminance 2025-10-27T08:00:00Z: 
+d6 h8 o20.1 S-II 2025-10-27T08:00:00Z: 
+d6 h8 o20.1 O-III 2025-10-27T08:00:00Z: 
+d6 h8 o25 Red 2025-10-27T08:00:00Z: 
+d6 h8 o25 H-a 2025-10-27T08:00:00Z: 
+d6 h8 o25 Luminance 2025-10-27T08:00:00Z: 
+d6 h8 o25 S-II 2025-10-27T08:00:00Z: 
+d6 h8 o25 O-III 2025-10-27T08:00:00Z: 
+d6 h8 o45 Red 2025-10-27T08:00:00Z: 
+d6 h8 o45 H-a 2025-10-27T08:00:00Z: 
+d6 h8 o45 Luminance 2025-10-27T08:00:00Z: 
+d6 h8 o45 S-II 2025-10-27T08:00:00Z: 
+d6 h8 o45 O-III 2025-10-27T08:00:00Z: 
+d6 h8 o70 Red 2025-10-27T08:00:00Z: 
+d6 h8 o70 H-a 2025-10-27T08:00:00Z: 
+d6 h8 o70 Luminance 2025-10-27T08:00:00Z: 
+d6 h8 o70 S-II 2025-10-27T08:00:00Z: 
+d6 h8 o70 O-III 2025-10-27T08:00:00Z: 
+d6 h8 o90 Red 2025-10-27T08:00:00Z: 
+d6 h8 o90 H-a 2025-10-27T08:00:00Z: 
+d6 h8 o90 Luminance 2025-10-27T08:00:00Z: 
+d6 h8 o90 S-II 2025-10-27T08:00:00Z: 
+d6 h8 o90 O-III 2025-10-27T08:00:00Z: 
+d9 h0 o0 Red 2025-10-30T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h0 o0 H-a 2025-10-30T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 15° (30° at full moon, width 7 days)
+d9 h0 o0 Luminance 2025-10-30T00:00:00Z: the Moon was at 35° altitude; the filter's exposure template needs it below 0°
+d9 h0 o0 S-II 2025-10-30T00:00:00Z: 
+d9 h0 o0 O-III 2025-10-30T00:00:00Z: 
+d9 h0 o10 Red 2025-10-30T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h0 o10 H-a 2025-10-30T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 15° (30° at full moon, width 7 days)
+d9 h0 o10 Luminance 2025-10-30T00:00:00Z: the Moon was at 35° altitude; the filter's exposure template needs it below 0°
+d9 h0 o10 S-II 2025-10-30T00:00:00Z: 
+d9 h0 o10 O-III 2025-10-30T00:00:00Z: 
+d9 h0 o19.9 Red 2025-10-30T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h0 o19.9 H-a 2025-10-30T00:00:00Z: 
+d9 h0 o19.9 Luminance 2025-10-30T00:00:00Z: the Moon was at 35° altitude; the filter's exposure template needs it below 0°
+d9 h0 o19.9 S-II 2025-10-30T00:00:00Z: 
+d9 h0 o19.9 O-III 2025-10-30T00:00:00Z: 
+d9 h0 o20.1 Red 2025-10-30T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h0 o20.1 H-a 2025-10-30T00:00:00Z: 
+d9 h0 o20.1 Luminance 2025-10-30T00:00:00Z: the Moon was at 35° altitude; the filter's exposure template needs it below 0°
+d9 h0 o20.1 S-II 2025-10-30T00:00:00Z: 
+d9 h0 o20.1 O-III 2025-10-30T00:00:00Z: 
+d9 h0 o25 Red 2025-10-30T00:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h0 o25 H-a 2025-10-30T00:00:00Z: 
+d9 h0 o25 Luminance 2025-10-30T00:00:00Z: the Moon was at 35° altitude; the filter's exposure template needs it below 0°
+d9 h0 o25 S-II 2025-10-30T00:00:00Z: 
+d9 h0 o25 O-III 2025-10-30T00:00:00Z: 
+d9 h0 o45 Red 2025-10-30T00:00:00Z: 
+d9 h0 o45 H-a 2025-10-30T00:00:00Z: 
+d9 h0 o45 Luminance 2025-10-30T00:00:00Z: the Moon was at 35° altitude; the filter's exposure template needs it below 0°
+d9 h0 o45 S-II 2025-10-30T00:00:00Z: 
+d9 h0 o45 O-III 2025-10-30T00:00:00Z: 
+d9 h0 o70 Red 2025-10-30T00:00:00Z: 
+d9 h0 o70 H-a 2025-10-30T00:00:00Z: 
+d9 h0 o70 Luminance 2025-10-30T00:00:00Z: the Moon was at 35° altitude; the filter's exposure template needs it below 0°
+d9 h0 o70 S-II 2025-10-30T00:00:00Z: 
+d9 h0 o70 O-III 2025-10-30T00:00:00Z: 
+d9 h0 o90 Red 2025-10-30T00:00:00Z: 
+d9 h0 o90 H-a 2025-10-30T00:00:00Z: 
+d9 h0 o90 Luminance 2025-10-30T00:00:00Z: the Moon was at 35° altitude; the filter's exposure template needs it below 0°
+d9 h0 o90 S-II 2025-10-30T00:00:00Z: 
+d9 h0 o90 O-III 2025-10-30T00:00:00Z: 
+d9 h4 o0 Red 2025-10-30T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h4 o0 H-a 2025-10-30T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 15° (30° at full moon, width 7 days)
+d9 h4 o0 Luminance 2025-10-30T04:00:00Z: the Moon was at 23° altitude; the filter's exposure template needs it below 0°
+d9 h4 o0 S-II 2025-10-30T04:00:00Z: 
+d9 h4 o0 O-III 2025-10-30T04:00:00Z: 
+d9 h4 o10 Red 2025-10-30T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h4 o10 H-a 2025-10-30T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 15° (30° at full moon, width 7 days)
+d9 h4 o10 Luminance 2025-10-30T04:00:00Z: the Moon was at 23° altitude; the filter's exposure template needs it below 0°
+d9 h4 o10 S-II 2025-10-30T04:00:00Z: 
+d9 h4 o10 O-III 2025-10-30T04:00:00Z: 
+d9 h4 o19.9 Red 2025-10-30T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h4 o19.9 H-a 2025-10-30T04:00:00Z: 
+d9 h4 o19.9 Luminance 2025-10-30T04:00:00Z: the Moon was at 23° altitude; the filter's exposure template needs it below 0°
+d9 h4 o19.9 S-II 2025-10-30T04:00:00Z: 
+d9 h4 o19.9 O-III 2025-10-30T04:00:00Z: 
+d9 h4 o20.1 Red 2025-10-30T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h4 o20.1 H-a 2025-10-30T04:00:00Z: 
+d9 h4 o20.1 Luminance 2025-10-30T04:00:00Z: the Moon was at 23° altitude; the filter's exposure template needs it below 0°
+d9 h4 o20.1 S-II 2025-10-30T04:00:00Z: 
+d9 h4 o20.1 O-III 2025-10-30T04:00:00Z: 
+d9 h4 o25 Red 2025-10-30T04:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 30° (60° at full moon, width 7 days)
+d9 h4 o25 H-a 2025-10-30T04:00:00Z: 
+d9 h4 o25 Luminance 2025-10-30T04:00:00Z: the Moon was at 23° altitude; the filter's exposure template needs it below 0°
+d9 h4 o25 S-II 2025-10-30T04:00:00Z: 
+d9 h4 o25 O-III 2025-10-30T04:00:00Z: 
+d9 h4 o45 Red 2025-10-30T04:00:00Z: 
+d9 h4 o45 H-a 2025-10-30T04:00:00Z: 
+d9 h4 o45 Luminance 2025-10-30T04:00:00Z: the Moon was at 23° altitude; the filter's exposure template needs it below 0°
+d9 h4 o45 S-II 2025-10-30T04:00:00Z: 
+d9 h4 o45 O-III 2025-10-30T04:00:00Z: 
+d9 h4 o70 Red 2025-10-30T04:00:00Z: 
+d9 h4 o70 H-a 2025-10-30T04:00:00Z: 
+d9 h4 o70 Luminance 2025-10-30T04:00:00Z: the Moon was at 23° altitude; the filter's exposure template needs it below 0°
+d9 h4 o70 S-II 2025-10-30T04:00:00Z: 
+d9 h4 o70 O-III 2025-10-30T04:00:00Z: 
+d9 h4 o90 Red 2025-10-30T04:00:00Z: 
+d9 h4 o90 H-a 2025-10-30T04:00:00Z: 
+d9 h4 o90 Luminance 2025-10-30T04:00:00Z: the Moon was at 23° altitude; the filter's exposure template needs it below 0°
+d9 h4 o90 S-II 2025-10-30T04:00:00Z: 
+d9 h4 o90 O-III 2025-10-30T04:00:00Z: 
+d9 h8 o0 Red 2025-10-30T08:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 31° (60° at full moon, width 7 days)
+d9 h8 o0 H-a 2025-10-30T08:00:00Z: 
+d9 h8 o0 Luminance 2025-10-30T08:00:00Z: 
+d9 h8 o0 S-II 2025-10-30T08:00:00Z: 
+d9 h8 o0 O-III 2025-10-30T08:00:00Z: 
+d9 h8 o10 Red 2025-10-30T08:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 31° (60° at full moon, width 7 days)
+d9 h8 o10 H-a 2025-10-30T08:00:00Z: 
+d9 h8 o10 Luminance 2025-10-30T08:00:00Z: 
+d9 h8 o10 S-II 2025-10-30T08:00:00Z: 
+d9 h8 o10 O-III 2025-10-30T08:00:00Z: 
+d9 h8 o19.9 Red 2025-10-30T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 31° (60° at full moon, width 7 days)
+d9 h8 o19.9 H-a 2025-10-30T08:00:00Z: 
+d9 h8 o19.9 Luminance 2025-10-30T08:00:00Z: 
+d9 h8 o19.9 S-II 2025-10-30T08:00:00Z: 
+d9 h8 o19.9 O-III 2025-10-30T08:00:00Z: 
+d9 h8 o20.1 Red 2025-10-30T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 31° (60° at full moon, width 7 days)
+d9 h8 o20.1 H-a 2025-10-30T08:00:00Z: 
+d9 h8 o20.1 Luminance 2025-10-30T08:00:00Z: 
+d9 h8 o20.1 S-II 2025-10-30T08:00:00Z: 
+d9 h8 o20.1 O-III 2025-10-30T08:00:00Z: 
+d9 h8 o25 Red 2025-10-30T08:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 31° (60° at full moon, width 7 days)
+d9 h8 o25 H-a 2025-10-30T08:00:00Z: 
+d9 h8 o25 Luminance 2025-10-30T08:00:00Z: 
+d9 h8 o25 S-II 2025-10-30T08:00:00Z: 
+d9 h8 o25 O-III 2025-10-30T08:00:00Z: 
+d9 h8 o45 Red 2025-10-30T08:00:00Z: 
+d9 h8 o45 H-a 2025-10-30T08:00:00Z: 
+d9 h8 o45 Luminance 2025-10-30T08:00:00Z: 
+d9 h8 o45 S-II 2025-10-30T08:00:00Z: 
+d9 h8 o45 O-III 2025-10-30T08:00:00Z: 
+d9 h8 o70 Red 2025-10-30T08:00:00Z: 
+d9 h8 o70 H-a 2025-10-30T08:00:00Z: 
+d9 h8 o70 Luminance 2025-10-30T08:00:00Z: 
+d9 h8 o70 S-II 2025-10-30T08:00:00Z: 
+d9 h8 o70 O-III 2025-10-30T08:00:00Z: 
+d9 h8 o90 Red 2025-10-30T08:00:00Z: 
+d9 h8 o90 H-a 2025-10-30T08:00:00Z: 
+d9 h8 o90 Luminance 2025-10-30T08:00:00Z: 
+d9 h8 o90 S-II 2025-10-30T08:00:00Z: 
+d9 h8 o90 O-III 2025-10-30T08:00:00Z: 
+d12 h0 o0 Red 2025-11-02T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 45° (60° at full moon, width 7 days)
+d12 h0 o0 H-a 2025-11-02T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 23° (30° at full moon, width 7 days)
+d12 h0 o0 Luminance 2025-11-02T00:00:00Z: the Moon was at 31° altitude; the filter's exposure template needs it below 0°
+d12 h0 o0 S-II 2025-11-02T00:00:00Z: 
+d12 h0 o0 O-III 2025-11-02T00:00:00Z: 
+d12 h0 o10 Red 2025-11-02T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 45° (60° at full moon, width 7 days)
+d12 h0 o10 H-a 2025-11-02T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 23° (30° at full moon, width 7 days)
+d12 h0 o10 Luminance 2025-11-02T00:00:00Z: the Moon was at 31° altitude; the filter's exposure template needs it below 0°
+d12 h0 o10 S-II 2025-11-02T00:00:00Z: 
+d12 h0 o10 O-III 2025-11-02T00:00:00Z: 
+d12 h0 o19.9 Red 2025-11-02T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 45° (60° at full moon, width 7 days)
+d12 h0 o19.9 H-a 2025-11-02T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 23° (30° at full moon, width 7 days)
+d12 h0 o19.9 Luminance 2025-11-02T00:00:00Z: the Moon was at 31° altitude; the filter's exposure template needs it below 0°
+d12 h0 o19.9 S-II 2025-11-02T00:00:00Z: 
+d12 h0 o19.9 O-III 2025-11-02T00:00:00Z: 
+d12 h0 o20.1 Red 2025-11-02T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 45° (60° at full moon, width 7 days)
+d12 h0 o20.1 H-a 2025-11-02T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 23° (30° at full moon, width 7 days)
+d12 h0 o20.1 Luminance 2025-11-02T00:00:00Z: the Moon was at 31° altitude; the filter's exposure template needs it below 0°
+d12 h0 o20.1 S-II 2025-11-02T00:00:00Z: 
+d12 h0 o20.1 O-III 2025-11-02T00:00:00Z: 
+d12 h0 o25 Red 2025-11-02T00:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 45° (60° at full moon, width 7 days)
+d12 h0 o25 H-a 2025-11-02T00:00:00Z: 
+d12 h0 o25 Luminance 2025-11-02T00:00:00Z: the Moon was at 31° altitude; the filter's exposure template needs it below 0°
+d12 h0 o25 S-II 2025-11-02T00:00:00Z: 
+d12 h0 o25 O-III 2025-11-02T00:00:00Z: 
+d12 h0 o45 Red 2025-11-02T00:00:00Z: the Moon was 45° from the target at mid-exposure; the filter's moon avoidance needed 45° (60° at full moon, width 7 days)
+d12 h0 o45 H-a 2025-11-02T00:00:00Z: 
+d12 h0 o45 Luminance 2025-11-02T00:00:00Z: the Moon was at 31° altitude; the filter's exposure template needs it below 0°
+d12 h0 o45 S-II 2025-11-02T00:00:00Z: 
+d12 h0 o45 O-III 2025-11-02T00:00:00Z: 
+d12 h0 o70 Red 2025-11-02T00:00:00Z: 
+d12 h0 o70 H-a 2025-11-02T00:00:00Z: 
+d12 h0 o70 Luminance 2025-11-02T00:00:00Z: the Moon was at 31° altitude; the filter's exposure template needs it below 0°
+d12 h0 o70 S-II 2025-11-02T00:00:00Z: 
+d12 h0 o70 O-III 2025-11-02T00:00:00Z: 
+d12 h0 o90 Red 2025-11-02T00:00:00Z: 
+d12 h0 o90 H-a 2025-11-02T00:00:00Z: 
+d12 h0 o90 Luminance 2025-11-02T00:00:00Z: the Moon was at 31° altitude; the filter's exposure template needs it below 0°
+d12 h0 o90 S-II 2025-11-02T00:00:00Z: 
+d12 h0 o90 O-III 2025-11-02T00:00:00Z: 
+d12 h4 o0 Red 2025-11-02T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 46° (60° at full moon, width 7 days)
+d12 h4 o0 H-a 2025-11-02T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 23° (30° at full moon, width 7 days)
+d12 h4 o0 Luminance 2025-11-02T04:00:00Z: the Moon was at 55° altitude; the filter's exposure template needs it below 0°
+d12 h4 o0 S-II 2025-11-02T04:00:00Z: 
+d12 h4 o0 O-III 2025-11-02T04:00:00Z: 
+d12 h4 o10 Red 2025-11-02T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 46° (60° at full moon, width 7 days)
+d12 h4 o10 H-a 2025-11-02T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 23° (30° at full moon, width 7 days)
+d12 h4 o10 Luminance 2025-11-02T04:00:00Z: the Moon was at 55° altitude; the filter's exposure template needs it below 0°
+d12 h4 o10 S-II 2025-11-02T04:00:00Z: 
+d12 h4 o10 O-III 2025-11-02T04:00:00Z: 
+d12 h4 o19.9 Red 2025-11-02T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 46° (60° at full moon, width 7 days)
+d12 h4 o19.9 H-a 2025-11-02T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 23° (30° at full moon, width 7 days)
+d12 h4 o19.9 Luminance 2025-11-02T04:00:00Z: the Moon was at 55° altitude; the filter's exposure template needs it below 0°
+d12 h4 o19.9 S-II 2025-11-02T04:00:00Z: 
+d12 h4 o19.9 O-III 2025-11-02T04:00:00Z: 
+d12 h4 o20.1 Red 2025-11-02T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 46° (60° at full moon, width 7 days)
+d12 h4 o20.1 H-a 2025-11-02T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 23° (30° at full moon, width 7 days)
+d12 h4 o20.1 Luminance 2025-11-02T04:00:00Z: the Moon was at 55° altitude; the filter's exposure template needs it below 0°
+d12 h4 o20.1 S-II 2025-11-02T04:00:00Z: 
+d12 h4 o20.1 O-III 2025-11-02T04:00:00Z: 
+d12 h4 o25 Red 2025-11-02T04:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 46° (60° at full moon, width 7 days)
+d12 h4 o25 H-a 2025-11-02T04:00:00Z: 
+d12 h4 o25 Luminance 2025-11-02T04:00:00Z: the Moon was at 55° altitude; the filter's exposure template needs it below 0°
+d12 h4 o25 S-II 2025-11-02T04:00:00Z: 
+d12 h4 o25 O-III 2025-11-02T04:00:00Z: 
+d12 h4 o45 Red 2025-11-02T04:00:00Z: the Moon was 45° from the target at mid-exposure; the filter's moon avoidance needed 46° (60° at full moon, width 7 days)
+d12 h4 o45 H-a 2025-11-02T04:00:00Z: 
+d12 h4 o45 Luminance 2025-11-02T04:00:00Z: the Moon was at 55° altitude; the filter's exposure template needs it below 0°
+d12 h4 o45 S-II 2025-11-02T04:00:00Z: 
+d12 h4 o45 O-III 2025-11-02T04:00:00Z: 
+d12 h4 o70 Red 2025-11-02T04:00:00Z: 
+d12 h4 o70 H-a 2025-11-02T04:00:00Z: 
+d12 h4 o70 Luminance 2025-11-02T04:00:00Z: the Moon was at 55° altitude; the filter's exposure template needs it below 0°
+d12 h4 o70 S-II 2025-11-02T04:00:00Z: 
+d12 h4 o70 O-III 2025-11-02T04:00:00Z: 
+d12 h4 o90 Red 2025-11-02T04:00:00Z: 
+d12 h4 o90 H-a 2025-11-02T04:00:00Z: 
+d12 h4 o90 Luminance 2025-11-02T04:00:00Z: the Moon was at 55° altitude; the filter's exposure template needs it below 0°
+d12 h4 o90 S-II 2025-11-02T04:00:00Z: 
+d12 h4 o90 O-III 2025-11-02T04:00:00Z: 
+d12 h8 o0 Red 2025-11-02T08:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 47° (60° at full moon, width 7 days)
+d12 h8 o0 H-a 2025-11-02T08:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 24° (30° at full moon, width 7 days)
+d12 h8 o0 Luminance 2025-11-02T08:00:00Z: the Moon was at 18° altitude; the filter's exposure template needs it below 0°
+d12 h8 o0 S-II 2025-11-02T08:00:00Z: 
+d12 h8 o0 O-III 2025-11-02T08:00:00Z: 
+d12 h8 o10 Red 2025-11-02T08:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 47° (60° at full moon, width 7 days)
+d12 h8 o10 H-a 2025-11-02T08:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 24° (30° at full moon, width 7 days)
+d12 h8 o10 Luminance 2025-11-02T08:00:00Z: the Moon was at 18° altitude; the filter's exposure template needs it below 0°
+d12 h8 o10 S-II 2025-11-02T08:00:00Z: 
+d12 h8 o10 O-III 2025-11-02T08:00:00Z: 
+d12 h8 o19.9 Red 2025-11-02T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 47° (60° at full moon, width 7 days)
+d12 h8 o19.9 H-a 2025-11-02T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 24° (30° at full moon, width 7 days)
+d12 h8 o19.9 Luminance 2025-11-02T08:00:00Z: the Moon was at 18° altitude; the filter's exposure template needs it below 0°
+d12 h8 o19.9 S-II 2025-11-02T08:00:00Z: 
+d12 h8 o19.9 O-III 2025-11-02T08:00:00Z: 
+d12 h8 o20.1 Red 2025-11-02T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 47° (60° at full moon, width 7 days)
+d12 h8 o20.1 H-a 2025-11-02T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 24° (30° at full moon, width 7 days)
+d12 h8 o20.1 Luminance 2025-11-02T08:00:00Z: the Moon was at 18° altitude; the filter's exposure template needs it below 0°
+d12 h8 o20.1 S-II 2025-11-02T08:00:00Z: 
+d12 h8 o20.1 O-III 2025-11-02T08:00:00Z: 
+d12 h8 o25 Red 2025-11-02T08:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 47° (60° at full moon, width 7 days)
+d12 h8 o25 H-a 2025-11-02T08:00:00Z: 
+d12 h8 o25 Luminance 2025-11-02T08:00:00Z: the Moon was at 18° altitude; the filter's exposure template needs it below 0°
+d12 h8 o25 S-II 2025-11-02T08:00:00Z: 
+d12 h8 o25 O-III 2025-11-02T08:00:00Z: 
+d12 h8 o45 Red 2025-11-02T08:00:00Z: the Moon was 45° from the target at mid-exposure; the filter's moon avoidance needed 47° (60° at full moon, width 7 days)
+d12 h8 o45 H-a 2025-11-02T08:00:00Z: 
+d12 h8 o45 Luminance 2025-11-02T08:00:00Z: the Moon was at 18° altitude; the filter's exposure template needs it below 0°
+d12 h8 o45 S-II 2025-11-02T08:00:00Z: 
+d12 h8 o45 O-III 2025-11-02T08:00:00Z: 
+d12 h8 o70 Red 2025-11-02T08:00:00Z: 
+d12 h8 o70 H-a 2025-11-02T08:00:00Z: 
+d12 h8 o70 Luminance 2025-11-02T08:00:00Z: the Moon was at 18° altitude; the filter's exposure template needs it below 0°
+d12 h8 o70 S-II 2025-11-02T08:00:00Z: 
+d12 h8 o70 O-III 2025-11-02T08:00:00Z: 
+d12 h8 o90 Red 2025-11-02T08:00:00Z: 
+d12 h8 o90 H-a 2025-11-02T08:00:00Z: 
+d12 h8 o90 Luminance 2025-11-02T08:00:00Z: the Moon was at 18° altitude; the filter's exposure template needs it below 0°
+d12 h8 o90 S-II 2025-11-02T08:00:00Z: 
+d12 h8 o90 O-III 2025-11-02T08:00:00Z: 
+d15 h0 o0 Red 2025-11-05T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 59° (60° at full moon, width 7 days)
+d15 h0 o0 H-a 2025-11-05T00:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h0 o0 Luminance 2025-11-05T00:00:00Z: the Moon was at 11° altitude; the filter's exposure template needs it below 0°
+d15 h0 o0 S-II 2025-11-05T00:00:00Z: 
+d15 h0 o0 O-III 2025-11-05T00:00:00Z: 
+d15 h0 o10 Red 2025-11-05T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 59° (60° at full moon, width 7 days)
+d15 h0 o10 H-a 2025-11-05T00:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h0 o10 Luminance 2025-11-05T00:00:00Z: the Moon was at 11° altitude; the filter's exposure template needs it below 0°
+d15 h0 o10 S-II 2025-11-05T00:00:00Z: 
+d15 h0 o10 O-III 2025-11-05T00:00:00Z: 
+d15 h0 o19.9 Red 2025-11-05T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 59° (60° at full moon, width 7 days)
+d15 h0 o19.9 H-a 2025-11-05T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h0 o19.9 Luminance 2025-11-05T00:00:00Z: the Moon was at 11° altitude; the filter's exposure template needs it below 0°
+d15 h0 o19.9 S-II 2025-11-05T00:00:00Z: 
+d15 h0 o19.9 O-III 2025-11-05T00:00:00Z: 
+d15 h0 o20.1 Red 2025-11-05T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 59° (60° at full moon, width 7 days)
+d15 h0 o20.1 H-a 2025-11-05T00:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h0 o20.1 Luminance 2025-11-05T00:00:00Z: the Moon was at 11° altitude; the filter's exposure template needs it below 0°
+d15 h0 o20.1 S-II 2025-11-05T00:00:00Z: 
+d15 h0 o20.1 O-III 2025-11-05T00:00:00Z: 
+d15 h0 o25 Red 2025-11-05T00:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 59° (60° at full moon, width 7 days)
+d15 h0 o25 H-a 2025-11-05T00:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h0 o25 Luminance 2025-11-05T00:00:00Z: the Moon was at 11° altitude; the filter's exposure template needs it below 0°
+d15 h0 o25 S-II 2025-11-05T00:00:00Z: 
+d15 h0 o25 O-III 2025-11-05T00:00:00Z: 
+d15 h0 o45 Red 2025-11-05T00:00:00Z: the Moon was 45° from the target at mid-exposure; the filter's moon avoidance needed 59° (60° at full moon, width 7 days)
+d15 h0 o45 H-a 2025-11-05T00:00:00Z: 
+d15 h0 o45 Luminance 2025-11-05T00:00:00Z: the Moon was at 11° altitude; the filter's exposure template needs it below 0°
+d15 h0 o45 S-II 2025-11-05T00:00:00Z: 
+d15 h0 o45 O-III 2025-11-05T00:00:00Z: 
+d15 h0 o70 Red 2025-11-05T00:00:00Z: 
+d15 h0 o70 H-a 2025-11-05T00:00:00Z: 
+d15 h0 o70 Luminance 2025-11-05T00:00:00Z: the Moon was at 11° altitude; the filter's exposure template needs it below 0°
+d15 h0 o70 S-II 2025-11-05T00:00:00Z: 
+d15 h0 o70 O-III 2025-11-05T00:00:00Z: 
+d15 h0 o90 Red 2025-11-05T00:00:00Z: 
+d15 h0 o90 H-a 2025-11-05T00:00:00Z: 
+d15 h0 o90 Luminance 2025-11-05T00:00:00Z: the Moon was at 11° altitude; the filter's exposure template needs it below 0°
+d15 h0 o90 S-II 2025-11-05T00:00:00Z: 
+d15 h0 o90 O-III 2025-11-05T00:00:00Z: 
+d15 h4 o0 Red 2025-11-05T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h4 o0 H-a 2025-11-05T04:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h4 o0 Luminance 2025-11-05T04:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h4 o0 S-II 2025-11-05T04:00:00Z: 
+d15 h4 o0 O-III 2025-11-05T04:00:00Z: 
+d15 h4 o10 Red 2025-11-05T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h4 o10 H-a 2025-11-05T04:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h4 o10 Luminance 2025-11-05T04:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h4 o10 S-II 2025-11-05T04:00:00Z: 
+d15 h4 o10 O-III 2025-11-05T04:00:00Z: 
+d15 h4 o19.9 Red 2025-11-05T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h4 o19.9 H-a 2025-11-05T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h4 o19.9 Luminance 2025-11-05T04:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h4 o19.9 S-II 2025-11-05T04:00:00Z: 
+d15 h4 o19.9 O-III 2025-11-05T04:00:00Z: 
+d15 h4 o20.1 Red 2025-11-05T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h4 o20.1 H-a 2025-11-05T04:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h4 o20.1 Luminance 2025-11-05T04:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h4 o20.1 S-II 2025-11-05T04:00:00Z: 
+d15 h4 o20.1 O-III 2025-11-05T04:00:00Z: 
+d15 h4 o25 Red 2025-11-05T04:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h4 o25 H-a 2025-11-05T04:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h4 o25 Luminance 2025-11-05T04:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h4 o25 S-II 2025-11-05T04:00:00Z: 
+d15 h4 o25 O-III 2025-11-05T04:00:00Z: 
+d15 h4 o45 Red 2025-11-05T04:00:00Z: the Moon was 45° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h4 o45 H-a 2025-11-05T04:00:00Z: 
+d15 h4 o45 Luminance 2025-11-05T04:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h4 o45 S-II 2025-11-05T04:00:00Z: 
+d15 h4 o45 O-III 2025-11-05T04:00:00Z: 
+d15 h4 o70 Red 2025-11-05T04:00:00Z: 
+d15 h4 o70 H-a 2025-11-05T04:00:00Z: 
+d15 h4 o70 Luminance 2025-11-05T04:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h4 o70 S-II 2025-11-05T04:00:00Z: 
+d15 h4 o70 O-III 2025-11-05T04:00:00Z: 
+d15 h4 o90 Red 2025-11-05T04:00:00Z: 
+d15 h4 o90 H-a 2025-11-05T04:00:00Z: 
+d15 h4 o90 Luminance 2025-11-05T04:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h4 o90 S-II 2025-11-05T04:00:00Z: 
+d15 h4 o90 O-III 2025-11-05T04:00:00Z: 
+d15 h8 o0 Red 2025-11-05T08:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h8 o0 H-a 2025-11-05T08:00:00Z: the Moon was 0° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h8 o0 Luminance 2025-11-05T08:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h8 o0 S-II 2025-11-05T08:00:00Z: 
+d15 h8 o0 O-III 2025-11-05T08:00:00Z: 
+d15 h8 o10 Red 2025-11-05T08:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h8 o10 H-a 2025-11-05T08:00:00Z: the Moon was 10° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h8 o10 Luminance 2025-11-05T08:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h8 o10 S-II 2025-11-05T08:00:00Z: 
+d15 h8 o10 O-III 2025-11-05T08:00:00Z: 
+d15 h8 o19.9 Red 2025-11-05T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h8 o19.9 H-a 2025-11-05T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h8 o19.9 Luminance 2025-11-05T08:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h8 o19.9 S-II 2025-11-05T08:00:00Z: 
+d15 h8 o19.9 O-III 2025-11-05T08:00:00Z: 
+d15 h8 o20.1 Red 2025-11-05T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h8 o20.1 H-a 2025-11-05T08:00:00Z: the Moon was 20° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h8 o20.1 Luminance 2025-11-05T08:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h8 o20.1 S-II 2025-11-05T08:00:00Z: 
+d15 h8 o20.1 O-III 2025-11-05T08:00:00Z: 
+d15 h8 o25 Red 2025-11-05T08:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h8 o25 H-a 2025-11-05T08:00:00Z: the Moon was 25° from the target at mid-exposure; the filter's moon avoidance needed 30° (30° at full moon, width 7 days)
+d15 h8 o25 Luminance 2025-11-05T08:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h8 o25 S-II 2025-11-05T08:00:00Z: 
+d15 h8 o25 O-III 2025-11-05T08:00:00Z: 
+d15 h8 o45 Red 2025-11-05T08:00:00Z: the Moon was 45° from the target at mid-exposure; the filter's moon avoidance needed 60° (60° at full moon, width 7 days)
+d15 h8 o45 H-a 2025-11-05T08:00:00Z: 
+d15 h8 o45 Luminance 2025-11-05T08:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h8 o45 S-II 2025-11-05T08:00:00Z: 
+d15 h8 o45 O-III 2025-11-05T08:00:00Z: 
+d15 h8 o70 Red 2025-11-05T08:00:00Z: 
+d15 h8 o70 H-a 2025-11-05T08:00:00Z: 
+d15 h8 o70 Luminance 2025-11-05T08:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h8 o70 S-II 2025-11-05T08:00:00Z: 
+d15 h8 o70 O-III 2025-11-05T08:00:00Z: 
+d15 h8 o90 Red 2025-11-05T08:00:00Z: 
+d15 h8 o90 H-a 2025-11-05T08:00:00Z: 
+d15 h8 o90 Luminance 2025-11-05T08:00:00Z: the Moon was at 60° altitude; the filter's exposure template needs it below 0°
+d15 h8 o90 S-II 2025-11-05T08:00:00Z: 
+d15 h8 o90 O-III 2025-11-05T08:00:00Z: 
