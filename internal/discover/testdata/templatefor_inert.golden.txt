@@ -1,0 +1,21 @@
+L: 5 Luminance Luminance
+R: 4 R 600 Red
+G: 8 Green Green
+B: none
+H: 2 HA Low H-a
+O: 7 O-III O-III
+S: none
+L: 5 Luminance Luminance
+R: 4 R 600 Red
+G: 8 Green Green
+B: none
+H: 2 HA Low H-a
+O: 7 O-III O-III
+S: none
+L: 3 Lum 300 L
+R: 9 Ared red
+G: none
+B: none
+H: 1 Ha H-alpha
+O: 2 OIII OIII
+S: none

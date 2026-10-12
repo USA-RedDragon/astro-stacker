@@ -767,9 +767,38 @@ func (s *Service) depthHours(o catalog.Object, canon, goalFilter string, typed f
 }
 
 func templateFor(snap *planning.Snapshot, canon string) (*PickTemplate, string) {
+	t, ok := pickTemplate(snap, canon)
+	if !ok {
+		return nil, fmt.Sprintf("no exposure template for %s", filterLabel(canon))
+	}
+	return &PickTemplate{ID: t.ID, Name: t.Name, Filter: t.Filter}, fmt.Sprintf("your %s filter", t.Filter)
+}
+
+// pickTemplate is the template a plan on the canonical filter uses: after
+// the template migration the planning filter resolution of the filter with
+// the most used template, never a retired one; before it the most used
+// template that is not retired.
+func pickTemplate(snap *planning.Snapshot, canon string) (planning.Template, bool) {
+	profile := snap.FilterProfile()
+	if snap.HasManaged(profile) {
+		filter, most := "", -1
+		for _, f := range snap.Filters {
+			if rigsource.CanonicalFilter(f.Name) != canon {
+				continue
+			}
+			if n := snap.MostPlans(profile, f.Name); n > most {
+				filter, most = f.Name, n
+			}
+		}
+		t, ok := snap.ResolveFilter(profile, filter)
+		if !ok || t.Retired {
+			return planning.Template{}, false
+		}
+		return t, true
+	}
 	var best *planning.Template
 	for i, t := range snap.Templates {
-		if rigsource.CanonicalFilter(t.Filter) != canon {
+		if t.Retired || rigsource.CanonicalFilter(t.Filter) != canon {
 			continue
 		}
 		if best == nil || t.UsedByPlans > best.UsedByPlans || (t.UsedByPlans == best.UsedByPlans && t.Name < best.Name) {
@@ -777,14 +806,14 @@ func templateFor(snap *planning.Snapshot, canon string) (*PickTemplate, string) 
 		}
 	}
 	if best == nil {
-		return nil, fmt.Sprintf("no exposure template for %s", filterLabel(canon))
+		return planning.Template{}, false
 	}
-	return &PickTemplate{ID: best.ID, Name: best.Name, Filter: best.Filter}, fmt.Sprintf("your %s template used by the most plans (%d)", filterLabel(canon), best.UsedByPlans)
+	return *best, true
 }
 
 func matchSet(snap *planning.Snapshot, canons []string) (*planning.ExposureSet, map[string]planning.Template) {
 	byName := map[string]planning.Template{}
-	for _, t := range snap.Templates {
+	for _, t := range snap.AllTemplates() {
 		byName[strings.ToLower(strings.TrimSpace(t.Name))] = t
 	}
 	for i, set := range snap.Sets {
@@ -793,7 +822,7 @@ func matchSet(snap *planning.Snapshot, canons []string) (*planning.ExposureSet, 
 		for _, it := range set.Items {
 			t, found := byName[strings.ToLower(strings.TrimSpace(it.Template))]
 			c := rigsource.CanonicalFilter(t.Filter)
-			if !found || !slices.Contains(canons, c) {
+			if !found || t.Retired || !slices.Contains(canons, c) {
 				ok = false
 				break
 			}
@@ -1066,7 +1095,7 @@ func (s *Service) automaticLength(pf *PickFilter, canon string, plans *planning.
 	pf.Lengths = []PickLength{}
 	var gain *int
 	if pf.Template != nil && plans != nil {
-		for _, t := range plans.Templates {
+		for _, t := range plans.AllTemplates() {
 			if t.ID == pf.Template.ID {
 				gain = t.Gain
 			}

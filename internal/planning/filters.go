@@ -78,6 +78,9 @@ func (s *Snapshot) allTemplates() []Template {
 	return s.Templates
 }
 
+// AllTemplates is every template, managed ones included.
+func (s *Snapshot) AllTemplates() []Template { return s.allTemplates() }
+
 func (s *Snapshot) inProfile(t Template, profile string) bool {
 	return profile == "" || s.templateProfiles[t.ID] == profile
 }
