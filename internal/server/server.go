@@ -51,6 +51,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applyCalibrationRoutes(r.Group("/api/v1"), extras)
 	applySubLengthRoutes(r.Group("/api/v1"), extras.SubLength)
 	applyBodiesRoutes(r.Group("/api/v1"), extras.Bodies)
+	applyCometRoutes(r.Group("/api/v1"), extras.Comets)
 	applyWebUI(r, config.HTTP.WebURL)
 
 	var metricsServer *http.Server

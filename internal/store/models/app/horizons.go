@@ -11,3 +11,9 @@ type HorizonsCache struct {
 	Result    string `gorm:"type:text"`
 	FetchedAt time.Time
 }
+
+type CometElements struct {
+	Source    string `gorm:"primaryKey"`
+	Body      string `gorm:"type:text"`
+	FetchedAt time.Time
+}

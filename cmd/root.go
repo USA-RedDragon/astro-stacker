@@ -217,6 +217,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		previews.Notice(r)
 	})
 	extras := server.Extras{Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, Bodies: bodyTables, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+		Comets: &bodies.CometList{DB: appStore.DB(), URL: cfg.Bodies.CometElementsURL, SBDBURL: cfg.Bodies.CometSBDBURL, UserAgent: horizons.UserAgent(cmd.Annotations["version"]),
+			Site: bodies.SiteFunc(siteFunc(cfg, appStore)), MinAlt: cfg.Discover.MinAltitude},
 		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	if obs.Configured() {

@@ -44,3 +44,25 @@ func TestBodiesRoutes(t *testing.T) {
 		t.Errorf("positions: %d %v", code, body)
 	}
 }
+
+func TestCometRoute(t *testing.T) {
+	t.Parallel()
+	get := func(l *bodies.CometList, path string) (int, map[string]any) {
+		r := gin.New()
+		applyCometRoutes(r.Group("/api/v1"), l)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil))
+		var body map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return w.Code, body
+	}
+	if code, _ := get(nil, "/api/v1/comets"); code != http.StatusServiceUnavailable {
+		t.Errorf("no list: %d", code)
+	}
+	if code, _ := get(&bodies.CometList{}, "/api/v1/comets?max_mag=bright"); code != http.StatusBadRequest {
+		t.Errorf("bad max_mag: %d", code)
+	}
+	if code, body := get(&bodies.CometList{}, "/api/v1/comets"); code != http.StatusServiceUnavailable || body[errorKey] == nil {
+		t.Errorf("no site: %d %v", code, body)
+	}
+}

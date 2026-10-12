@@ -45,6 +45,7 @@ type Bodies struct {
 	IntervalMinutes  int    `name:"interval-minutes" description:"Minutes between rebuilding the position tables; tables already fetched for a night come from the cache" default:"60"`
 	HorizonsURL      string `name:"horizons-url" description:"JPL Horizons API" default:"https://ssd.jpl.nasa.gov/api/horizons.api"`
 	CometElementsURL string `name:"comet-elements-url" description:"Minor Planet Center comet elements, for the list of comets observable tonight" default:"https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"`
+	CometSBDBURL     string `name:"comet-sbdb-url" description:"JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list" default:"https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c"`
 }
 
 func (b Bodies) validate() error {

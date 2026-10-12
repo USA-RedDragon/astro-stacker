@@ -50,6 +50,7 @@ type Extras struct {
 	FlatRequests *calpublish.FlatPublisher
 	SubLength    *sublength.Service
 	Bodies       *bodies.Service
+	Comets       *bodies.CometList
 	Site         SiteSource
 }
 
