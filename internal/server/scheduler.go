@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/previewer"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
+	"github.com/USA-RedDragon/astro-stacker/internal/skyevents"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/sublength"
 	"github.com/gin-gonic/gin"
@@ -51,6 +52,7 @@ type Extras struct {
 	SubLength    *sublength.Service
 	Bodies       *bodies.Service
 	Comets       *bodies.CometList
+	SkyEvents    *skyevents.Service
 	Site         SiteSource
 }
 

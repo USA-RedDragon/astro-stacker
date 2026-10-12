@@ -505,3 +505,13 @@ func containsFold(list []string, s string) bool {
 	}
 	return false
 }
+
+// SettingsFor are the settings a new project imaging with one template gets:
+// the defaults of that template's profile.
+func (s *Snapshot) SettingsFor(templateID int, minAltitude float64) (schedcmd.ProjectSettings, error) {
+	t, ok := s.templateByID(templateID)
+	if !ok {
+		return schedcmd.ProjectSettings{}, fmt.Errorf("%w: template %d", ErrMissingTemplate, templateID)
+	}
+	return s.draftSettings(ProjectDraft{MinimumAltitude: minAltitude}, []draftItem{{tmpl: t}})
+}
