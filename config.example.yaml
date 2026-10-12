@@ -239,3 +239,13 @@ sub-length:
 calibration:
   # Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on
   publish: "off"
+# Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight
+bodies:
+  # Write each moving target's nightly position table into ts_body_position in the scheduler database, which the plugin uses for visibility, centering and sub length: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table
+  publish: "on"
+  # Minutes between rebuilding the position tables; tables already fetched for a night come from the cache
+  interval-minutes: 60
+  # JPL Horizons API
+  horizons-url: "https://ssd.jpl.nasa.gov/api/horizons.api"
+  # Minor Planet Center comet elements, for the list of comets observable tonight
+  comet-elements-url: "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
