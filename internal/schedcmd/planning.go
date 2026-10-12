@@ -30,6 +30,7 @@ const (
 	KindUnapplySet        Kind = "exposureplan.unapplyset"
 	KindProjectCreate     Kind = "project.create"
 	KindProjectDelete     Kind = "project.delete"
+	KindTargetWindow      Kind = "target.window"
 )
 
 const entityTemplate = "exposuretemplate"
@@ -138,12 +139,15 @@ type NewProject struct {
 }
 
 type NewTarget struct {
-	GUID     string    `json:"guid"`
-	Name     string    `json:"name"`
-	RAHours  float64   `json:"ra_hours"`
-	Dec      float64   `json:"dec"`
-	Rotation float64   `json:"rotation"`
-	Plans    []NewPlan `json:"plans"`
+	GUID        string       `json:"guid"`
+	Name        string       `json:"name"`
+	RAHours     float64      `json:"ra_hours"`
+	Dec         float64      `json:"dec"`
+	Rotation    float64      `json:"rotation"`
+	Designation string       `json:"designation,omitempty"`
+	BodyKind    string       `json:"kind,omitempty"`
+	Window      *EventWindow `json:"window,omitempty"`
+	Plans       []NewPlan    `json:"plans"`
 }
 
 type NewGoal struct {
@@ -770,6 +774,9 @@ func decodeProjectCreate(p json.RawMessage) (ProjectCreatePayload, error) {
 		if t.RAHours < 0 || t.RAHours >= 24 || t.Dec < -90 || t.Dec > 90 {
 			return v, fmt.Errorf("%w: %s coordinates out of range", ErrInvalid, t.Name)
 		}
+		if err := t.checkBody(); err != nil {
+			return v, err
+		}
 		for _, pl := range t.Plans {
 			if pl.GUID == "" || pl.TemplateID <= 0 || guids[pl.GUID] {
 				return v, fmt.Errorf("%w: each plan needs a unique guid and a template", ErrInvalid)
@@ -819,6 +826,11 @@ func projectCreateDescription(v ProjectCreatePayload, deleting bool) Description
 	}
 	if n := projectSettingsNote(v.Project.ProjectSettings); n != "" {
 		notes = append(notes, n)
+	}
+	for _, t := range v.Targets {
+		if t.Window != nil {
+			notes = append(notes, t.Name+": "+t.Window.Text()+".")
+		}
 	}
 	d.Note = strings.Join(notes, " ")
 	return d
@@ -924,5 +936,6 @@ func PlanningSpecs() []Spec {
 		UnapplySetSpec(),
 		ProjectCreateSpec(),
 		ProjectDeleteSpec(),
+		TargetWindowSpec(),
 	}
 }

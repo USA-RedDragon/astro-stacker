@@ -24,6 +24,7 @@ func samples() map[schedcmd.Kind]string {
 		schedcmd.KindTemplateDelete:    `{"guid":"t-new","name":"H-a 300"}`,
 		schedcmd.KindApplySet:          `{"set_id":"hoo","set_name":"HOO","mode":"replace","targets":[{"target_id":29,"target_guid":"g29","target_name":"Triangulum","project":"Triangulum","create":[{"guid":"p1","template_id":3,"template_name":"H-a","exposure":600,"desired":300}],"disable":[{"id":90,"guid":"p90","template_name":"Luminance"}]}]}`,
 		schedcmd.KindProjectCreate:     `{"project":{"guid":"pg","name":"Gecko Nebula","priority":1,"state":1,"minimumtime":60,"minimumaltitude":15},"targets":[{"guid":"tg","name":"Gecko Nebula","ra_hours":22.53,"dec":40.83,"rotation":0,"plans":[{"guid":"pp","template_id":3,"template_name":"H-a","exposure":600,"desired":300}]}],"goals":[{"target_guid":"tg","filter":"H-a","setting":{"kind":0,"snr_goal":10,"plateau_stop":true}}],"catalog":"LBN 437"}`,
+		schedcmd.KindTargetWindow:      `{"target_id":81,"target_guid":"tw","target_name":"Mars with M 44","window":{"start":"2026-10-13T05:00:00Z","end":"2026-10-14T12:00:00Z","priority":"high","event_id":"mars-m-44-2026-10-13"},"before":{"start":"2026-10-13T05:00:00Z","end":"2026-10-14T12:00:00Z","priority":"normal","event_id":"mars-m-44-2026-10-13"}}`,
 	}
 }
 
