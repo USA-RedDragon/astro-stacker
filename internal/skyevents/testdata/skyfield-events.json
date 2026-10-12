@@ -1,0 +1,135 @@
+{
+ "site": {
+  "latitude": 32.0,
+  "longitude": -100.0
+ },
+ "source": "Skyfield 1.x, DE440s, apparent positions, 30-minute steps from 2026-10-12T23:00Z for 183 days, Sun below -12, both above 15 deg, separation (plus DSO radius) at most 3.0 deg",
+ "events": [
+  {
+   "body": "Mars",
+   "others": [
+    "M 44 Beehive"
+   ],
+   "first": "2026-10-13",
+   "last": "2026-10-14",
+   "best": "2026-10-13T08:30:00Z",
+   "sep": 1.01,
+   "nights": 2
+  },
+  {
+   "body": "Moon",
+   "others": [
+    "Mars"
+   ],
+   "first": "2026-11-02",
+   "last": "2026-11-02",
+   "best": "2026-11-02T12:00:00Z",
+   "sep": 1.24,
+   "nights": 1
+  },
+  {
+   "body": "Mars",
+   "others": [
+    "Jupiter"
+   ],
+   "first": "2026-11-09",
+   "last": "2026-11-23",
+   "best": "2026-11-16T07:30:00Z",
+   "sep": 1.2,
+   "nights": 15
+  },
+  {
+   "body": "Moon",
+   "others": [
+    "Jupiter"
+   ],
+   "first": "2026-11-30",
+   "last": "2026-11-30",
+   "best": "2026-11-30T07:00:00Z",
+   "sep": 1.13,
+   "nights": 1
+  },
+  {
+   "body": "Venus",
+   "others": [
+    "IC 4592 Blue Horsehead Nebula"
+   ],
+   "first": "2027-01-10",
+   "last": "2027-01-13",
+   "best": "2027-01-12T12:00:00Z",
+   "sep": 1.69,
+   "nights": 4
+  },
+  {
+   "body": "Mars",
+   "others": [
+    "M 95",
+    "M 96",
+    "M 105"
+   ],
+   "first": "2026-12-12",
+   "last": "2027-02-06",
+   "best": "2027-01-25T04:00:00Z",
+   "sep": 0.33,
+   "nights": 57
+  },
+  {
+   "body": "Venus",
+   "others": [
+    "M 9"
+   ],
+   "first": "2027-01-24",
+   "last": "2027-01-27",
+   "best": "2027-01-26T12:00:00Z",
+   "sep": 1.81,
+   "nights": 4
+  },
+  {
+   "body": "Venus",
+   "others": [
+    "M 23",
+    "M 20 Trifid Nebula",
+    "M 21"
+   ],
+   "first": "2027-02-02",
+   "last": "2027-02-06",
+   "best": "2027-02-04T12:30:00Z",
+   "sep": 1.39,
+   "nights": 4
+  },
+  {
+   "body": "Venus",
+   "others": [
+    "M 25",
+    "M 22"
+   ],
+   "first": "2027-02-09",
+   "last": "2027-02-11",
+   "best": "2027-02-10T12:30:00Z",
+   "sep": 2.17,
+   "nights": 3
+  },
+  {
+   "body": "Moon",
+   "others": [
+    "Jupiter"
+   ],
+   "first": "2027-02-20",
+   "last": "2027-02-20",
+   "best": "2027-02-20T04:00:00Z",
+   "sep": 1.21,
+   "nights": 1
+  },
+  {
+   "body": "Moon",
+   "others": [
+    "Jupiter"
+   ],
+   "first": "2027-03-19",
+   "last": "2027-03-19",
+   "best": "2027-03-19T09:30:00Z",
+   "sep": 1.71,
+   "nights": 1
+  }
+ ]
+}
