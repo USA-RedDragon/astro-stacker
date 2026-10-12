@@ -73,6 +73,17 @@ func TestBodyNightRoutes(t *testing.T) {
 	if code, body := get(s, "/api/v1/bodies/nights?target_guid=x"); code != http.StatusNotFound || body[errorKey] == nil {
 		t.Errorf("unknown target: %d %v", code, body)
 	}
+	for _, q := range []string{"kind=planet", "min_alt=NaN", "min_alt=91", "min_minutes=-1", "min_minutes=x"} {
+		if code, _ := get(s, "/api/v1/bodies/nights?designation=161P&"+q); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", q, code)
+		}
+	}
+	if code, body := get(s, "/api/v1/bodies/nights?designation=161P"); code != http.StatusServiceUnavailable || body[errorKey] == nil {
+		t.Errorf("preview without a site: %d %v", code, body)
+	}
+	if code, body := get(&bodies.NightService{Mode: bodies.ModeOff}, "/api/v1/bodies/nights?designation=161P"); code != http.StatusServiceUnavailable || body[errorKey] != bodies.ErrNightsOff.Error() {
+		t.Errorf("preview when off: %d %v", code, body)
+	}
 }
 
 func TestCometRoute(t *testing.T) {

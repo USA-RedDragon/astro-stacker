@@ -40,12 +40,16 @@ func applyBodyNightRoutes(g *gin.RouterGroup, s *bodies.NightService) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "body season nights are not built: the stacker has no scheduler database"})
 			return
 		}
+		guid := strings.TrimSpace(c.Query("target_guid"))
+		if des := strings.TrimSpace(c.Query("designation")); guid == "" && des != "" {
+			bodyNightPreview(c, s, des)
+			return
+		}
 		res := s.Latest()
 		if res == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "the body season nights have not been built yet"})
 			return
 		}
-		guid := strings.TrimSpace(c.Query("target_guid"))
 		if guid == "" {
 			c.JSON(http.StatusOK, res)
 			return
@@ -60,6 +64,43 @@ func applyBodyNightRoutes(g *gin.RouterGroup, s *bodies.NightService) {
 			c.JSON(http.StatusOK, v)
 		}
 	})
+}
+
+func bodyNightPreview(c *gin.Context, s *bodies.NightService, designation string) {
+	kind := c.DefaultQuery("kind", bodies.KindComet)
+	if kind != bodies.KindComet && kind != bodies.KindAsteroid {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: "kind must be comet or asteroid"})
+		return
+	}
+	minAlt := 30.0
+	if v := c.Query("min_alt"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || math.IsNaN(f) || f < -90 || f > 90 {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "min_alt must be a number from -90 to 90"})
+			return
+		}
+		minAlt = f
+	}
+	minutes := 0
+	if v := c.Query("min_minutes"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 24*60 {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "min_minutes must be a whole number of minutes from 0 to 1440"})
+			return
+		}
+		minutes = n
+	}
+	v, err := s.Preview(c.Request.Context(), designation, kind, minAlt, minutes)
+	switch {
+	case errors.Is(err, bodies.ErrNightsOff), errors.Is(err, bodies.ErrNoSite):
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
+	case errors.Is(err, horizons.ErrUnknownBody), errors.Is(err, horizons.ErrAmbiguous):
+		c.JSON(http.StatusNotFound, gin.H{errorKey: err.Error()})
+	case err != nil:
+		c.JSON(http.StatusBadGateway, gin.H{errorKey: err.Error()})
+	default:
+		c.JSON(http.StatusOK, v)
+	}
 }
 
 func latestBodies(c *gin.Context, s *bodies.Service) *bodies.Result {
