@@ -16,7 +16,18 @@ const (
 	TargetTable   = "ts_target_body"
 	PositionTable = "ts_body_position"
 	KindComet     = "comet"
+	KindAsteroid  = "asteroid"
+	// KindEvent targets follow a sky event's frame centre, which the event
+	// finder publishes under a designation starting with EventPrefix; they
+	// have no Horizons body.
+	KindEvent   = "event"
+	EventPrefix = "event:"
 )
+
+// IsEvent reports whether a designation or kind names an event centre.
+func IsEvent(designation, kind string) bool {
+	return kind == KindEvent || strings.HasPrefix(strings.ToLower(strings.TrimSpace(designation)), EventPrefix)
+}
 
 type Target struct {
 	GUID        string `json:"target_guid"`
@@ -55,7 +66,7 @@ func Targets(ctx context.Context, sched *gorm.DB) ([]Target, error) {
 	out := make([]Target, 0, len(rows))
 	for _, r := range rows {
 		d := strings.TrimSpace(r.Designation)
-		if r.GUID == "" || d == "" {
+		if r.GUID == "" || d == "" || IsEvent(d, deref(r.Kind)) {
 			continue
 		}
 		t := Target{GUID: r.GUID, Designation: d, Kind: KindComet, Active: r.Active != nil && *r.Active}
@@ -87,4 +98,11 @@ func DesignationsByName(ctx context.Context, sched *gorm.DB) (map[string]string,
 		}
 	}
 	return out, nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.TrimSpace(*s)
 }
