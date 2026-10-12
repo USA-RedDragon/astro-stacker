@@ -96,7 +96,7 @@ func (s *Service) claim(ctx context.Context, e Event) (string, bool, error) {
 	if turnedDown(cs, e) {
 		return "", false, nil
 	}
-	c, found := matchChoice(cs, e)
+	c, found := matchOwnChoice(cs, e)
 	now := s.now().UTC()
 	if found && c.AutoFailedAt != nil && now.Sub(*c.AutoFailedAt) < AutoRetry {
 		return "", false, nil
