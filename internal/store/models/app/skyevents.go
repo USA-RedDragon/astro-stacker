@@ -29,4 +29,11 @@ type SkyEventChoice struct {
 	WindowEnd     *time.Time
 	PlannedAt     *time.Time
 	UpdatedAt     time.Time
+	// AutoPlannedAt is when the stacker claimed the event to plan it by
+	// itself; it is never cleared once a command was sent, so an event is
+	// planned automatically at most once.
+	AutoPlannedAt  *time.Time
+	AutoCommandID  *string
+	AutoDeclinedAt *time.Time
+	AutoError      *string
 }

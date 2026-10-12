@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -134,28 +135,11 @@ func planningSnapshot(c *gin.Context, backfill func() goals.BackfillLive) (*plan
 		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "no scheduler database"})
 		return nil, false
 	}
-	ctx := c.Request.Context()
-	sched := di.SchedulerDBStore.DB()
 	var appDB *gorm.DB
 	if di.AppStore != nil {
 		appDB = di.AppStore.DB()
 	}
-	in, err := planning.AppInputs(ctx, appDB, sched)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{errorKey: "load goal settings: " + err.Error()})
-		return nil, false
-	}
-	s, err := planning.Load(ctx, sched, appDB, in)
-	if err == nil {
-		rig, rerr := rigsource.Measure(ctx, appDB, sched, time.Now())
-		s.Frame = planning.FrameFromRig(rig)
-		if rerr != nil {
-			msg := "the rig could not be measured: " + rerr.Error()
-			s.Frame = planning.FrameFromRig(rigsource.Empty())
-			s.Frame.Reason = &msg
-		}
-		s.Backfill = backfillReport(ctx, appDB, backfill)
-	}
+	s, err := LoadPlanningSnapshot(c.Request.Context(), appDB, di.SchedulerDBStore.DB(), backfill)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, context.Canceled) {
@@ -165,6 +149,28 @@ func planningSnapshot(c *gin.Context, backfill func() goals.BackfillLive) (*plan
 		return nil, false
 	}
 	return s, true
+}
+
+// LoadPlanningSnapshot reads the scheduler and app state planning drafts
+// from.
+func LoadPlanningSnapshot(ctx context.Context, appDB, sched *gorm.DB, backfill func() goals.BackfillLive) (*planning.Snapshot, error) {
+	in, err := planning.AppInputs(ctx, appDB, sched)
+	if err != nil {
+		return nil, fmt.Errorf("load goal settings: %w", err)
+	}
+	s, err := planning.Load(ctx, sched, appDB, in)
+	if err != nil {
+		return nil, err
+	}
+	rig, rerr := rigsource.Measure(ctx, appDB, sched, time.Now())
+	s.Frame = planning.FrameFromRig(rig)
+	if rerr != nil {
+		msg := "the rig could not be measured: " + rerr.Error()
+		s.Frame = planning.FrameFromRig(rigsource.Empty())
+		s.Frame.Reason = &msg
+	}
+	s.Backfill = backfillReport(ctx, appDB, backfill)
+	return s, nil
 }
 
 type globalWeightsResult struct {

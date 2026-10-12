@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/ephem"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
+	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -110,8 +111,12 @@ type Service struct {
 	Catalog  func() (*catalog.Index, error)
 	Commands *schedcmd.Service
 	Now      func() time.Time
+	// Snapshot loads what drafting a project needs, for the plans the
+	// stacker makes by itself.
+	Snapshot func(ctx context.Context) (*planning.Snapshot, error)
 
 	refresh sync.Mutex
+	planMu  sync.Mutex
 	mu      sync.Mutex
 	last    *Result
 	tables  map[string]Table
@@ -335,21 +340,30 @@ func (s *Service) Refresh(ctx context.Context) (*Result, error) {
 	return res, nil
 }
 
-// Run searches once a day; after a restart it serves the saved search and
-// searches at once only when that is older than a day or the tables for
-// moving centres are needed.
+// Run searches at start and then once a day, and plans rare events after
+// each search and every AutoPlanEvery, so they are planned soon after the
+// scheduler can take event windows.
 func (s *Service) Run(ctx context.Context, every time.Duration) {
 	if err := s.Load(ctx); err != nil {
 		slog.Warn("Loading the saved sky events failed", "error", err)
 	}
+	search := time.NewTimer(0)
+	defer search.Stop()
+	auto := time.NewTicker(AutoPlanEvery)
+	defer auto.Stop()
 	for {
-		if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("Sky event search failed", "error", err)
-		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(every):
+		case <-search.C:
+			if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("Sky event search failed", "error", err)
+			}
+			search.Reset(every)
+		case <-auto.C:
+		}
+		if err := s.AutoPlanRare(ctx); err != nil && ctx.Err() == nil {
+			slog.Warn("Planning rare sky events failed", "error", err)
 		}
 	}
 }
@@ -423,7 +437,8 @@ func (s *Service) planState(ctx context.Context, c app.SkyEventChoice) *PlanStat
 	if c.CommandID == "" || c.PlannedAt == nil {
 		return nil
 	}
-	p := &PlanState{State: string(schedcmd.StatusQueued), Priority: c.Priority, ProjectGUID: c.ProjectGUID, TargetGUID: c.TargetGUID, CommandID: c.CommandID, PlannedAt: *c.PlannedAt}
+	p := &PlanState{State: string(schedcmd.StatusQueued), Priority: c.Priority, ProjectGUID: c.ProjectGUID, TargetGUID: c.TargetGUID, CommandID: c.CommandID, PlannedAt: *c.PlannedAt,
+		Automatic: c.AutoCommandID != nil && *c.AutoCommandID == c.CommandID}
 	if s.Commands == nil || s.Commands.Log == nil {
 		return p
 	}
@@ -484,7 +499,7 @@ func (s *Service) View(ctx context.Context, months int) (View, error) {
 		if !e.End.After(now) || !e.Start.Before(horizon) {
 			continue
 		}
-		s.decorate(ctx, &e, cs, phot)
+		s.decorate(ctx, &e, cs, phot, v.Planning)
 		v.Events = append(v.Events, e)
 	}
 	return v, nil
@@ -497,18 +512,29 @@ func nonNil[T any](v []T) []T {
 	return v
 }
 
-func (s *Service) decorate(ctx context.Context, e *Event, cs []app.SkyEventChoice, phot Photometry) {
+func (s *Service) decorate(ctx context.Context, e *Event, cs []app.SkyEventChoice, phot Photometry, pl Planning) {
 	e.Exposure = EstimateExposure(*e, phot)
-	for _, c := range cs {
-		if !matches(c, *e) {
-			continue
-		}
+	c, found := matchChoice(cs, *e)
+	if found {
 		if c.Priority == PriorityHigh {
 			e.Priority = PriorityHigh
 		}
 		e.Plan = s.planState(ctx, c)
-		return
 	}
+	var cp *app.SkyEventChoice
+	if found {
+		cp = &c
+	}
+	e.AutoPlan = autoState(*e, cp, pl, s.now())
+}
+
+func matchChoice(cs []app.SkyEventChoice, e Event) (app.SkyEventChoice, bool) {
+	for _, c := range cs {
+		if matches(c, e) {
+			return c, true
+		}
+	}
+	return app.SkyEventChoice{}, false
 }
 
 func (s *Service) find(id string) (Event, error) {
@@ -529,13 +555,15 @@ func (s *Service) choiceFor(ctx context.Context, e Event) (app.SkyEventChoice, e
 	if err != nil {
 		return app.SkyEventChoice{}, err
 	}
-	for _, c := range cs {
-		if matches(c, e) {
-			return c, nil
-		}
+	if c, ok := matchChoice(cs, e); ok {
+		return c, nil
 	}
+	return newChoice(e), nil
+}
+
+func newChoice(e Event) app.SkyEventChoice {
 	b, o := memberKeys(e)
-	return app.SkyEventChoice{EventID: e.ID, Bodies: b, Objects: strings.Join(o, ","), Priority: PriorityNormal}, nil
+	return app.SkyEventChoice{EventID: e.ID, Bodies: b, Objects: strings.Join(o, ","), Priority: PriorityNormal}
 }
 
 // Event is one event of the latest search with the user's choices.
@@ -548,7 +576,7 @@ func (s *Service) Event(ctx context.Context, id string) (Event, error) {
 	if err != nil {
 		return e, err
 	}
-	s.decorate(ctx, &e, cs, s.photometry(ctx, planFilter))
+	s.decorate(ctx, &e, cs, s.photometry(ctx, planFilter), s.Planning(ctx))
 	return e, nil
 }
 
