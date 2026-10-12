@@ -304,6 +304,7 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		schedcmd.KindCatalogMatch:       `{"subject":"project:Garlic Nebula","subject_name":"Garlic Nebula","object_id":"G116.9+00.2","before":"","after":"confirmed"}`,
 		schedcmd.KindMosaicAdopt:        `{"decisions":[{"id":3,"subject":"project:p","title":"Rho","before":"proposed","after":"accepted"}]}`,
 		schedcmd.KindRuleWeightGlobal:   `{"changes":[{"rule":"Novelty (mosaic)","before":null,"after":5},{"rule":"Novelty","before":10,"after":35}]}`,
+		schedcmd.KindSchedulingGlobal:   `{"before":null,"after":{"ditherEvery":3,"filterSwitchFrequency":1,"flatsHandling":1,"smartExposureOrder":false,"meridianWindow":0,"maximumAltitude":0,"enableGrader":true}}`,
 		schedcmd.KindCalibrationRequest: `{"type":"flats","object":"M 31","target_id":12,"night":"2026-10-09"}`,
 		schedcmd.KindCalibrationCancel:  `{"type":"flats","object":"M 31","target_id":12,"night":"2026-10-09"}`,
 		schedcmd.KindTemplatesMigrate:   notDry,
