@@ -37,9 +37,9 @@ type Config struct {
 	Darks        Darks        `name:"darks" description:"The dark backlog the observatory's Target Scheduler Darks instruction works through"`
 	SubLength    SubLength    `name:"sub-length" description:"Sub exposure lengths the system picks per target, filter and moon glare from the measured sky, read noise, overhead, star saturation, rejections and the dark library"`
 	Calibration  Calibration  `name:"calibration" description:"The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through"`
-	MoonKeep     MoonKeep     `name:"moon-keep" description:"How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, fitted from its own verdicts for the plugin's bright-Moon decisions"`
+	MoonKeep     MoonKeep     `name:"moon-keep" description:"How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, and by the target's altitude with the Moon down, fitted from its own verdicts for the plugin's weights and skips"`
 	Bodies       Bodies       `name:"bodies" description:"Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight"`
-	Scheduling   Scheduling   `name:"scheduling" description:"One global set of scheduling settings for every Target Scheduler project, with each project's minimum time worked out from its window and its minimum altitude from the kept rates"`
+	Scheduling   Scheduling   `name:"scheduling" description:"One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor (or its whole window when shorter) and its minimum altitude at the hard limit"`
 }
 
 type Bodies struct {
@@ -119,7 +119,7 @@ func (s Scheduling) validate() error {
 }
 
 type MoonKeep struct {
-	Publish       string `name:"publish" description:"Write the fitted kept rates into ts_moon_keep in the scheduler database, which the plugin uses to weigh and skip bright-Moon exposures: off, dry-run (log what would be written) or on; nothing is written until the scheduler has the ts_moon_keep table" default:"on"`
+	Publish       string `name:"publish" description:"Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it" default:"on"`
 	IntervalHours int    `name:"interval-hours" description:"Hours between refitting the kept rates" default:"24"`
 }
 

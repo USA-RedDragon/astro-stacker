@@ -263,7 +263,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 
 	startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
-	extras.Scheduling = startScheduling(indexCtx, cfg, appStore, schedulerDBStore, commands, moonKeep, bodyNights, horizon)
+	extras.Scheduling = startScheduling(indexCtx, cfg, appStore, schedulerDBStore, commands, bodyNights, horizon)
 
 	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], extras)
 	if err := server.Start(ctx); err != nil {

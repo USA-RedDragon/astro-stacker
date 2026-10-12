@@ -69,21 +69,23 @@ func rules() Rules {
 
 // Result is one fit.
 type Result struct {
-	ComputedAt *time.Time          `json:"computed_at"`
-	Mode       string              `json:"mode"`
-	Rules      Rules               `json:"rules"`
-	Subs       int                 `json:"subs"`
-	Kept       int                 `json:"kept"`
-	Nights     int                 `json:"nights"`
-	From       *time.Time          `json:"from"`
-	To         *time.Time          `json:"to"`
-	Rows       []Row               `json:"rows"`
-	Replay     *Replay             `json:"replay"`
-	Altitude   []AltitudeFloor     `json:"altitude_floors"`
-	AltReplay  []AltitudeReplayRow `json:"altitude_replay"`
-	Publish    Status              `json:"publish"`
-	Reason     string              `json:"reason,omitempty"`
+	ComputedAt *time.Time `json:"computed_at"`
+	Mode       string     `json:"mode"`
+	Rules      Rules      `json:"rules"`
+	Subs       int        `json:"subs"`
+	Kept       int        `json:"kept"`
+	Nights     int        `json:"nights"`
+	From       *time.Time `json:"from"`
+	To         *time.Time `json:"to"`
+	Rows       []Row      `json:"rows"`
+	Replay     *Replay    `json:"replay"`
+	AltRows    []AltRow   `json:"altitude_rows"`
+	AltReplay  *AltReplay `json:"altitude_replay"`
+	AltPublish Status     `json:"altitude_publish"`
+	Publish    Status     `json:"publish"`
+	Reason     string     `json:"reason,omitempty"`
 	model      *Model
+	alt        *AltModel
 	candidates []Candidate
 }
 
@@ -110,10 +112,11 @@ type Service struct {
 	Mode  string
 	Now   func() time.Time
 
-	mu      sync.Mutex
-	refresh sync.Mutex
-	last    *Result
-	status  Status
+	mu        sync.Mutex
+	refresh   sync.Mutex
+	last      *Result
+	status    Status
+	altStatus Status
 }
 
 func (s *Service) now() time.Time {
@@ -310,8 +313,10 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	}
 	rp := Run(samples, filters)
 	res.Replay = &rp
-	res.Altitude = FitAltitude(samples)
-	res.AltReplay = AltitudeReplay(samples, AltitudeThresholds())
+	res.alt = FitAltitude(samples)
+	res.AltRows = res.alt.Rows
+	ar := RunAltitude(samples)
+	res.AltReplay = &ar
 	return res, nil
 }
 
@@ -401,7 +406,26 @@ func TableRows(res *Result) []TableRow {
 	return out
 }
 
+// Publish writes the Moon rows into ts_moon_keep and the altitude rows
+// into ts_alt_keep, each only when its table exists.
 func (s *Service) Publish(ctx context.Context, res *Result) (Status, error) {
+	alt, aerr := s.publishAlt(ctx, res)
+	s.mu.Lock()
+	s.altStatus = alt
+	if s.last != nil {
+		cp := *s.last
+		cp.AltPublish = alt
+		s.last = &cp
+	}
+	s.mu.Unlock()
+	st, err := s.publishMoon(ctx, res)
+	if err == nil {
+		err = aerr
+	}
+	return st, err
+}
+
+func (s *Service) publishMoon(ctx context.Context, res *Result) (Status, error) {
 	if s.mode() == ModeOff {
 		return s.finish(Status{Skipped: SkipOff}), nil
 	}
@@ -502,6 +526,7 @@ func (s *Service) refreshLocked(ctx context.Context) (*Result, error) {
 	}
 	s.mu.Lock()
 	res.Publish = s.status
+	res.AltPublish = s.altStatus
 	s.last = res
 	s.mu.Unlock()
 	if res.ComputedAt == nil {
@@ -551,3 +576,86 @@ const Schema = `create table if not exists ts_moon_keep (
     computed_at timestamp NOT NULL,
     PRIMARY KEY (filter, narrowband, illum_bin, alt_bin, sep_bin)
 )`
+
+func (s *Service) publishAlt(ctx context.Context, res *Result) (Status, error) {
+	st := Status{Mode: s.mode()}
+	switch {
+	case s.mode() == ModeOff:
+		st.Skipped = SkipOff
+		return st, nil
+	case s.Sched == nil:
+		st.Skipped = SkipNoScheduler
+		return st, nil
+	case res == nil || res.alt == nil || res.ComputedAt == nil || res.Subs == 0:
+		st.Skipped = "no fit yet"
+		return st, nil
+	}
+	has, err := tables.Has(ctx, s.Sched, AltTable)
+	if err != nil {
+		st.Error = err.Error()
+		return st, err
+	}
+	if !has {
+		st.Skipped = "no " + AltTable + " table"
+		return st, nil
+	}
+	want := AltTableRows(res.alt, *res.ComputedAt)
+	var have []AltTableRow
+	if err := s.Sched.WithContext(ctx).Table(AltTable).Find(&have).Error; err != nil {
+		st.Error = err.Error()
+		return st, fmt.Errorf("load %s: %w", AltTable, err)
+	}
+	old := make(map[altRowKey]AltTableRow, len(have))
+	for _, r := range have {
+		old[r.key()] = r
+	}
+	st.Rows = len(want)
+	keep := map[altRowKey]bool{}
+	var upserts []AltTableRow
+	for _, r := range want {
+		keep[r.key()] = true
+		if o, ok := old[r.key()]; ok && o.same(r) {
+			continue
+		}
+		st.Changed++
+		upserts = append(upserts, r)
+	}
+	var stale []altRowKey
+	for k := range old {
+		if !keep[k] {
+			st.Deleted++
+			stale = append(stale, k)
+		}
+	}
+	if st.Changed == 0 && st.Deleted == 0 {
+		st.Skipped = SkipUnchanged
+		return st, nil
+	}
+	if s.mode() == ModeDryRun {
+		slog.Info("Would publish the altitude kept rates (dry run)", "rows", st.Rows, "changed", st.Changed, "deleted", st.Deleted)
+		return st, nil
+	}
+	if err := s.Sched.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, r := range upserts {
+			if err := tx.Table(AltTable).Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "filter"}, {Name: "narrowband"}, {Name: "alt_bin"}},
+				DoUpdates: clause.AssignmentColumns([]string{"alt_from", "alt_to", "subs", "kept", "nights", "rate", "rate_low", "rate_high", "worth", "usable", "skips", "computed_at"}),
+			}).Create(&r).Error; err != nil {
+				return fmt.Errorf("publish altitude kept rate %q: %w", r.Filter, err)
+			}
+		}
+		for _, k := range stale {
+			if err := tx.Table(AltTable).Where("filter = ? AND narrowband = ? AND alt_bin = ?", k.filter, k.narrowband, k.bin).Delete(nil).Error; err != nil {
+				return fmt.Errorf("remove altitude kept rate: %w", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		st.Error = err.Error()
+		return st, err
+	}
+	at := s.now().UTC()
+	st.PublishedAt = &at
+	slog.Info("Published the altitude kept rates", "rows", st.Rows, "changed", st.Changed, "deleted", st.Deleted)
+	return st, nil
+}
