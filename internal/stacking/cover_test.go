@@ -245,7 +245,7 @@ func TestCometCover(t *testing.T) {
 		}
 		s.CometMethod = method
 		if done {
-			s.CometSignature = cometSignature(&s)
+			s.CometSignature = cometSignature(&s, "")
 		}
 		return s
 	}
@@ -261,7 +261,7 @@ func TestCometCover(t *testing.T) {
 		{"old one left, nothing coming", []app.Stack{master(filterRed, &now, true), master(filterGreen, &old, true)}, false, false},
 		{"not a comet", []app.Stack{{Filter: filterRed, Subs: 20, MasterKey: &key}}, false, false},
 	} {
-		comet, wait := cometCover(c.stacks)
+		comet, wait := cometCover(c.stacks, nil)
 		if comet != c.comet || wait != c.wait {
 			t.Errorf("%s: comet %v wait %v, want %v %v", c.name, comet, wait, c.comet, c.wait)
 		}
@@ -269,7 +269,7 @@ func TestCometCover(t *testing.T) {
 	// Comet masters from before the method was recorded are old ones.
 	pre := master(filterGreen, &now, false)
 	pre.CometMethod = nil
-	if comet, wait := cometCover([]app.Stack{master(filterRed, &now, true), pre}); comet || !wait {
+	if comet, wait := cometCover([]app.Stack{master(filterRed, &now, true), pre}, nil); comet || !wait {
 		t.Errorf("a comet master of unknown method: comet %v wait %v, want false true", comet, wait)
 	}
 }

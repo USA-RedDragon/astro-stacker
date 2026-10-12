@@ -2,12 +2,16 @@ package stacking
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -18,13 +22,14 @@ const (
 	ponsName = "12P/Pons-Brooks"
 	ponsDes  = "12P"
 	enckeCmd = "DES=2P;CAP;NOFRAG"
+	encke    = "Encke"
 )
 
 func TestBodyDesignationPrefersStored(t *testing.T) {
 	t.Parallel()
-	stored := map[string]string{"Encke": enckeCmd, swanName: " C/2025 R2 ", "Blank": "  "}
+	stored := map[string]string{encke: enckeCmd, swanName: " C/2025 R2 ", "Blank": "  "}
 	for name, want := range map[string]string{
-		"Encke":  enckeCmd,
+		encke:    enckeCmd,
 		swanName: "C/2025 R2",
 		ponsName: ponsDes,
 		"Blank":  "",
@@ -53,7 +58,7 @@ func TestStoredDesignations(t *testing.T) {
 		`create table project ("Id" integer primary key, name text, state integer)`,
 		`create table target ("Id" integer primary key, name text, active integer, projectid integer, guid text)`,
 		`insert into project values (1, 'Comets', 1)`,
-		`insert into target values (1, 'Encke', 1, 1, 'g1'), (2, 'M 31', 1, 1, 'g2')`,
+		`insert into target values (1, '` + encke + `', 1, 1, 'g1'), (2, 'M 31', 1, 1, 'g2')`,
 	} {
 		if err := db.Exec(q).Error; err != nil {
 			t.Fatal(err)
@@ -71,7 +76,7 @@ func TestStoredDesignations(t *testing.T) {
 		}
 	}
 	m := p.storedDesignations(context.Background())
-	if len(m) != 1 || m["Encke"] != enckeCmd {
+	if len(m) != 1 || m[encke] != enckeCmd {
 		t.Errorf("stored %v", m)
 	}
 	if m := (&Pipeline{}).storedDesignations(context.Background()); m != nil {
@@ -97,5 +102,27 @@ func TestCometEphemerisSendsStoredCommand(t *testing.T) {
 	}
 	if _, err := cometEphemeris(context.Background(), hz, "C/2025 R2", []time.Time{at}, -97, 32, 200); err != nil || cmd != "'DES=C/2025 R2;CAP;NOFRAG'" {
 		t.Errorf("COMMAND %s, %v", cmd, err)
+	}
+}
+
+func TestCometSignatureFollowsTheStoredDesignation(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	s := &app.Stack{Object: encke, Subs: 12, UpdatedAt: at}
+	name := cometSignature(s, "")
+	if name != cometSignature(s, "  ") {
+		t.Error("a blank designation changed the signature")
+	}
+	h := sha256.Sum256(fmt.Appendf(nil, "%d\x00%d\x00%d", s.Subs, s.UpdatedAt.UnixNano(), cometMethod))
+	if name != hex.EncodeToString(h[:16]) {
+		t.Error("targets known by name got a new signature, which would stack every comet again")
+	}
+	first, second := cometSignature(s, "2P"), cometSignature(s, enckeCmd)
+	if first == name || second == first {
+		t.Error("storing or changing a designation kept the signature, so the comet is not stacked again")
+	}
+	s.CometSignature = first
+	if _, wait := cometCover([]app.Stack{*s}, map[string]string{encke: "2P"}); wait {
+		t.Error("the cover waits on a comet master that is current")
 	}
 }
