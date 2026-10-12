@@ -115,7 +115,7 @@ stacking:
   workers: 1
   # Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off
   mosaic-minutes: 10
-  # Minutes a mosaic's panel masters must be unchanged before it is rebuilt
+  # Minimum minutes between rebuilds of a mosaic whose panel masters keep changing; a new panel rebuilds it at once
   mosaic-quiet-minutes: 30
   # Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way
   mosaic-seams: true
