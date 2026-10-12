@@ -63,6 +63,25 @@ func Command(designation string) string {
 	return "DES=" + d + ";CAP;NOFRAG"
 }
 
+// KindAsteroid is the ts_target_body kind of an asteroid.
+const KindAsteroid = "asteroid"
+
+// CommandFor is the Horizons COMMAND for a stored designation of a body of
+// kind: an asteroid's number is "<number>;" and its provisional designation
+// "DES=<designation>;", the semicolon limiting the search to small bodies;
+// every other kind is looked up as Command does. A designation that already
+// holds a Horizons selector is used as it is.
+func CommandFor(designation, kind string) string {
+	d := strings.TrimSpace(designation)
+	if strings.TrimSpace(kind) != KindAsteroid || d == "" || strings.ContainsAny(d, "=;") {
+		return Command(d)
+	}
+	if n, err := strconv.ParseUint(d, 10, 64); err == nil && n > 0 {
+		return strconv.FormatUint(n, 10) + ";"
+	}
+	return "DES=" + strings.Join(strings.Fields(d), " ") + ";"
+}
+
 type Client struct {
 	BaseURL   string
 	UserAgent string

@@ -382,3 +382,32 @@ func TestDesignationsByName(t *testing.T) {
 		t.Errorf("without the table: %v %v", m, err)
 	}
 }
+
+func TestAsteroidTargetsUseTheSmallBodyCommand(t *testing.T) {
+	t.Parallel()
+	f := newFake(t)
+	sched := scheduler(t, true, true)
+	exec(t, sched, `delete from ts_target_body`,
+		`insert into ts_target_body (target_guid, designation, kind) values ('`+cometGUID+`', '1', 'asteroid'), ('`+moonGUID+`', '2026 TC6', 'asteroid')`)
+	s := service(t, sched, f, bodies.ModeDryRun)
+	res, err := s.Refresh(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(f.cmds)
+	got := map[string]int{}
+	for c := range f.cmds {
+		got[c]++
+	}
+	if got["'1;'"] != bodies.Nights || got["'DES=2026 TC6;'"] != bodies.Nights || len(got) != 2 {
+		t.Errorf("commands %v", got)
+	}
+	for _, tab := range res.Tables {
+		if want := map[string]string{"1": "1;", "2026 TC6": "DES=2026 TC6;"}[tab.Designation]; tab.Command != want {
+			t.Errorf("%s: command %q, want %q", tab.Designation, tab.Command, want)
+		}
+	}
+	if len(res.Tables) != 2*bodies.Nights {
+		t.Errorf("%d tables", len(res.Tables))
+	}
+}

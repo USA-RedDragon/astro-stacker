@@ -122,11 +122,11 @@ func (t *Tracker) Track(ctx context.Context, designation, kind string) (TrackVie
 	if err != nil {
 		return view, fmt.Errorf("%w: %w", ErrNoSite, err)
 	}
-	command := horizons.Command
+	command := horizons.CommandFor
 	if t.Command != nil {
-		command = func(d string) string { return t.Command(d, k) }
+		command = t.Command
 	}
-	view.Command = command(d)
+	view.Command = command(d, k)
 	view.Night = Spans(site, t.now().UTC(), 1)[0]
 	tab, err := t.Horizons.EphemerisWithAngles(ctx, horizons.Request{Command: view.Command, Site: site, Start: view.Night.Start, Stop: view.Night.Stop, Step: CoarseStep})
 	if err != nil {
