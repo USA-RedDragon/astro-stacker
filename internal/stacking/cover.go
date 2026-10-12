@@ -507,7 +507,7 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 		slog.Warn("Could not load masters for the cover", "object", object, "error", err)
 		return
 	}
-	comet, wait := cometCover(stacks)
+	comet, wait := cometCover(stacks, p.storedDesignations(ctx))
 	if wait {
 		var n int64
 		if err := p.db.WithContext(ctx).Model(&app.Cover{}).Where("subject = ?", object).Count(&n).Error; err != nil {
@@ -541,7 +541,7 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 // for the current masters, wait is set and the cover as it is kept, rather
 // than shown half and half; with nothing on its way, the star-aligned
 // masters make it.
-func cometCover(stacks []app.Stack) (comet, wait bool) {
+func cometCover(stacks []app.Stack, stored map[string]string) (comet, wait bool) {
 	some, current := false, len(stacks) > 0
 	for i := range stacks {
 		s := &stacks[i]
@@ -555,7 +555,7 @@ func cometCover(stacks []app.Stack) (comet, wait bool) {
 		s := &stacks[i]
 		// cometsOnce makes one for a master of three subs or more, once
 		// its signature has changed.
-		if s.Subs >= 3 && s.MasterKey != nil && s.CometSignature != cometSignature(s) {
+		if s.Subs >= 3 && s.MasterKey != nil && s.CometSignature != cometSignature(s, stored[s.Object]) {
 			return false, true
 		}
 	}

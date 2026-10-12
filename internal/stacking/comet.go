@@ -243,13 +243,14 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 		}
 		s := &stacks[i]
 		des, ok := bodyDesignation(stored, s.Object)
-		if !ok || s.CometSignature == cometSignature(s) || time.Since(s.UpdatedAt) < p.opts.MosaicQuiet {
+		sig := cometSignature(s, stored[s.Object])
+		if !ok || s.CometSignature == sig || time.Since(s.UpdatedAt) < p.opts.MosaicQuiet {
 			continue
 		}
 		if !p.hold(s.Object) {
 			continue
 		}
-		err := p.stackComet(ctx, s, des)
+		err := p.stackComet(ctx, s, des, sig)
 		p.release(s.Object)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -258,7 +259,7 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 			// Recorded so it isn't retried until the master changes.
 			slog.Error("Comet master failed", "object", s.Object, "filter", s.Filter, "error", err)
 			msg := err.Error()
-			p.db.WithContext(ctx).Model(s).UpdateColumns(map[string]any{"comet_signature": cometSignature(s), "comet_error": msg})
+			p.db.WithContext(ctx).Model(s).UpdateColumns(map[string]any{"comet_signature": sig, "comet_error": msg})
 		}
 	}
 	return nil
@@ -268,8 +269,15 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 // they are made stacks them all again.
 const cometMethod = 2 // stars taken out before stacking on the comet
 
-func cometSignature(s *app.Stack) string {
-	h := sha256.Sum256(fmt.Appendf(nil, "%d\x00%d\x00%d", s.Subs, s.UpdatedAt.UnixNano(), cometMethod))
+// cometSignature also holds the designation stored on the target, so
+// storing or changing one stacks the comet again; targets known by name
+// alone keep the signature they had.
+func cometSignature(s *app.Stack, stored string) string {
+	in := fmt.Appendf(nil, "%d\x00%d\x00%d", s.Subs, s.UpdatedAt.UnixNano(), cometMethod)
+	if stored = strings.TrimSpace(stored); stored != "" {
+		in = fmt.Appendf(in, "\x00%s", stored)
+	}
+	h := sha256.Sum256(in)
 	return hex.EncodeToString(h[:16])
 }
 
@@ -279,7 +287,7 @@ type cometSub struct {
 	mid    time.Time
 }
 
-func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation string) error {
+func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation, signature string) error {
 	var tr app.TargetReference
 	if err := p.db.WithContext(ctx).Where("object = ?", stack.Object).First(&tr).Error; err != nil {
 		return fmt.Errorf("registration reference: %w", err)
@@ -415,7 +423,7 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 	if err != nil {
 		return err
 	}
-	return p.publishComet(ctx, stack, layers, refTime, len(subs))
+	return p.publishComet(ctx, stack, layers, refTime, len(subs), signature)
 }
 
 // cometLayers are a comet master's two layers, on the reference sub's
@@ -924,7 +932,7 @@ func shiftImage(src []float32, w, h int, dx, dy float64) []float32 {
 // XISF, a cropped preview and a linear preview for covers. The master is the
 // comet with the stars added back sharp; the comet alone is kept beside it
 // as comet-starless.{fit,xisf}.
-func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers cometLayers, refTime time.Time, subs int) error {
+func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers cometLayers, refTime time.Time, subs int, signature string) error {
 	dir, err := os.MkdirTemp(p.workDir, "comet-publish-")
 	if err != nil {
 		return err
@@ -1002,7 +1010,7 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 		"comet_key": keys["comet.fit"], "comet_xisf_key": keys["comet.xisf"], "comet_preview_key": keys["comet.jpg"],
 		"comet_linear_key": keys["comet-linear.bin"], "comet_subs": subs,
 		"comet_crop_x": r.X, "comet_crop_y": r.Y, "comet_crop_w": r.W, "comet_crop_h": r.H,
-		"comet_signature": cometSignature(stack), "comet_error": nil, "comet_method": cometMethod,
+		"comet_signature": signature, "comet_error": nil, "comet_method": cometMethod,
 	}).Error; err != nil {
 		return err
 	}
