@@ -1,0 +1,63 @@
+{
+  "project": {
+    "guid": "id-3",
+    "name": "Event: Saturn near NGC 7000 (2026-11-02)",
+    "description": "Sky event ev-1: Saturn near NGC 7000. Closest 2026-11-03 06:00 UTC at 0.40°. No member has a known magnitude, so there is no short set. Normal set: 300 s, the Luminance template's default.",
+    "priority": 1,
+    "state": 1,
+    "minimumtime": 10,
+    "minimumaltitude": 15,
+    "is_mosaic": false,
+    "ditherevery": 0,
+    "filterswitchfrequency": 0,
+    "flatshandling": 0,
+    "smartexposureorder": false,
+    "meridianwindow": 0,
+    "usecustomhorizon": false,
+    "horizonoffset": 0,
+    "maximumaltitude": 0,
+    "enablegrader": true
+  },
+  "targets": [
+    {
+      "guid": "id-1",
+      "name": "Saturn near NGC 7000",
+      "ra_hours": 8.666666666666666,
+      "dec": 19.6,
+      "rotation": 0,
+      "window": {
+        "start": "2026-11-03T00:00:00Z",
+        "end": "2026-11-03T12:00:00Z",
+        "priority": "normal",
+        "event_id": "ev-1"
+      },
+      "plans": [
+        {
+          "guid": "id-2",
+          "template_id": 4,
+          "template_name": "Luminance",
+          "exposure": 300,
+          "desired": 36
+        }
+      ]
+    }
+  ],
+  "rule_weights": {
+    "Condition Match": 0,
+    "Even Panels": 0,
+    "Filter Steering": 0,
+    "Meridian Flip Penalty": 0,
+    "Meridian Window Priority": 0,
+    "Mosaic Completion": 0,
+    "Novelty": 0,
+    "Panel Deficit": 0,
+    "Percent Complete": 0,
+    "Project Priority": 0,
+    "Rarity": 0,
+    "Season Priority": 0,
+    "Seasonal Runway": 0,
+    "Setting Soonest": 0,
+    "Smart Exposure Order": 0,
+    "Target Switch Penalty": 0
+  }
+}

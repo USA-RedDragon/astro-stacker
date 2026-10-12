@@ -133,6 +133,17 @@ func (s *Snapshot) ResolveFilter(profile, filter string) (Template, bool) {
 	return last, hasLast
 }
 
+// MostPlans is the most plans any one template of the filter has.
+func (s *Snapshot) MostPlans(profile, filter string) int {
+	n := 0
+	for _, t := range s.allTemplates() {
+		if sameFilter(t.Filter, filter) && s.inProfile(t, profile) {
+			n = max(n, t.UsedByPlans)
+		}
+	}
+	return n
+}
+
 // FilterProfile is the profile filters resolve in: the one most projects use.
 func (s *Snapshot) FilterProfile() string {
 	return s.Defaults.ProjectSettings.ProfileID
