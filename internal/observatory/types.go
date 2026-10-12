@@ -3,6 +3,8 @@ package observatory
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/autofocus"
 )
 
 type Score struct {
@@ -63,6 +65,27 @@ type PendingCommand struct {
 	ReceivedAt *time.Time `json:"received_at,omitempty"`
 }
 
+type Autofocus struct {
+	RunID            string            `json:"run_id"`
+	State            string            `json:"state"`
+	StartedAt        *time.Time        `json:"started_at,omitempty"`
+	FinishedAt       *time.Time        `json:"finished_at,omitempty"`
+	Filter           string            `json:"filter,omitempty"`
+	Temperature      *float64          `json:"temperature,omitempty"`
+	Autofocuser      string            `json:"autofocuser,omitempty"`
+	Method           string            `json:"method,omitempty"`
+	Fitting          string            `json:"fitting,omitempty"`
+	TargetName       string            `json:"target_name,omitempty"`
+	InitialPosition  *float64          `json:"initial_position,omitempty"`
+	PreviousPosition *float64          `json:"previous_position,omitempty"`
+	PreviousValue    *float64          `json:"previous_value,omitempty"`
+	ChosenPosition   *float64          `json:"chosen_position,omitempty"`
+	ChosenValue      *float64          `json:"chosen_value,omitempty"`
+	Points           []autofocus.Point `json:"points"`
+	Fit              json.RawMessage   `json:"fit,omitempty"`
+	Error            string            `json:"error,omitempty"`
+}
+
 type Status struct {
 	Version        string           `json:"version,omitempty"`
 	Time           *time.Time       `json:"time,omitempty"`
@@ -83,6 +106,7 @@ type Status struct {
 	Skips          []Skip           `json:"skips,omitempty"`
 	Pending        []PendingCommand `json:"pending,omitempty"`
 	LastPlanAt     *time.Time       `json:"last_plan_at,omitempty"`
+	Autofocus      *Autofocus       `json:"autofocus,omitempty"`
 }
 
 const (
