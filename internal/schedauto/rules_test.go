@@ -2,6 +2,7 @@ package schedauto_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,22 +44,22 @@ func TestSwitchFloorKeepsSwitchingUnderTheShare(t *testing.T) {
 	}
 }
 
-func TestMinTimeIsTheSwitchingFloorOrTheWholeWindow(t *testing.T) {
+func TestMinTimeIsAlwaysTheSwitchingFloor(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name             string
 		tonight, typical *float64
-		want             int
+		short            bool
 	}{
-		{"long window", h(8), h(9), 25},
-		{"tonight short", h(22.0 / 60), h(3), 20},
-		{"typical short", h(4), h(13.0 / 60), 10},
-		{"at least one step", h(3.0 / 60), nil, schedauto.MinTimeStep},
-		{"not up tonight uses typical", nil, h(2), 25},
+		{"long window", h(8), h(9), false},
+		{"tonight short", h(22.0 / 60), h(3), true},
+		{"typical short", h(4), h(13.0 / 60), true},
+		{"very short", h(3.0 / 60), nil, true},
+		{"not up tonight uses typical", nil, h(2), false},
 	} {
 		m := schedauto.MinTimeFor(schedauto.Window{Tonight: c.tonight, Typical: c.typical}, 25)
-		if m == nil || m.Minutes != c.want || m.Basis == "" || m.Window == nil {
-			t.Errorf("%s: %+v, want %d", c.name, m, c.want)
+		if m == nil || m.Minutes != 25 || m.Window == nil || strings.Contains(m.Basis, "not picked") != c.short {
+			t.Errorf("%s: %+v", c.name, m)
 		}
 	}
 	if m := schedauto.MinTimeFor(schedauto.Window{}, 25); m == nil || m.Minutes != 25 || m.Window != nil {
