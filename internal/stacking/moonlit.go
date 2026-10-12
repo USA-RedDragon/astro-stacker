@@ -23,7 +23,7 @@ import (
 // comes, the moonlit ones go.
 
 // MoonFloorDegrees is the closest the scheduler images to the Moon while it
-// is up, once the exposure templates are retired.
+// is up, for exposures from managed templates.
 const MoonFloorDegrees = 20.0
 
 const (
@@ -80,30 +80,6 @@ func moonRules(ctx context.Context, sched *gorm.DB) (map[string]moonRule, error)
 		}
 	}
 	return out, nil
-}
-
-// retiredAt is when the profile's exposure templates were retired: the
-// earliest retired row. Nil before the migration.
-func retiredAt(ctx context.Context, sched *gorm.DB) (*time.Time, error) {
-	has, err := tables.Has(ctx, sched, roleTable)
-	if err != nil || !has {
-		return nil, err
-	}
-	var at []string
-	if err := sched.WithContext(ctx).Table(roleTable).Where("role = ?", "retired").Pluck("changed_at", &at).Error; err != nil {
-		return nil, fmt.Errorf("load template retirement: %w", err)
-	}
-	var first *time.Time
-	for _, v := range at {
-		t, err := parseChangedAt(v)
-		if err != nil {
-			return nil, fmt.Errorf("template retirement time %q: %w", v, err)
-		}
-		if first == nil || t.Before(*first) {
-			first = &t
-		}
-	}
-	return first, nil
 }
 
 func parseChangedAt(v string) (time.Time, error) {
@@ -177,13 +153,14 @@ func (r moonRule) why(start time.Time, seconds, ra, dec, lat, lon float64) strin
 	return ""
 }
 
-// moonChecker decides whether lights break their filter's moon avoidance:
-// the templates' rules before they were retired, the moon floor after.
+// moonChecker decides whether lights break moon avoidance: the moon floor
+// for lights their plan took on a managed template, else their filter's
+// rule from the templates.
 type moonChecker struct {
 	p         *Pipeline
 	rules     map[string]moonRule
 	positions map[string][2]float64
-	retiredAt *time.Time
+	floor     *floorPlans
 	ignore    map[string]bool
 }
 
@@ -192,7 +169,7 @@ func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]floa
 	if err != nil {
 		return nil, err
 	}
-	retired, err := retiredAt(ctx, p.sched)
+	floor, err := p.loadFloorPlans(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +177,7 @@ func (p *Pipeline) moonChecker(ctx context.Context, positions map[string][2]floa
 	if err != nil {
 		return nil, err
 	}
-	return &moonChecker{p: p, rules: rules, positions: positions, retiredAt: retired, ignore: ignore}, nil
+	return &moonChecker{p: p, rules: rules, positions: positions, floor: floor, ignore: ignore}, nil
 }
 
 // moonlit reports whether f breaks its filter's rule. A light it can't place
@@ -213,7 +190,7 @@ func (c *moonChecker) why(ctx context.Context, f app.Frame) string {
 	if f.DateObs == nil || f.Exposure == nil || c.ignore[f.Object] {
 		return ""
 	}
-	floor := c.retiredAt != nil && !f.DateObs.Before(*c.retiredAt)
+	floor := c.floor.covers(f)
 	r, ok := c.rules[f.Filter]
 	if !ok && !floor {
 		return ""
