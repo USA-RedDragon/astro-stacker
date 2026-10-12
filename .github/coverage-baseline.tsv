@@ -1,6 +1,6 @@
 cmd/discover.go	52	0
 cmd/mosaics.go	10	0
-cmd/root.go	225	9
+cmd/root.go	228	9
 cmd/stack.go	62	0
 internal/astrometry/index.go	86	69
 internal/astrometry/procgroup_unix.go	3	3
@@ -34,7 +34,7 @@ internal/catalog/gen/shapes.go	27	0
 internal/catalog/notcatalogue.go	29	28
 internal/conditions/conditions.go	240	185
 internal/conditions/moon.go	45	45
-internal/config/config.go	61	46
+internal/config/config.go	69	52
 internal/coverage/biasbacklog.go	121	110
 internal/coverage/coverage.go	179	158
 internal/coverage/darkbacklog.go	261	231
@@ -77,7 +77,7 @@ internal/goals/progress.go	104	93
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	353	319
+internal/goals/tsgoals.go	353	320
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	107	84
 internal/halpha/halpha.go	177	154
@@ -92,6 +92,12 @@ internal/indexer/recent.go	78	65
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/moon/moon.go	44	43
+internal/moonkeep/beta.go	51	44
+internal/moonkeep/model.go	190	175
+internal/moonkeep/night.go	34	33
+internal/moonkeep/replay.go	82	81
+internal/moonkeep/samples.go	41	41
+internal/moonkeep/service.go	213	179
 internal/mosaicplan/adoption.go	334	293
 internal/mosaicplan/clearnights.go	74	70
 internal/mosaicplan/detail.go	376	334
@@ -169,6 +175,7 @@ internal/server/darkbacklog.go	20	14
 internal/server/discover.go	148	127
 internal/server/goalmask.go	84	72
 internal/server/middleware/di.go	8	8
+internal/server/moonkeep.go	30	28
 internal/server/mosaicplan.go	58	2
 internal/server/planning.go	160	120
 internal/server/public.go	12	12
@@ -176,7 +183,7 @@ internal/server/routes.go	368	105
 internal/server/scheddata.go	285	250
 internal/server/schedpreview.go	225	210
 internal/server/scheduler.go	92	54
-internal/server/server.go	99	38
+internal/server/server.go	100	39
 internal/server/skycutout.go	24	20
 internal/server/skyevents.go	65	51
 internal/server/sublength.go	11	9
