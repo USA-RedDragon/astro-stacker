@@ -243,7 +243,7 @@ func RunAltitude(samples []Sample) AltReplay {
 				rest = append(rest, s)
 			}
 		}
-		m := fitAltitude(rest, false)
+		m := fitAltitude(rest, true)
 		for _, i := range byNight[n] {
 			s := samples[i]
 			h := s.Exposure / 3600

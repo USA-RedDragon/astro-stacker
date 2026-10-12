@@ -206,7 +206,7 @@ func Plan(p planning.Project, in Inputs) ProjectResult {
 		case t.BodyKind != "":
 			tr.Source = "the body's nightly positions, above the minimum altitude without the horizon"
 			if in.BodyWindows != nil {
-				if w, ok := in.BodyWindows(t.GUID, r.MinAltitude.Degrees); ok {
+				if w, ok := in.BodyWindows(t.GUID, max(r.MinAltitude.Degrees, HardMinAltitude)); ok {
 					tr.Window, tr.Position = w, true
 				}
 			}

@@ -43,7 +43,7 @@ func TestGlobalSchedulingCommand(t *testing.T) {
 	if err != nil || len(d.Diffs) != 2 || d.Diffs[0].Field != "Dither every" || string(d.Diffs[0].Before) != "2" || string(d.Diffs[0].After) != "3" {
 		t.Fatalf("%+v %v", d, err)
 	}
-	for _, bad := range []schedglobal.Settings{{DitherEvery: -1}, {FlatsHandling: 150}, {MaximumAltitude: 91}, {MeridianWindow: 721}} {
+	for _, bad := range []schedglobal.Settings{{DitherEvery: -1}, {FlatsHandling: 150}, {MaximumAltitude: 91}, {MaximumAltitude: 12}, {MeridianWindow: 721}} {
 		b := marshal(t, schedcmd.GlobalSchedulingPayload{After: &bad})
 		if err := spec.Validate(b); !errors.Is(err, schedcmd.ErrInvalid) {
 			t.Errorf("%+v: %v", bad, err)
