@@ -39,6 +39,7 @@ type Config struct {
 	Calibration  Calibration  `name:"calibration" description:"The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through"`
 	MoonKeep     MoonKeep     `name:"moon-keep" description:"How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, fitted from its own verdicts for the plugin's bright-Moon decisions"`
 	Bodies       Bodies       `name:"bodies" description:"Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight"`
+	Scheduling   Scheduling   `name:"scheduling" description:"One global set of scheduling settings for every Target Scheduler project, with each project's minimum time worked out from its window and its minimum altitude from the kept rates"`
 }
 
 type Bodies struct {
@@ -96,6 +97,23 @@ func (s SubLength) validate(perSecond bool) error {
 	}
 	if !(s.TolerancePct > 0 && s.TolerancePct < 50) {
 		return ErrInvalidSubLengthTolerance
+	}
+	return nil
+}
+
+type Scheduling struct {
+	Auto          string `name:"auto" description:"Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on" default:"off"`
+	IntervalHours int    `name:"interval-hours" description:"Hours between working the values out again" default:"1"`
+}
+
+func (s Scheduling) validate() error {
+	switch s.Auto {
+	case GoalsPublishOff, GoalsPublishDryRun, GoalsPublishOn:
+	default:
+		return ErrInvalidSchedulingAuto
+	}
+	if s.IntervalHours < 1 {
+		return ErrInvalidSchedulingInterval
 	}
 	return nil
 }
@@ -295,6 +313,8 @@ var (
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
 	ErrInvalidMoonKeepPublish       = errors.New("moon-keep.publish must be off, dry-run or on")
 	ErrInvalidMoonKeepInterval      = errors.New("moon-keep.interval-hours must be at least 1")
+	ErrInvalidSchedulingAuto        = errors.New("scheduling.auto must be off, dry-run or on")
+	ErrInvalidSchedulingInterval    = errors.New("scheduling.interval-hours must be at least 1")
 	ErrInvalidSubLengthPublish      = errors.New("sub-length.publish must be off, dry-run or on")
 	ErrSubLengthNeedsPerSecond      = errors.New("sub-length.publish on needs stacking.score-per-second, so subs of different lengths weigh fairly in one master")
 	ErrInvalidSubLengthInterval     = errors.New("sub-length.interval-minutes must be at least 1")
@@ -328,7 +348,10 @@ func (c Config) validatePublishers() error {
 	if err := c.validateCalibration(); err != nil {
 		return err
 	}
-	return c.MoonKeep.validate()
+	if err := c.MoonKeep.validate(); err != nil {
+		return err
+	}
+	return c.Scheduling.validate()
 }
 
 func (c Config) Validate() error {
