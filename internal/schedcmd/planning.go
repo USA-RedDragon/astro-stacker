@@ -147,6 +147,8 @@ type NewTarget struct {
 	Designation string       `json:"designation,omitempty"`
 	BodyKind    string       `json:"kind,omitempty"`
 	Window      *EventWindow `json:"window,omitempty"`
+	RotationDeg *float64     `json:"rotation_deg,omitempty"`
+	OffsetFrac  *float64     `json:"offset_frac,omitempty"`
 	Plans       []NewPlan    `json:"plans"`
 }
 
@@ -937,5 +939,6 @@ func PlanningSpecs() []Spec {
 		ProjectCreateSpec(),
 		ProjectDeleteSpec(),
 		TargetWindowSpec(),
+		TargetFramingSpec(),
 	}
 }
