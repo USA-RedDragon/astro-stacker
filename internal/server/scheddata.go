@@ -16,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
+	"github.com/USA-RedDragon/astro-stacker/internal/tsmigration"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -223,6 +224,10 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, string
 	if err := db.Find(&templates).Error; err != nil {
 		return nil, "", err
 	}
+	oldDefaults, err := tsmigration.OldDefaults(ctx, db)
+	if err != nil {
+		return nil, "", err
+	}
 	tmpl := make(map[int]tsTemplateRow, len(templates))
 	for _, t := range templates {
 		tmpl[t.ID] = t
@@ -241,7 +246,11 @@ func LoadSchedProjects(ctx context.Context, db *gorm.DB) ([]SchedProject, string
 				sp.Filter, sp.Template, sp.DefaultExposure = &t.FilterName, &t.Name, t.DefaultExposure
 			}
 		}
-		sp.Exposure, sp.ExposureSource = effectiveExposure(p.Exposure, sp.DefaultExposure)
+		def := sp.DefaultExposure
+		if old, ok := oldDefaults[p.ID]; ok {
+			def = &old
+		}
+		sp.Exposure, sp.ExposureSource = effectiveExposure(p.Exposure, def)
 		plansBy[*p.TargetID] = append(plansBy[*p.TargetID], sp)
 	}
 	targetsBy := map[int][]SchedTarget{}

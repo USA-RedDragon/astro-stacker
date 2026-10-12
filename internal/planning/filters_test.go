@@ -172,3 +172,32 @@ func TestManagedRowsWithoutRetiredAreNotMigrated(t *testing.T) {
 		t.Errorf("a filter %q was sent before the migration", f)
 	}
 }
+
+// A plan moved to the filter's shorter managed template keeps its old
+// template's length, and the hours it implies, while its migration is open.
+func TestPlanExposureKeepsTheOldTemplateLength(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	execAll(t, sched, `insert into exposuretemplate values (13,'p','Luminance (auto)','Luminance',0,-1,1,1,0,0,0,0,150,0,0,-1,'m13')`,
+		`update exposureplan set exposure = -1, "exposureTemplateId" = 13 where "Id" = 52`)
+	exposure := func() float64 {
+		t.Helper()
+		s := load(t, sched, appDB)
+		garlic, _ := s.Project(7)
+		for _, pl := range garlic.Targets[0].Plans {
+			if pl.ID == 52 {
+				return pl.Exposure
+			}
+		}
+		t.Fatal("no plan 52")
+		return 0
+	}
+	if e := exposure(); e != 150 {
+		t.Fatalf("exposure %v before any migration row, want the template's 150", e)
+	}
+	execAll(t, sched, `create table ts_template_migration (plan_id integer, profile_id text, filter text, old_template_id integer, new_template_id integer, migrated_at text, reverted_at text)`,
+		`insert into ts_template_migration values (52, 'p', 'Luminance', 3, 13, '2026-10-12T03:00:00Z', null)`)
+	if e := exposure(); e != 300 {
+		t.Errorf("exposure %v, want the old template's 300", e)
+	}
+}

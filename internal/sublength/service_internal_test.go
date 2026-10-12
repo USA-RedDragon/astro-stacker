@@ -216,3 +216,40 @@ func TestUnknownSiteKeepsThePublishedLengths(t *testing.T) {
 		t.Errorf("a failed site lookup changed the published rows (%d) or the served result", n)
 	}
 }
+
+// A plan moved from its own 600 s template to the filter's 300 s managed
+// template keeps imaging at 600 s in the estimates while its migration is
+// open.
+func TestCurrentKeepsTheOldTemplateLength(t *testing.T) {
+	t.Parallel()
+	sched, appDB := fixture(t, false)
+	exec(t, sched, `INSERT INTO exposuretemplate VALUES (4, 'Red', 0, 600), (5, 'Red', 0, 150)`,
+		`UPDATE exposureplan SET "exposureTemplateId" = 5 WHERE "Id" = 1`)
+	s := &Service{App: appDB, Sched: sched, Site: site, Now: fixedNow, Pedestal: 506}
+	current := func() float64 {
+		t.Helper()
+		groups, err := s.plans(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, g := range groups {
+			if g.guid == targetGUID && g.filter == filterRed {
+				return g.current
+			}
+		}
+		t.Fatal("no M31 Red group")
+		return 0
+	}
+	if c := current(); c != 150 {
+		t.Fatalf("current %v, want the template default 150 before any migration row", c)
+	}
+	exec(t, sched, `CREATE TABLE ts_template_migration (plan_id integer, profile_id text, filter text, old_template_id integer, new_template_id integer, migrated_at text, reverted_at text)`,
+		`INSERT INTO ts_template_migration VALUES (1, 'p', 'Red', 4, 5, '2026-10-12T03:00:00Z', null)`)
+	if c := current(); c != 600 {
+		t.Errorf("current %v, want the old template's 600 s while the migration is open", c)
+	}
+	exec(t, sched, `UPDATE ts_template_migration SET reverted_at = '2026-10-13T03:00:00Z'`)
+	if c := current(); c != 150 {
+		t.Errorf("current %v after the revert, want the plan's template default", c)
+	}
+}
