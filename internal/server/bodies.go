@@ -46,42 +46,72 @@ func latestBodies(c *gin.Context, s *bodies.Service) *bodies.Result {
 	return res
 }
 
+// bodyListQuery reads max_mag and min_alt; false when it has answered 400.
+func bodyListQuery(c *gin.Context, defMag float64) (float64, *float64, bool, bool) {
+	maxMag := defMag
+	var minAlt *float64
+	if v := c.Query("max_mag"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "max_mag must be a number"})
+			return 0, nil, false, false
+		}
+		maxMag = f
+	}
+	if v := c.Query("min_alt"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < -90 || f > 90 {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "min_alt must be a number from -90 to 90"})
+			return 0, nil, false, false
+		}
+		minAlt = &f
+	}
+	all := c.Query("all") == "1" || c.Query("all") == "true"
+	return maxMag, minAlt, all, true
+}
+
+func listAnswer(c *gin.Context, view any, err error) {
+	switch {
+	case errors.Is(err, bodies.ErrBadQuery):
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+	case errors.Is(err, bodies.ErrNoSite), errors.Is(err, bodies.ErrNoElements), errors.Is(err, bodies.ErrNoAsteroidElements):
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+	default:
+		c.JSON(http.StatusOK, view)
+	}
+}
+
 func applyCometRoutes(g *gin.RouterGroup, list *bodies.CometList) {
 	g.GET("/comets", func(c *gin.Context) {
 		if list == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "the comet list is off"})
 			return
 		}
-		maxMag := bodies.DefaultMaxMag
-		var minAlt *float64
-		if v := c.Query("max_mag"); v != "" {
-			f, err := strconv.ParseFloat(v, 64)
-			if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-				c.JSON(http.StatusBadRequest, gin.H{errorKey: "max_mag must be a number"})
-				return
-			}
-			maxMag = f
+		maxMag, minAlt, all, ok := bodyListQuery(c, bodies.DefaultMaxMag)
+		if !ok {
+			return
 		}
-		if v := c.Query("min_alt"); v != "" {
-			f, err := strconv.ParseFloat(v, 64)
-			if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < -90 || f > 90 {
-				c.JSON(http.StatusBadRequest, gin.H{errorKey: "min_alt must be a number from -90 to 90"})
-				return
-			}
-			minAlt = &f
-		}
-		all := c.Query("all") == "1" || c.Query("all") == "true"
 		view, err := list.List(c.Request.Context(), maxMag, minAlt, all)
-		switch {
-		case errors.Is(err, bodies.ErrBadQuery):
-			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
-		case errors.Is(err, bodies.ErrNoSite), errors.Is(err, bodies.ErrNoElements):
-			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
-		case err != nil:
-			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
-		default:
-			c.JSON(http.StatusOK, view)
+		listAnswer(c, view, err)
+	})
+}
+
+func applyAsteroidRoutes(g *gin.RouterGroup, list *bodies.AsteroidList) {
+	g.GET("/asteroids", func(c *gin.Context) {
+		if list == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "the asteroid list is off"})
+			return
 		}
+		maxMag, minAlt, all, ok := bodyListQuery(c, bodies.DefaultAsteroidMaxMag)
+		if !ok {
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), asteroidRequestTimeout)
+		defer cancel()
+		view, err := list.List(ctx, maxMag, minAlt, all)
+		listAnswer(c, view, err)
 	})
 }
 

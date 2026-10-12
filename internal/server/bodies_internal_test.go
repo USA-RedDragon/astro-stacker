@@ -68,3 +68,27 @@ func TestCometRoute(t *testing.T) {
 		t.Errorf("no site: %d %v", code, body)
 	}
 }
+
+func TestAsteroidRoute(t *testing.T) {
+	t.Parallel()
+	get := func(l *bodies.AsteroidList, path string) (int, map[string]any) {
+		r := gin.New()
+		applyAsteroidRoutes(r.Group("/api/v1"), l)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil))
+		var body map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return w.Code, body
+	}
+	if code, _ := get(nil, "/api/v1/asteroids"); code != http.StatusServiceUnavailable {
+		t.Errorf("no list: %d", code)
+	}
+	for _, q := range []string{"max_mag=bright", "max_mag=NaN", "min_alt=-91", "min_alt=x"} {
+		if code, _ := get(&bodies.AsteroidList{Comets: &bodies.CometList{}}, "/api/v1/asteroids?"+q); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", q, code)
+		}
+	}
+	if code, body := get(&bodies.AsteroidList{Comets: &bodies.CometList{}}, "/api/v1/asteroids?max_mag=12&min_alt=30"); code != http.StatusServiceUnavailable || body[errorKey] == nil {
+		t.Errorf("no site: %d %v", code, body)
+	}
+}
