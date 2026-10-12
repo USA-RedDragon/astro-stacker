@@ -643,10 +643,17 @@ func (s *Service) photometry(ctx context.Context, filter string) Photometry {
 	return p
 }
 
-// WorthAMosaic drops 2-panel mosaic events of fewer than three members that
-// are not rare; one-frame events all stay.
+// WorthAMosaic drops 2-panel mosaic events of fewer than three bodies that
+// are not rare; deep-sky objects do not count, and one-frame events all
+// stay.
 func WorthAMosaic(events []Event) []Event {
 	return slices.DeleteFunc(events, func(e Event) bool {
-		return e.Kind == EventMosaic2 && len(e.Members) < 3 && !e.IsRare()
+		bodies := 0
+		for _, m := range e.Members {
+			if m.Kind != KindDSO {
+				bodies++
+			}
+		}
+		return e.Kind == EventMosaic2 && bodies < 3 && !e.IsRare()
 	})
 }
