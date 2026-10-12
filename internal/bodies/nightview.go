@@ -2,6 +2,7 @@ package bodies
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -12,9 +13,12 @@ import (
 	"gorm.io/gorm"
 )
 
+var ErrNightsOff = errors.New("body season nights are off (bodies.publish is off)")
+
 const NightViewBasis = "Per night, from the published night table: peak_altitude is the body's highest altitude in astronomical darkness (sun below -18 degrees), " +
 	"dark_hours the longest stretch of astronomical darkness it spends above the project's minimum altitude, positions interpolated between the nightly rows every 10 minutes. " +
 	"A night is usable when the body is bright enough and dark_hours reaches the project's minimum time. " +
+	"typical_window_hours is the median dark_hours over the bright nights among the next 90 that have any. " +
 	"This view does not apply the horizon, moon avoidance or twilight level of the exposure plans; the season on the project list comes from the plugin, which does."
 
 // NightDetail is one night of a body's season.
@@ -42,6 +46,7 @@ type NightView struct {
 	UsableNights   int           `json:"usable_nights"`
 	FirstUsable    *string       `json:"first_usable"`
 	LastUsable     *string       `json:"last_usable"`
+	TypicalWindow  *float64      `json:"typical_window_hours"`
 	Brightest      *float64      `json:"brightest_mag"`
 	BrightestNight *string       `json:"brightest_night"`
 	Basis          string        `json:"basis"`
@@ -112,7 +117,37 @@ func BuildNightView(site sky.Site, rows []NightRow, first time.Time, minAlt floa
 	return out
 }
 
+// TypicalNights is how many nights from tonight the typical window is
+// taken over.
+const TypicalNights = 90
+
+// typicalWindow is the median of the longest dark stretch above the
+// minimum altitude over the bright nights among the first TypicalNights
+// that have one.
+func typicalWindow(nights []NightDetail) *float64 {
+	var hours []float64
+	for i, d := range nights {
+		if i >= TypicalNights {
+			break
+		}
+		if d.Bright && d.DarkHours > 0 {
+			hours = append(hours, d.DarkHours)
+		}
+	}
+	if len(hours) == 0 {
+		return nil
+	}
+	sort.Float64s(hours)
+	m := hours[len(hours)/2]
+	if len(hours)%2 == 0 {
+		m = (hours[len(hours)/2-1] + m) / 2
+	}
+	m = math.Round(m*100) / 100
+	return &m
+}
+
 func summarize(v *NightView) {
+	v.TypicalWindow = typicalWindow(v.Nights)
 	for _, d := range v.Nights {
 		if d.Bright {
 			v.BrightNights++
@@ -154,6 +189,42 @@ func limitsOf(ctx context.Context, sched *gorm.DB, guid string) (float64, int, e
 		minutes = *l[0].MinimumTime
 	}
 	return alt, minutes, nil
+}
+
+// Preview works out the nights of a body that is not a target yet, by
+// designation and kind, at minAlt and minMinutes.
+func (s *NightService) Preview(ctx context.Context, designation, kind string, minAlt float64, minMinutes int) (NightView, error) {
+	if s.mode() == ModeOff {
+		return NightView{}, ErrNightsOff
+	}
+	if s.Site == nil || s.Horizons == nil {
+		return NightView{}, ErrNoSite
+	}
+	site, err := s.Site(ctx)
+	if err != nil {
+		return NightView{}, fmt.Errorf("%w: %w", ErrNoSite, err)
+	}
+	if kind != KindAsteroid {
+		kind = KindComet
+	}
+	t := Target{Designation: strings.TrimSpace(designation), Kind: kind}
+	at := s.now().UTC()
+	first := Tonight(site, at)
+	tab, err := s.Horizons.Ephemeris(ctx, SeasonRequest(t, site, first))
+	if err != nil {
+		return NightView{}, err
+	}
+	var el *Elements
+	if kind != KindAsteroid && s.Elements != nil {
+		if e, ok := s.Elements(ctx, t.Designation); ok {
+			el = &e
+		}
+	}
+	v := NightView{Designation: t.Designation, Kind: kind, ComputedAt: &at, MinAltitude: minAlt, MinimumMinutes: minMinutes,
+		MagLimit: MagLimit(kind), Basis: NightBasis + " " + NightViewBasis}
+	v.Nights = BuildNightView(site, SeasonRows(t, site, tab, el, at), first, minAlt, minMinutes)
+	summarize(&v)
+	return v, nil
 }
 
 // View is a target's nights from the latest computed table, with its

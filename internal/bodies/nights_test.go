@@ -2,6 +2,7 @@ package bodies_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -398,6 +399,37 @@ func checkView(t *testing.T, s *bodies.NightService) {
 	}
 	if _, ok, err := s.View(ctx, k2GUID); ok || err != nil {
 		t.Errorf("view of an inactive target: %v %v", ok, err)
+	}
+	if v.TypicalWindow == nil || *v.TypicalWindow != 2.17 {
+		t.Errorf("161P typical window %v", v.TypicalWindow)
+	}
+}
+
+func TestNightPreviewByDesignation(t *testing.T) {
+	t.Parallel()
+	f := newSeasonFake(t)
+	s := nightService(t, nil, f, bodies.ModeOn)
+	ctx := context.Background()
+	v, err := s.Preview(ctx, " 161P ", "", 30, 90)
+	if err != nil || v.Kind != bodies.KindComet || v.MagLimit != 15 || len(v.Nights) != bodies.SeasonNights || v.MinimumMinutes != 90 {
+		t.Fatalf("161P preview %+v, %v", v, err)
+	}
+	if v.TypicalWindow == nil || *v.TypicalWindow != 2.17 || v.Nights[0].DarkHours != 4.83 || v.UsableNights == 0 {
+		t.Errorf("161P typical window %v, tonight %+v, usable %d", v.TypicalWindow, v.Nights[0], v.UsableNights)
+	}
+	k, err := s.Preview(ctx, k2, bodies.KindComet, 30, 90)
+	if err != nil || k.TypicalWindow != nil || k.UsableNights != 0 || k.BrightNights != 0 {
+		t.Errorf("C/2017 K2 preview: typical %v usable %d bright %d, %v", k.TypicalWindow, k.UsableNights, k.BrightNights, err)
+	}
+	a, err := s.Preview(ctx, "4", bodies.KindAsteroid, 30, 90)
+	if err != nil || a.MagLimit != 12 || a.TypicalWindow == nil || *a.TypicalWindow < 3 {
+		t.Errorf("Vesta preview: limit %v typical %v, %v", a.MagLimit, a.TypicalWindow, err)
+	}
+	if _, err := s.Preview(ctx, "C/2099 A1", bodies.KindComet, 30, 90); !errors.Is(err, horizons.ErrUnknownBody) {
+		t.Errorf("unknown body: %v", err)
+	}
+	if _, err := nightService(t, nil, f, bodies.ModeOff).Preview(ctx, hartley, "", 30, 90); !errors.Is(err, bodies.ErrNightsOff) {
+		t.Errorf("off: %v", err)
 	}
 }
 
