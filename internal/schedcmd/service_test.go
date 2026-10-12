@@ -306,6 +306,8 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		schedcmd.KindRuleWeightGlobal:   `{"changes":[{"rule":"Novelty (mosaic)","before":null,"after":5},{"rule":"Novelty","before":10,"after":35}]}`,
 		schedcmd.KindCalibrationRequest: `{"type":"flats","object":"M 31","target_id":12,"night":"2026-10-09"}`,
 		schedcmd.KindCalibrationCancel:  `{"type":"flats","object":"M 31","target_id":12,"night":"2026-10-09"}`,
+		schedcmd.KindTemplatesMigrate:   notDry,
+		schedcmd.KindTemplatesRevert:    notDry,
 	}
 	reg := schedcmd.Default()
 	for _, k := range reg.Kinds() {

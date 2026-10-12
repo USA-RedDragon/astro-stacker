@@ -941,5 +941,7 @@ func PlanningSpecs() []Spec {
 		ProjectDeleteSpec(),
 		TargetWindowSpec(),
 		TargetFramingSpec(),
+		TemplatesMigrateSpec(),
+		TemplatesRevertSpec(),
 	}
 }
