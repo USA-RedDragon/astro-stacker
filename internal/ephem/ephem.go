@@ -1,6 +1,6 @@
 // Package ephem computes positions of the Sun, Moon and planets from an
 // embedded slice of JPL's DE440s ephemeris (Chebyshev records, SPK type 2,
-// 2025 to 2040). Positions are astrometric ICRF (light-time corrected, no
+// 1970 to 2090). Positions are astrometric ICRF (light-time corrected, no
 // aberration), topocentric for a site, the frame plate solves and the
 // scheduler use. Reductions: IAU 1976 precession, GMST with UT1 = UTC,
 // nutation and polar motion ignored; the error this leaves is under 2 arcsec

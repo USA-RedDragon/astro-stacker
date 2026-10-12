@@ -113,15 +113,15 @@ func TestRangeIsTheEmbeddedSlice(t *testing.T) {
 		t.Fatal(err)
 	}
 	from, to := e.Range()
-	if from.After(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) || to.Before(time.Date(2041, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("range %s to %s does not cover 2025 to 2040", from, to)
+	if from.After(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)) || to.Before(time.Date(2091, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("range %s to %s does not cover 1970 to 2090", from, to)
 	}
-	if !e.Covers(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)) || e.Covers(time.Date(2045, 1, 1, 0, 0, 0, 0, time.UTC)) {
+	if !e.Covers(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)) || e.Covers(time.Date(2095, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Error("Covers is wrong")
 	}
-	_, err = e.Observe(ephem.Mars, ephem.NewObserver(sky.Site{}, time.Date(2060, 1, 1, 0, 0, 0, 0, time.UTC)))
+	_, err = e.Observe(ephem.Mars, ephem.NewObserver(sky.Site{}, time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)))
 	if !errors.Is(err, ephem.ErrOutOfRange) {
-		t.Errorf("2060: %v, want ErrOutOfRange", err)
+		t.Errorf("2100: %v, want ErrOutOfRange", err)
 	}
 }
 
