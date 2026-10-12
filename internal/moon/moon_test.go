@@ -29,6 +29,13 @@ func TestAltitudeMatchesHorizons(t *testing.T) {
 		if s := p.Separation(c.ra, c.dec); s > 1.5 {
 			t.Errorf("%s: %.2f° from Horizons' position", c.at, s)
 		}
+		topo := p.Topocentric(at, 35.0, -110.0)
+		if s := topo.Separation(c.ra, c.dec); s > 0.1 {
+			t.Errorf("%s: topocentric %.2f° from Horizons' position", c.at, s)
+		}
+		if alt := topo.Altitude(at, 35.0, -110.0); math.Abs(alt-c.altitude) > 0.1 {
+			t.Errorf("%s: topocentric altitude %.2f, want %.2f", c.at, alt, c.altitude)
+		}
 	}
 }
 

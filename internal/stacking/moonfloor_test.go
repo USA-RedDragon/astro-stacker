@@ -2,6 +2,7 @@ package stacking
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ const roleTableSQL = `CREATE TABLE ts_template_role (template_id integer not nul
 func moonAt(t *testing.T, start time.Time) moon.Position {
 	t.Helper()
 	mid := start.Add(150 * time.Second)
-	m := moon.At(mid)
+	m := moon.At(mid).Topocentric(mid, siteLat, siteLon)
 	if alt := m.Altitude(mid, siteLat, siteLon); alt <= 0 {
 		t.Fatalf("the Moon is at %.1f° at %s; the test needs it up", alt, mid)
 	}
@@ -241,3 +242,66 @@ func TestMoonCheckerHonorsIgnoreMoon(t *testing.T) {
 		}
 	}
 }
+
+// The floor measures from the Moon as seen from the site, as the plugin
+// does: a target 19.9° from the topocentric Moon breaks it even where it is
+// over 20° from the geocentric one.
+func TestMoonFloorIsTopocentric(t *testing.T) {
+	t.Parallel()
+	start := fullMoonUp()
+	mid := start.Add(150 * time.Second)
+	geo, topo := moon.At(mid), moonAt(t, start)
+	if d := geo.Separation(topo.RA, topo.Dec); d < 0.3 {
+		t.Fatalf("parallax shift %.2f°, too small to test", d)
+	}
+	for _, sign := range []float64{1, -1} {
+		ra, dec := topo.RA, topo.Dec+sign*19.9
+		if geo.Separation(ra, dec) < MoonFloorDegrees {
+			continue
+		}
+		if why := floorWhy(start, 300, ra, dec, siteLat, siteLon); !strings.Contains(why, "19.9°") {
+			t.Errorf("19.9° from the topocentric Moon: %q", why)
+		}
+		return
+	}
+	t.Fatal("no test position over 20° from the geocentric Moon")
+}
+
+// A moving body's light is placed where the telescope pointed, or on the
+// body's track, not at the target's stored position.
+func TestMoonFloorPlacesMovingBodies(t *testing.T) {
+	t.Parallel()
+	at := fullMoonUp().Add(2 * time.Hour)
+	m := moonAt(t, at)
+	track := func(d time.Duration, dec float64) string {
+		return `('gc', '` + at.Add(d).UTC().Format("2006-01-02 15:04:05") + `', 'C/2025 A1', '2025-11-05', ` + fmtF(m.RA) + `, ` + fmtF(dec) + `, 0, 0, '2025-11-05 00:00:00')`
+	}
+	db := floorSched(t,
+		`CREATE TABLE project ("Id" integer primary key, state integer)`,
+		`CREATE TABLE target ("Id" integer primary key, name text, guid text, projectid integer, active integer)`,
+		`CREATE TABLE ts_target_body (target_guid text primary key, designation text, kind text, updated_at text)`,
+		`CREATE TABLE ts_body_position (target_guid text, at timestamp, designation text, night text, ra real, dec real, ra_rate real, dec_rate real, computed_at timestamp)`,
+		`INSERT INTO project VALUES (1, 1)`,
+		`INSERT INTO target VALUES (1, 'C/2025 A1 (Test)', 'gc', 1, 1)`,
+		`INSERT INTO ts_target_body VALUES ('gc', 'C/2025 A1', 'comet', null)`,
+		`INSERT INTO ts_body_position VALUES `+track(-time.Hour, m.Dec+10)+`, `+track(time.Hour, m.Dec+10),
+		`INSERT INTO exposureplan VALUES (42, 'e42', 13)`)
+	p := &Pipeline{sched: db}
+	obj := "C/2025 A1 (Test)"
+	p.sites.Store(obj, [2]float64{siteLat, siteLon})
+	check, err := p.moonChecker(context.Background(), map[string][2]float64{obj: {m.RA + 180, -m.Dec}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := check.why(context.Background(), linkedFrame(obj, "e42", at)); !strings.Contains(got, "the Moon was 10°") {
+		t.Errorf("on the track 10° from the Moon: %q", got)
+	}
+	f := linkedFrame(obj, "e42", at)
+	ra, dec := m.RA, m.Dec+40
+	f.MountRA, f.MountDec = &ra, &dec
+	if got := check.why(context.Background(), f); got != "" {
+		t.Errorf("pointed 40° from the Moon: %q", got)
+	}
+}
+
+func fmtF(v float64) string { return strconv.FormatFloat(v, 'f', 6, 64) }
