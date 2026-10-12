@@ -707,6 +707,6 @@ func WorthAMosaic(events []Event) []Event {
 				bodies++
 			}
 		}
-		return e.Kind == EventMosaic2 && bodies < 3 && !e.IsRare()
+		return e.Kind == EventMosaic2 && bodies < 3 && !e.AutoPlannable()
 	})
 }

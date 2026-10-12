@@ -93,6 +93,22 @@ func (e Event) IsRare() bool {
 	return e.Rarity != nil && e.Rarity.Status == StatusReady && e.Rarity.Rare
 }
 
+// HasAddedBody reports whether a comet or asteroid the user added is a member.
+// Such events are rare by orbit almost always, so they are planned by hand.
+func (e Event) HasAddedBody() bool {
+	for _, m := range e.Members {
+		if m.Kind == KindComet || m.Kind == KindAsteroid {
+			return true
+		}
+	}
+	return false
+}
+
+// AutoPlannable reports whether the stacker plans the event by itself.
+func (e Event) AutoPlannable() bool {
+	return e.IsRare() && !e.HasAddedBody()
+}
+
 func rarityUnavailable(reason string) *Rarity {
 	return &Rarity{Status: StatusUnavailable, Reason: &reason}
 }

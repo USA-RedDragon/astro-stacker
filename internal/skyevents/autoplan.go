@@ -54,6 +54,9 @@ func autoState(e Event, c *app.SkyEventChoice, pl Planning, now time.Time) *Auto
 	if !e.IsRare() {
 		return nil
 	}
+	if e.HasAddedBody() {
+		return &AutoPlan{State: AutoSkipped, Reason: ptr("Events with a comet or asteroid you added are planned by hand.")}
+	}
 	if c != nil && c.PlannedAt != nil {
 		return &AutoPlan{State: AutoSkipped, Reason: ptr("Planned by hand.")}
 	}
@@ -169,7 +172,7 @@ func (s *Service) AutoPlanRare(ctx context.Context) error {
 	now := s.now()
 	var rare []Event
 	for _, e := range res.Events {
-		if e.IsRare() && e.End.After(now) {
+		if e.AutoPlannable() && e.End.After(now) {
 			rare = append(rare, e)
 		}
 	}
