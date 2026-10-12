@@ -52,6 +52,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applySubLengthRoutes(r.Group("/api/v1"), extras.SubLength)
 	applyBodiesRoutes(r.Group("/api/v1"), extras.Bodies)
 	applyCometRoutes(r.Group("/api/v1"), extras.Comets)
+	applyBodyFramingRoutes(r.Group("/api/v1"), extras.Framing)
 	applySkyEventRoutes(r.Group("/api/v1"), extras.SkyEvents, extras.Backfill)
 	applyWebUI(r, config.HTTP.WebURL)
 

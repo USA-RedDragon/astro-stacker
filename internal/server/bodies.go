@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
+	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
+	"github.com/USA-RedDragon/astro-stacker/internal/skyevents"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const bodiesNotBuilt = "the body position tables have not been built yet"
@@ -77,5 +82,79 @@ func applyCometRoutes(g *gin.RouterGroup, list *bodies.CometList) {
 		default:
 			c.JSON(http.StatusOK, view)
 		}
+	})
+}
+
+type BodyFraming struct {
+	Tracker *bodies.Tracker
+	Sched   *gorm.DB
+	Frame   func(context.Context) (*skyevents.FrameInfo, error)
+}
+
+func applyBodyFramingRoutes(g *gin.RouterGroup, f *BodyFraming) {
+	off := func(c *gin.Context) bool {
+		if f == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "body framing is off: the stacker has no scheduler database"})
+			return true
+		}
+		return false
+	}
+	g.GET("/bodies/track", ExtendWriteDeadline(schedulerWriteTimeout), func(c *gin.Context) {
+		if off(c) {
+			return
+		}
+		view, err := f.Tracker.Track(c.Request.Context(), c.Query("designation"), c.Query("kind"))
+		switch {
+		case errors.Is(err, bodies.ErrNoDesignation):
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+			return
+		case errors.Is(err, bodies.ErrNoSite):
+			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: err.Error()})
+			return
+		case errors.Is(err, horizons.ErrUnknownBody), errors.Is(err, horizons.ErrAmbiguous):
+			c.JSON(http.StatusNotFound, gin.H{errorKey: err.Error()})
+			return
+		case err != nil:
+			c.JSON(http.StatusBadGateway, gin.H{errorKey: err.Error()})
+			return
+		}
+		out := gin.H{"track": view, "frame": nil, "frame_reason": nil}
+		if f.Frame == nil {
+			out["frame_reason"] = "The camera field is not measured yet."
+		} else if fi, err := f.Frame(c.Request.Context()); err != nil {
+			out["frame_reason"] = "The camera field is not measured yet: " + err.Error()
+		} else {
+			out["frame"] = fi
+		}
+		c.JSON(http.StatusOK, out)
+	})
+	g.GET("/bodies/target", func(c *gin.Context) {
+		if off(c) {
+			return
+		}
+		guid := strings.TrimSpace(c.Query("target_guid"))
+		if guid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "target_guid is required"})
+			return
+		}
+		if f.Sched == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "the stacker has no scheduler database"})
+			return
+		}
+		cols, err := bodies.HasFraming(c.Request.Context(), f.Sched)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+			return
+		}
+		t, ok, err := bodies.TargetByGUID(c.Request.Context(), f.Sched, guid)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+			return
+		}
+		out := gin.H{"target": nil, "framing_columns": cols}
+		if ok {
+			out["target"] = t
+		}
+		c.JSON(http.StatusOK, out)
 	})
 }

@@ -173,6 +173,11 @@ func (s *Service) frame(ctx context.Context) (*FrameInfo, error) {
 	return &FrameInfo{Width: round(w, 3), Height: round(h, 3), Basis: basis + "."}, nil
 }
 
+// MeasuredFrame is the measured camera field, long side first.
+func (s *Service) MeasuredFrame(ctx context.Context) (*FrameInfo, error) {
+	return s.frame(ctx)
+}
+
 func (s *Service) siteOrReason(ctx context.Context) (sky.Site, string) {
 	if s.Site == nil {
 		return sky.Site{}, "The observatory site is not known."
