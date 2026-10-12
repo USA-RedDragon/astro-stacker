@@ -236,9 +236,11 @@ type Event struct {
 	Exposure     Exposure      `json:"exposure"`
 	Priority     string        `json:"priority"`
 	Plan         *PlanState    `json:"plan"`
+	Rarity       *Rarity       `json:"rarity"`
 
-	bodies []int
-	dsos   []int
+	bodies   []int
+	dsos     []int
+	bestDSOs []int
 }
 
 type hit struct {
@@ -623,6 +625,7 @@ func bodyDSOEvent(g Grid, tracks []Track, b int, dsos []DSO, hs []hit, c Criteri
 	objs = append(objs, FrameObject{Name: t.Name, Kind: t.Kind, Diameter: round(s.Diameter, 5)})
 	inBest := slices.Clone(best.dsos)
 	slices.SortFunc(inBest, func(x, y int) int { return naturalLess(dsos[x].Designation, dsos[y].Designation) })
+	e.bestDSOs = inBest
 	for _, d := range inBest {
 		ds = append(ds, dsoDisc(dsos[d]))
 		typ := dsos[d].Type
