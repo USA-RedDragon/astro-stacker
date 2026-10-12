@@ -138,7 +138,7 @@ func TestSeasonBoostsFollowTheCustomHorizon(t *testing.T) {
 				Plans: []planning.Plan{{Filter: "L", Exposure: 600, Desired: 60, Enabled: true}}}}}}
 	}
 	one := func(ps []planning.Project, r *mosaics.HorizonReport) mosaicplan.TargetSeasonBoost {
-		bs := mosaicplan.SeasonBoostsFor(ps, testSite(), r, allClear(), 1, testNow())
+		bs := mosaicplan.SeasonBoostsFor(ps, testSite(), r, allClear(), 1, testNow(), nil)
 		if len(bs) != 1 {
 			t.Fatalf("boosts %v", bs)
 		}

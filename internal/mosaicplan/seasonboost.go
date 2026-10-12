@@ -26,6 +26,11 @@ type TargetSeasonBoost struct {
 	Boost     float64 `json:"boost"`
 }
 
+// BodyNightFunc is where a moving-body target is on the night (local date
+// "2006-01-02") and whether it is bright enough then; isBody is false for a
+// target that is not a moving body.
+type BodyNightFunc func(guid, night string) (pt mosaics.Point, usable, isBody bool)
+
 func (s *Service) SeasonBoosts(ctx context.Context, now time.Time) (map[string]float64, error) {
 	out := map[string]float64{}
 	if s.Site == nil || s.Sched == nil {
@@ -56,7 +61,7 @@ func (s *Service) SeasonBoosts(ctx context.Context, now time.Time) (map[string]f
 	if ratio != nil && ratio.Value > 0 {
 		perRaw = ratio.Value
 	}
-	for _, b := range SeasonBoostsFor(snap.Projects, site, s.horizonReport(ctx), ClearShare(hist.perMonth()), perRaw, now) {
+	for _, b := range SeasonBoostsFor(snap.Projects, site, s.horizonReport(ctx), ClearShare(hist.perMonth()), perRaw, now, s.BodyNight) {
 		out[b.GUID] = b.Boost
 	}
 	return out, nil
@@ -75,7 +80,7 @@ func ProjectHorizon(p planning.Project) HorizonSettings {
 	return hs
 }
 
-func SeasonBoostsFor(projects []planning.Project, site mosaics.Site, report *mosaics.HorizonReport, share [12]float64, effectivePerRaw float64, now time.Time) []TargetSeasonBoost {
+func SeasonBoostsFor(projects []planning.Project, site mosaics.Site, report *mosaics.HorizonReport, share [12]float64, effectivePerRaw float64, now time.Time, body BodyNightFunc) []TargetSeasonBoost {
 	var out []TargetSeasonBoost
 	for _, p := range projects {
 		if p.State != stateActive {
@@ -83,11 +88,15 @@ func SeasonBoostsFor(projects []planning.Project, site mosaics.Site, report *mos
 		}
 		limit, _, limitOK := LimitFor(ProjectHorizon(p), report)
 		for _, t := range p.Targets {
-			if !t.Active || t.GUID == "" || t.RAHours == nil || t.Dec == nil {
+			if !t.Active || t.GUID == "" {
+				continue
+			}
+			at, ok := targetPoint(t, body)
+			if !ok {
 				continue
 			}
 			b := TargetSeasonBoost{Project: p.Name, Target: t.Name, GUID: t.GUID}
-			avail, in := SeasonHours(t.Season, site, mosaics.Point{RA: *t.RAHours * 15, Dec: *t.Dec}, limit, p.MinimumTime, share, now)
+			avail, in := seasonHours(t.Season, site, at, limit, p.MinimumTime, share, now)
 			if in && limitOK {
 				b.Needed = TargetHoursNeeded(t, p.Grader, effectivePerRaw)
 				b.Available = avail
@@ -131,7 +140,30 @@ func ClearShare(months []MonthNights) [12]float64 {
 	return out
 }
 
+// targetPoint places a target on each night: a moving body from its
+// nightly positions, counting only nights it is bright enough, any other
+// target at its stored coordinates.
+func targetPoint(t planning.Target, body BodyNightFunc) (func(time.Time) (mosaics.Point, bool), bool) {
+	if body != nil {
+		if _, _, isBody := body(t.GUID, ""); isBody {
+			return func(night time.Time) (mosaics.Point, bool) {
+				pt, usable, _ := body(t.GUID, night.Format(time.DateOnly))
+				return pt, usable
+			}, true
+		}
+	}
+	if t.RAHours == nil || t.Dec == nil {
+		return nil, false
+	}
+	pt := mosaics.Point{RA: *t.RAHours * 15, Dec: *t.Dec}
+	return func(time.Time) (mosaics.Point, bool) { return pt, true }, true
+}
+
 func SeasonHours(season *planning.Season, site mosaics.Site, pt mosaics.Point, limit mosaics.Limit, minMinutes int, share [12]float64, now time.Time) (float64, bool) {
+	return seasonHours(season, site, func(time.Time) (mosaics.Point, bool) { return pt, true }, limit, minMinutes, share, now)
+}
+
+func seasonHours(season *planning.Season, site mosaics.Site, at func(time.Time) (mosaics.Point, bool), limit mosaics.Limit, minMinutes int, share [12]float64, now time.Time) (float64, bool) {
 	if season == nil || season.OutOfSeason || season.NightsLeft <= 0 {
 		return 0, false
 	}
@@ -147,6 +179,10 @@ func SeasonHours(season *planning.Season, site mosaics.Site, pt mosaics.Point, l
 	for i := 0; i < n; i += boostSampleNights {
 		w := min(boostSampleNights, n-i)
 		night := first.AddDate(0, 0, i+w/2)
+		pt, ok := at(night)
+		if !ok {
+			continue
+		}
 		h := mosaics.DarkHours(night, site, []mosaics.Point{pt}, limit)
 		if h*60 < float64(minMinutes) {
 			continue
