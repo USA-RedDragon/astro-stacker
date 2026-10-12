@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
@@ -65,11 +66,33 @@ type Client struct {
 	Cache     *gorm.DB
 	Attempts  int
 	Backoff   time.Duration
-	Now       func() time.Time
+	// MaxAge is how old a cached table of a night not yet over may be
+	// before it is fetched again.
+	MaxAge time.Duration
+	// FailureTTL is how long a failed table is answered with its error
+	// before it is asked for again.
+	FailureTTL time.Duration
+	Now        func() time.Time
 
-	mu       sync.Mutex
-	requests int
+	once     sync.Once
+	slot     chan struct{}
+	requests atomic.Int64
+
+	failMu   sync.Mutex
+	failures map[string]failure
 }
+
+type failure struct {
+	err   error
+	until time.Time
+}
+
+const (
+	DefaultMaxAge     = 24 * time.Hour
+	DefaultFailureTTL = time.Hour
+	RequestTimeout    = 5 * time.Minute
+	maxRetryWait      = 10 * time.Minute
+)
 
 func New(version string, cache *gorm.DB) *Client {
 	return &Client{BaseURL: URL, UserAgent: UserAgent(version), Cache: cache}
@@ -96,6 +119,20 @@ func (c *Client) backoff() time.Duration {
 	return c.Backoff
 }
 
+func (c *Client) maxAge() time.Duration {
+	if c.MaxAge <= 0 {
+		return DefaultMaxAge
+	}
+	return c.MaxAge
+}
+
+func (c *Client) failureTTL() time.Duration {
+	if c.FailureTTL <= 0 {
+		return DefaultFailureTTL
+	}
+	return c.FailureTTL
+}
+
 func (c *Client) now() time.Time {
 	if c.Now != nil {
 		return c.Now()
@@ -107,71 +144,105 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 2 * time.Minute}
+	return &http.Client{Timeout: RequestTimeout}
 }
 
 // Requests is how many HTTP requests the client has sent.
 func (c *Client) Requests() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.requests
+	return int(c.requests.Load())
 }
 
 func retryAfter(h string, fallback time.Duration) time.Duration {
 	if s, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && s > 0 {
-		return min(time.Duration(s)*time.Second, 10*time.Minute)
+		return min(time.Duration(s)*time.Second, maxRetryWait)
 	}
 	if t, err := http.ParseTime(h); err == nil {
 		if d := time.Until(t); d > 0 {
-			return min(d, 10*time.Minute)
+			return min(d, maxRetryWait)
 		}
 	}
 	return fallback
 }
 
-// Result sends one query and returns Horizons' result text. Requests are
-// serialized across the process; a 503 or other 5xx is retried after
-// Retry-After, or a growing wait.
+// acquire waits for the client's one request slot, or for ctx.
+func (c *Client) acquire(ctx context.Context) error {
+	c.once.Do(func() { c.slot = make(chan struct{}, 1) })
+	select {
+	case c.slot <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) release() { <-c.slot }
+
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// get sends one request; retry reports whether a failure is worth trying
+// again (a 5xx, a timeout or a broken connection).
+func (c *Client) get(ctx context.Context, q url.Values) (body []byte, status string, wait time.Duration, retry bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+"?"+q.Encode(), nil)
+	if err != nil {
+		return nil, "", 0, false, err
+	}
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Accept", "application/json")
+	c.requests.Add(1)
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return nil, "", 0, ctx.Err() == nil, fmt.Errorf("horizons: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err = io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return nil, resp.Status, 0, ctx.Err() == nil, fmt.Errorf("horizons: %w", err)
+	}
+	if resp.StatusCode >= 500 {
+		return nil, resp.Status, retryAfter(resp.Header.Get("Retry-After"), 0), true, fmt.Errorf("horizons: %s", resp.Status)
+	}
+	return body, resp.Status, 0, false, nil
+}
+
+// Result sends one query and returns Horizons' result text. One request is
+// in flight at a time across the process; a 5xx, a timeout or a broken
+// connection is retried after Retry-After, or a growing wait.
 func (c *Client) Result(ctx context.Context, q url.Values) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.acquire(ctx); err != nil {
+		return "", err
+	}
+	defer c.release()
 	q = cloneValues(q)
 	q.Set("format", "json")
 	var body []byte
 	var status string
 	for attempt := range c.attempts() {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+"?"+q.Encode(), nil)
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("User-Agent", c.UserAgent)
-		req.Header.Set("Accept", "application/json")
-		c.requests++
-		resp, err := c.httpClient().Do(req)
-		if err != nil {
-			var ue *url.Error
-			if errors.As(err, &ue) {
-				err = ue.Err
-			}
-			return "", fmt.Errorf("horizons: %w", err)
-		}
-		body, err = io.ReadAll(io.LimitReader(resp.Body, 32<<20))
-		resp.Body.Close()
-		if err != nil {
-			return "", err
-		}
-		status = resp.Status
-		if resp.StatusCode < 500 {
+		b, st, wait, retry, err := c.get(ctx, q)
+		if err == nil {
+			body, status = b, st
 			break
 		}
-		if attempt == c.attempts()-1 {
-			return "", fmt.Errorf("horizons: %s", status)
+		if !retry || attempt == c.attempts()-1 {
+			return "", err
 		}
-		wait := retryAfter(resp.Header.Get("Retry-After"), time.Duration((attempt+1)*(attempt+1))*c.backoff())
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(wait):
+		if wait <= 0 {
+			wait = time.Duration((attempt+1)*(attempt+1)) * c.backoff()
+		}
+		if err := sleep(ctx, wait); err != nil {
+			return "", err
 		}
 	}
 	var r struct {
@@ -248,33 +319,48 @@ func (r Request) validate() error {
 	return nil
 }
 
-// Ephemeris returns the table for r from the cache, or fetches and caches it.
-func (c *Client) Ephemeris(ctx context.Context, r Request) (Table, error) {
-	if err := r.validate(); err != nil {
-		return Table{}, err
+func (c *Client) failed(key string) error {
+	c.failMu.Lock()
+	defer c.failMu.Unlock()
+	f, ok := c.failures[key]
+	if !ok {
+		return nil
 	}
-	key := r.key()
-	if c.Cache != nil {
-		var hit app.HorizonsCache
-		err := c.Cache.WithContext(ctx).Where("key = ?", key).Limit(1).Find(&hit).Error
-		if err != nil {
-			return Table{}, fmt.Errorf("horizons cache: %w", err)
+	if c.now().After(f.until) {
+		delete(c.failures, key)
+		return nil
+	}
+	return f.err
+}
+
+func (c *Client) fail(key string, err error) {
+	c.failMu.Lock()
+	defer c.failMu.Unlock()
+	if c.failures == nil {
+		c.failures = map[string]failure{}
+	}
+	now := c.now()
+	for k, f := range c.failures {
+		if now.After(f.until) {
+			delete(c.failures, k)
 		}
-		if hit.Key != "" {
-			t, err := Parse(hit.Result)
-			if err == nil {
-				t.FetchedAt = hit.FetchedAt
-				t.Cached = true
-				return t, nil
-			}
-		}
+	}
+	c.failures[key] = failure{err: err, until: now.Add(c.failureTTL())}
+}
+
+func (c *Client) fetch(ctx context.Context, r Request, key string) (Table, error) {
+	if err := c.failed(key); err != nil {
+		return Table{}, err
 	}
 	result, err := c.Result(ctx, r.Values())
-	if err != nil {
-		return Table{}, err
+	var t Table
+	if err == nil {
+		t, err = Parse(result)
 	}
-	t, err := Parse(result)
 	if err != nil {
+		if ctx.Err() == nil {
+			c.fail(key, err)
+		}
 		return Table{}, err
 	}
 	t.FetchedAt = c.now().UTC()
@@ -285,6 +371,39 @@ func (c *Client) Ephemeris(ctx context.Context, r Request) (Table, error) {
 		}
 	}
 	return t, nil
+}
+
+// Ephemeris returns the table for r from the cache, or fetches and caches
+// it. A cached table older than MaxAge whose span has not ended is fetched
+// again, keeping the cached one if that fails; a failure is answered from
+// memory for FailureTTL.
+func (c *Client) Ephemeris(ctx context.Context, r Request) (Table, error) {
+	if err := r.validate(); err != nil {
+		return Table{}, err
+	}
+	key := r.key()
+	var hit app.HorizonsCache
+	if c.Cache != nil {
+		if err := c.Cache.WithContext(ctx).Where("key = ?", key).Limit(1).Find(&hit).Error; err != nil {
+			return Table{}, fmt.Errorf("horizons cache: %w", err)
+		}
+	}
+	if hit.Key != "" {
+		cached, err := Parse(hit.Result)
+		if err == nil {
+			cached.FetchedAt, cached.Cached = hit.FetchedAt, true
+			if c.now().Sub(hit.FetchedAt) < c.maxAge() || !c.now().Before(r.Stop) {
+				return cached, nil
+			}
+			if fresh, err := c.fetch(ctx, r, key); err == nil {
+				return fresh, nil
+			} else if ctx.Err() != nil {
+				return Table{}, err
+			}
+			return cached, nil
+		}
+	}
+	return c.fetch(ctx, r, key)
 }
 
 // Prune drops cached tables that ended before cutoff.
@@ -469,7 +588,7 @@ func Parse(result string) (Table, error) {
 		if strings.Contains(result, "No matches found") || strings.Contains(result, "No such record") {
 			return t, ErrUnknownBody
 		}
-		if strings.Contains(result, "Matching small-bodies") {
+		if strings.Contains(result, "Matching small-bodies") || strings.Contains(result, "Multiple major-bodies match") {
 			return t, ErrAmbiguous
 		}
 		return t, ErrNoRows
