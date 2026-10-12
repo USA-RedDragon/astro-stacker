@@ -70,6 +70,7 @@ func applySchedulerRoutes(g *gin.RouterGroup, x Extras, signer *previewer.Signer
 	applyPreviewRoutes(g, x.Previews, x.PreviewCache, site, now)
 	applySchedDataRoutes(g, signer, x.Grader, site, now)
 	applyConditionsRoutes(g, x, now)
+	applyAutofocusRoutes(g, now)
 	status := x.Scheduler
 	if status == nil {
 		status = unconfiguredStatus{}
