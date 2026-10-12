@@ -143,6 +143,7 @@ type ProjectResult struct {
 	MinAltitude   MinAltitude            `json:"minAltitude"`
 	Targets       []TargetResult         `json:"targets"`
 	Event         bool                   `json:"event"`
+	Notes         []string               `json:"notes"`
 	Left          string                 `json:"left,omitempty"`
 }
 
@@ -150,6 +151,7 @@ type ProjectResult struct {
 // one, which Target Scheduler then uses as a hard limit.
 type Horizon struct {
 	ProfileID string
+	Custom    bool
 	Horizon   *mosaics.Horizon
 }
 
@@ -186,24 +188,33 @@ func classes(p planning.Project) []bool {
 	return out
 }
 
-func (in Inputs) horizonFor(p planning.Project) *mosaics.Horizon {
-	if in.Horizon == nil || in.Horizon.Horizon == nil || !in.Horizon.Horizon.Valid() {
-		return nil
+// horizonFor is the horizon a project's limit follows and whether it
+// should use the custom horizon; nil use when the report says nothing
+// about the project's profile, so the project keeps its own setting.
+func (in Inputs) horizonFor(p planning.Project) (*mosaics.Horizon, *bool) {
+	if in.Horizon == nil {
+		return nil, nil
 	}
-	if in.Horizon.ProfileID != "" && p.ProfileID != "" && !strings.EqualFold(in.Horizon.ProfileID, p.ProfileID) {
-		return nil
+	if in.Horizon.ProfileID == "" || p.ProfileID == "" || !strings.EqualFold(in.Horizon.ProfileID, p.ProfileID) {
+		return nil, nil
 	}
-	return in.Horizon.Horizon
+	if !in.Horizon.Custom {
+		return nil, ptr(false)
+	}
+	if in.Horizon.Horizon == nil || !in.Horizon.Horizon.Valid() {
+		return nil, nil
+	}
+	return in.Horizon.Horizon, ptr(true)
 }
 
 // Plan works out the values the stacker keeps one project at.
 func Plan(p planning.Project, in Inputs) ProjectResult {
 	r := ProjectResult{ID: p.ID, GUID: p.GUID, Name: p.Name, State: p.State, IsMosaic: p.IsMosaic, Current: CurrentValues(p), Targets: []TargetResult{}}
 	g := in.Global
-	hz := in.horizonFor(p)
+	hz, useHorizon := in.horizonFor(p)
 	r.MinAltitude = MinAltitudeFor(in.Floors, classes(p), hz != nil)
 	r.Desired = Values{DitherEvery: ptr(g.DitherEvery), FilterSwitchFrequency: ptr(g.FilterSwitchFrequency), FlatsHandling: ptr(g.FlatsHandling),
-		SmartExposureOrder: ptr(g.SmartExposureOrder), MeridianWindow: ptr(g.MeridianWindow), UseCustomHorizon: ptr(hz != nil),
+		SmartExposureOrder: ptr(g.SmartExposureOrder), MeridianWindow: ptr(g.MeridianWindow), UseCustomHorizon: useHorizon,
 		HorizonOffset: ptr(0.0), MaximumAltitude: ptr(g.MaximumAltitude), EnableGrader: ptr(g.EnableGrader), MinimumAltitude: ptr(r.MinAltitude.Degrees)}
 	limit := mosaics.Limit{Min: r.MinAltitude.Degrees, Horizon: hz}
 	anyActive := false
@@ -250,6 +261,15 @@ func Plan(p planning.Project, in Inputs) ProjectResult {
 		r.MinTime, r.MinTimeTarget = nil, ""
 		r.Desired.MinimumTime, r.Desired.MinimumAltitude = nil, nil
 		r.MinAltitude = MinAltitude{Degrees: p.MinimumAltitude, Basis: "event", Reason: "a sky event: the event planner sets its minimum time and altitude for the event's own window"}
+	}
+	r.Notes = []string{}
+	minAlt := p.MinimumAltitude
+	if r.Desired.MinimumAltitude != nil {
+		minAlt = *r.Desired.MinimumAltitude
+	}
+	if g.MaximumAltitude > 0 && g.MaximumAltitude <= minAlt {
+		r.Desired.MaximumAltitude = nil
+		r.Notes = append(r.Notes, fmt.Sprintf("the global maximum altitude %g° is not above this project's minimum altitude %g°, so its maximum altitude is left as it is", g.MaximumAltitude, minAlt))
 	}
 	if p.State == stateClosed {
 		r.Left = "closed projects are left as they are"

@@ -110,3 +110,11 @@ func TestSamplesCarryTheTargetAltitude(t *testing.T) {
 		t.Fatalf("Polaris stands at the latitude: %+v", s)
 	}
 }
+
+func TestAltitudeFloorWithNothingKeptHighIsNoData(t *testing.T) {
+	t.Parallel()
+	fl := FitAltitude(altSamples(altBin{alt: 60, subs: 100, kept: 0, nights: 10}, altBin{alt: 17, subs: 100, kept: 0, nights: 10}))
+	if f := AltitudeFloorFor(fl, false); f.Floor != AltitudeFallback || f.Basis != FloorNoData {
+		t.Errorf("%g %s", f.Floor, f.Basis)
+	}
+}
