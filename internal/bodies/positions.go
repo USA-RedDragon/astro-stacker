@@ -414,7 +414,7 @@ func (s *Service) Publish(ctx context.Context, res *Result) error {
 	}
 	var drop []PositionRow
 	for k, r := range old {
-		if want[k] {
+		if want[k] || IsEvent(r.Designation, "") {
 			continue
 		}
 		// A failed fetch keeps the night's rows, unless they are of another
