@@ -243,3 +243,23 @@ func seedRig(t *testing.T, db *gorm.DB) {
 		t.Fatal(err)
 	}
 }
+
+func TestNewPlanFilterIsOptionalAndTemplateStillRequired(t *testing.T) {
+	t.Parallel()
+	s := spec(t, schedcmd.KindProjectCreate)
+	with := strings.Replace(samples()[schedcmd.KindProjectCreate], `"template_name":"H-a",`, `"template_name":"H-a","filter":"H-a",`, 1)
+	if err := s.Validate(json.RawMessage(with)); err != nil {
+		t.Fatalf("a plan with a filter: %v", err)
+	}
+	without := strings.Replace(with, `"template_id":3,`, ``, 1)
+	if err := s.Validate(json.RawMessage(without)); err == nil {
+		t.Fatal("a plan with a filter and no template_id passed")
+	}
+	b, err := json.Marshal(schedcmd.NewPlan{GUID: "g", TemplateID: 3, TemplateName: "H-a", Exposure: -1, Desired: 1})
+	if err != nil || strings.Contains(string(b), "filter") {
+		t.Fatalf("a plan without a filter sends %s", b)
+	}
+	if err := spec(t, schedcmd.KindApplySet).Validate(json.RawMessage(strings.Replace(samples()[schedcmd.KindApplySet], `"template_id":3,`, `"filter":"H-a",`, 1))); err == nil {
+		t.Fatal("an applyset plan with a filter and no template_id passed")
+	}
+}

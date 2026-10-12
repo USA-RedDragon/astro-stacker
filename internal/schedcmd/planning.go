@@ -99,6 +99,7 @@ type NewPlan struct {
 	GUID         string  `json:"guid"`
 	TemplateID   int64   `json:"template_id"`
 	TemplateName string  `json:"template_name"`
+	Filter       string  `json:"filter,omitempty"`
 	Exposure     float64 `json:"exposure"`
 	Desired      int     `json:"desired"`
 }

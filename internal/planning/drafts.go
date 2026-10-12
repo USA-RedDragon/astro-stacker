@@ -35,7 +35,7 @@ type ApplySetDraft struct {
 
 func (s *Snapshot) templateByName(name string) (Template, bool) {
 	n := normTemplate(name)
-	for _, t := range s.Templates {
+	for _, t := range s.allTemplates() {
 		if normTemplate(t.Name) == n {
 			return t, true
 		}
@@ -73,10 +73,6 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 		return ApplySetDraft{}, ErrNoTargets
 	}
 	out := ApplySetDraft{}
-	type want struct {
-		tmpl    Template
-		desired int
-	}
 	var wants []want
 	for _, it := range set.Items {
 		t, ok := s.templateByName(it.Template)
@@ -88,7 +84,7 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 		if err != nil {
 			return out, err
 		}
-		wants = append(wants, want{t, n})
+		wants = append(wants, want{s.planTemplate(t), n})
 	}
 	if len(out.Missing) > 0 {
 		return out, fmt.Errorf("%w: %s", ErrMissingTemplate, strings.Join(out.Missing, ", "))
@@ -105,9 +101,10 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 		inSet := map[int]bool{}
 		for _, w := range wants {
 			var enabled, disabled *Plan
+			byFilter := s.PlanFilter(w.tmpl) != ""
 			for i := range t.Plans {
 				pl := &t.Plans[i]
-				if pl.TemplateID != w.tmpl.ID {
+				if !w.covers(*pl, byFilter) {
 					continue
 				}
 				if pl.Enabled && enabled == nil {
@@ -124,7 +121,7 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 				at.Enable = append(at.Enable, schedcmd.PlanRef{ID: int64(disabled.ID), GUID: disabled.GUID, TemplateName: w.tmpl.Name})
 				ons = append(ons, w.tmpl.Name)
 			default:
-				at.Create = append(at.Create, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(w.tmpl.ID), TemplateName: w.tmpl.Name, Exposure: TemplateLength, Desired: w.desired})
+				at.Create = append(at.Create, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(w.tmpl.ID), TemplateName: w.tmpl.Name, Filter: s.PlanFilter(w.tmpl), Exposure: TemplateLength, Desired: w.desired})
 				adds = append(adds, w.tmpl.Name)
 			}
 		}
@@ -162,6 +159,18 @@ func (s *Snapshot) DraftApplySet(setID, mode string, targetIDs []int, desired in
 	}
 	out.Goals = gc.payloads()
 	return out, nil
+}
+
+type want struct {
+	tmpl    Template
+	desired int
+}
+
+func (w want) covers(pl Plan, byFilter bool) bool {
+	if byFilter {
+		return sameFilter(pl.Filter, w.tmpl.Filter)
+	}
+	return pl.TemplateID == w.tmpl.ID
 }
 
 func effectParts(adds, ons, offs []string) []string {
@@ -241,6 +250,7 @@ type MosaicDraft struct {
 
 type PlanDraft struct {
 	TemplateID int     `json:"templateId"`
+	Filter     string  `json:"filter,omitempty"`
 	Exposure   float64 `json:"exposure"`
 }
 
@@ -255,6 +265,7 @@ type ProjectDraft struct {
 	MinimumTime     int          `json:"minimumTime"`
 	SetID           string       `json:"setId"`
 	Plans           []PlanDraft  `json:"plans"`
+	Filters         []string     `json:"filters"`
 	GoalDriven      bool         `json:"goalDriven"`
 	Desired         int          `json:"desired"`
 	Goal            GoalDraft    `json:"goal"`
@@ -349,7 +360,7 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 		filters := []string{}
 		for _, it := range items {
 			t := it.tmpl
-			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Exposure: it.exposure, Desired: it.desired})
+			nt.Plans = append(nt.Plans, schedcmd.NewPlan{GUID: newID(), TemplateID: int64(t.ID), TemplateName: t.Name, Filter: s.PlanFilter(t), Exposure: it.exposure, Desired: it.desired})
 			if !containsFold(filters, t.Filter) {
 				filters = append(filters, t.Filter)
 				g := setting
@@ -421,7 +432,7 @@ type draftItem struct {
 }
 
 func (s *Snapshot) templateByID(id int) (Template, bool) {
-	for _, t := range s.Templates {
+	for _, t := range s.allTemplates() {
 		if t.ID == id {
 			return t, true
 		}
@@ -443,32 +454,79 @@ func (s *Snapshot) templateDesired(id int) int {
 	return medianInt(v)
 }
 
-func (s *Snapshot) draftItems(d ProjectDraft) ([]draftItem, error) {
-	var out []draftItem
-	if d.SetID == "" && len(d.Plans) > 0 {
-		for _, pd := range d.Plans {
-			t, ok := s.templateByID(pd.TemplateID)
-			if !ok {
+func (s *Snapshot) pickedItem(d ProjectDraft, t Template, exposure float64) (draftItem, error) {
+	exp := exposure
+	if !(exp > 0) {
+		exp = TemplateLength
+	}
+	n := d.Desired
+	if n <= 0 {
+		n = s.templateDesired(t.ID)
+	}
+	if n <= 0 && d.GoalDriven {
+		n = goals.UnmeasurableSubLimit
+	}
+	if n <= 0 {
+		return draftItem{}, fmt.Errorf("%w for %s", ErrNoDesired, t.Name)
+	}
+	return draftItem{tmpl: t, exposure: exp, desired: n}, nil
+}
+
+func (s *Snapshot) filterTemplate(filter string) (Template, error) {
+	t, ok := s.ResolveFilter(s.FilterProfile(), strings.TrimSpace(filter))
+	if !ok {
+		return Template{}, fmt.Errorf("%w: no template uses the filter %s", ErrMissingTemplate, strings.TrimSpace(filter))
+	}
+	return t, nil
+}
+
+func (s *Snapshot) pickedItems(d ProjectDraft) ([]draftItem, error) {
+	out := make([]draftItem, 0, len(d.Plans)+len(d.Filters))
+	for _, pd := range d.Plans {
+		var t Template
+		if strings.TrimSpace(pd.Filter) != "" {
+			var err error
+			if t, err = s.filterTemplate(pd.Filter); err != nil {
+				return nil, err
+			}
+		} else {
+			var ok bool
+			if t, ok = s.templateByID(pd.TemplateID); !ok {
 				return nil, fmt.Errorf("%w: template %d", ErrMissingTemplate, pd.TemplateID)
 			}
-			exp := pd.Exposure
-			if !(exp > 0) {
-				exp = TemplateLength
-			}
-			n := d.Desired
-			if n <= 0 {
-				n = s.templateDesired(t.ID)
-			}
-			if n <= 0 && d.GoalDriven {
-				n = goals.UnmeasurableSubLimit
-			}
-			if n <= 0 {
-				return nil, fmt.Errorf("%w for %s", ErrNoDesired, t.Name)
-			}
-			out = append(out, draftItem{tmpl: t, exposure: exp, desired: n})
+			t = s.planTemplate(t)
 		}
-		return out, nil
+		it, err := s.pickedItem(d, t, pd.Exposure)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, it)
 	}
+	var seen []string
+	for _, f := range d.Filters {
+		f = strings.TrimSpace(f)
+		if f == "" || containsFold(seen, f) {
+			continue
+		}
+		seen = append(seen, f)
+		t, err := s.filterTemplate(f)
+		if err != nil {
+			return nil, err
+		}
+		it, err := s.pickedItem(d, t, TemplateLength)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+func (s *Snapshot) draftItems(d ProjectDraft) ([]draftItem, error) {
+	if d.SetID == "" && (len(d.Plans) > 0 || len(d.Filters) > 0) {
+		return s.pickedItems(d)
+	}
+	var out []draftItem
 	set, ok := s.SetByID(d.SetID)
 	if !ok {
 		return nil, ErrUnknownSet
@@ -482,7 +540,7 @@ func (s *Snapshot) draftItems(d ProjectDraft) ([]draftItem, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, draftItem{tmpl: t, exposure: TemplateLength, desired: n})
+		out = append(out, draftItem{tmpl: s.planTemplate(t), exposure: TemplateLength, desired: n})
 	}
 	return out, nil
 }
@@ -507,11 +565,33 @@ func containsFold(list []string, s string) bool {
 }
 
 // SettingsFor are the settings a new project imaging with one template gets:
-// the defaults of that template's profile.
+// the defaults of that template's profile. A managed template works too.
 func (s *Snapshot) SettingsFor(templateID int, minAltitude float64) (schedcmd.ProjectSettings, error) {
 	t, ok := s.templateByID(templateID)
 	if !ok {
 		return schedcmd.ProjectSettings{}, fmt.Errorf("%w: template %d", ErrMissingTemplate, templateID)
 	}
 	return s.draftSettings(ProjectDraft{MinimumAltitude: minAltitude}, []draftItem{{tmpl: t}})
+}
+
+// PlanFilter is the filter a new plan on the template sends: the template's
+// filter once its profile has managed templates, else none.
+func (s *Snapshot) PlanFilter(t Template) string {
+	if !s.HasManaged(s.templateProfiles[t.ID]) {
+		return ""
+	}
+	return t.Filter
+}
+
+// planTemplate is the template a new plan sends for the one picked: after
+// the migration the managed template of its filter.
+func (s *Snapshot) planTemplate(t Template) Template {
+	profile := s.templateProfiles[t.ID]
+	if t.Managed || !s.HasManaged(profile) {
+		return t
+	}
+	if r, ok := s.ResolveFilter(profile, t.Filter); ok {
+		return r
+	}
+	return t
 }
