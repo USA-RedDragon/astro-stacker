@@ -239,16 +239,22 @@ type key struct {
 func keysOf(s Sample, c Cell) []key {
 	cl := class{nb: s.Narrowband}
 	fl := class{nb: s.Narrowband, filter: s.Filter}
+	var out []key
 	if c.Down {
-		return []key{{cl, 0, Cell{Down: true}}, {fl, 0, Cell{Down: true}}}
+		out = []key{{cl, 0, Cell{Down: true}}, {fl, 0, Cell{Down: true}}}
+	} else {
+		out = []key{
+			{cl, 1, Cell{}},
+			{cl, 2, Cell{Illum: c.Illum}},
+			{cl, 3, Cell{Illum: c.Illum, Alt: c.Alt}},
+			{cl, 4, c},
+			{fl, 4, c},
+		}
 	}
-	return []key{
-		{cl, 1, Cell{}},
-		{cl, 2, Cell{Illum: c.Illum}},
-		{cl, 3, Cell{Illum: c.Illum, Alt: c.Alt}},
-		{cl, 4, c},
-		{fl, 4, c},
+	if s.Filter == "" {
+		return out[:len(out)-1]
 	}
+	return out
 }
 
 // Model is a fitted kept-rate table.
@@ -291,7 +297,9 @@ func fit(samples []Sample, quick bool, skipBelow float64) *Model {
 			t := s.Start
 			m.To = &t
 		}
-		filters[class{nb: s.Narrowband, filter: s.Filter}] = true
+		if s.Filter != "" {
+			filters[class{nb: s.Narrowband, filter: s.Filter}] = true
+		}
 		for _, k := range keysOf(s, c) {
 			if agg[k] == nil {
 				agg[k] = &counts{}
