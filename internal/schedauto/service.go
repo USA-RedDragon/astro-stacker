@@ -1,6 +1,6 @@
 // Package schedauto keeps every Target Scheduler project on the global
 // scheduling settings and on its automatic minimum time and minimum
-// altitude, through project.batchedit commands the plugin applies.
+// altitude, through project.edit commands the plugin applies.
 package schedauto
 
 import (
@@ -61,13 +61,14 @@ type HorizonStatus struct {
 
 // RunStatus is the last automatic run.
 type RunStatus struct {
-	At        time.Time `json:"at"`
-	Mode      string    `json:"mode"`
-	Projects  int       `json:"projects"`
-	Fields    int       `json:"fields"`
-	Left      []string  `json:"left"`
-	CommandID string    `json:"commandId,omitempty"`
-	Error     string    `json:"error,omitempty"`
+	At         time.Time `json:"at"`
+	Mode       string    `json:"mode"`
+	Projects   int       `json:"projects"`
+	Fields     int       `json:"fields"`
+	Left       []string  `json:"left"`
+	Failed     []string  `json:"failed"`
+	CommandIDs []string  `json:"commandIds"`
+	Error      string    `json:"error,omitempty"`
 }
 
 // Rules are the constants the automatic values follow, for the UI.
@@ -127,6 +128,7 @@ type Service struct {
 	refresh sync.Mutex
 	last    *Result
 	run     *RunStatus
+	proj    *ProjectionView
 }
 
 func (s *Service) now() time.Time {
@@ -167,17 +169,13 @@ func (s *Service) lights(ctx context.Context, since time.Time) ([]Light, error) 
 	return out, nil
 }
 
-func (s *Service) floors(ctx context.Context) ([]moonkeep.AltitudeFloor, []moonkeep.AltitudeReplayRow, string) {
+func (s *Service) floors() ([]moonkeep.AltitudeFloor, []moonkeep.AltitudeReplayRow, string) {
 	if s.MoonKeep == nil {
 		return nil, nil, fmt.Sprintf("the kept-rate fit is not running, so every project uses %g°", moonkeep.AltitudeFallback)
 	}
-	res, err := s.MoonKeep.Current(ctx)
+	res := s.MoonKeep.Latest()
 	if res == nil {
-		note := fmt.Sprintf("no kept-rate fit yet, so every project uses %g°", moonkeep.AltitudeFallback)
-		if err != nil {
-			note += ": " + err.Error()
-		}
-		return nil, nil, note
+		return nil, nil, fmt.Sprintf("no kept-rate fit yet, so every project uses %g°", moonkeep.AltitudeFallback)
 	}
 	return res.Altitude, res.AltReplay, ""
 }
@@ -189,11 +187,13 @@ func (s *Service) horizon(ctx context.Context) (*Horizon, HorizonStatus) {
 	r, ok := s.Horizon(ctx)
 	switch {
 	case !ok:
-		return nil, HorizonStatus{Reason: "the observatory scheduler has not reported its horizon yet, so no project uses one"}
-	case !r.Custom || r.Horizon == nil:
-		return nil, HorizonStatus{ProfileID: r.ProfileID, Reason: "the NINA profile has no custom horizon yet, so the minimum altitude is the only limit"}
+		return nil, HorizonStatus{Reason: "the observatory scheduler has not reported its horizon yet, so each project keeps its own custom horizon setting"}
+	case !r.Custom:
+		return &Horizon{ProfileID: r.ProfileID}, HorizonStatus{ProfileID: r.ProfileID, Reason: "the NINA profile has no custom horizon yet, so the minimum altitude is the only limit"}
+	case r.Horizon == nil:
+		return nil, HorizonStatus{ProfileID: r.ProfileID, Reason: "the observatory scheduler reported a custom horizon the stacker can't read, so each project keeps its own custom horizon setting"}
 	}
-	return &Horizon{ProfileID: r.ProfileID, Horizon: r.Horizon}, HorizonStatus{Custom: true, ProfileID: r.ProfileID,
+	return &Horizon{ProfileID: r.ProfileID, Custom: true, Horizon: r.Horizon}, HorizonStatus{Custom: true, ProfileID: r.ProfileID,
 		Reason: "the NINA profile has a custom horizon, so every project of that profile uses it as a hard limit with no offset"}
 }
 
@@ -234,7 +234,7 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	}
 	res.Overhead = MeasureOverhead(lights, site.Longitude, now)
 	res.SwitchFloor = SwitchFloor(res.Overhead.MeanMinutes)
-	res.Floors, res.AltReplay, res.FloorsNote = s.floors(ctx)
+	res.Floors, res.AltReplay, res.FloorsNote = s.floors()
 	hz, status := s.horizon(ctx)
 	res.Horizon = status
 	nights := NightsFrom(site, now, TypicalNights)
@@ -331,16 +331,17 @@ func editedProjects(r schedcmd.Record) []int64 {
 }
 
 // busy is the projects with a project edit still waiting for the plugin,
-// or with an automatic edit in the last SyncGrace.
+// or with a project edit by anyone in the last SyncGrace, so the home copy
+// of the scheduler database has caught up before the next edit.
 func (s *Service) busy(ctx context.Context) (map[int64]bool, error) {
 	out := map[int64]bool{}
 	waiting, err := s.Commands.Log.Waiting(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list waiting commands: %w", err)
 	}
-	recent, err := s.Commands.Log.List(ctx, schedcmd.Filter{Author: Author, Since: s.now().Add(-SyncGrace), Limit: schedcmd.MaxListLimit})
+	recent, err := s.Commands.Log.List(ctx, schedcmd.Filter{Since: s.now().Add(-SyncGrace), Limit: schedcmd.MaxListLimit})
 	if err != nil {
-		return nil, fmt.Errorf("list recent automatic edits: %w", err)
+		return nil, fmt.Errorf("list recent project edits: %w", err)
 	}
 	for _, r := range append(waiting, recent...) {
 		for _, id := range editedProjects(r) {
@@ -350,23 +351,24 @@ func (s *Service) busy(ctx context.Context) (map[int64]bool, error) {
 	return out, nil
 }
 
-// Batch is the project.batchedit payload for every differing project not
-// in skip, and the names of those left for later.
-func Batch(projects []ProjectResult, skip map[int64]bool) (schedcmd.TemplateBatchPayload, []string) {
-	var b schedcmd.TemplateBatchPayload
+// Edits are the project.edit payloads for every differing project not in
+// skip, and the names of those left for later. A project without a GUID is
+// left, since its original values could not be kept.
+func Edits(projects []ProjectResult, skip map[int64]bool) ([]schedcmd.EditPayload, []string) {
+	var out []schedcmd.EditPayload
 	var left []string
 	for _, p := range projects {
 		e := p.Edit()
 		if e == nil {
 			continue
 		}
-		if skip[e.ID] {
+		if skip[e.ID] || p.GUID == "" {
 			left = append(left, p.Name)
 			continue
 		}
-		b.Items = append(b.Items, *e)
+		out = append(out, *e)
 	}
-	return b, left
+	return out, left
 }
 
 func (s *Service) keepOriginals(ctx context.Context, projects []ProjectResult, ids []int64) error {
@@ -396,8 +398,9 @@ func (s *Service) setRun(r RunStatus) {
 	s.run = &r
 }
 
-// Once computes and, when the mode is on, sends one project.batchedit for
-// every differing project. Dry-run only logs what it would send.
+// Once computes and, when the mode is on, sends one project.edit for every
+// differing project, so one project that fails does not hold up the
+// others. Dry-run only logs what it would send.
 func (s *Service) Once(ctx context.Context) (*Result, error) {
 	mode := s.mode()
 	if mode == ModeOff {
@@ -415,40 +418,47 @@ func (s *Service) Once(ctx context.Context) (*Result, error) {
 			return res, err
 		}
 	}
-	batch, left := Batch(res.Projects, skip)
-	run := RunStatus{At: s.now().UTC(), Mode: mode, Projects: len(batch.Items), Left: left}
-	ids := make([]int64, 0, len(batch.Items))
-	for _, it := range batch.Items {
-		run.Fields += len(it.Changes)
-		ids = append(ids, it.ID)
-	}
+	edits, left := Edits(res.Projects, skip)
+	run := RunStatus{At: s.now().UTC(), Mode: mode, Left: left, Failed: []string{}, CommandIDs: []string{}}
 	for _, p := range res.Projects {
 		if p.Edit() != nil {
 			slog.Info("Project differs from the global scheduling settings", "mode", mode, "project", p.Name, "fields", len(p.Changes), "summary", p.Summary())
 		}
 	}
-	if mode != ModeOn || len(batch.Items) == 0 || s.Commands == nil {
+	if mode != ModeOn || s.Commands == nil {
+		for _, e := range edits {
+			run.Projects++
+			run.Fields += len(e.Changes)
+		}
 		s.setRun(run)
 		return res, nil
 	}
-	raw, err := json.Marshal(batch)
-	if err != nil {
-		return res, err
+	for _, e := range edits {
+		if err := s.send(ctx, res.Projects, e, &run); err != nil {
+			run.Failed = append(run.Failed, e.Name+": "+err.Error())
+			slog.Warn("Could not send the automatic scheduling edit", "project", e.Name, "error", err)
+		}
 	}
-	if err := s.keepOriginals(ctx, res.Projects, ids); err != nil {
-		run.Error = "keeping the original values failed, so nothing was sent: " + err.Error()
-		s.setRun(run)
-		return res, err
-	}
-	rec, err := s.Commands.Submit(ctx, schedcmd.KindProjectBatchEdit, raw, Author)
-	if err != nil {
-		run.Error = err.Error()
-		s.setRun(run)
-		return res, err
-	}
-	run.CommandID = rec.ID
 	s.setRun(run)
 	return res, nil
+}
+
+func (s *Service) send(ctx context.Context, projects []ProjectResult, e schedcmd.EditPayload, run *RunStatus) error {
+	raw, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	if err := s.keepOriginals(ctx, projects, []int64{e.ID}); err != nil {
+		return fmt.Errorf("keeping the original values failed, so nothing was sent: %w", err)
+	}
+	rec, err := s.Commands.Submit(ctx, schedcmd.KindProjectEdit, raw, Author)
+	if err != nil {
+		return err
+	}
+	run.Projects++
+	run.Fields += len(e.Changes)
+	run.CommandIDs = append(run.CommandIDs, rec.ID)
+	return nil
 }
 
 // Run computes every interval and, when on, keeps the projects equal.

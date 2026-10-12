@@ -127,7 +127,7 @@ func floorOf(nb bool, bins []*counts, worthBelow float64) AltitudeFloor {
 		f.Rows[i] = r
 	}
 	ref := &f.Rows[len(f.Rows)-1]
-	if !ref.Usable {
+	if !ref.Usable || ref.Kept == 0 {
 		f.Floor, f.Basis = AltitudeFallback, FloorNoData
 		f.Reason = fmt.Sprintf("fewer than %d subs on %d nights above %g° with the Moon down, so the floor is %g°", MinSubs, MinNights, AltitudeReferenceFrom, AltitudeFallback)
 		return f

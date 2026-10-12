@@ -57,7 +57,8 @@ type previewBlock struct {
 
 // ParseProjection counts the switches of a simulated night: every block
 // that images a different target from the one imaged before it, waits
-// between them included.
+// between them included. The share is the switch time over the imaging
+// time plus the switch time; waits count for neither.
 func ParseProjection(raw json.RawMessage, perSwitch float64) (Projection, error) {
 	var v struct {
 		Blocks []previewBlock `json:"blocks"`
@@ -67,6 +68,7 @@ func ParseProjection(raw json.RawMessage, perSwitch float64) (Projection, error)
 	}
 	var p Projection
 	var last int64
+	var imaging time.Duration
 	seen := map[int64]bool{}
 	for _, b := range v.Blocks {
 		if b.Wait || b.TargetID == 0 {
@@ -78,6 +80,7 @@ func ParseProjection(raw json.RawMessage, perSwitch float64) (Projection, error)
 		}
 		e := b.End
 		p.End = &e
+		imaging += b.End.Sub(b.Start)
 		if last != 0 && b.TargetID != last {
 			p.Switches++
 		}
@@ -85,12 +88,10 @@ func ParseProjection(raw json.RawMessage, perSwitch float64) (Projection, error)
 		seen[b.TargetID] = true
 	}
 	p.Targets = len(seen)
-	if p.Start != nil {
-		p.ImagingHours = round2(p.End.Sub(*p.Start).Hours())
-	}
+	p.ImagingHours = round2(imaging.Hours())
 	p.SwitchMinutes = round2(float64(p.Switches) * perSwitch)
-	if p.ImagingHours > 0 {
-		p.Share = math.Round(p.SwitchMinutes/(p.ImagingHours*60)*1000) / 1000
+	if total := imaging.Minutes() + p.SwitchMinutes; total > 0 {
+		p.Share = math.Round(p.SwitchMinutes/total*1000) / 1000
 	}
 	return p, nil
 }
@@ -139,6 +140,12 @@ func (s *Service) Projection(ctx context.Context, pv Previewer) (*ProjectionView
 	if pv == nil {
 		return nil, fmt.Errorf("no observatory scheduler to simulate the night on")
 	}
+	s.mu.Lock()
+	cached := s.proj
+	s.mu.Unlock()
+	if cached != nil && s.now().Sub(cached.ComputedAt) < cacheFor {
+		return cached, nil
+	}
 	res, err := s.Current(ctx)
 	if err != nil {
 		return nil, err
@@ -155,7 +162,7 @@ func (s *Service) Projection(ctx context.Context, pv Previewer) (*ProjectionView
 	auto := Overrides(res.Projects)
 	v := &ProjectionView{ComputedAt: s.now().UTC(), PerSwitchMinutes: per, MaxSwitchShare: MaxSwitchShare,
 		Basis: "The plugin's simulation of tonight from sunset, which has no slew, centering or autofocus time, with each switch costing the measured mean switch time. " +
-			"A switch is a block on a different target from the one before it."}
+			"A switch is a block on a different target from the one before it. The automatic run changes only the minimum times and altitudes; the simulation can't change the other settings."}
 	for _, run := range []struct {
 		p         *Projection
 		settings  string
@@ -172,5 +179,8 @@ func (s *Service) Projection(ctx context.Context, pv Previewer) (*ProjectionView
 		p.Settings, p.Overrides = run.settings, len(run.overrides)
 		*run.p = p
 	}
+	s.mu.Lock()
+	s.proj = v
+	s.mu.Unlock()
 	return v, nil
 }

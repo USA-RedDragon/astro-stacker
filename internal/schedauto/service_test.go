@@ -100,7 +100,7 @@ func TestOffComputesButNeverSends(t *testing.T) {
 	if _, err := s.Once(ctx); err != nil || len(sent.sent) != 0 {
 		t.Errorf("dry-run sent %d: %v", len(sent.sent), err)
 	}
-	if r, _ := s.Current(ctx); r.LastRun == nil || r.LastRun.Projects != 1 || r.LastRun.CommandID != "" {
+	if r, _ := s.Current(ctx); r.LastRun == nil || r.LastRun.Projects != 1 || len(r.LastRun.CommandIDs) != 0 {
 		t.Errorf("dry-run status %+v", r.LastRun)
 	}
 }
@@ -112,15 +112,15 @@ func TestOnSendsOneBatchKeepsOriginalsAndWaitsForTheSync(t *testing.T) {
 	if _, err := s.Once(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(sent.sent) != 1 || sent.sent[0].Kind != schedcmd.KindProjectBatchEdit {
+	if len(sent.sent) != 1 || sent.sent[0].Kind != schedcmd.KindProjectEdit {
 		t.Fatalf("sent %+v", sent.sent)
 	}
-	var b schedcmd.TemplateBatchPayload
-	if err := json.Unmarshal(sent.sent[0].Payload, &b); err != nil || len(b.Items) != 1 || b.Items[0].ID != 7 {
-		t.Fatalf("batch %+v %v", b, err)
+	var b schedcmd.EditPayload
+	if err := json.Unmarshal(sent.sent[0].Payload, &b); err != nil || b.ID != 7 {
+		t.Fatalf("edit %+v %v", b, err)
 	}
 	fields := map[string]string{}
-	for _, c := range b.Items[0].Changes {
+	for _, c := range b.Changes {
 		fields[c.Field] = string(c.Before) + ">" + string(c.After)
 	}
 	if fields[schedcmd.FieldDitherEvery] != ditherOneToTwo || fields[schedauto.FieldMinimumAltitude] != "25>15" {
@@ -189,5 +189,21 @@ func TestSavedGlobalSetIsUsed(t *testing.T) {
 				t.Errorf("Garlic already dithers every 1: %+v", c)
 			}
 		}
+	}
+}
+
+func TestAManualEditWaitsForTheSync(t *testing.T) {
+	t.Parallel()
+	s, sent, _ := fixture(t, schedauto.ModeOn)
+	ctx := context.Background()
+	raw, err := json.Marshal(schedcmd.EditPayload{Entity: entity, ID: 7, Name: "Garlic Nebula", Changes: []schedcmd.FieldChange{{Field: "priority", Before: json.RawMessage("1"), After: json.RawMessage("2")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Commands.Submit(ctx, schedcmd.KindProjectEdit, raw, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Once(ctx); err != nil || len(sent.sent) != 1 {
+		t.Errorf("only the manual edit is sent while it syncs: %d, %v", len(sent.sent), err)
 	}
 }

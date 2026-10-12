@@ -14,7 +14,11 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 )
 
-const ditherOneToTwo = "1>2"
+const (
+	ditherOneToTwo = "1>2"
+	entity         = "project"
+	profile        = "prof"
+)
 
 func site() sky.Site { return sky.Site{Latitude: 31.546944, Longitude: -99.382222} }
 
@@ -137,7 +141,7 @@ func project(state string) planning.Project {
 	ra := 10.68 / 15
 	return planning.Project{ID: 7, GUID: "p-guid", Name: "Andromeda", State: state, MinimumTime: 90, MinimumAltitude: 25, Grader: true,
 		DitherEvery: i(1), FilterSwitchFrequency: i(1), FlatsHandling: i(1), SmartExposureOrder: b(false), MeridianWindow: i(0),
-		UseCustomHorizon: b(false), HorizonOffset: f(0), MaximumAltitude: f(0), ProfileID: "prof",
+		UseCustomHorizon: b(false), HorizonOffset: f(0), MaximumAltitude: f(0), ProfileID: profile,
 		Targets: []planning.Target{
 			{ID: 1, GUID: "t1", Name: "Panel 1", Active: true, RAHours: &ra, Dec: f(41.27), Plans: []planning.Plan{{Filter: "Luminance", Enabled: true}}},
 			{ID: 2, GUID: "t2", Name: "Panel 2", Active: false, RAHours: &ra, Dec: f(-20), Plans: []planning.Plan{{Filter: "H-a", Enabled: true}}},
@@ -176,7 +180,7 @@ func TestPlanMakesAProjectEqualToTheGlobalAndAutomaticValues(t *testing.T) {
 		t.Errorf("minimum time from the active panel only: %+v %s", r.MinTime, r.MinTimeTarget)
 	}
 	e := r.Edit()
-	if e == nil || e.Entity != "project" || e.ID != 7 || len(e.Changes) != len(r.Changes) {
+	if e == nil || e.Entity != entity || e.ID != 7 || len(e.Changes) != len(r.Changes) {
 		t.Fatalf("edit %+v", e)
 	}
 	raw, err := json.Marshal(schedcmd.TemplateBatchPayload{Items: []schedcmd.EditPayload{*e}})
@@ -212,7 +216,7 @@ func TestPlanUsesTheObservatoryHorizonOfTheProjectsProfile(t *testing.T) {
 	t.Parallel()
 	in := inputs()
 	wall := mosaics.Horizon{Step: 90, Altitudes: []float64{30, 30, 30, 30}}
-	in.Horizon = &schedauto.Horizon{ProfileID: "PROF", Horizon: &wall}
+	in.Horizon = &schedauto.Horizon{ProfileID: "PROF", Custom: true, Horizon: &wall}
 	r := schedauto.Plan(project("Active"), in)
 	if changed(r)[schedcmd.FieldUseCustomHorizon] != "false>true" || !r.MinAltitude.Horizon {
 		t.Errorf("custom horizon on: %v", changed(r))
@@ -220,6 +224,42 @@ func TestPlanUsesTheObservatoryHorizonOfTheProjectsProfile(t *testing.T) {
 	in.Horizon.ProfileID = "other"
 	if r := schedauto.Plan(project("Active"), in); changed(r)[schedcmd.FieldUseCustomHorizon] != "" {
 		t.Errorf("another profile's horizon is not this project's: %v", changed(r))
+	}
+	on := project("Active")
+	b := true
+	on.UseCustomHorizon = &b
+	if r := schedauto.Plan(on, inputs()); changed(r)[schedcmd.FieldUseCustomHorizon] != "" {
+		t.Errorf("with no horizon report a project keeps its setting: %v", changed(r))
+	}
+	in.Horizon = &schedauto.Horizon{ProfileID: profile}
+	if r := schedauto.Plan(on, in); changed(r)[schedcmd.FieldUseCustomHorizon] != "true>false" {
+		t.Errorf("a profile with no custom horizon turns it off: %v", changed(r))
+	}
+	in.Horizon = &schedauto.Horizon{ProfileID: profile, Custom: true}
+	if r := schedauto.Plan(on, in); changed(r)[schedcmd.FieldUseCustomHorizon] != "" {
+		t.Errorf("an unreadable custom horizon changes nothing: %v", changed(r))
+	}
+}
+
+func TestPlanLeavesMaximumAltitudeBelowTheMinimumAlone(t *testing.T) {
+	t.Parallel()
+	in := inputs()
+	in.Global.MaximumAltitude = 12
+	r := schedauto.Plan(project("Active"), in)
+	if _, ok := changed(r)[schedcmd.FieldMaximumAltitude]; ok || len(r.Notes) != 1 {
+		t.Errorf("a maximum at or below the minimum is not sent: %v %v", changed(r), r.Notes)
+	}
+	in.Global.MaximumAltitude = 80
+	if r := schedauto.Plan(project("Active"), in); changed(r)[schedcmd.FieldMaximumAltitude] != "0>80" {
+		t.Errorf("a maximum above the minimum is sent: %v", changed(r))
+	}
+	raw, err := json.Marshal(schedcmd.EditPayload{Entity: entity, ID: 7, Name: "x", Changes: schedauto.Plan(project("Active"), in).Changes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := schedcmd.Default().Get(schedcmd.KindProjectEdit)
+	if err != nil || spec.Validate(raw) != nil {
+		t.Errorf("valid project.edit: %v", err)
 	}
 }
 
@@ -230,9 +270,11 @@ func TestBatchLeavesBusyProjectsForLater(t *testing.T) {
 	b.ID, b.Name = 8, "Busy"
 	same := a
 	same.ID, same.Changes = 9, nil
-	batch, left := schedauto.Batch([]schedauto.ProjectResult{a, b, same}, map[int64]bool{8: true})
-	if len(batch.Items) != 1 || batch.Items[0].ID != 7 || len(left) != 1 || left[0] != "Busy" {
-		t.Errorf("batch %+v left %v", batch, left)
+	noGUID := a
+	noGUID.ID, noGUID.Name, noGUID.GUID = 10, "No GUID", ""
+	edits, left := schedauto.Edits([]schedauto.ProjectResult{a, b, same, noGUID}, map[int64]bool{8: true})
+	if len(edits) != 1 || edits[0].ID != 7 || len(left) != 2 || left[0] != "Busy" || left[1] != "No GUID" {
+		t.Errorf("edits %+v left %v", edits, left)
 	}
 }
 
@@ -240,7 +282,7 @@ func TestOverridesAndProjection(t *testing.T) {
 	t.Parallel()
 	r := schedauto.Plan(project("Active"), inputs())
 	ov := schedauto.Overrides([]schedauto.ProjectResult{r})
-	if len(ov) == 0 || ov[0].Entity != "project" || ov[0].ID != 7 {
+	if len(ov) == 0 || ov[0].Entity != entity || ov[0].ID != 7 {
 		t.Fatalf("overrides %+v", ov)
 	}
 	raw := json.RawMessage(`{"blocks":[
@@ -251,7 +293,7 @@ func TestOverridesAndProjection(t *testing.T) {
 		{"start":"2026-10-13T04:40:00Z","end":"2026-10-13T06:30:00Z","target_id":2},
 		{"start":"2026-10-13T06:30:00Z","end":"2026-10-13T08:30:00Z","target_id":1}]}`)
 	p, err := schedauto.ParseProjection(raw, 4)
-	if err != nil || p.Switches != 2 || p.Targets != 2 || p.ImagingHours != 8 || p.SwitchMinutes != 8 || p.Share != 0.017 {
+	if err != nil || p.Switches != 2 || p.Targets != 2 || p.ImagingHours != 7.83 || p.SwitchMinutes != 8 || p.Share != 0.017 {
 		t.Errorf("%+v %v", p, err)
 	}
 	if _, err := schedauto.ParseProjection(json.RawMessage(`[`), 4); err == nil {
