@@ -8,10 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -26,6 +24,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
@@ -76,9 +75,6 @@ func cometDesignation(object string) (string, bool) {
 	return d, d != ""
 }
 
-// horizonsURL is JPL's Horizons API.
-const horizonsURL = "https://ssd.jpl.nasa.gov/api/horizons.api"
-
 // ephemeris is a comet's astrometric (ICRF) position by time.
 type ephemeris struct {
 	times   []time.Time
@@ -107,12 +103,13 @@ func (e ephemeris) at(t time.Time) (ra, dec float64, ok bool) {
 	return 0, 0, false
 }
 
-// horizons fetches a comet's positions each minute between from and to, seen
-// from the site (east longitude and latitude in degrees, elevation in m).
-func horizons(ctx context.Context, base, designation string, from, to time.Time, lon, lat, elev float64) (ephemeris, error) {
+// fetchEphemeris fetches a comet's positions each minute between from and
+// to, seen from the site (east longitude and latitude in degrees, elevation
+// in m).
+func fetchEphemeris(ctx context.Context, hz *horizons.Client, designation string, from, to time.Time, lon, lat, elev float64) (ephemeris, error) {
 	q := url.Values{}
 	for k, v := range map[string]string{
-		"format": "json", "COMMAND": fmt.Sprintf("'DES=%s;CAP;NOFRAG'", designation),
+		"COMMAND":  "'" + horizons.Command(designation) + "'",
 		"OBJ_DATA": "'NO'", "MAKE_EPHEM": "'YES'", "EPHEM_TYPE": "'OBSERVER'",
 		"CENTER": "'coord@399'", "COORD_TYPE": "'GEODETIC'",
 		"SITE_COORD": fmt.Sprintf("'%.6f,%.6f,%.4f'", lon, lat, elev/1000),
@@ -122,47 +119,13 @@ func horizons(ctx context.Context, base, designation string, from, to time.Time,
 	} {
 		q.Set(k, v)
 	}
-	// Horizons turns requests away with 503 when busy; a failure here is
-	// kept until the master changes, so it is worth waiting for.
-	var body []byte
-	var status string
-	for attempt := range 5 {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return ephemeris{}, ctx.Err()
-			case <-time.After(time.Duration(attempt*attempt) * 5 * time.Second):
-			}
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?"+q.Encode(), nil)
-		if err != nil {
-			return ephemeris{}, err
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return ephemeris{}, fmt.Errorf("horizons: %w", err)
-		}
-		body, err = io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-		resp.Body.Close()
-		if err != nil {
-			return ephemeris{}, err
-		}
-		status = resp.Status
-		if resp.StatusCode < 500 {
-			break
-		}
+	// Horizons turns requests away with 503 when busy; the client waits and
+	// retries, since a failure here is kept until the master changes.
+	result, err := hz.Result(ctx, q)
+	if err != nil {
+		return ephemeris{}, err
 	}
-	var r struct {
-		Result string `json:"result"`
-		Error  string `json:"error"`
-	}
-	if err := json.Unmarshal(body, &r); err != nil {
-		return ephemeris{}, fmt.Errorf("horizons: %s: %w", status, err)
-	}
-	if r.Error != "" {
-		return ephemeris{}, fmt.Errorf("horizons: %s", r.Error)
-	}
-	return parseEphemeris(r.Result)
+	return parseEphemeris(result)
 }
 
 const (
@@ -173,7 +136,7 @@ const (
 // cometEphemeris fetches the comet's positions around each of times, one
 // Horizons request per run of times, since Horizons refuses a table of more
 // than 90024 rows, about 62 days at one per minute.
-func cometEphemeris(ctx context.Context, base, designation string, times []time.Time, lon, lat, elev float64) (ephemeris, error) {
+func cometEphemeris(ctx context.Context, hz *horizons.Client, designation string, times []time.Time, lon, lat, elev float64) (ephemeris, error) {
 	sorted := slices.SortedFunc(slices.Values(times), time.Time.Compare)
 	var out ephemeris
 	for i := 0; i < len(sorted); {
@@ -181,7 +144,7 @@ func cometEphemeris(ctx context.Context, base, designation string, times []time.
 		for i++; i < len(sorted) && sorted[i].Sub(to) <= ephemerisGap && sorted[i].Sub(from) <= ephemerisSpan; i++ {
 			to = sorted[i]
 		}
-		e, err := horizons(ctx, base, designation, from, to, lon, lat, elev)
+		e, err := fetchEphemeris(ctx, hz, designation, from, to, lon, lat, elev)
 		if err != nil {
 			return ephemeris{}, err
 		}
@@ -359,7 +322,7 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, designation
 		subs[i] = cometSub{stored: storedSub{key: r.RegisteredKey, exposure: exp, weight: r.Weight}, mid: mid}
 		times = append(times, mid)
 	}
-	eph, err := cometEphemeris(ctx, horizonsURL, designation, times, lon, lat, elev)
+	eph, err := cometEphemeris(ctx, p.horizonsClient(), designation, times, lon, lat, elev)
 	if err != nil {
 		return err
 	}
@@ -1027,3 +990,12 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func (p *Pipeline) horizonsClient() *horizons.Client {
+	p.horizonsOnce.Do(func() {
+		if p.Horizons == nil {
+			p.Horizons = horizons.New("", nil)
+		}
+	})
+	return p.Horizons
+}

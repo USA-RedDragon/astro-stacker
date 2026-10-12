@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/goalmeasure"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/goalswitch"
+	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
@@ -111,6 +112,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	var backfill func() goals.BackfillLive
 	broker := events.NewBroker()
 	newFrames := &wake.Signal{}
+	hz := horizons.New(cmd.Annotations["version"], appStore.DB())
 	darkNeed := &darkneed.Publisher{App: appStore.DB(), Sched: schedulerDBStore.DB(), Mode: cfg.Darks.Publish}
 	biasNeed := calpublish.NewBias(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
 	flatRequests := calpublish.NewFlat(appStore.DB(), schedulerDBStore.DB(), cfg.Calibration.Publish)
@@ -164,6 +166,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
 			p.Events = broker
 			p.Wake = newFrames
+			p.Horizons = hz
 			restacker = p
 			// Its own context: on shutdown it drains first, and is only
 			// cancelled if that takes too long.
