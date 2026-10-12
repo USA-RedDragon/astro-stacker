@@ -69,7 +69,7 @@ func planningEngineWith(t *testing.T, cmds *schedcmd.Service) (*gin.Engine, test
 	}
 	r := gin.New()
 	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{}, AppStore: appStore, SchedulerDBStore: sched}))
-	applyPlanningRoutes(r.Group("/api/v1"), nil, cmds)
+	applyPlanningRoutes(r.Group("/api/v1"), nil, cmds, nil)
 	return r, sched, appStore
 }
 

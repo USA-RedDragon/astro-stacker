@@ -39,7 +39,7 @@ type Config struct {
 	Calibration  Calibration  `name:"calibration" description:"The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through"`
 	MoonKeep     MoonKeep     `name:"moon-keep" description:"How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, and by the target's altitude with the Moon down, fitted from its own verdicts for the plugin's weights and skips"`
 	Bodies       Bodies       `name:"bodies" description:"Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight"`
-	Scheduling   Scheduling   `name:"scheduling" description:"One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor (or its whole window when shorter) and its minimum altitude at the hard limit"`
+	Scheduling   Scheduling   `name:"scheduling" description:"One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor and its minimum altitude at the hard limit"`
 }
 
 type Bodies struct {

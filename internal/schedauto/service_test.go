@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedauto"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
@@ -205,5 +206,46 @@ func TestAManualEditWaitsForTheSync(t *testing.T) {
 	}
 	if _, err := s.Once(ctx); err != nil || len(sent.sent) != 1 {
 		t.Errorf("only the manual edit is sent while it syncs: %d, %v", len(sent.sent), err)
+	}
+}
+
+func TestNewProjectTakesTheGlobalAndAutomaticValues(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	newPayload := func() *schedcmd.ProjectCreatePayload {
+		one, zero := 1, 0
+		return &schedcmd.ProjectCreatePayload{
+			Project: schedcmd.NewProject{Name: "New", MinimumTime: 90, MinimumAltitude: 30, ProjectSettings: schedcmd.ProjectSettings{DitherEvery: &one, FlatsHandling: &zero}},
+			Targets: []schedcmd.NewTarget{{Name: "M31", RAHours: 0.712, Dec: 41.27}},
+		}
+	}
+	s, _, _ := fixture(t, schedauto.ModeOff)
+	p := newPayload()
+	if err := s.NewProject(ctx, "p", p); err != nil || p.Project.MinimumTime != 90 || *p.Project.DitherEvery != 1 {
+		t.Fatalf("off changes nothing: %+v %v", p.Project, err)
+	}
+	s.Mode = schedauto.ModeOn
+	if err := s.NewProject(ctx, "p", p); err != nil {
+		t.Fatal(err)
+	}
+	g := schedglobal.Defaults()
+	if *p.Project.DitherEvery != g.DitherEvery || *p.Project.FlatsHandling != g.FlatsHandling || *p.Project.EnableGrader != g.EnableGrader ||
+		p.Project.MinimumAltitude != schedauto.HardMinAltitude || p.Project.MinimumTime != 25 || p.Project.UseCustomHorizon != nil {
+		t.Errorf("global values, hard limit and switching floor; no horizon report keeps the draft's setting: %+v", p.Project)
+	}
+	wall := mosaics.Horizon{Step: 90, Altitudes: []float64{30, 30, 30, 30}}
+	s.Horizon = func(context.Context) (mosaics.HorizonReport, bool) {
+		return mosaics.HorizonReport{ProfileID: "p", Custom: true, Horizon: &wall}, true
+	}
+	p = newPayload()
+	if err := s.NewProject(ctx, "p", p); err != nil || p.Project.MinimumAltitude != 0 || p.Project.UseCustomHorizon == nil || !*p.Project.UseCustomHorizon {
+		t.Errorf("the profile's horizon: %+v %v", p.Project, err)
+	}
+	p = newPayload()
+	if err := s.NewProject(ctx, "other", p); err != nil || p.Project.MinimumAltitude != schedauto.HardMinAltitude || p.Project.UseCustomHorizon != nil {
+		t.Errorf("another profile's horizon is not used: %+v %v", p.Project, err)
+	}
+	if err := s.NewProject(ctx, "p", nil); err != nil {
+		t.Error(err)
 	}
 }

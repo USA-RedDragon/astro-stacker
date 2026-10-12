@@ -282,6 +282,14 @@ type ProjectDraft struct {
 	EnableGrader          *bool    `json:"enableGrader"`
 }
 
+// DraftMinimumTime and DraftMinimumAltitude are a new project's minimum
+// time and altitude when the draft gives none; the stacker's automatic
+// values replace them when it can work them out.
+const (
+	DraftMinimumTime     = 25
+	DraftMinimumAltitude = 15.0
+)
+
 func priorityIndex(s string) int {
 	for i, p := range Priorities() {
 		if strings.EqualFold(p, s) {
@@ -310,10 +318,13 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 	}
 	minTime := d.MinimumTime
 	if minTime <= 0 {
-		return nil, errors.New("the project needs a minimum time")
+		minTime = DraftMinimumTime
+	}
+	if d.MinimumAltitude < 0 {
+		d.MinimumAltitude = DraftMinimumAltitude
 	}
 	minAlt := d.MinimumAltitude
-	if minAlt < 0 || minAlt >= 90 {
+	if minAlt >= 90 {
 		return nil, errors.New("the minimum altitude must be from 0° to 90°")
 	}
 	settings, err := s.draftSettings(d, items)
@@ -374,6 +385,15 @@ func (s *Snapshot) DraftProject(d ProjectDraft, newID func() string) (*schedcmd.
 		out.Targets = append(out.Targets, nt)
 	}
 	return out, nil
+}
+
+// DraftProfile is the NINA profile a draft's project is made on.
+func (s *Snapshot) DraftProfile(d ProjectDraft) string {
+	items, err := s.draftItems(d)
+	if err != nil {
+		return s.Defaults.ProjectSettings.ProfileID
+	}
+	return s.draftProfile(items)
 }
 
 func (d ProjectDraft) settings() schedcmd.ProjectSettings {

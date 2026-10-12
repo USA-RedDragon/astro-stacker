@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedauto"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -29,7 +31,7 @@ func backfillReport(ctx context.Context, appDB *gorm.DB, live func() goals.Backf
 	return &b
 }
 
-func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive, cmds *schedcmd.Service) {
+func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive, cmds *schedcmd.Service, sched *schedauto.Service) {
 	g.GET("/goals/mask", goalMaskRoute)
 	g.GET("/goals/mask/info", goalMaskInfoRoute)
 	g.GET("/planning", func(c *gin.Context) {
@@ -141,6 +143,11 @@ func applyPlanningRoutes(g *gin.RouterGroup, backfill func() goals.BackfillLive,
 		if err != nil {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{errorKey: err.Error()})
 			return
+		}
+		if sched != nil {
+			if err := sched.NewProject(c.Request.Context(), s.DraftProfile(body), p); err != nil {
+				slog.Warn("New project keeps the draft's scheduling values: the automatic ones could not be worked out", "project", p.Project.Name, "error", err)
+			}
 		}
 		c.JSON(http.StatusOK, p)
 	})
