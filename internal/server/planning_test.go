@@ -151,6 +151,9 @@ func TestPlanningProjectSettingsRoute(t *testing.T) {
 	if code != http.StatusOK || one["flatsHandling"] != 100.0 || one["ditherEvery"] != 2.0 || one["maximumAltitude"] != 70.0 {
 		t.Fatalf("%d %v", code, out)
 	}
+	if fs, ok := out["filters"].([]any); !ok || len(fs) == 0 {
+		t.Fatalf("project detail has no filters: %v", out["filters"])
+	}
 	draft := `{"name":"Gecko","plans":[{"templateId":1,"exposure":300}],"desired":40,"minimumTime":60,"minimumAltitude":15,"panels":[{"raHours":22.5,"dec":40.8}]%s}`
 	code, out = get(t, r, http.MethodPost, "/api/v1/planning/projects/draft", fmt.Sprintf(draft, `,"ditherEvery":4,"maximumAltitude":0`))
 	proj, _ := out["project"].(map[string]any)
