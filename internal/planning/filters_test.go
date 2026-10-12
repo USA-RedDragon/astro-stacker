@@ -77,8 +77,8 @@ func TestResolveFilterBeforeMigration(t *testing.T) {
 	if _, ok := s.ResolveFilter("other", filterLum); ok {
 		t.Error("another profile's template resolved")
 	}
-	if s.HasManaged(profileP) {
-		t.Error("managed templates before the migration")
+	if s.Migrated(profileP) {
+		t.Error("migrated before the migration")
 	}
 
 	execAll(t, sched, roleTable)
@@ -92,8 +92,8 @@ func TestResolveFilterBeforeMigration(t *testing.T) {
 	if tm, ok := s.ResolveFilter(profileP, filterLum); !ok || tm.ID != 4 {
 		t.Errorf("Luminance resolved to %d %v, want the most used retired one when all are retired", tm.ID, ok)
 	}
-	if s.HasManaged(profileP) {
-		t.Error("retired rows alone made managed templates")
+	if !s.Migrated(profileP) || s.Migrated("other") {
+		t.Error("a retired row did not mark only its profile migrated")
 	}
 }
 
@@ -132,8 +132,8 @@ func TestSnapshotTemplatesAndFilters(t *testing.T) {
 	if !strings.Contains(raw, `"retired":true`) || !strings.Contains(raw, `"filters":[{"name":"H-a","narrowband":true,"gain":100,"templateId":11,"managed":true}`) || strings.Contains(raw, `"Managed"`) {
 		t.Errorf("snapshot json %s", raw)
 	}
-	if !s.HasManaged(profileP) {
-		t.Error("no managed templates after the migration")
+	if !s.Migrated(profileP) {
+		t.Error("not migrated after the migration")
 	}
 }
 
@@ -144,4 +144,31 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// After a revert the retired rows are gone and only managed templates still
+// used by plans keep their rows: the profile is not migrated, so filters
+// resolve to the old templates and no filter is sent.
+func TestManagedRowsWithoutRetiredAreNotMigrated(t *testing.T) {
+	t.Parallel()
+	sched, appDB := testDBs(t)
+	execAll(t, sched, roleTable,
+		`insert into exposuretemplate values (13,'p','Luminance (auto)','Luminance',0,-1,1,1,0,0,0,0,300,0,0,-1,'m13'),(14,'p','S-II (auto)','S-II',100,-1,1,2,0,0,0,0,600,0,0,-1,'m14')`,
+		`insert into exposureplan values (70,'p',-1,10,0,0,20,13,1,'e70'),(71,'p',-1,10,0,0,20,14,1,'e71')`)
+	setRole(t, sched, 13, filterLum, RoleManaged)
+	setRole(t, sched, 14, "S-II", RoleManaged)
+	s := load(t, sched, appDB)
+	if s.Migrated(profileP) {
+		t.Fatal("managed rows alone marked the profile migrated")
+	}
+	if tm, _ := s.ResolveFilter(profileP, filterLum); tm.ID != 3 {
+		t.Errorf("Luminance resolved to %d, want the old template 3", tm.ID)
+	}
+	if tm, ok := s.ResolveFilter(profileP, "S-II"); !ok || tm.ID != 14 {
+		t.Errorf("S-II resolved to %d %v, want the managed template when it is the only one", tm.ID, ok)
+	}
+	tm, _ := s.ResolveFilter(profileP, filterLum)
+	if f := s.PlanFilter(tm); f != "" {
+		t.Errorf("a filter %q was sent before the migration", f)
+	}
 }
