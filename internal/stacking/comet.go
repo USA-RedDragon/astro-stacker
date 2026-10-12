@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
@@ -73,6 +74,30 @@ var cometName = regexp.MustCompile(`^(?:[CPDXI]/\d{4} [A-Z]{1,2}\d*|\d+[PDI])\b`
 func cometDesignation(object string) (string, bool) {
 	d := cometName.FindString(object)
 	return d, d != ""
+}
+
+// bodyDesignation is the designation stored on the scheduler target named
+// object, or, for targets without one, the comet designation its name
+// starts with.
+func bodyDesignation(stored map[string]string, object string) (string, bool) {
+	if d := strings.TrimSpace(stored[object]); d != "" {
+		return d, true
+	}
+	return cometDesignation(object)
+}
+
+// storedDesignations are the scheduler targets' stored body designations by
+// target name; none when the scheduler has no ts_target_body table.
+func (p *Pipeline) storedDesignations(ctx context.Context) map[string]string {
+	if p.sched == nil {
+		return nil
+	}
+	m, err := bodies.DesignationsByName(ctx, p.sched)
+	if err != nil {
+		slog.Warn("Could not read the targets' body designations; using comet names", "error", err)
+		return nil
+	}
+	return m
 }
 
 // ephemeris is a comet's astrometric (ICRF) position by time.
@@ -211,12 +236,13 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 	if err := p.db.WithContext(ctx).Where("subs >= 3 AND master_key IS NOT NULL").Find(&stacks).Error; err != nil {
 		return err
 	}
+	stored := p.storedDesignations(ctx)
 	for i := range stacks {
 		if p.stopping(ctx) {
 			return nil
 		}
 		s := &stacks[i]
-		des, ok := cometDesignation(s.Object)
+		des, ok := bodyDesignation(stored, s.Object)
 		if !ok || s.CometSignature == cometSignature(s) || time.Since(s.UpdatedAt) < p.opts.MosaicQuiet {
 			continue
 		}
