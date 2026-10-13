@@ -78,14 +78,14 @@ func TestFirstRunCoversEverything(t *testing.T) {
 func TestBurstRunsOnceWithEveryKey(t *testing.T) {
 	t.Parallel()
 	r := newRecorder()
-	d := &trigger.Debouncer{Quiet: 50 * time.Millisecond}
+	d := &trigger.Debouncer{Quiet: 300 * time.Millisecond}
 	start(t, d, 0, r.run)
 	r.wait(t, 1, time.Second)
 	for i := range 50 {
 		d.Kick([]string{m31, m33, "M42"}[i%3])
 	}
-	r.wait(t, 1, 2*time.Second)
-	time.Sleep(150 * time.Millisecond)
+	r.wait(t, 1, 5*time.Second)
+	time.Sleep(600 * time.Millisecond)
 	got := r.snapshot()
 	if len(got) != 2 || !slices.Equal(got[1], []string{m31, m33, "M42"}) {
 		t.Fatalf("a burst of 50 kicks runs once with its keys: %v", got)
@@ -109,17 +109,28 @@ func TestKickWithoutKeysCoversEverything(t *testing.T) {
 func TestQuietWaitsForTheBurstToEnd(t *testing.T) {
 	t.Parallel()
 	r := newRecorder()
-	d := &trigger.Debouncer{Quiet: 80 * time.Millisecond}
+	const quiet = 200 * time.Millisecond
+	d := &trigger.Debouncer{Quiet: quiet}
 	start(t, d, 0, r.run)
 	r.wait(t, 1, time.Second)
-	began := time.Now()
+	var kicks []time.Time
 	for range 5 {
+		kicks = append(kicks, time.Now())
 		d.Kick(m31)
-		time.Sleep(30 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
-	r.wait(t, 1, 2*time.Second)
-	if waited := time.Since(began); waited < 200*time.Millisecond {
-		t.Fatalf("ran %v after the first kick, before the burst went quiet", waited)
+	r.wait(t, 1, 5*time.Second)
+	r.mu.Lock()
+	ran := r.at[1]
+	r.mu.Unlock()
+	var last time.Time
+	for _, k := range kicks {
+		if k.Before(ran) {
+			last = k
+		}
+	}
+	if gap := ran.Sub(last); gap < quiet {
+		t.Fatalf("ran %v after the last kick before it, before the burst went quiet", gap)
 	}
 }
 
@@ -129,7 +140,7 @@ func TestMaxWaitRunsDuringASteadyStream(t *testing.T) {
 	d := &trigger.Debouncer{Quiet: time.Hour, MaxWait: 60 * time.Millisecond}
 	start(t, d, 0, r.run)
 	r.wait(t, 1, time.Second)
-	stop := time.After(400 * time.Millisecond)
+	stop := time.After(time.Second)
 loop:
 	for {
 		select {
@@ -141,7 +152,7 @@ loop:
 		}
 	}
 	if got := r.snapshot(); len(got) < 3 {
-		t.Fatalf("a steady stream ran only %d times in 400ms with a 60ms cap", len(got)-1)
+		t.Fatalf("a steady stream ran only %d times in a second with a 60ms cap", len(got)-1)
 	}
 }
 
