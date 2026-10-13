@@ -33,6 +33,7 @@ const (
 	bodyRetryAfter   = 2 * time.Hour
 	bodyNightPoll    = 2 * time.Minute
 	bodyCropMargin   = 256
+	bodyHoldWait     = 10 * time.Minute
 )
 
 var errNoTail = errors.New("an asteroid has no tail")
@@ -206,15 +207,35 @@ func (p *Pipeline) measureNightIfDue(ctx context.Context, bs bodyStack, k string
 	case had && row.Signature != sig && time.Since(row.MeasuredAt) < bodyMeasureEvery:
 		return row, nil
 	}
-	if !p.hold(bs.stack.Object) {
+	if !p.holdWait(ctx, bs.stack.Object, bodyHoldWait) {
 		return row, nil
 	}
-	err := p.measureBodyNight(ctx, bs.stack, bs.body, rows, &row, sig)
+	measured, err := p.measureHeldNight(ctx, bs, k, &row)
 	p.release(bs.stack.Object)
-	if err != nil {
+	p.Wake.Notify()
+	if err != nil || !measured {
 		return row, err
 	}
 	return row, p.saveBodyNight(ctx, row)
+}
+
+// measureHeldNight measures night k from the target's subs as they are once
+// it is held: a worker may have stacked more while it was waited for.
+func (p *Pipeline) measureHeldNight(ctx context.Context, bs bodyStack, k string, row *app.BodyNight) (bool, error) {
+	var stack app.Stack
+	if err := p.db.WithContext(ctx).First(&stack, bs.stack.ID).Error; err != nil {
+		return false, err
+	}
+	nights, err := p.nightSubs(ctx, &stack)
+	if err != nil {
+		return false, err
+	}
+	rows := nights[k]
+	sig := bodyNightSignature(rows, bs.body)
+	if len(rows) == 0 || (row.Signature == sig && !retryDue(row.Error, row.MeasuredAt)) {
+		return false, nil
+	}
+	return true, p.measureBodyNight(ctx, &stack, bs.body, rows, row, sig)
 }
 
 func (p *Pipeline) imageNightIfDue(ctx context.Context, bs bodyStack, k string) (bool, error) {
