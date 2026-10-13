@@ -34,7 +34,10 @@ const (
 	DefaultWidth  = 600
 	DefaultHeight = 400
 
-	defaultPerMinute  = 20
+	defaultPerMinute  = 60
+	defaultInFlight   = 3
+	defaultMaxWait    = 20 * time.Second
+	slotRetry         = 5 * time.Second
 	defaultMaxEntries = 2000
 	fetchTimeout      = 60 * time.Second
 	maxBody           = 8 << 20
@@ -133,17 +136,82 @@ type Cutout struct {
 }
 
 type Service struct {
-	DB         *gorm.DB
-	Client     *http.Client
-	Endpoint   string
-	PerMinute  int
-	MaxEntries int
-	Off        bool
-	Now        func() time.Time
+	DB          *gorm.DB
+	Client      *http.Client
+	Endpoint    string
+	PerMinute   int
+	MaxInFlight int
+	MaxWait     time.Duration
+	MaxEntries  int
+	Off         bool
+	Now         func() time.Time
+	Sleep       func(context.Context, time.Duration) error
 
-	mu     sync.Mutex
-	recent []time.Time
-	group  singleflight.Group
+	mu       sync.Mutex
+	recent   []time.Time
+	group    singleflight.Group
+	slotOnce sync.Once
+	slots    chan struct{}
+}
+
+func (s *Service) sleep(ctx context.Context, d time.Duration) error {
+	if s.Sleep != nil {
+		return s.Sleep(ctx, d)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func (s *Service) acquire(ctx context.Context) (func(), error) {
+	maxWait := s.MaxWait
+	if maxWait == 0 {
+		maxWait = defaultMaxWait
+	}
+	s.slotOnce.Do(func() {
+		n := s.MaxInFlight
+		if n <= 0 {
+			n = defaultInFlight
+		}
+		s.slots = make(chan struct{}, n)
+	})
+	start := time.Now()
+	select {
+	case s.slots <- struct{}{}:
+	default:
+		wctx, cancel := context.WithTimeout(ctx, max(maxWait, 0))
+		defer cancel()
+		select {
+		case s.slots <- struct{}{}:
+		case <-wctx.Done():
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return nil, &RateLimitError{RetryAfter: slotRetry}
+		}
+	}
+	release := func() { <-s.slots }
+	waited := time.Since(start)
+	for {
+		ok, wait := s.allow()
+		if ok {
+			return release, nil
+		}
+		if waited+wait > maxWait {
+			release()
+			return nil, &RateLimitError{RetryAfter: wait}
+		}
+		if err := s.sleep(ctx, wait); err != nil {
+			release()
+			return nil, err
+		}
+		waited += wait
+	}
 }
 
 func (s *Service) now() time.Time {
@@ -222,10 +290,12 @@ func (s *Service) Get(ctx context.Context, p Params) (Cutout, error) {
 		if row, err := s.cached(fctx, key); err == nil {
 			return Cutout{Data: row.Data, ETag: row.ETag}, nil
 		}
-		if ok, wait := s.allow(); !ok {
-			return Cutout{}, &RateLimitError{RetryAfter: wait}
+		release, err := s.acquire(fctx)
+		if err != nil {
+			return Cutout{}, err
 		}
 		data, err := s.fetch(fctx, p)
+		release()
 		if err != nil {
 			return Cutout{}, err
 		}
