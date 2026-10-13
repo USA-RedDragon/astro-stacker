@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
@@ -57,6 +58,10 @@ type Renderer struct {
 	// render makes one frame; tests replace it.
 	render func(ctx context.Context, c Candidate) (Result, error)
 
+	// Wake, if set, ends the wait between passes early, as when lights
+	// are triaged.
+	Wake *wake.Signal
+
 	mu sync.Mutex
 	// failed holds when lights failed to render, so a target falls back to
 	// its previous good one instead of retrying every pass.
@@ -72,9 +77,11 @@ func NewRenderer(s3 *minio.Client, bucket string, db *gorm.DB, opts Options, max
 	return r
 }
 
-// Run brings the frames up to date every interval until ctx ends.
+// Run brings the frames up to date every interval, or when Wake fires,
+// until ctx ends.
 func (r *Renderer) Run(ctx context.Context, interval time.Duration) {
 	for {
+		woke := r.Wake.C()
 		if n, err := r.Pass(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Rendering public frames failed", "error", err)
 		} else if n > 0 {
@@ -83,6 +90,7 @@ func (r *Renderer) Run(ctx context.Context, interval time.Duration) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-woke:
 		case <-time.After(interval):
 		}
 	}
