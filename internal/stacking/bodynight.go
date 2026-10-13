@@ -817,7 +817,7 @@ func (p *Pipeline) publishBodyNight(ctx context.Context, stack *app.Stack, layer
 	defer os.RemoveAll(dir)
 	acc := layers.comet
 	starless := acc.Master(stack.ScaleExposure)
-	master := addStars(starless, layers.stars, layers.add, stack.ScaleExposure)
+	master := layers.composite(stack.ScaleExposure)
 	night := row.Night.Format(goals.NightLayout)
 	own := []imagedata.Card{
 		imagedata.StringCard("OBJECT", stack.Object, "target"),
@@ -856,7 +856,7 @@ func (p *Pipeline) publishBodyNight(ctx context.Context, stack *app.Stack, layer
 	if err := writeFITSFile(starlessFile, acc.W, acc.H, 1, starless, starlessCards); err != nil {
 		return err
 	}
-	r := coverageCrop(acc)
+	r := layers.crop()
 	jpg, err := preview.Render(&imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}, preview.DefaultOptions())
 	if err != nil {
 		return err

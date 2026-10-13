@@ -187,7 +187,8 @@ func (p *Pipeline) stackKeys(ctx context.Context, object string) []string {
 			}
 			if s.CometKey != nil {
 				dir := path.Dir(*s.CometKey)
-				keys = append(keys, path.Join(dir, "comet-starless.fit"), path.Join(dir, "comet-starless.xisf"))
+				keys = append(keys, path.Join(dir, "comet-starless.fit"), path.Join(dir, "comet-starless.xisf"),
+					path.Join(dir, "comet-aligned.fit"), path.Join(dir, "comet-aligned.xisf"))
 			}
 		}
 	}

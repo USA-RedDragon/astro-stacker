@@ -269,7 +269,7 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 
 // cometMethod is part of every comet master's signature, so a change to how
 // they are made stacks them all again.
-const cometMethod = 2 // stars taken out before stacking on the comet
+const cometMethod = 3 // the comet on a field stacked on the stars
 
 // cometSignature also holds the designation stored on the target, so
 // storing or changing one stacks the comet again; targets known by name
@@ -458,13 +458,54 @@ func (p *Pipeline) stackComet(ctx context.Context, stack *app.Stack, body bodies
 
 type cometTap func(i int, sub []float32, w, h int, scale float64)
 
-// cometLayers are a comet master's two layers, on the reference sub's
-// pixels: the comet alone, with the stars and everything else fixed on the
-// sky taken out, and those stars without the comet.
+// cometLayers are a comet master's layers, on the reference sub's pixels:
+// the comet alone, with the stars and everything else fixed on the sky
+// taken out, and those stars without the comet. field is the subs stacked
+// on the stars with signal, the comet per second, taken out of each; nil
+// when the comet doesn't stand out.
 type cometLayers struct {
 	comet, stars *Accumulator
 	// add is the stars' signal per second to add back to the comet.
-	add []float32
+	add    []float32
+	field  *Accumulator
+	signal []float32
+}
+
+// aligned is the comet stack with the stars added back, scaled to one sub
+// of scaleExposure seconds.
+func (l cometLayers) aligned(scaleExposure float64) []float32 {
+	return addStars(l.comet.Master(scaleExposure), l.stars, l.add, scaleExposure)
+}
+
+// composite is the stars' field with the comet on it, scaled to one sub of
+// scaleExposure seconds; without a field, the comet stack with the stars
+// added back. A nucleus saturated in every sub is full scale, as in the
+// comet stack.
+func (l cometLayers) composite(scaleExposure float64) []float32 {
+	if l.field == nil {
+		return l.aligned(scaleExposure)
+	}
+	out := l.field.Master(scaleExposure)
+	held := l.comet.Master(scaleExposure)
+	s := float32(scaleExposure)
+	for i, v := range out {
+		switch {
+		case v == 0:
+		case l.signal[i] != 0 && held[i] == 1 && l.comet.Weight[i] == 0:
+			out[i] = 1
+		case v < 1:
+			out[i] = min(1, max(1e-7, v+l.signal[i]*s))
+		}
+	}
+	return out
+}
+
+// crop is the well-covered part of the master composite makes.
+func (l cometLayers) crop() Rect {
+	if l.field != nil {
+		return coverageCrop(l.field)
+	}
+	return coverageCrop(l.comet)
 }
 
 // starsToAdd is the stars layer to add back to the comet: only what is as
@@ -499,11 +540,16 @@ func starsToAdd(layer *Accumulator) []float32 {
 // separateComet stacks the comet and the stars apart. Stacked on the comet,
 // the stars trail through the frame and rejection removes them only where a
 // sub shows them well above its noise: faint stars, and the wings of bright
-// ones, add up to dashed trails. So there are three stacks: (1) on the
+// ones, add up to dashed trails. So there are four stacks: (1) on the
 // comet, with rejection; (2) on the stars, with that comet taken out of
 // every sub, which leaves the stars and nebulosity without the comet; (3)
 // on the comet again, with those stars taken out of every sub at its
-// transparency, which leaves rejection only noise and seeing to deal with.
+// transparency, which leaves rejection only noise and seeing to deal with;
+// (4) on the stars again, with the comet of (3) taken out of every sub at
+// its transparency (cometSignal), the field the comet is put back on; not
+// when tapped, for measurements, which need only (3). What
+// (3) still holds of the stars is too faint to see on its own but trails
+// along each star's path; outside the comet (4) has none of it.
 // read returns sub i as registered on the stars; shifts move it onto the
 // comet; track is where the comet was in each. stars marks the pixels of
 // the star-aligned master with stars on them (starMask), which the first
@@ -514,7 +560,11 @@ func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, o
 	if len(subs) > cometMedianMax {
 		reads = 2
 	}
-	done, total := 0, 3*reads*len(subs)
+	passes := 3
+	if len(track) > 0 && len(tap) == 0 {
+		passes = 4
+	}
+	done, total := 0, passes*reads*len(subs)
 	sat := opts.SaturationLevel
 	stackAll := func(opts Options, prep func(i int, sub []float32, w, h int) []float32) (*Accumulator, error) {
 		load := func(i int) ([]float32, int, int, error) {
@@ -586,8 +636,10 @@ func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, o
 	thinTrack(layer, track, len(subs))
 	apertures := starApertures(layer)
 	tapped := make([]bool, len(subs))
+	scales := make([]float64, len(subs))
 	final, err := stackAll(opts, func(i int, sub []float32, w, h int) []float32 {
 		k := starScale(sub, layer.Mean, w, apertures, subs[i].exposure, sat)
+		scales[i] = k
 		subtractSignal(sub, layer.Mean, k, sat)
 		var keep savedDisc
 		if len(tap) > 0 && track != nil {
@@ -607,8 +659,22 @@ func separateComet(subs []storedSub, shifts, track [][2]float64, stars []bool, o
 	if err != nil {
 		return cometLayers{}, err
 	}
+	out := cometLayers{comet: final, stars: layer, add: starsToAdd(layer)}
+	if len(track) > 0 && len(tap) == 0 {
+		nucleus := [2]float64{track[0][0] + shifts[0][0], track[0][1] + shifts[0][1]}
+		if signal, box, ok := cometSignal(final.Mean, final.W, final.H, nucleus); ok {
+			field, err := stackAll(opts, func(i int, sub []float32, w, h int) []float32 {
+				subtractComet(sub, w, h, signal, box, shifts[i], scales[i], sat)
+				return sub
+			})
+			if err != nil {
+				return cometLayers{}, err
+			}
+			out.field, out.signal = field, signal
+		}
+	}
 	progress(total, total)
-	return cometLayers{comet: final, stars: layer, add: starsToAdd(layer)}, nil
+	return out, nil
 }
 
 // maskSpikes empties a sub's isolated spikes of at least 5σ, and the
@@ -973,8 +1039,9 @@ func shiftImage(src []float32, w, h int, dx, dy float64) []float32 {
 
 // publishComet writes the comet master beside the star-aligned one: FITS,
 // XISF, a cropped preview and a linear preview for covers. The master is the
-// comet with the stars added back sharp; the comet alone is kept beside it
-// as comet-starless.{fit,xisf}.
+// comet on the stars' field (cometLayers.composite); the comet alone is
+// kept beside it as comet-starless.{fit,xisf}, and the comet stack with the
+// stars added back as comet-aligned.{fit,xisf}.
 // alignedOn is the master's IMAGETYP comment for the body it is aligned on.
 func alignedOn(b bodies.Target) string {
 	if strings.TrimSpace(b.Kind) == bodies.KindAsteroid {
@@ -991,7 +1058,7 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 	defer os.RemoveAll(dir)
 	acc := layers.comet
 	starless := acc.Master(stack.ScaleExposure)
-	master := addStars(starless, layers.stars, layers.add, stack.ScaleExposure)
+	master := layers.composite(stack.ScaleExposure)
 	own := []imagedata.Card{
 		imagedata.StringCard("OBJECT", stack.Object, "target"),
 		imagedata.StringCard("FILTER", stack.Filter, "filter"),
@@ -1011,21 +1078,25 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 			starlessCards = append(starlessCards, c)
 		}
 	}
-	fitsFile, xisfFile := filepath.Join(dir, "comet.fit"), filepath.Join(dir, "comet.xisf")
-	if err := writeFITSFile(fitsFile, acc.W, acc.H, 1, master, cards); err != nil {
-		return err
+	files := map[string]string{}
+	for name, img := range map[string]struct {
+		data  []float32
+		cards []imagedata.Card
+	}{
+		"comet":          {master, cards},
+		"comet-starless": {starless, starlessCards},
+		"comet-aligned":  {layers.aligned(stack.ScaleExposure), cards},
+	} {
+		fitsFile, xisfFile := filepath.Join(dir, name+".fit"), filepath.Join(dir, name+".xisf")
+		if err := writeFITSFile(fitsFile, acc.W, acc.H, 1, img.data, img.cards); err != nil {
+			return err
+		}
+		if err := writeXISFFile(xisfFile, acc.W, acc.H, img.data, img.cards); err != nil {
+			return err
+		}
+		files[name+".fit"], files[name+".xisf"] = fitsFile, xisfFile
 	}
-	if err := writeXISFFile(xisfFile, acc.W, acc.H, master, cards); err != nil {
-		return err
-	}
-	starlessFITS, starlessXISF := filepath.Join(dir, "comet-starless.fit"), filepath.Join(dir, "comet-starless.xisf")
-	if err := writeFITSFile(starlessFITS, acc.W, acc.H, 1, starless, starlessCards); err != nil {
-		return err
-	}
-	if err := writeXISFFile(starlessXISF, acc.W, acc.H, starless, starlessCards); err != nil {
-		return err
-	}
-	r := coverageCrop(acc)
+	r := layers.crop()
 	jpg, err := preview.Render(&imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}, preview.DefaultOptions())
 	if err != nil {
 		return err
@@ -1036,20 +1107,22 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 	}
 	prefix := stackPrefix(stack)
 	keys := map[string]string{}
-	for name, up := range map[string]func(string) error{
-		"comet.fit":          func(k string) error { return p.upload(ctx, fitsFile, k, contentTypeFITS) },
-		"comet.xisf":         func(k string) error { return p.upload(ctx, xisfFile, k, contentTypeOctetStream) },
-		"comet-starless.fit": func(k string) error { return p.upload(ctx, starlessFITS, k, contentTypeFITS) },
-		"comet-starless.xisf": func(k string) error {
-			return p.upload(ctx, starlessXISF, k, contentTypeOctetStream)
-		},
+	uploads := map[string]func(string) error{
 		"comet.jpg": func(k string) error {
 			return p.putBytes(ctx, k, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG})
 		},
 		"comet-linear.bin": func(k string) error {
 			return p.putBytes(ctx, k, linear, minio.PutObjectOptions{ContentType: contentTypeOctetStream, ContentEncoding: contentEncodingGzip})
 		},
-	} {
+	}
+	for name, f := range files {
+		ct := contentTypeFITS
+		if path.Ext(name) == ".xisf" {
+			ct = contentTypeOctetStream
+		}
+		uploads[name] = func(k string) error { return p.upload(ctx, f, k, ct) }
+	}
+	for name, up := range uploads {
 		k := path.Join(prefix, name)
 		if err := up(k); err != nil {
 			return err
@@ -1066,7 +1139,8 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 	}).Error; err != nil {
 		return err
 	}
-	p.removeMoved(ctx, moved, prefix, "comet.fit", "comet.xisf", "comet-starless.fit", "comet-starless.xisf", "comet.jpg", "comet-linear.bin")
+	p.removeMoved(ctx, moved, prefix, "comet.fit", "comet.xisf", "comet-starless.fit", "comet-starless.xisf",
+		"comet-aligned.fit", "comet-aligned.xisf", "comet.jpg", "comet-linear.bin")
 	stack.CometLinearKey = ptrTo(keys["comet-linear.bin"])
 	stack.CometMethod = ptrTo(cometMethod)
 	stack.CometCropX, stack.CometCropY, stack.CometCropW, stack.CometCropH = r.X, r.Y, r.W, r.H
