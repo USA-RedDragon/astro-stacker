@@ -85,20 +85,21 @@ type RunConfig struct {
 }
 
 type Runner struct {
-	cfg      RunConfig
-	nina     *NINA
-	phd      *PHD2
-	clock    Clock
-	site     Site
-	mode     string
-	exp      Exposure
-	mech     Mech
-	moved    bool
-	skyRate  float64
-	man      *Manifest
-	header   RunHeader
-	frames   int
-	startRow int
+	cfg         RunConfig
+	nina        *NINA
+	phd         *PHD2
+	clock       Clock
+	site        Site
+	mode        string
+	exp         Exposure
+	mech        Mech
+	moved       bool
+	skyRate     float64
+	starDensity float64
+	man         *Manifest
+	header      RunHeader
+	frames      int
+	startRow    int
 }
 
 func NewRunner(cfg RunConfig, nina *NINA, phd *PHD2, clock Clock) *Runner {
@@ -443,10 +444,11 @@ func (r *Runner) expose(ctx context.Context, ci, row int, az, alt float64) (stri
 			return "", err
 		}
 		skyRef := r.skyRate * float64(exp)
-		seg := Segment(im.Plane(0), im.W, im.H, r.mode, skyRef)
+		seg := Segment(im.Plane(0), im.W, im.H, SegmentOptions{Mode: r.mode, SkyRef: skyRef, StarDensity: r.starDensity})
 		retake := 0
+		skySaturated := seg.Saturated && (r.mode != ModeNight || seg.Median >= saturated)
 		switch {
-		case seg.Saturated && exp > r.exp.MinMS && attempt < maxRetakes:
+		case skySaturated && exp > r.exp.MinMS && attempt < maxRetakes:
 			retake = max(r.exp.MinMS, exp/4)
 		case r.mode == ModeDusk && r.skyRate <= 0 && attempt < maxRetakes:
 			level := math.Max(seg.Peak, 1e-4)
@@ -462,18 +464,15 @@ func (r *Runner) expose(ctx context.Context, ci, row int, az, alt float64) (stri
 			exp = retake
 			continue
 		}
-		if seg.SkyLevel > 0 && seg.Class != ClassObst {
-			rate := seg.SkyLevel / float64(exp)
-			if r.skyRate > 0 {
-				rate = 0.7*rate + 0.3*r.skyRate
-			}
-			r.skyRate = rate
+		if seg.Saturated && !skySaturated {
+			r.logf("bright lights saturate part of %s; they count as foreground, the exposure stays %d ms", name, exp)
 		}
+		r.updateReference(seg, exp)
 		sunAz, sunAlt := r.site.SunAltAz(start)
 		rec := FrameRecord{
 			File: name, Column: ci, Row: row, TargetAz: az, TargetAlt: alt, Start: start, ExposureMS: exp,
-			Mode: r.mode, PixelScale: r.header.PixelScale, Mount: mi.State(), SkyRef: skyRef,
-			Class: seg.Class, ObstFrac: seg.ObstFrac, SkyLevel: seg.SkyLevel, SunAlt: sunAlt,
+			Mode: r.mode, PixelScale: r.header.PixelScale, Mount: mi.State(), SkyRef: skyRef, StarRef: seg.StarRefUsed,
+			Class: seg.Class, ObstFrac: seg.ObstFrac, SkyLevel: seg.SkyLevel, Stars: seg.Stars, SunAlt: sunAlt,
 			SunSep: Separation(HorVec(az, alt), HorVec(sunAz, sunAlt)),
 		}
 		if r.cfg.Astap != "" && r.mode == ModeNight {
@@ -483,8 +482,28 @@ func (r *Runner) expose(ctx context.Context, ci, row int, az, alt float64) (stri
 			return "", err
 		}
 		r.frames++
-		r.logf("frame %s: %s (obstructed %.1f%%, sky level %.3f)", name, seg.Class, 100*seg.ObstFrac, seg.SkyLevel)
+		r.logf("frame %s: %s (obstructed %.1f%%, sky level %.3f, %d stars)", name, seg.Class, 100*seg.ObstFrac, seg.SkyLevel, seg.Stars)
 		return seg.Class, nil
+	}
+}
+
+func (r *Runner) updateReference(seg Segmentation, exp int) {
+	if r.mode == ModeNight && (seg.RefBasis != RefStars || (r.skyRate <= 0 && seg.Class != ClassSky)) {
+		return
+	}
+	if seg.SkyLevel > 0 && seg.Class != ClassObst {
+		rate := seg.SkyLevel / float64(exp)
+		if r.skyRate > 0 {
+			rate = 0.7*rate + 0.3*r.skyRate
+		}
+		r.skyRate = rate
+	}
+	if r.mode == ModeNight && seg.Class != ClassObst && seg.StarDensity > 0 {
+		d := seg.StarDensity
+		if r.starDensity > 0 {
+			d = 0.7*d + 0.3*r.starDensity
+		}
+		r.starDensity = d
 	}
 }
 

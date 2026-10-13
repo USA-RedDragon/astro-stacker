@@ -16,9 +16,7 @@ const (
 	edgeFraction  = 0.003
 	minClassFrac  = 0.01
 	duskContrast  = 2.5
-	nightContrast = 1.4
 	starSigma     = 8.0
-	starRadius    = 4
 	oneClassRatio = 0.35
 	saturated     = 0.92
 )
@@ -35,14 +33,25 @@ func (m *Mask) Center(bx, by int) (float64, float64) {
 }
 
 type Segmentation struct {
-	Mask      *Mask
-	Class     string
-	ObstFrac  float64
-	SkyLevel  float64
-	Peak      float64
-	Stars     int
-	Saturated bool
-	TwoClass  bool
+	Mask        *Mask
+	Class       string
+	ObstFrac    float64
+	SkyLevel    float64
+	Peak        float64
+	Median      float64
+	Stars       int
+	StarRefUsed float64
+	StarList    []Star
+	StarDensity float64
+	RefBasis    string
+	Saturated   bool
+	TwoClass    bool
+}
+
+type SegmentOptions struct {
+	Mode        string
+	SkyRef      float64
+	StarDensity float64
 }
 
 func BlockSize(w int) int { return max(4, w/240) }
@@ -133,30 +142,14 @@ func percentile(v []float64, p float64) float64 {
 	return s[int(math.Min(float64(len(s)-1), p*float64(len(s))))]
 }
 
-func starMap(med, peak []float64, bw, bh int, sigma float64) ([]int, int) {
-	stars := make([]bool, len(med))
+func starCount(med, peak []float64, sigma float64) int {
 	total := 0
 	for i := range med {
 		if sigma > 0 && peak[i]-med[i] > starSigma*sigma {
-			stars[i] = true
 			total++
 		}
 	}
-	density := make([]int, len(med))
-	for by := range bh {
-		for bx := range bw {
-			n := 0
-			for y := max(0, by-starRadius); y <= min(bh-1, by+starRadius); y++ {
-				for x := max(0, bx-starRadius); x <= min(bw-1, bx+starRadius); x++ {
-					if stars[y*bw+x] {
-						n++
-					}
-				}
-			}
-			density[by*bw+bx] = n
-		}
-	}
-	return density, total
+	return total
 }
 
 func majority(sky []bool, bw, bh int) []bool {
@@ -178,78 +171,42 @@ func majority(sky []bool, bw, bh int) []bool {
 	return out
 }
 
-func Segment(pix []float32, w, h int, mode string, skyRef float64) Segmentation {
+func Segment(pix []float32, w, h int, o SegmentOptions) Segmentation {
+	if o.Mode == ModeNight {
+		return segmentNight(pix, w, h, o)
+	}
+	return segmentDusk(pix, w, h, o.SkyRef)
+}
+
+func segmentDusk(pix []float32, w, h int, skyRef float64) Segmentation {
 	b := BlockSize(w)
 	med, peak, bw, bh := blockStats(pix, w, h, b)
 	sigma := noise(pix, w, h)
 	t, lo, hi, nlo := otsu(med)
 	contrast := hi / math.Max(lo, 1e-6)
-	need := duskContrast
-	if mode == ModeNight {
-		need = nightContrast
-	}
 	minClass := int(math.Max(3, minClassFrac*float64(len(med))))
-	twoClass := contrast >= need && nlo >= minClass && len(med)-nlo >= minClass && hi-lo > 6*sigma/float64(b)
-	density, stars := starMap(med, peak, bw, bh, sigma)
+	twoClass := contrast >= duskContrast && nlo >= minClass && len(med)-nlo >= minClass && hi-lo > 6*sigma/float64(b)
+	stars := starCount(med, peak, sigma)
 	sky := make([]bool, len(med))
-	if twoClass && mode == ModeNight && stars > 0 {
-		var sHi, nHi, sLo, nLo float64
-		for i, v := range med {
-			if v > t {
-				sHi += float64(density[i])
-				nHi++
-			} else {
-				sLo += float64(density[i])
-				nLo++
-			}
-		}
-		if sLo/math.Max(nLo, 1) >= 0.5*sHi/math.Max(nHi, 1) {
-			twoClass = false
-		}
-	}
-	switch {
-	case twoClass:
+	if twoClass {
 		for i, v := range med {
 			sky[i] = v > t
 		}
-	default:
-		level := percentile(med, 0.5)
-		isSky := skyRef <= 0 || level >= oneClassRatio*skyRef
-		if mode == ModeNight && float64(stars) >= 0.002*float64(len(med)) {
-			isSky = true
-		}
+	} else {
+		isSky := skyRef <= 0 || percentile(med, 0.5) >= oneClassRatio*skyRef
 		for i := range sky {
 			sky[i] = isSky
 		}
 	}
 	sky = majority(majority(sky, bw, bh), bw, bh)
-	obst := 0
-	var skyVals []float64
-	for i, s := range sky {
-		if s {
-			skyVals = append(skyVals, med[i])
-		} else {
-			obst++
-		}
-	}
 	seg := Segmentation{
 		Mask:     &Mask{BW: bw, BH: bh, Block: b, Sky: sky, Level: med},
-		ObstFrac: float64(obst) / float64(len(sky)),
 		Stars:    stars,
 		TwoClass: twoClass,
 		Peak:     percentile(med, 0.99),
-	}
-	if len(skyVals) > 0 {
-		seg.SkyLevel = percentile(skyVals, 0.5)
+		Median:   percentile(med, 0.5),
 	}
 	seg.Saturated = seg.Peak >= saturated
-	switch {
-	case seg.ObstFrac <= edgeFraction:
-		seg.Class = ClassSky
-	case seg.ObstFrac >= 1-edgeFraction:
-		seg.Class = ClassObst
-	default:
-		seg.Class = ClassEdge
-	}
+	seg.finish(med)
 	return seg
 }
