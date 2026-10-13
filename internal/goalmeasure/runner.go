@@ -432,7 +432,12 @@ func (r *Runner) loadGoals(ctx context.Context) (map[goals.Key]goals.Goal, map[s
 	return gs, guids, nil
 }
 
-func needsMeasurement(s app.Stack, m *app.GoalMeasurement, regionHash string, hasMask bool) bool {
+// needsMeasurement reports whether a master is due: never measured, measured
+// by an older method or region, grown 20% in effective hours, or, while its
+// noise floor can't be measured yet, grown enough subs for another draw
+// level, so the floor and the plateau are measured as soon as there are
+// enough subs for them.
+func needsMeasurement(s app.Stack, m *app.GoalMeasurement, regionHash string, hasMask bool, maxSubs int) bool {
 	switch {
 	case m == nil:
 		return true
@@ -446,8 +451,18 @@ func needsMeasurement(s app.Stack, m *app.GoalMeasurement, regionHash string, ha
 		return s.EffectiveSeconds > 0
 	case m.SkyRev < SkyRevision && m.ZeroPoint != nil && m.DepthSystem != goals.SystemXPAB && skybright.Broadband(s.Filter):
 		return true
+	case !goals.FloorMeasurable(m.Levels) && s.EffectiveSeconds > m.EffectiveHours*3600+1 &&
+		len(goals.Levels(capSubs(s.Subs, maxSubs))) > len(goals.Levels(m.Subs)):
+		return true
 	}
 	return s.EffectiveSeconds >= GrowthRemeasure*m.EffectiveHours*3600
+}
+
+func capSubs(n, maxSubs int) int {
+	if maxSubs > 0 {
+		return min(n, maxSubs)
+	}
+	return n
 }
 
 func remeasureTier(m *app.GoalMeasurement, regionHash string) int {
@@ -502,7 +517,7 @@ func (r *Runner) due(ctx context.Context, goalsByKey map[goals.Key]goals.Goal) (
 		k := goals.Key{Object: s.Object, Filter: s.Filter}
 		m := byKey[k]
 		hash := goals.RegionHash(goalsByKey[k].Region)
-		if !needsMeasurement(s, m, hash, masked[k]) {
+		if !needsMeasurement(s, m, hash, masked[k], r.opts.MaxSubs) {
 			continue
 		}
 		var at time.Time

@@ -431,9 +431,27 @@ func TestNeedsMeasurement(t *testing.T) {
 		{"revision", s, &app.GoalMeasurement{MethodRevision: goals.MethodRevision - 1, EffectiveHours: 1}, "", true, true},
 		{"no mask", s, m, "", false, true},
 		{"no mask, insufficient data", s, &app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, Error: new(string)}, "", false, false},
+		{"insufficient data, enough subs now", app.Stack{Subs: 8, EffectiveSeconds: 3700},
+			&app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, Subs: 7, Error: new(string)}, "", false, true},
+		{"two draw levels, a third now", app.Stack{Subs: 18, EffectiveSeconds: 3700},
+			&app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, Subs: 17, Levels: 2}, "", true, true},
+		{"two draw levels, still two", app.Stack{Subs: 17, EffectiveSeconds: 3700},
+			&app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, Subs: 16, Levels: 2}, "", true, false},
+		{"a third level but no new data", app.Stack{Subs: 18, EffectiveSeconds: 3600},
+			&app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, Subs: 16, Levels: 2}, "", true, false},
+		{"floor measured", app.Stack{Subs: 40, EffectiveSeconds: 3700},
+			&app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, Subs: 30, Levels: 3}, "", true, false},
+		{"unchanged but for rounding", app.Stack{Subs: 18, EffectiveSeconds: 60264},
+			&app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 60264.0 / 3600, Subs: 17, Levels: 2}, "", true, false},
+		{"capped at max-subs", app.Stack{Subs: 18, EffectiveSeconds: 3700},
+			&app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, Subs: 16, Levels: 2}, "", true, false},
 	}
 	for _, c := range cases {
-		if got := needsMeasurement(c.s, c.m, c.hash, c.mask); got != c.want {
+		maxSubs := 200
+		if c.name == "capped at max-subs" {
+			maxSubs = 16
+		}
+		if got := needsMeasurement(c.s, c.m, c.hash, c.mask, maxSubs); got != c.want {
 			t.Errorf("%s: %v", c.name, got)
 		}
 	}
@@ -716,20 +734,20 @@ func TestOldBroadbandMeasurementsAreRemeasuredForSky(t *testing.T) {
 	zp := 6.0
 	st := app.Stack{Filter: "Green", EffectiveSeconds: 3600}
 	m := &app.GoalMeasurement{MethodRevision: goals.MethodRevision, EffectiveHours: 1, ZeroPoint: &zp, DepthSystem: goals.SystemGaiaG}
-	if !needsMeasurement(st, m, "", true) {
+	if !needsMeasurement(st, m, "", true, 0) {
 		t.Error("a broadband master without sky samples is not remeasured")
 	}
 	m.SkyRev = SkyRevision
-	if needsMeasurement(st, m, "", true) {
+	if needsMeasurement(st, m, "", true, 0) {
 		t.Error("remeasured after its sky samples")
 	}
 	m.SkyRev = 0
 	st.Filter = testFilter
-	if needsMeasurement(st, m, "", true) {
+	if needsMeasurement(st, m, "", true, 0) {
 		t.Error("a narrowband master was remeasured for sky")
 	}
 	st.Filter, m.ZeroPoint = "Green", nil
-	if needsMeasurement(st, m, "", true) {
+	if needsMeasurement(st, m, "", true, 0) {
 		t.Error("remeasured without a zero point")
 	}
 }
