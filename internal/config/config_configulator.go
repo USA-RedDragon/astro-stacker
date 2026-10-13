@@ -2205,7 +2205,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[89], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
 	fs.String(names[90], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
 	fs.Bool(names[91], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
-	fs.Var(impl.NewInt(30), names[92], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes")
+	fs.Var(impl.NewInt(30), names[92], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
 	fs.Var(impl.NewInt(200), names[93], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
 	fs.Var(impl.NewInt(3), names[94], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
 	fs.String(names[95], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
