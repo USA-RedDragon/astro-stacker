@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
@@ -15,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"gorm.io/gorm"
 )
 
@@ -155,7 +157,27 @@ type Switcher struct {
 	Commands *schedcmd.Service
 	Classes  func(ctx context.Context) (map[int]string, error)
 	Mode     string
+
+	kickOnce sync.Once
+	kick     *trigger.Debouncer
 }
+
+// Kicks are debounced by KickQuiet and KickMaxWait; the first run waits
+// StartAfter for the project classes to load after a restart.
+const (
+	KickQuiet   = time.Minute
+	KickMaxWait = 10 * time.Minute
+	StartAfter  = 5 * time.Minute
+)
+
+func (w *Switcher) debouncer() *trigger.Debouncer {
+	w.kickOnce.Do(func() { w.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait, StartAfter: StartAfter} })
+	return w.kick
+}
+
+// Kick asks for a check soon, as when a master gets a zero point or goals
+// change.
+func (w *Switcher) Kick() { w.debouncer().Kick() }
 
 func (w *Switcher) Once(ctx context.Context) ([]Change, error) {
 	if w.Mode == ModeOff || w.Mode == "" {
@@ -200,18 +222,12 @@ func (w *Switcher) Once(ctx context.Context) ([]Change, error) {
 	return changes, nil
 }
 
-func (w *Switcher) Run(ctx context.Context, every time.Duration) {
-	t := time.NewTimer(5 * time.Minute)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
+// Run checks StartAfter after it starts, soon after each Kick and every
+// backstop, until ctx ends.
+func (w *Switcher) Run(ctx context.Context, backstop time.Duration) {
+	w.debouncer().Run(ctx, backstop, func(ctx context.Context, _ []string) {
 		if _, err := w.Once(ctx); err != nil && ctx.Err() == nil {
 			slog.Warn("Depth goal switch failed", "error", err)
 		}
-		t.Reset(every)
-	}
+	})
 }

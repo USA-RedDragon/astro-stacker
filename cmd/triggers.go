@@ -24,6 +24,8 @@ type kicks struct {
 	verdicts func()
 	// mosaics builds the mosaics, linear fits and comet masters due.
 	mosaics func()
+	// goalSwitch moves broadband goals with a zero point to depth.
+	goalSwitch func()
 
 	// ready is set once every kick is assigned; commands sent earlier
 	// kick nothing.
@@ -72,6 +74,13 @@ func (k *kicks) onEvent(e events.Event) {
 	}
 }
 
+// onMeasured hears of each goal measurement saved.
+func (k *kicks) onMeasured(_, _ string) {
+	if k.ready.Load() {
+		call(k.goalSwitch)
+	}
+}
+
 func (k *kicks) onSync() {
 	call(k.verdicts)
 }
@@ -80,5 +89,5 @@ func (k *kicks) onPlans() {
 	if k.goals != nil {
 		k.goals("", "")
 	}
-	call(k.moonKeep, k.subLength, k.scheduling)
+	call(k.moonKeep, k.subLength, k.scheduling, k.goalSwitch)
 }
