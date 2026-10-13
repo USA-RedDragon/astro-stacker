@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -794,7 +796,7 @@ func TestRunPublishesWhileMeasurementWaits(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := New(e.db, e.sched, e.objects, nil, Options{Interval: time.Hour, Publish: goals.PublishOn, Busy: func() bool { return true }})
-	r.poll, r.pubPoll, r.pubEvery = time.Millisecond, 5*time.Millisecond, 5*time.Millisecond
+	r.poll, r.pubEvery = time.Millisecond, 5*time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go r.Run(ctx)
@@ -831,5 +833,91 @@ func TestRunPublishesWhileMeasurementWaits(t *testing.T) {
 	if o3.Filter != "O-III" || o3.State == nil || *o3.State != goals.StateCollecting || o3.StackSubs == nil || *o3.StackSubs != 3 ||
 		o3.MinSubs == nil || *o3.MinSubs != goals.MinSubs {
 		t.Errorf("O-III row %+v", o3)
+	}
+}
+
+func TestKickMeasuresAnUpdatedMasterSoon(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	var mu sync.Mutex
+	var heard []goals.Key
+	r := New(e.db, nil, e.objects, nil, Options{Interval: time.Hour, OnMeasured: func(object, filter string) {
+		mu.Lock()
+		heard = append(heard, goals.Key{Object: object, Filter: filter})
+		mu.Unlock()
+	}})
+	r.measure = &trigger.Debouncer{Quiet: 5 * time.Millisecond}
+	r.pubKick = &trigger.Debouncer{Quiet: 5 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		r.Run(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	deadline := time.Now().Add(time.Minute)
+	for l := r.Live(); l.PassStarted == nil || l.State != goals.BackfillIdle; l = r.Live() {
+		if time.Now().After(deadline) {
+			t.Fatalf("the first pass never ran: %+v", l)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	e.addStack(t, testObject, testFilter, 8)
+	r.Kick(testObject, testFilter)
+	deadline = time.Now().Add(time.Minute)
+	for {
+		var n int64
+		e.db.Model(&app.GoalMeasurement{}).Count(&n)
+		mu.Lock()
+		got := slices.Clone(heard)
+		mu.Unlock()
+		if n == 1 && len(got) == 1 {
+			if got[0] != (goals.Key{Object: testObject, Filter: testFilter}) {
+				t.Fatalf("heard %+v", got)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("an updated master waited for the hourly backstop: %d rows, heard %+v", n, got)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestKickedMastersJumpTheQueue(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e := newEnv(t)
+	a := e.addStack(t, "A", testFilter, 4)
+	b := e.addStack(t, "B", testFilter, 4)
+	c := e.addStack(t, "C", testFilter, 4)
+	r := New(e.db, nil, e.objects, nil, Options{})
+	names := func(ss []app.Stack) string {
+		out := make([]string, 0, len(ss))
+		for _, s := range ss {
+			out = append(out, s.Object)
+		}
+		return strings.Join(out, ",")
+	}
+	queue := []app.Stack{a, b, c}
+	urgent := []goals.Key{{Object: "C", Filter: testFilter}}
+	if got := names(r.withUrgent(ctx, queue, urgent, nil, map[int]bool{})); got != "C,A,B" {
+		t.Errorf("queue %s", got)
+	}
+	if got := names(r.withUrgent(ctx, queue[:2], urgent, nil, map[int]bool{c.ID: true})); got != "A,B" {
+		t.Errorf("a master already being measured is not sent again: %s", got)
+	}
+	if got := names(urgentFirst(queue, urgent)); got != "C,A,B" {
+		t.Errorf("first keys %s", got)
+	}
+	r.Kick("B", testFilter)
+	if got := r.takeUrgent(); len(got) != 1 || got[0].Object != "B" || r.takeUrgent() != nil {
+		t.Errorf("urgent %+v", got)
+	}
+	if got := keysOf([]string{"B\x00" + testFilter, "junk"}); len(got) != 1 || got[0] != (goals.Key{Object: "B", Filter: testFilter}) {
+		t.Errorf("keys %+v", got)
 	}
 }

@@ -8,8 +8,10 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"github.com/minio/minio-go/v7"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
@@ -31,10 +34,16 @@ const (
 	failureBackoff  = 6 * time.Hour
 	idlePoll        = 15 * time.Second
 	publishEvery    = 10 * time.Minute
-	publishPoll     = time.Minute
 	DefaultWorkers  = 3
-	columnObject    = "object"
-	columnFilter    = "filter"
+	// MeasureQuiet and MeasureMaxWait debounce master updates into one
+	// measurement pass; PublishQuiet and PublishMaxWait debounce new
+	// measurements and master updates into one goal progress publish.
+	MeasureQuiet   = time.Minute
+	MeasureMaxWait = 5 * time.Minute
+	PublishQuiet   = 10 * time.Second
+	PublishMaxWait = time.Minute
+	columnObject   = "object"
+	columnFilter   = "filter"
 )
 
 type ObjectGetter interface {
@@ -64,6 +73,8 @@ type Options struct {
 	Workers      int
 	Busy         func() bool
 	Longitude    func(ctx context.Context) (float64, error)
+	// OnMeasured, if set, hears of each measurement saved.
+	OnMeasured func(object, filter string)
 }
 
 type Runner struct {
@@ -76,18 +87,19 @@ type Runner struct {
 	pub      *goals.Publisher
 	now      func() time.Time
 	poll     time.Duration
-	pubPoll  time.Duration
 	pubEvery time.Duration
+	measure  *trigger.Debouncer
+	pubKick  *trigger.Debouncer
 
 	drain     chan struct{}
 	drainOnce sync.Once
 
-	mu          sync.Mutex
-	failed      map[int]time.Time
-	live        goals.BackfillLive
-	finished    []time.Time
-	lastPublish time.Time
-	publishMu   sync.Mutex
+	mu        sync.Mutex
+	failed    map[int]time.Time
+	live      goals.BackfillLive
+	finished  []time.Time
+	urgent    []goals.Key
+	publishMu sync.Mutex
 }
 
 func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Options) *Runner {
@@ -102,8 +114,10 @@ func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Optio
 	}
 	return &Runner{db: db, sched: sched, objects: objects, stars: stars, opts: opts,
 		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts, Longitude: opts.Longitude},
-		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll, pubPoll: publishPoll, pubEvery: publishEvery,
-		drain: make(chan struct{}), failed: map[int]time.Time{},
+		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll, pubEvery: publishEvery,
+		measure: &trigger.Debouncer{Quiet: MeasureQuiet, MaxWait: MeasureMaxWait},
+		pubKick: &trigger.Debouncer{Quiet: PublishQuiet, MaxWait: PublishMaxWait},
+		drain:   make(chan struct{}), failed: map[int]time.Time{},
 		live: goals.BackfillLive{State: goals.BackfillIdle, Workers: opts.Workers}}
 }
 
@@ -173,6 +187,10 @@ func (r *Runner) stopping(ctx context.Context) bool {
 	}
 }
 
+// Run measures what is due at start, then soon after each Kick, and every
+// Interval as a backstop, until ctx ends or Drain is called. Goal progress
+// is published soon after each measurement or Kick, and every
+// publishEvery as a backstop.
 func (r *Runner) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -183,20 +201,50 @@ func (r *Runner) Run(ctx context.Context) {
 		case <-ctx.Done():
 		}
 	}()
-	go r.publishLoop(ctx)
-	for !r.stopping(ctx) {
-		if err := r.Pass(ctx); err != nil && ctx.Err() == nil {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	wg.Go(func() { r.pubKick.Run(ctx, r.pubEvery, func(ctx context.Context, _ []string) { r.publish(ctx) }) })
+	r.measure.Run(ctx, r.opts.Interval, func(ctx context.Context, keys []string) {
+		if r.stopping(ctx) {
+			return
+		}
+		if err := r.Pass(ctx, keysOf(keys)...); err != nil && ctx.Err() == nil {
 			slog.Error("Goal measurement pass failed", "error", err)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(r.opts.Interval):
-		}
-	}
+	})
 }
 
-func (r *Runner) Pass(ctx context.Context) error {
+// Kick asks for a measurement pass soon, measuring the given master first
+// if it is due, and for goal progress to be published soon, as when a
+// master was updated. With no object it covers every master, as when goals
+// changed.
+func (r *Runner) Kick(object, filter string) {
+	if object == "" {
+		r.measure.Kick()
+	} else {
+		r.mu.Lock()
+		r.urgent = append(r.urgent, goals.Key{Object: object, Filter: filter})
+		r.mu.Unlock()
+		r.measure.Kick(object + keySep + filter)
+	}
+	r.pubKick.Kick()
+}
+
+const keySep = "\x00"
+
+// keysOf turns Debouncer keys made by Kick back into goal keys.
+func keysOf(keys []string) []goals.Key {
+	out := make([]goals.Key, 0, len(keys))
+	for _, k := range keys {
+		if object, filter, ok := strings.Cut(k, keySep); ok {
+			out = append(out, goals.Key{Object: object, Filter: filter})
+		}
+	}
+	return out
+}
+
+// Pass measures every master that is due, those of first ahead of the rest.
+func (r *Runner) Pass(ctx context.Context, first ...goals.Key) error {
 	if err := r.refitStored(ctx); err != nil && ctx.Err() == nil {
 		slog.Warn("Could not refit stored goal measurements", "error", err)
 	}
@@ -208,6 +256,7 @@ func (r *Runner) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	todo = urgentFirst(todo, append(first, r.takeUrgent()...))
 	started := r.now()
 	r.mu.Lock()
 	r.live.State, r.live.Queued, r.live.QueuedNew, r.live.DoneInPass, r.live.PassStarted = goals.BackfillRunning, len(todo), fresh, 0, &started
@@ -225,10 +274,17 @@ func (r *Runner) Pass(ctx context.Context) error {
 			}
 		})
 	}
-	for _, s := range todo {
+	sent := map[int]bool{}
+	for queue := todo; len(queue) > 0; {
 		if r.stopping(ctx) || r.waitIdle(ctx) != nil {
 			break
 		}
+		if urgent := r.takeUrgent(); len(urgent) > 0 {
+			queue = r.withUrgent(ctx, queue, urgent, goalsByKey, sent)
+		}
+		s := queue[0]
+		queue = queue[1:]
+		sent[s.ID] = true
 		select {
 		case jobs <- s:
 		case <-ctx.Done():
@@ -240,8 +296,72 @@ func (r *Runner) Pass(ctx context.Context) error {
 	if r.stopping(ctx) {
 		return ctx.Err()
 	}
-	r.publish(ctx, true)
+	r.pubKick.Kick()
 	return nil
+}
+
+// takeUrgent returns and forgets the masters kicked since it was last
+// called.
+func (r *Runner) takeUrgent() []goals.Key {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.urgent
+	r.urgent = nil
+	return out
+}
+
+// withUrgent puts the masters of urgent that are due and not yet sent at
+// the front of queue, so a master updated during a long pass is measured
+// next instead of after the rest.
+func (r *Runner) withUrgent(ctx context.Context, queue []app.Stack, urgent []goals.Key, goalsByKey map[goals.Key]goals.Goal, sent map[int]bool) []app.Stack {
+	due, _, err := r.due(ctx, goalsByKey)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("Could not check updated masters for goal measurement", "error", err)
+		}
+		return queue
+	}
+	var front []app.Stack
+	for _, s := range due {
+		if !sent[s.ID] && slices.Contains(urgent, goals.Key{Object: s.Object, Filter: s.Filter}) {
+			front = append(front, s)
+		}
+	}
+	if len(front) == 0 {
+		return queue
+	}
+	out := make([]app.Stack, 0, len(front)+len(queue))
+	out = append(out, front...)
+	added := len(front)
+	for _, s := range queue {
+		if slices.ContainsFunc(front, func(f app.Stack) bool { return f.ID == s.ID }) {
+			added--
+			continue
+		}
+		out = append(out, s)
+	}
+	r.mu.Lock()
+	r.live.Queued += added
+	r.mu.Unlock()
+	return out
+}
+
+// urgentFirst moves the stacks of first to the front, keeping the order
+// otherwise.
+func urgentFirst(todo []app.Stack, first []goals.Key) []app.Stack {
+	if len(first) == 0 {
+		return todo
+	}
+	out := make([]app.Stack, 0, len(todo))
+	var rest []app.Stack
+	for _, s := range todo {
+		if slices.Contains(first, goals.Key{Object: s.Object, Filter: s.Filter}) {
+			out = append(out, s)
+		} else {
+			rest = append(rest, s)
+		}
+	}
+	return append(out, rest...)
 }
 
 func (r *Runner) measureOne(ctx context.Context, s app.Stack, goalsByKey map[goals.Key]goals.Goal, guids map[string]string) {
@@ -277,33 +397,16 @@ func (r *Runner) measureOne(ctx context.Context, s app.Stack, goalsByKey map[goa
 	r.mu.Unlock()
 	if err != nil {
 		slog.Warn("Could not measure goal progress", "object", s.Object, "filter", s.Filter, "error", err)
+		return
 	}
-	r.publish(ctx, false)
-}
-
-func (r *Runner) publishLoop(ctx context.Context) {
-	t := time.NewTicker(r.pubPoll)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			r.publish(ctx, false)
-		}
+	r.pubKick.Kick()
+	if r.opts.OnMeasured != nil {
+		r.opts.OnMeasured(s.Object, s.Filter)
 	}
 }
 
-func (r *Runner) publish(ctx context.Context, force bool) {
-	if !r.publishMu.TryLock() {
-		return
-	}
-	defer r.publishMu.Unlock()
-	if !force && r.now().Sub(r.lastPublish) < r.pubEvery {
-		return
-	}
-	r.lastPublish = r.now()
-	if _, err := r.pub.Publish(ctx); err != nil && ctx.Err() == nil {
+func (r *Runner) publish(ctx context.Context) {
+	if _, err := r.Publish(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("Publishing goal progress failed", "error", err)
 	}
 }
@@ -311,7 +414,6 @@ func (r *Runner) publish(ctx context.Context, force bool) {
 func (r *Runner) Publish(ctx context.Context) (goals.PublishSummary, error) {
 	r.publishMu.Lock()
 	defer r.publishMu.Unlock()
-	r.lastPublish = r.now()
 	return r.pub.Publish(ctx)
 }
 

@@ -35,6 +35,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/publicframe"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedwatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
@@ -122,6 +123,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	var stackBusy func() bool
 	var backfill func() goals.BackfillLive
 	broker := events.NewBroker()
+	kick := &kicks{}
 	newFrames := &wake.Signal{}
 	hz := horizons.New(cmd.Annotations["version"], appStore.DB())
 	hz.BaseURL = cfg.Bodies.HorizonsURL
@@ -216,7 +218,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir, "ts_verdicts", cfg.Stacking.TSVerdicts)
 		}
 		if cfg.Goals.Enabled {
-			drainGoals, backfill = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy)
+			drainGoals, backfill, kick.goals = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy)
 		}
 	}
 
@@ -262,6 +264,9 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		extras.Grader = &observatory.GraderCache{Client: obs, Monitor: monitor}
 	}
 
+	watcher := &schedwatch.Watcher{DB: schedulerDBStore.DB()}
+	kick.listen(broker, watcher)
+	go watcher.Run(indexCtx)
 	startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
 	extras.Scheduling = startScheduling(indexCtx, cfg, appStore, schedulerDBStore, commands, bodyNights, horizon)
 
@@ -311,7 +316,7 @@ func afterScan(db *gorm.DB, broker *events.Broker, publish ...func(context.Conte
 	}
 }
 
-func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool) (func(), func() goals.BackfillLive) {
+func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool) (func(), func() goals.BackfillLive, func(object, filter string)) {
 	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
 		goalmeasure.VizierFetcher(nil, ""), withLongitude(goalOptions(cfg, boosts, busy), siteFunc(cfg, appStore)))
 	r.XP = goalmeasure.VizierXPFetcher(nil, "")
@@ -320,7 +325,7 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 		r.Run(context.Background())
 		close(done)
 	}()
-	slog.Info("Goal measurement started", "interval_minutes", cfg.Goals.IntervalMinutes, "max_subs", cfg.Goals.MaxSubs, "publish", cfg.Goals.Publish,
+	slog.Info("Goal measurement started", "backstop_minutes", cfg.Goals.IntervalMinutes, "max_subs", cfg.Goals.MaxSubs, "publish", cfg.Goals.Publish,
 		"workers", cfg.Goals.Workers, "waits_for_stacking", busy != nil)
 	return func() {
 		r.Drain()
@@ -329,7 +334,7 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 		case <-time.After(30 * time.Second):
 			slog.Warn("Goal measurement still busy at shutdown")
 		}
-	}, r.Live
+	}, r.Live, r.Kick
 }
 
 func startDepthSwitch(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, commands *schedcmd.Service, disc *discover.Service) {
