@@ -113,7 +113,7 @@ func TestQuietWaitsForTheBurstToEnd(t *testing.T) {
 	d := &trigger.Debouncer{Quiet: quiet}
 	start(t, d, 0, r.run)
 	r.wait(t, 1, time.Second)
-	var kicks []time.Time
+	kicks := make([]time.Time, 0, 5)
 	for range 5 {
 		kicks = append(kicks, time.Now())
 		d.Kick(m31)
