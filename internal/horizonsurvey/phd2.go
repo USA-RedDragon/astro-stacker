@@ -278,6 +278,9 @@ func (p *PHD2) Capture(ctx context.Context, exposureMS int, path string) error {
 		case <-p.done:
 			return ErrPHD2Closed
 		case <-wait.Done():
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("%w: capture interrupted: %w", ErrPHD2, err)
+			}
 			return fmt.Errorf("%w: no SingleFrameComplete event within %s", ErrPHD2, timeout)
 		}
 	}
