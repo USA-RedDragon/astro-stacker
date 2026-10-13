@@ -180,7 +180,7 @@ func coverRect(cover []uint8, w, h int, need uint8) Rect {
 
 func combinedSignature(rows []app.BodyNight) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "nights\x00%d", cometNightsMethod)
+	fmt.Fprintf(h, "nights\x00%d\x00%d", cometNightsMethod, cometMethod)
 	for _, r := range rows {
 		fmt.Fprintf(h, "\x00%s\x00%s", r.Night.UTC().Format(goals.NightLayout), r.ImageSignature)
 	}
@@ -395,7 +395,13 @@ func (p *Pipeline) publishCombinedComet(ctx context.Context, stack *app.Stack, d
 	}).Error; err != nil {
 		return err
 	}
-	p.removeMoved(ctx, moved, prefix, "comet.fit", "comet.xisf", "comet-starless.fit", "comet-starless.xisf", "comet.jpg", "comet-linear.bin")
+	p.removeMoved(ctx, moved, prefix, "comet.fit", "comet.xisf", "comet-starless.fit", "comet-starless.xisf",
+		"comet-aligned.fit", "comet-aligned.xisf", "comet.jpg", "comet-linear.bin")
+	for _, n := range []string{"comet-aligned.fit", "comet-aligned.xisf"} {
+		if err := p.s3.RemoveObject(ctx, p.dest, path.Join(prefix, n), minio.RemoveObjectOptions{}); err != nil {
+			slog.Warn("Could not remove a single night's comet master", "key", path.Join(prefix, n), "error", err)
+		}
+	}
 	stack.CometSignature = sig
 	stack.CometLinearKey = ptrTo(keys["comet-linear.bin"])
 	stack.CometCropX, stack.CometCropY, stack.CometCropW, stack.CometCropH = r.X, r.Y, r.W, r.H
