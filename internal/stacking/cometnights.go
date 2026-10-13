@@ -386,6 +386,7 @@ func (p *Pipeline) publishCombinedComet(ctx context.Context, stack *app.Stack, d
 	if err := p.putBytes(ctx, keys["comet-linear.bin"], linear, minio.PutObjectOptions{ContentType: contentTypeOctetStream, ContentEncoding: contentEncodingGzip}); err != nil {
 		return err
 	}
+	moved := stack.CometKey
 	if err := p.db.WithContext(ctx).Model(stack).UpdateColumns(map[string]any{
 		"comet_key": keys["comet.fit"], "comet_xisf_key": keys["comet.xisf"], "comet_preview_key": keys["comet.jpg"],
 		"comet_linear_key": keys["comet-linear.bin"], "comet_subs": subs,
@@ -394,6 +395,7 @@ func (p *Pipeline) publishCombinedComet(ctx context.Context, stack *app.Stack, d
 	}).Error; err != nil {
 		return err
 	}
+	p.removeMoved(ctx, moved, prefix, "comet.fit", "comet.xisf", "comet-starless.fit", "comet-starless.xisf", "comet.jpg", "comet-linear.bin")
 	stack.CometSignature = sig
 	stack.CometLinearKey = ptrTo(keys["comet-linear.bin"])
 	stack.CometCropX, stack.CometCropY, stack.CometCropW, stack.CometCropH = r.X, r.Y, r.W, r.H

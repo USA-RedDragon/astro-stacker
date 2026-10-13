@@ -183,6 +183,7 @@ func (p *Pipeline) Restack(ctx context.Context, object string) error {
 // restack does Restack's work, saving reset (the automatic re-reference
 // count) with it when given.
 func (p *Pipeline) restack(ctx context.Context, object string, reset *app.ReferenceReset) error {
+	oldKeys := p.stackKeys(ctx, object)
 	var nightRefs []time.Time
 	if has, err := tables.Has(ctx, p.db, &app.NightReference{}); err != nil {
 		return err
@@ -217,6 +218,7 @@ func (p *Pipeline) restack(ctx context.Context, object string, reset *app.Refere
 	if err != nil {
 		return err
 	}
+	p.removeOldLayout(ctx, object, oldKeys)
 	h := sha256.Sum256([]byte(object))
 	_ = os.Remove(filepath.Join(p.workDir, "references", hex.EncodeToString(h[:8])+".fit"))
 	for _, n := range nightRefs {
