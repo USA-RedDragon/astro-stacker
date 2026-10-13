@@ -215,6 +215,8 @@ scheduler:
   # metrics-url: ""
   # The ups label of the observatory UPS in the NUT exporter's metrics
   ups: "observatory"
+  # Base URL of NINA's Advanced API on the observatory PC, e.g. http://observatory:1888/v2/api, for the collab switch on the Collabs page; empty leaves the switch unconfigured
+  # nina-url: ""
 # Faint-signal SNR and depth of every master, measured from random half stacks of its registered subs, and progress toward Target Scheduler goals
 goals:
   # Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours
