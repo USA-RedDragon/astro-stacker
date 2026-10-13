@@ -138,6 +138,28 @@ func TestCometMasterWaitsOnlyForTheMasterToSettle(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("a comet master whose master just changed was left for the backstop")
 	}
+	var s app.Stack
+	if err := db.First(&s).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !p.cometRebuildDue(s.ID) {
+		t.Fatal("a master never built since the start is due")
+	}
+	p.cometBuiltNow(s.ID)
+	if p.cometRebuildDue(s.ID) {
+		t.Fatal("a comet master built moments ago waits CometRebuildGap")
+	}
+	if err := db.Model(&s).UpdateColumn("updated_at", time.Now().Add(-time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := p.cometsOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-runs:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a comet master inside its rebuild gap asks for another pass")
+	}
 }
 
 // A moving target's master update keeps the workers off it until the next

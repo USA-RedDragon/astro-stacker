@@ -220,8 +220,9 @@ func parseEphemeris(result string) (ephemeris, error) {
 }
 
 // cometsOnce stacks comet masters for comet targets whose star-aligned
-// masters changed and have been left alone for CometQuiet; one changed more
-// recently asks for another pass.
+// masters changed and have been left alone for CometQuiet, at most once per
+// CometRebuildGap each; one changed or built more recently asks for another
+// pass.
 func (p *Pipeline) cometsOnce(ctx context.Context) error {
 	var stacks []app.Stack
 	if err := p.db.WithContext(ctx).Where("subs >= 3 AND master_key IS NOT NULL").Find(&stacks).Error; err != nil {
@@ -238,7 +239,7 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 		if !ok || s.CometSignature == sig {
 			continue
 		}
-		if time.Since(s.UpdatedAt) < CometQuiet {
+		if time.Since(s.UpdatedAt) < CometQuiet || !p.cometRebuildDue(s.ID) {
 			p.KickMosaics()
 			continue
 		}
@@ -252,6 +253,7 @@ func (p *Pipeline) cometsOnce(ctx context.Context) error {
 		}
 		err := p.stackComet(ctx, s, body, sig)
 		p.release(s.Object)
+		p.cometBuiltNow(s.ID)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

@@ -153,6 +153,8 @@ type Pipeline struct {
 	bodyObjects map[string]bool
 	reserved    map[string]bool
 	bodyLoop    bool
+	// cometBuilt is when each master's comet master was last built.
+	cometBuilt map[int]time.Time
 	// building serializes work on one calibration master's files.
 	building sync.Map // set key -> *sync.Mutex
 	// sites caches each target's observing site (latitude, east longitude),
@@ -214,8 +216,29 @@ const (
 	// CometQuiet is how long a comet target's star-aligned master is left
 	// alone before its comet master is stacked, so the comet master
 	// follows the master within minutes rather than after MosaicQuiet.
-	CometQuiet = time.Minute
+	// CometRebuildGap keeps a master's comet rebuilds, each of which reads
+	// every sub, that far apart while subs keep arriving.
+	CometQuiet      = time.Minute
+	CometRebuildGap = 10 * time.Minute
 )
+
+// cometRebuildDue reports whether stack's comet master was last built
+// CometRebuildGap ago or more, or not since the stacker started.
+func (p *Pipeline) cometRebuildDue(stack int) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	at, ok := p.cometBuilt[stack]
+	return !ok || time.Since(at) >= CometRebuildGap
+}
+
+func (p *Pipeline) cometBuiltNow(stack int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cometBuilt == nil {
+		p.cometBuilt = map[int]time.Time{}
+	}
+	p.cometBuilt[stack] = time.Now()
+}
 
 // KickVerdicts asks for verdicts to be sent soon, as when lights are
 // triaged or Target Scheduler's images sync in.
