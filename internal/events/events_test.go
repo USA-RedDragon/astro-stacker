@@ -135,3 +135,26 @@ func TestShutdownEndsStreams(t *testing.T) {
 	}
 	b.Close() // twice is fine
 }
+
+const (
+	listenObject = "M31"
+	listenFilter = "H-a"
+)
+
+func TestListenHearsPublishedEventsUntilCancelled(t *testing.T) {
+	t.Parallel()
+	b := NewBroker()
+	var heard []Event
+	cancel := b.Listen(func(e Event) {
+		heard = append(heard, e)
+		b.Listen(func(Event) {})
+	})
+	b.Publish(Event{Type: TypeMaster, Object: listenObject, Filter: listenFilter})
+	cancel()
+	b.Publish(Event{Type: TypeMaster, Object: "M33"})
+	if len(heard) != 1 || heard[0].Object != listenObject || heard[0].Filter != listenFilter || heard[0].ID == 0 {
+		t.Fatalf("heard %+v", heard)
+	}
+	var nilBroker *Broker
+	nilBroker.Listen(func(Event) { t.Error("a nil broker never calls listeners") })()
+}
