@@ -136,28 +136,26 @@ func TestBortleFromMeasuredSky(t *testing.T) {
 		{"brighter than 18, limit 7", skybright.Value{Mag: ptr(17.6), Basis: measured.Basis}, 7, discover.CriterionFail, worst},
 	}
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			s := newService(t)
-			v := c.value
-			s.Sky = func(context.Context) skybright.Value { return v }
-			p := collabWith("b", starfront.Requirements{MaxBortle: &c.max}, nil)
-			out, err := s.Collabs(context.Background(), fakeCollabs{starfront.State{Enabled: true, Projects: []starfront.Project{p}}})
-			if err != nil || len(out.Open) != 1 {
-				t.Fatalf("%v %+v", err, out)
-			}
-			row, ok := criterion(out.Open[0], "Sky darkness")
-			if !ok || row.Result != c.result || !strings.HasPrefix(row.You, c.you) || row.Scope != discover.ScopeRig {
-				t.Errorf("row %+v", row)
-			}
-		})
+		row, ok := discover.BortleCriterion(starfront.Requirements{MaxBortle: &c.max}, c.value)
+		if !ok || row.Name != "Sky darkness" || row.Result != c.result || !strings.HasPrefix(row.You, c.you) || row.Scope != discover.ScopeRig {
+			t.Errorf("%s: row %+v", c.name, row)
+		}
+	}
+	if _, ok := discover.BortleCriterion(starfront.Requirements{}, measured); ok {
+		t.Error("a sky row without a Bortle limit")
 	}
 	s := newService(t)
-	out, err := s.Collabs(context.Background(), fakeCollabs{starfront.State{Enabled: true, Projects: []starfront.Project{collabWith("n", starfront.Requirements{}, nil)}}})
-	if err != nil {
-		t.Fatal(err)
+	s.Sky = func(context.Context) skybright.Value { return measured }
+	five := 5
+	out, err := s.Collabs(context.Background(), fakeCollabs{starfront.State{Enabled: true, Projects: []starfront.Project{
+		collabWith("b", starfront.Requirements{MaxBortle: &five}, nil), collabWith("n", starfront.Requirements{}, nil)}}})
+	if err != nil || len(out.Open) != 2 {
+		t.Fatalf("%v %+v", err, out)
 	}
-	if _, ok := criterion(out.Open[0], "Sky darkness"); ok {
-		t.Error("a sky row without a Bortle limit")
+	for _, c := range out.Open {
+		row, ok := criterion(c, "Sky darkness")
+		if ok != (c.ID == "b") || (ok && row.Result != discover.CriterionPass) {
+			t.Errorf("%s sky row %+v %v", c.ID, row, ok)
+		}
 	}
 }
