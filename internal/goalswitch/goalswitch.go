@@ -162,16 +162,20 @@ type Switcher struct {
 	kick     *trigger.Debouncer
 }
 
-// Kicks are debounced by KickQuiet and KickMaxWait; the first run waits
-// StartAfter for the project classes to load after a restart.
+// Kicks are debounced by KickQuiet and KickMaxWait and runs kept
+// KickMinGap apart; the first run waits StartAfter for the project classes
+// to load after a restart.
 const (
 	KickQuiet   = time.Minute
 	KickMaxWait = 10 * time.Minute
+	KickMinGap  = 10 * time.Minute
 	StartAfter  = 5 * time.Minute
 )
 
 func (w *Switcher) debouncer() *trigger.Debouncer {
-	w.kickOnce.Do(func() { w.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait, StartAfter: StartAfter} })
+	w.kickOnce.Do(func() {
+		w.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait, MinGap: KickMinGap, StartAfter: StartAfter}
+	})
 	return w.kick
 }
 

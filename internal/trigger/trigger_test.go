@@ -209,3 +209,34 @@ func TestNilDebouncerIgnoresKicks(t *testing.T) {
 	var d *trigger.Debouncer
 	d.Kick(m31)
 }
+
+func TestMinGapSpacesRunsDuringASteadyStream(t *testing.T) {
+	t.Parallel()
+	r := newRecorder()
+	d := &trigger.Debouncer{Quiet: 5 * time.Millisecond, MinGap: 150 * time.Millisecond}
+	start(t, d, 0, r.run)
+	r.wait(t, 1, time.Second)
+	stop := time.After(500 * time.Millisecond)
+loop:
+	for {
+		select {
+		case <-stop:
+			break loop
+		default:
+			d.Kick(m31)
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	r.wait(t, 1, time.Second)
+	got := r.snapshot()
+	if len(got) > 5 {
+		t.Fatalf("kicks 20ms apart ran %d times in 500ms with a 150ms gap", len(got))
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := 2; i < len(r.at); i++ {
+		if gap := r.at[i].Sub(r.at[i-1]); gap < 140*time.Millisecond {
+			t.Fatalf("runs %d and %d were %v apart", i-1, i, gap)
+		}
+	}
+}

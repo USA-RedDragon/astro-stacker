@@ -113,7 +113,7 @@ stacking:
   astrometry-timeout-seconds: 300
   # Targets stacked at once; each holds up to about 1.5 GB besides Siril
   workers: 1
-  # Minutes between backstop checks for mosaics, linear fits and comet masters to build; a master update or new frames start a check about a minute later, at most this long into a steady stream of them; 0 turns mosaics off
+  # Minutes between backstop checks for mosaics, linear fits and comet masters to build; a master update or new frames start a check about a minute later, at most every five minutes; 0 turns mosaics off
   mosaic-minutes: 10
   # Minimum minutes between rebuilds of a mosaic whose panel masters keep changing; a new panel rebuilds it at once
   mosaic-quiet-minutes: 30
@@ -133,7 +133,7 @@ stacking:
   # ts-verdicts-since: ""
   # Only subs of these targets; empty for all
   # ts-verdicts-targets: []
-  # Most new verdicts sent in any hour; a sweep runs about a minute after lights are triaged or Target Scheduler's images sync in, at most ten minutes into a steady stream of them, and hourly
+  # Most new verdicts sent in any hour; a sweep runs about a minute after lights are triaged or Target Scheduler's images sync in, at most every five minutes, and hourly
   ts-verdicts-max: 200
   # Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all
   registered-grace-hours: 24
@@ -231,7 +231,7 @@ sub-length:
   publish: "off"
   # Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals
   new-lengths: false
-  # Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, at most ten minutes into a steady stream of them
+  # Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving
   interval-minutes: 60
   # The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars
   tolerance-percent: 2
@@ -243,7 +243,7 @@ calibration:
 moon-keep:
   # Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it
   publish: "on"
-  # Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, at most ten minutes into a steady stream of them
+  # Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving
   interval-hours: 24
 # Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight
 bodies:
@@ -261,5 +261,5 @@ bodies:
 scheduling:
   # Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on
   auto: "off"
-  # Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change, and when a manual edit's hold ends
+  # Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends
   interval-hours: 1

@@ -78,7 +78,7 @@ type Darks struct {
 type SubLength struct {
 	Publish         string  `name:"publish" description:"Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second" default:"off"`
 	NewLengths      bool    `name:"new-lengths" description:"Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals"`
-	IntervalMinutes int     `name:"interval-minutes" description:"Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, at most ten minutes into a steady stream of them" default:"60"`
+	IntervalMinutes int     `name:"interval-minutes" description:"Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving" default:"60"`
 	TolerancePct    float64 `name:"tolerance-percent" description:"The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars" default:"2"`
 }
 
@@ -103,7 +103,7 @@ func (s SubLength) validate(perSecond bool) error {
 
 type Scheduling struct {
 	Auto          string `name:"auto" description:"Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on" default:"off"`
-	IntervalHours int    `name:"interval-hours" description:"Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change, and when a manual edit's hold ends" default:"1"`
+	IntervalHours int    `name:"interval-hours" description:"Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends" default:"1"`
 }
 
 func (s Scheduling) validate() error {
@@ -120,7 +120,7 @@ func (s Scheduling) validate() error {
 
 type MoonKeep struct {
 	Publish       string `name:"publish" description:"Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it" default:"on"`
-	IntervalHours int    `name:"interval-hours" description:"Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, at most ten minutes into a steady stream of them" default:"24"`
+	IntervalHours int    `name:"interval-hours" description:"Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving" default:"24"`
 }
 
 func (m MoonKeep) validate() error {
@@ -201,7 +201,7 @@ type Stacking struct {
 	AstrometryCPU      int     `name:"astrometry-cpu-seconds" description:"CPU seconds one solve-field run may use; runs are one at a time, on one core" default:"120"`
 	AstrometryTimeout  int     `name:"astrometry-timeout-seconds" description:"Seconds one solve-field run may take" default:"300"`
 	Workers            int     `name:"workers" description:"Targets stacked at once; each holds up to about 1.5 GB besides Siril" default:"1"`
-	MosaicMinutes      int     `name:"mosaic-minutes" description:"Minutes between backstop checks for mosaics, linear fits and comet masters to build; a master update or new frames start a check about a minute later, at most this long into a steady stream of them; 0 turns mosaics off" default:"10"`
+	MosaicMinutes      int     `name:"mosaic-minutes" description:"Minutes between backstop checks for mosaics, linear fits and comet masters to build; a master update or new frames start a check about a minute later, at most every five minutes; 0 turns mosaics off" default:"10"`
 	MosaicQuiet        int     `name:"mosaic-quiet-minutes" description:"Minimum minutes between rebuilds of a mosaic whose panel masters keep changing; a new panel rebuilds it at once" default:"30"`
 	MosaicSeams        bool    `name:"mosaic-seams" description:"Measure seam health on mosaics already built, one per mosaic check and only while no target is stacking; new builds measure their seams either way" default:"true"`
 	Pedestal           float64 `name:"pedestal" description:"Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset" default:"506"`
@@ -214,7 +214,7 @@ type Stacking struct {
 	TSVerdicts             string   `name:"ts-verdicts" description:"Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on" default:"off"`
 	TSVerdictsSince        string   `name:"ts-verdicts-since" description:"Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all"`
 	TSVerdictsTargets      []string `name:"ts-verdicts-targets" description:"Only subs of these targets; empty for all"`
-	TSVerdictsMax          int      `name:"ts-verdicts-max" description:"Most new verdicts sent in any hour; a sweep runs about a minute after lights are triaged or Target Scheduler's images sync in, at most ten minutes into a steady stream of them, and hourly" default:"200"`
+	TSVerdictsMax          int      `name:"ts-verdicts-max" description:"Most new verdicts sent in any hour; a sweep runs about a minute after lights are triaged or Target Scheduler's images sync in, at most every five minutes, and hourly" default:"200"`
 	RegisteredGraceHours   int      `name:"registered-grace-hours" description:"Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all" default:"24"`
 	RegisteredDeletePause  int      `name:"registered-delete-pause-ms" description:"Milliseconds between deletions of unreferenced registered subs" default:"200"`
 	RegisteredBackfillRate float64  `name:"registered-backfill-rate" description:"Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion" default:"0.5"`

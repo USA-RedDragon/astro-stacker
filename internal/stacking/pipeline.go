@@ -197,11 +197,13 @@ type Pipeline struct {
 }
 
 // Verdict and mosaic kicks are debounced by these, so a night of new subs
-// sends verdicts and builds mosaics in batches.
+// sends verdicts and builds mosaics in batches, at most once per MinGap.
 const (
 	VerdictQuiet   = time.Minute
 	VerdictMaxWait = 10 * time.Minute
+	VerdictMinGap  = 5 * time.Minute
 	MosaicKickWait = time.Minute
+	MosaicMinGap   = 5 * time.Minute
 )
 
 // KickVerdicts asks for verdicts to be sent soon, as when lights are
@@ -282,8 +284,8 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 	}
 	p := &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
 		busy: map[string]bool{}, working: map[string]*events.Worker{}, drain: make(chan struct{}),
-		verdictKick: &trigger.Debouncer{Quiet: VerdictQuiet, MaxWait: VerdictMaxWait},
-		mosaicKick:  &trigger.Debouncer{Quiet: MosaicKickWait, MaxWait: opts.MosaicInterval}}
+		verdictKick: &trigger.Debouncer{Quiet: VerdictQuiet, MaxWait: VerdictMaxWait, MinGap: VerdictMinGap},
+		mosaicKick:  &trigger.Debouncer{Quiet: MosaicKickWait, MaxWait: opts.MosaicInterval, MinGap: MosaicMinGap}}
 	p.scorer.PerSecond = opts.ScorePerSecond
 	return p
 }

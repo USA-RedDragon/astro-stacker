@@ -53,14 +53,18 @@ type Service struct {
 	kick     *trigger.Debouncer
 }
 
-// Adoption kicks are debounced by AdoptionQuiet and AdoptionMaxWait.
+// Adoption kicks are debounced by AdoptionQuiet and AdoptionMaxWait, and
+// passes during imaging are kept AdoptionMinGap apart.
 const (
 	AdoptionQuiet   = 2 * time.Minute
 	AdoptionMaxWait = 10 * time.Minute
+	AdoptionMinGap  = 15 * time.Minute
 )
 
 func (s *Service) debouncer() *trigger.Debouncer {
-	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: AdoptionQuiet, MaxWait: AdoptionMaxWait} })
+	s.kickOnce.Do(func() {
+		s.kick = &trigger.Debouncer{Quiet: AdoptionQuiet, MaxWait: AdoptionMaxWait, MinGap: AdoptionMinGap}
+	})
 	return s.kick
 }
 

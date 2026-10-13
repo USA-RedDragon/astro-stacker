@@ -36,12 +36,14 @@ const (
 	publishEvery    = 10 * time.Minute
 	DefaultWorkers  = 3
 	// MeasureQuiet and MeasureMaxWait debounce master updates into one
-	// measurement pass; PublishQuiet and PublishMaxWait debounce new
-	// measurements and master updates into one goal progress publish.
+	// measurement pass; PublishQuiet, PublishMaxWait and PublishMinGap
+	// debounce new measurements and master updates into one goal progress
+	// publish at most once a minute.
 	MeasureQuiet   = time.Minute
 	MeasureMaxWait = 5 * time.Minute
 	PublishQuiet   = 10 * time.Second
 	PublishMaxWait = time.Minute
+	PublishMinGap  = time.Minute
 	columnObject   = "object"
 	columnFilter   = "filter"
 )
@@ -116,7 +118,7 @@ func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Optio
 		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts, Longitude: opts.Longitude},
 		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll, pubEvery: publishEvery,
 		measure: &trigger.Debouncer{Quiet: MeasureQuiet, MaxWait: MeasureMaxWait},
-		pubKick: &trigger.Debouncer{Quiet: PublishQuiet, MaxWait: PublishMaxWait},
+		pubKick: &trigger.Debouncer{Quiet: PublishQuiet, MaxWait: PublishMaxWait, MinGap: PublishMinGap},
 		drain:   make(chan struct{}), failed: map[int]time.Time{},
 		live: goals.BackfillLive{State: goals.BackfillIdle, Workers: opts.Workers}}
 }
