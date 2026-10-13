@@ -72,11 +72,52 @@ func skyEventsEngineAt(t *testing.T, withWindows bool, now time.Time) skyEventsR
 		t.Fatal(err)
 	}
 	svc := newSkyEventsService(appStore, sched, cmds, now)
+	refreshFromPriorRun(t, svc, appStore, now)
+	applySkyEventRoutes(r.Group("/api/v1"), svc, nil)
+	return skyEventsRig{tr: tr, sched: sched, app: appStore, cmds: cmds, svc: svc, call: func(method, path, body string) (int, map[string]any) { return get(t, r, method, path, body) }}
+}
+
+// priorRuns holds the first saved search per clock time. Later rigs start
+// from it as the server does after a restart, so their searches reuse its
+// rarities instead of scanning the recurrence years again.
+var priorRuns sync.Map
+
+type priorRun struct {
+	mu  sync.Mutex
+	run *app.SkyEventRun
+}
+
+func refreshFromPriorRun(t *testing.T, svc *skyevents.Service, appStore testStore, now time.Time) {
+	t.Helper()
+	v, _ := priorRuns.LoadOrStore(now, &priorRun{})
+	prior, ok := v.(*priorRun)
+	if !ok {
+		t.Fatalf("prior run %T", v)
+	}
+	prior.mu.Lock()
+	if prior.run != nil {
+		run := *prior.run
+		prior.mu.Unlock()
+		if err := appStore.DB().Create(&run).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.Load(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	defer prior.mu.Unlock()
 	if _, err := svc.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	applySkyEventRoutes(r.Group("/api/v1"), svc, nil)
-	return skyEventsRig{tr: tr, sched: sched, app: appStore, cmds: cmds, svc: svc, call: func(method, path, body string) (int, map[string]any) { return get(t, r, method, path, body) }}
+	var run app.SkyEventRun
+	if err := appStore.DB().First(&run, 1).Error; err != nil {
+		t.Fatal(err)
+	}
+	prior.run = &run
 }
 
 func newSkyEventsService(appStore, sched testStore, cmds *schedcmd.Service, now time.Time) *skyevents.Service {

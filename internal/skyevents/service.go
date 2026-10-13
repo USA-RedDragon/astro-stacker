@@ -338,7 +338,18 @@ func (s *Service) Load(ctx context.Context) error {
 	if err := json.Unmarshal([]byte(row.Result), &res); err != nil {
 		return err
 	}
-	s.keep(&res)
+	var known map[string]*Rarity
+	if row.Rarities != nil {
+		if err := json.Unmarshal([]byte(*row.Rarities), &known); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	s.last = &res
+	if known != nil {
+		s.rarities = known
+	}
+	s.mu.Unlock()
 	return nil
 }
 
@@ -350,7 +361,14 @@ func (s *Service) save(ctx context.Context, res *Result) error {
 	if err != nil {
 		return err
 	}
-	row := app.SkyEventRun{ID: 1, ComputedAt: *res.ComputedAt, Result: string(b)}
+	s.mu.Lock()
+	known, err := json.Marshal(s.rarities)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	rarities := string(known)
+	row := app.SkyEventRun{ID: 1, ComputedAt: *res.ComputedAt, Result: string(b), Rarities: &rarities}
 	return s.App.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error
 }
 
