@@ -23,7 +23,7 @@ import (
 
 const (
 	token        = "secret"
-	statusJSON   = `{"version":"5.8.2.101","state":"imaging","paused":false,"target":{"project_id":5,"project_name":"Sadr Region","target_id":13,"target_name":"IC 1318 Panel 15","priority":2,"is_mosaic":true},"exposure":{"filter":"R","seconds":600,"started_at":"2026-10-10T06:40:00Z","ends_at":"2026-10-10T06:50:00Z","abort_blocked":"sync client","sync_clients":true},"scores":[{"rule":"Project Priority","weight":0.5,"score":0.5}],"web_editing":true}`
+	statusJSON   = `{"version":"5.8.2.101","state":"imaging","paused":false,"target":{"project_id":5,"project_name":"Sadr Region","target_id":13,"target_name":"IC 1318 Panel 15","priority":2,"is_mosaic":true},"exposure":{"filter":"R","seconds":600,"started_at":"2026-10-10T06:40:00Z","ends_at":"2026-10-10T06:50:00Z","abort_blocked":"sync client","sync_clients":true},"scores":[{"rule":"Project Priority","weight":0.5,"score":0.5}],"score_note":"M 15 scored only 0.04% higher (1.8596 vs 1.8588), inside the 1% band, so Sharpless 216 kept running","web_editing":true}`
 	pathStatus   = "/os/v1/status"
 	pathCommands = "/os/v1/commands"
 	stateImaging = "imaging"
@@ -64,15 +64,15 @@ func TestClientStatusAndAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.State != stateImaging || s.Target == nil || s.Target.TargetID != 13 || s.Exposure == nil || s.Exposure.EndsAt == nil || s.Exposure.AbortBlocked != "sync client" || !s.Exposure.SyncClients || len(s.Scores) != 1 {
+	if s.State != stateImaging || s.Target == nil || s.Target.TargetID != 13 || s.Exposure == nil || s.Exposure.EndsAt == nil || s.Exposure.AbortBlocked != "sync client" || !s.Exposure.SyncClients || len(s.Scores) != 1 || !strings.HasPrefix(s.ScoreNote, "M 15 scored only") {
 		t.Fatalf("status %+v", s)
 	}
 
-	b, err := json.Marshal(observatory.View{Status: &observatory.Status{Exposure: &observatory.Exposure{Filter: "R", AbortBlocked: "sync client", SyncClients: true}}})
+	b, err := json.Marshal(observatory.View{Status: &observatory.Status{Exposure: &observatory.Exposure{Filter: "R", AbortBlocked: "sync client", SyncClients: true}, ScoreNote: "kept"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), `"abort_blocked":"sync client"`) || !strings.Contains(string(b), `"sync_clients":true`) {
+	if !strings.Contains(string(b), `"abort_blocked":"sync client"`) || !strings.Contains(string(b), `"sync_clients":true`) || !strings.Contains(string(b), `"score_note":"kept"`) {
 		t.Fatalf("view json %s", b)
 	}
 
