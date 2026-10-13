@@ -23,7 +23,10 @@ const (
 	pathSafety        = "/equipment/safetymonitor/info"
 	pathHorizon       = "/profile/horizon"
 	trackingStopped   = 4
+	trackingOffTries  = 10
 )
+
+var trackingOffWait = 2 * time.Second
 
 var (
 	ErrNINA          = errors.New("NINA Advanced API")
@@ -185,7 +188,22 @@ func (n *NINA) StopSlew(ctx context.Context) error {
 func (n *NINA) TrackingOff(ctx context.Context) error {
 	q := url.Values{}
 	q.Set("mode", strconv.Itoa(trackingStopped))
-	return n.get(ctx, pathMountTracking, q, 30*time.Second, nil)
+	var err error
+	for i := 0; i < trackingOffTries; i++ {
+		if err = n.get(ctx, pathMountTracking, q, 30*time.Second, nil); err == nil {
+			return nil
+		}
+		var ae *APIError
+		if !errors.As(err, &ae) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(trackingOffWait):
+		}
+	}
+	return err
 }
 
 func (n *NINA) FindHome(ctx context.Context) error {
