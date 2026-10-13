@@ -242,8 +242,28 @@ func (p *PHD2) Capture(ctx context.Context, exposureMS int, path string) error {
 	timeout := time.Duration(exposureMS)*time.Millisecond + 60*time.Second
 	wait, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	poll := time.NewTicker(500 * time.Millisecond)
+	defer poll.Stop()
+	idleAfter := time.Now().Add(time.Duration(exposureMS)*time.Millisecond + 2*time.Second)
+	idleSeen := 0
 	for {
 		select {
+		case <-poll.C:
+			if time.Now().Before(idleAfter) {
+				continue
+			}
+			st, err := p.AppState(ctx)
+			if err != nil || !phd2Idle(st) {
+				idleSeen = 0
+				continue
+			}
+			if idleSeen++; idleSeen < 3 {
+				continue
+			}
+			if _, err := os.Stat(abs); err == nil {
+				return nil
+			}
+			return p.saveFallback(ctx, abs)
 		case ev := <-p.events:
 			if ev.Event != "SingleFrameComplete" {
 				continue
