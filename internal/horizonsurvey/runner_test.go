@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +52,9 @@ func newHarness(t *testing.T, opts sim.Options, mode string, at time.Time) *harn
 }
 
 func (h *harness) run(ctx context.Context) error {
-	return hs.NewRunner(h.cfg, hs.NewNINA(h.sim.NINAURL()), h.phd, h.clock).Run(ctx)
+	nina := hs.NewNINA(h.sim.NINAURL())
+	nina.TrackingWait = 5 * time.Millisecond
+	return hs.NewRunner(h.cfg, nina, h.phd, h.clock).Run(ctx)
 }
 
 func assertAllowlisted(t *testing.T, s *sim.Sim) {
@@ -286,4 +290,60 @@ func TestNightRunRoutesFlipsThroughHome(t *testing.T) {
 		t.Fatalf("expected a route through home across the meridian, homes %d", m.Homes)
 	}
 	assertHomedAfterMoving(t, h.sim)
+}
+
+func TestTrackingOffRetriesWhileNINASettles(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{TrackingFailures: 3}, hs.ModeDusk, duskTime())
+	h.cfg.MaxFrames = 3
+	err := h.run(t.Context())
+	if !errors.Is(err, hs.ErrFrameLimit) {
+		t.Fatalf("got %v, want the frame limit after retried tracking-off calls", err)
+	}
+	m := h.sim.Mount()
+	if m.TrackFails < 3 || m.Tracking {
+		t.Fatalf("tracking-off was not retried through the settling errors: %+v", m)
+	}
+	assertHomedAfterMoving(t, h.sim)
+}
+
+func TestTrackingOffGivesUpAfterBoundedRetries(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{TrackingFailures: 1000}, hs.ModeDusk, duskTime())
+	err := h.run(t.Context())
+	if !errors.Is(err, hs.ErrNINA) {
+		t.Fatalf("got %v, want the NINA error after the retries", err)
+	}
+	if m := h.sim.Mount(); m.TrackFails < hs.TrackingOffTries || m.Homes == 0 {
+		t.Fatalf("tracking-off retried %d times, homes %d", m.TrackFails, m.Homes)
+	}
+}
+
+func TestCaptureSavesThroughSaveImageWithoutAnEvent(t *testing.T) {
+	t.Parallel()
+	saveDir := t.TempDir()
+	s, err := sim.Start(t.Context(), sim.Options{Site: testSite(), Camera: smallCamera(sim.DuskCamera()), Clock: sim.NewClock(duskTime()), NoFrameEvent: true, SaveDir: saveDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	phd, err := hs.DialPHD2(t.Context(), s.PHD2Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = phd.Close() }()
+	path := filepath.Join(t.TempDir(), "frame.fits")
+	if err := phd.Capture(t.Context(), 5, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := hs.LoadFrame(path); err != nil {
+		t.Fatalf("the saved frame does not load: %v", err)
+	}
+	saved := s.SavedImages()
+	if len(saved) != 1 {
+		t.Fatalf("save_image was called %d times, want 1", len(saved))
+	}
+	if _, err := os.Stat(saved[0]); !os.IsNotExist(err) {
+		t.Fatalf("PHD2's own copy %s was left behind (%v)", saved[0], err)
+	}
 }

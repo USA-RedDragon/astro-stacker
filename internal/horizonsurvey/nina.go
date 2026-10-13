@@ -23,10 +23,9 @@ const (
 	pathSafety        = "/equipment/safetymonitor/info"
 	pathHorizon       = "/profile/horizon"
 	trackingStopped   = 4
-	trackingOffTries  = 10
+	TrackingOffTries  = 10
+	trackingOffWait   = 2 * time.Second
 )
-
-var trackingOffWait = 2 * time.Second
 
 var (
 	ErrNINA          = errors.New("NINA Advanced API")
@@ -45,12 +44,13 @@ func NINAAllowed(path string) bool {
 }
 
 type NINA struct {
-	Base string
-	HTTP *http.Client
+	Base         string
+	HTTP         *http.Client
+	TrackingWait time.Duration
 }
 
 func NewNINA(base string) *NINA {
-	return &NINA{Base: strings.TrimRight(base, "/"), HTTP: &http.Client{}}
+	return &NINA{Base: strings.TrimRight(base, "/"), HTTP: &http.Client{}, TrackingWait: trackingOffWait}
 }
 
 type envelope struct {
@@ -189,7 +189,7 @@ func (n *NINA) TrackingOff(ctx context.Context) error {
 	q := url.Values{}
 	q.Set("mode", strconv.Itoa(trackingStopped))
 	var err error
-	for i := 0; i < trackingOffTries; i++ {
+	for range TrackingOffTries {
 		if err = n.get(ctx, pathMountTracking, q, 30*time.Second, nil); err == nil {
 			return nil
 		}
@@ -200,7 +200,7 @@ func (n *NINA) TrackingOff(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return err
-		case <-time.After(trackingOffWait):
+		case <-time.After(n.TrackingWait):
 		}
 	}
 	return err
