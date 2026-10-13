@@ -277,21 +277,6 @@ func TestTrackingLeftOnAfterHomeIsAnError(t *testing.T) {
 	}
 }
 
-func TestNightRunRoutesFlipsThroughHome(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, sim.Options{}, hs.ModeNight, time.Date(2026, 10, 13, 6, 30, 0, 0, time.UTC))
-	h.cfg.Plan.AzStep, h.cfg.Plan.AzStart = 10, 150
-	h.cfg.Plan.Exclude = []hs.AzRange{{From: 215, To: 145}}
-	if err := h.run(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	m := h.sim.Mount()
-	if m.Homes < 2 {
-		t.Fatalf("expected a route through home across the meridian, homes %d", m.Homes)
-	}
-	assertHomedAfterMoving(t, h.sim)
-}
-
 func TestTrackingOffRetriesWhileNINASettles(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, sim.Options{TrackingFailures: 3}, hs.ModeDusk, duskTime())
@@ -375,5 +360,116 @@ func TestNightLampsDoNotShortenTheExposure(t *testing.T) {
 	}
 	if lit == 0 {
 		t.Fatal("no frame looked at the lamp")
+	}
+}
+
+func pierChanges(t *testing.T, dir string) (int, map[int]map[string]bool, map[int]int) {
+	t.Helper()
+	_, frames, err := hs.ReadRun(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes := 0
+	sides := map[int]map[string]bool{}
+	counts := map[int]int{}
+	prev := ""
+	for _, f := range frames {
+		if sides[f.Column] == nil {
+			sides[f.Column] = map[string]bool{}
+		}
+		sides[f.Column][f.Mount.PierSide] = true
+		counts[f.Column]++
+		if prev != "" && f.Mount.PierSide != prev {
+			changes++
+		}
+		prev = f.Mount.PierSide
+		if f.PlannedPier != f.Mount.PierSide {
+			t.Fatalf("%s was planned on %s and taken on %s", f.File, f.PlannedPier, f.Mount.PierSide)
+		}
+	}
+	return changes, sides, counts
+}
+
+func TestNightRunFlipsOnceAcrossTheMeridian(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{}, hs.ModeNight, time.Date(2026, 10, 13, 6, 30, 0, 0, time.UTC))
+	h.cfg.Plan.AzStep, h.cfg.Plan.AzStart = 10, 150
+	h.cfg.Plan.Exclude = []hs.AzRange{{From: 215, To: 145}}
+	if err := h.run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	changes, sides, _ := pierChanges(t, h.cfg.Out)
+	if changes != 1 {
+		t.Fatalf("the mount changed pier side %d times, want 1", changes)
+	}
+	for c, s := range sides {
+		if len(s) != 1 {
+			t.Fatalf("column %d used both pier sides", c)
+		}
+	}
+	assertHomedAfterMoving(t, h.sim)
+}
+
+func TestNightRunKeepsOnePierSidePerColumn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{}, hs.ModeNight, deepNight())
+	h.cfg.Plan.AzStep, h.cfg.Plan.AzStart = 30, 0
+	if err := h.run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	changes, sides, counts := pierChanges(t, h.cfg.Out)
+	if changes != 1 {
+		t.Fatalf("the mount changed pier side %d times over the night, want 1", changes)
+	}
+	for c, s := range sides {
+		if len(s) != 1 {
+			t.Fatalf("column %d used both pier sides", c)
+		}
+	}
+	if m := h.sim.Mount(); m.Homes != 1 {
+		t.Fatalf("the mount went home %d times; slews between frames should never route through home", m.Homes)
+	}
+	later := 0
+	for c, n := range counts {
+		if c > 0 {
+			later += n
+		}
+	}
+	if avg := float64(later) / float64(len(counts)-1); avg > 6 {
+		t.Fatalf("columns after the first took %.1f frames on average; they should start at the previous edge", avg)
+	}
+	t.Logf("%d frames in the first column, %d in the other %d columns", counts[0], later, len(counts)-1)
+	cal := h.sim.Camera().Calibration()
+	res, err := hs.Analyze(hs.AnalyzeOptions{Dirs: []string{h.cfg.Out}, Calibration: &cal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worst, edges, at := checkSkyline(res.Skyline, h.sim.Camera(), sim.DemoSkyline); edges < 20 || worst > 0.5 {
+		t.Fatalf("%d edge bins, worst error %.3f at az %.2f", edges, worst, at)
+	}
+}
+
+func TestColumnFollowsTheMountsPierChoice(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{ForcePier: hs.PierEast}, hs.ModeNight, deepNight())
+	h.cfg.Plan.AzStep, h.cfg.Plan.AzStart = 10, 0
+	h.cfg.Plan.Exclude = []hs.AzRange{{From: 5, To: 355}}
+	if err := h.run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	_, frames, err := hs.ReadRun(h.cfg.Out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frames) < 2 {
+		t.Fatalf("only %d frames", len(frames))
+	}
+	for i, f := range frames {
+		if f.Mount.PierSide != hs.PierEast {
+			t.Fatalf("%s was taken on %s", f.File, f.Mount.PierSide)
+		}
+		if i > 0 && f.PlannedPier != hs.PierEast {
+			t.Fatalf("%s was still planned on %s after the mount chose pierEast", f.File, f.PlannedPier)
+		}
 	}
 }

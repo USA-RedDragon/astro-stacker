@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -35,6 +36,11 @@ var (
 	ErrNoPixelScale = errors.New("PHD2 does not know its pixel scale; pass -pixel-scale")
 	ErrPier         = errors.New("the mount is on a pier side the safety checks did not cover")
 	ErrSite         = errors.New("the mount's site or clock does not match")
+)
+
+const (
+	coarseStep   = 3
+	estPerColumn = 45 * time.Second
 )
 
 type Clock interface {
@@ -100,6 +106,7 @@ type Runner struct {
 	header      RunHeader
 	frames      int
 	startRow    int
+	side        string
 }
 
 func NewRunner(cfg RunConfig, nina *NINA, phd *PHD2, clock Clock) *Runner {
@@ -268,15 +275,36 @@ func (r *Runner) Run(ctx context.Context) (err error) {
 		return err
 	}
 	rows := r.cfg.Plan.Rows(r.cfg.Safety.MinAlt)
-	r.startRow = len(rows) - 1
-	for ci, az := range r.cfg.Plan.Columns() {
+	r.startRow = -1
+	order := ChooseOrder(r.site, r.cfg.Safety, r.cfg.Plan.Columns(), rows, r.clock.Now(), r.mech, estPerColumn)
+	r.logf("column order %v, %d pier flip(s) planned, %d of %d columns reachable from here now", order.Columns, order.Flips, order.Reachable, len(order.Columns))
+	r.side = ""
+	for _, p := range order.Piers {
+		if p != "" {
+			r.side = p
+			break
+		}
+	}
+	if r.mech != Home() {
+		r.side = r.mech.Pier()
+	}
+	for ci, az := range order.Columns {
 		if err := r.checkSequence(ctx); err != nil {
 			return err
 		}
+		pier := ChoosePier(r.site.ColumnPiers(az, rows), r.side)
+		if pier == "" {
+			r.logf("skip column az %.1f: no single pier side reaches every row", az)
+			continue
+		}
+		if r.side != "" && pier != r.side {
+			r.logf("column az %.1f is on %s; the mount flips once here (it was on %s)", az, pier, r.side)
+		}
+		r.side = pier
 		if r.cfg.Full {
-			err = r.fullColumn(ctx, ci, az, rows)
+			err = r.fullColumn(ctx, ci, az, rows, pier)
 		} else {
-			err = r.adaptiveColumn(ctx, ci, az, rows)
+			err = r.adaptiveColumn(ctx, ci, az, rows, pier)
 		}
 		if err != nil {
 			return err
@@ -286,67 +314,124 @@ func (r *Runner) Run(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *Runner) fullColumn(ctx context.Context, ci int, az float64, rows []float64) error {
+func skippable(err error) bool { return errors.Is(err, ErrUnsafe) || errors.Is(err, ErrNoSafeRoute) }
+
+func (r *Runner) followMount(az float64, rows []float64, pier string) string {
+	if r.side == "" || r.side == pier || !slices.Contains(r.site.ColumnPiers(az, rows), r.side) {
+		return pier
+	}
+	return r.side
+}
+
+func (r *Runner) fullColumn(ctx context.Context, ci int, az float64, rows []float64, pier string) error {
 	for i := range rows {
-		k := i
+		k := len(rows) - 1 - i
 		if ci%2 == 1 {
-			k = len(rows) - 1 - i
+			k = i
 		}
-		if _, err := r.shoot(ctx, ci, k, az, rows[k]); err != nil && !errors.Is(err, ErrUnsafe) && !errors.Is(err, ErrNoSafeRoute) {
+		pier = r.followMount(az, rows, pier)
+		if _, err := r.shoot(ctx, ci, k, az, rows[k], pier); err != nil && !skippable(err) {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *Runner) adaptiveColumn(ctx context.Context, ci int, az float64, rows []float64) error {
+func topObstructed(seen map[int]string, n int) int {
+	for row := n - 1; row >= 0; row-- {
+		if c := seen[row]; c == ClassEdge || c == ClassObst {
+			return row
+		}
+	}
+	return -1
+}
+
+func NextRow(seen map[int]string, n int, coarse bool) (int, bool) {
+	top := topObstructed(seen, n)
+	if top < 0 {
+		low := n
+		for row := range seen {
+			low = min(low, row)
+		}
+		if low <= 0 {
+			return 0, true
+		}
+		step := 2
+		if coarse {
+			step = coarseStep
+		}
+		return max(0, low-step), false
+	}
+	if top < n-1 && seen[top+1] == "" {
+		return top + 1, false
+	}
+	if seen[top] == ClassObst {
+		return 0, true
+	}
+	for j := 1; j <= 2; j++ {
+		row := top - j
+		if row < 0 {
+			return 0, true
+		}
+		switch seen[row] {
+		case "":
+			return row, false
+		case ClassObst:
+			return 0, true
+		}
+	}
+	return 0, true
+}
+
+func (r *Runner) adaptiveColumn(ctx context.Context, ci int, az float64, rows []float64, pier string) error {
 	n := len(rows)
-	k := min(max(r.startRow, 0), n-1)
+	coarse := r.startRow < 0
+	k := n - 1
+	if !coarse {
+		k = min(r.startRow, n-1)
+	}
 	seen := map[int]string{}
-	dir := 0
-	next := k
 	for range n {
-		cls, err := r.shoot(ctx, ci, k, az, rows[k])
-		if errors.Is(err, ErrUnsafe) || errors.Is(err, ErrNoSafeRoute) {
+		pier = r.followMount(az, rows, pier)
+		cls, err := r.shoot(ctx, ci, k, az, rows[k], pier)
+		if skippable(err) && len(seen) == 0 {
+			if next := k + 1; !coarse && next < n {
+				k = next
+				continue
+			}
+			if next := k - 1; coarse && next >= 0 {
+				k = next
+				continue
+			}
+		}
+		if skippable(err) {
 			break
 		}
 		if err != nil {
 			return err
 		}
 		seen[k] = cls
-		next = k
-		move := 0
-		switch cls {
-		case ClassEdge:
-			if k+1 < n && seen[k+1] == "" {
-				move = 1
-			}
-		case ClassSky:
-			if dir <= 0 && k > 0 && seen[k-1] == "" {
-				move = -1
-			}
-		case ClassObst:
-			if k+1 < n && seen[k+1] == "" {
-				move = 1
-			}
-		}
-		if move == 0 {
+		next, done := NextRow(seen, n, coarse)
+		if done {
 			break
 		}
-		k += move
-		dir = move
+		k = next
 	}
-	for row := n - 1; row >= 0; row-- {
-		if seen[row] == ClassEdge {
-			next = row
-			break
-		}
+	if len(seen) == 0 {
+		return nil
 	}
-	r.startRow = next
+	if top := topObstructed(seen, n); top >= 0 {
+		r.startRow = top
+		return nil
+	}
+	r.startRow = n - 1
+	for row := range seen {
+		r.startRow = min(r.startRow, row)
+	}
 	return nil
 }
 
-func (r *Runner) slewTo(ctx context.Context, az, alt float64) error {
+func (r *Runner) slewTo(ctx context.Context, az, alt float64, survey bool) error {
 	ra, dec := r.site.AltAzToJ2000(az, alt, r.clock.Now())
 	r.logf("slew to az %.2f alt %.2f (J2000 RA %.4f° Dec %.4f°)", az, alt, ra, dec)
 	r.moved = true
@@ -373,13 +458,17 @@ func (r *Runner) slewTo(ctx context.Context, az, alt float64) error {
 	tha, tdec := r.site.AltAzToHADec(az, alt)
 	for _, c := range r.cfg.Safety.Candidates(tha, tdec) {
 		if c.Pier() == m.Pier() {
+			if survey && r.side != "" && m.Pier() != r.side {
+				r.logf("the mount chose %s, the plan expected %s; later columns follow the mount", m.Pier(), r.side)
+				r.side = m.Pier()
+			}
 			return nil
 		}
 	}
 	return fmt.Errorf("%w: the mount chose %s at az %.2f alt %.2f", ErrPier, m.Pier(), az, alt)
 }
 
-func (r *Runner) shoot(ctx context.Context, ci, row int, az, alt float64) (string, error) {
+func (r *Runner) shoot(ctx context.Context, ci, row int, az, alt float64, pier string) (string, error) {
 	if r.cfg.MaxFrames > 0 && r.frames >= r.cfg.MaxFrames {
 		return "", ErrFrameLimit
 	}
@@ -397,9 +486,15 @@ func (r *Runner) shoot(ctx context.Context, ci, row int, az, alt float64) (strin
 	if err := r.checkSequence(ctx); err != nil {
 		return "", err
 	}
-	route, err := ck.Route(r.mech, az, alt)
+	aimAz, aimAlt, _, _, ok := r.site.Aim(az, alt, pier)
+	if !ok {
+		err := fmt.Errorf("%w: az %.2f alt %.2f is not reachable on %s", ErrUnsafe, az, alt, pier)
+		r.logf("skip: %v", err)
+		return "", err
+	}
+	route, err := ck.RouteOn(r.mech, aimAz, aimAlt, pier)
 	if err != nil {
-		r.logf("skip az %.2f alt %.2f: %v", az, alt, err)
+		r.logf("skip az %.2f alt %.2f: %v", aimAz, aimAlt, err)
 		return "", err
 	}
 	for _, wp := range route {
@@ -409,14 +504,20 @@ func (r *Runner) shoot(ctx context.Context, ci, row int, az, alt float64) (strin
 			}
 			continue
 		}
-		if err := r.slewTo(ctx, wp.Az, wp.Alt); err != nil {
+		if err := r.slewTo(ctx, wp.Az, wp.Alt, wp.Survey); err != nil {
 			return "", err
 		}
 	}
 	if err := r.clock.Sleep(ctx, r.cfg.Settle); err != nil {
 		return "", err
 	}
-	return r.expose(ctx, ci, row, az, alt)
+	return r.expose(ctx, shot{ci: ci, row: row, az: az, alt: alt, aimAz: aimAz, aimAlt: aimAlt, pier: pier})
+}
+
+type shot struct {
+	ci, row                int
+	az, alt, aimAz, aimAlt float64
+	pier                   string
 }
 
 func (r *Runner) exposureMS() int {
@@ -426,7 +527,7 @@ func (r *Runner) exposureMS() int {
 	return int(math.Round(math.Min(float64(r.exp.MaxMS), math.Max(float64(r.exp.MinMS), r.exp.Target/r.skyRate))))
 }
 
-func (r *Runner) expose(ctx context.Context, ci, row int, az, alt float64) (string, error) {
+func (r *Runner) expose(ctx context.Context, p shot) (string, error) {
 	exp := r.exposureMS()
 	for attempt := 0; ; attempt++ {
 		mi, err := r.nina.MountInfo(ctx)
@@ -434,7 +535,7 @@ func (r *Runner) expose(ctx context.Context, ci, row int, az, alt float64) (stri
 			return "", err
 		}
 		start := r.clock.Now()
-		name := fmt.Sprintf("hs_%03d_%02d_%02d_%dms.fits", ci, row, attempt, exp)
+		name := fmt.Sprintf("hs_%03d_%02d_%02d_%dms.fits", p.ci, p.row, attempt, exp)
 		path := filepath.Join(r.cfg.Out, name)
 		if err := r.phd.Capture(ctx, exp, path); err != nil {
 			return "", err
@@ -455,7 +556,7 @@ func (r *Runner) expose(ctx context.Context, ci, row int, az, alt float64) (stri
 			if level < r.exp.Target/3 && exp < r.exp.MaxMS {
 				retake = min(r.exp.MaxMS, int(math.Ceil(float64(exp)*r.exp.Target/level)))
 			} else if level < r.exp.Target/3 {
-				return "", fmt.Errorf("%w at az %.1f alt %.1f: level %.3f at the longest exposure %d ms", ErrMeter, az, alt, level, exp)
+				return "", fmt.Errorf("%w at az %.1f alt %.1f: level %.3f at the longest exposure %d ms", ErrMeter, p.az, p.alt, level, exp)
 			}
 		}
 		if retake > 0 && retake != exp {
@@ -470,10 +571,10 @@ func (r *Runner) expose(ctx context.Context, ci, row int, az, alt float64) (stri
 		r.updateReference(seg, exp)
 		sunAz, sunAlt := r.site.SunAltAz(start)
 		rec := FrameRecord{
-			File: name, Column: ci, Row: row, TargetAz: az, TargetAlt: alt, Start: start, ExposureMS: exp,
-			Mode: r.mode, PixelScale: r.header.PixelScale, Mount: mi.State(), SkyRef: skyRef, StarRef: seg.StarRefUsed,
+			File: name, Column: p.ci, Row: p.row, TargetAz: p.az, TargetAlt: p.alt, AimAz: p.aimAz, AimAlt: p.aimAlt, PlannedPier: p.pier,
+			Start: start, ExposureMS: exp, Mode: r.mode, PixelScale: r.header.PixelScale, Mount: mi.State(), SkyRef: skyRef, StarRef: seg.StarRefUsed,
 			Class: seg.Class, ObstFrac: seg.ObstFrac, SkyLevel: seg.SkyLevel, Stars: seg.Stars, SunAlt: sunAlt,
-			SunSep: Separation(HorVec(az, alt), HorVec(sunAz, sunAlt)),
+			SunSep: Separation(HorVec(p.aimAz, p.aimAlt), HorVec(sunAz, sunAlt)),
 		}
 		if r.cfg.Astap != "" && r.mode == ModeNight {
 			rec.Solved, rec.SolveDetail = r.solve(ctx, path, mi)
@@ -631,7 +732,7 @@ func (r *Runner) liftBeforeHome(ctx context.Context, ck *Checker, from []Mech) e
 		return err
 	}
 	r.logf("the path home is not Sun-safe from here; lifting to az %.1f alt %.1f first", az, wAlt)
-	return r.slewTo(ctx, az, wAlt)
+	return r.slewTo(ctx, az, wAlt, false)
 }
 
 func (r *Runner) waitHome(ctx context.Context) error {

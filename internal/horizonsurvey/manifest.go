@@ -33,6 +33,9 @@ type FrameRecord struct {
 	Row         int        `json:"row"`
 	TargetAz    float64    `json:"target_az"`
 	TargetAlt   float64    `json:"target_alt"`
+	AimAz       float64    `json:"aim_az,omitempty"`
+	AimAlt      float64    `json:"aim_alt,omitempty"`
+	PlannedPier string     `json:"planned_pier,omitempty"`
 	Start       time.Time  `json:"start"`
 	ExposureMS  int        `json:"exposure_ms"`
 	Mode        string     `json:"mode"`

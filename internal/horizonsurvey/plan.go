@@ -1,10 +1,12 @@
 package horizonsurvey
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -308,6 +310,10 @@ func (c *Checker) legOK(from Mech, az, alt float64) error {
 }
 
 func (c *Checker) Route(from Mech, az, alt float64) ([]Waypoint, error) {
+	return c.RouteOn(from, az, alt, "")
+}
+
+func (c *Checker) RouteOn(from Mech, az, alt float64, pier string) ([]Waypoint, error) {
 	if err := c.PointOK(az, alt); err != nil {
 		return nil, err
 	}
@@ -317,9 +323,17 @@ func (c *Checker) Route(from Mech, az, alt float64) ([]Waypoint, error) {
 	}
 	fha, fdec := from.HADec()
 	faz, falt := c.Site.HADecToAltAz(fha, fdec)
-	wAlt := math.Min(math.Max(falt, alt)+c.Safety.WaypointLift, maxWaypoint)
+	lift := math.Min(math.Max(falt, alt)+c.Safety.WaypointLift, maxWaypoint)
 	errs := []error{direct}
-	for _, wAz := range []float64{faz, az} {
+	for i, wAz := range []float64{faz, az} {
+		wAlt := lift
+		side := pier
+		if i == 0 {
+			side = from.Pier()
+		}
+		if a, b, _, _, ok := c.Site.Aim(wAz, wAlt, side); ok && pier != "" {
+			wAz, wAlt = a, b
+		}
 		if err := c.legOK(from, wAz, wAlt); err != nil {
 			errs = append(errs, fmt.Errorf("to waypoint az %.1f alt %.1f: %w", wAz, wAlt, err))
 			continue
@@ -338,6 +352,18 @@ func (c *Checker) Route(from Mech, az, alt float64) ([]Waypoint, error) {
 		}
 		return []Waypoint{{Az: wAz, Alt: wAlt}, {Az: az, Alt: alt, Survey: true}}, nil
 	}
+	for _, w := range c.sideWaypoints(from) {
+		waz, walt := c.Site.HADecToAltAz(w.HADec())
+		if err := c.legOK(from, waz, walt); err != nil {
+			errs = append(errs, fmt.Errorf("to side waypoint az %.1f alt %.1f: %w", waz, walt, err))
+			continue
+		}
+		if err := c.legOK(w, az, alt); err != nil {
+			errs = append(errs, fmt.Errorf("from side waypoint az %.1f alt %.1f: %w", waz, walt, err))
+			continue
+		}
+		return []Waypoint{{Az: waz, Alt: walt}, {Az: az, Alt: alt, Survey: true}}, nil
+	}
 	if err := c.HomePathOK(from); err != nil {
 		errs = append(errs, fmt.Errorf("via home: %w", err))
 	} else if err := c.legOK(Home(), az, alt); err != nil {
@@ -348,13 +374,239 @@ func (c *Checker) Route(from Mech, az, alt float64) ([]Waypoint, error) {
 	return nil, fmt.Errorf("%w to az %.1f alt %.1f: %w", ErrNoSafeRoute, az, alt, errors.Join(errs...))
 }
 
+const (
+	PierGuard       = 1.5
+	DefaultSlewRate = 3.0
+	slewSettle      = time.Second
+)
+
+func NaturalPier(ha float64) string {
+	if wrap180(ha) < 0 {
+		return PierWest
+	}
+	return PierEast
+}
+
+func (s Site) Aim(az, alt float64, pier string) (aimAz, aimAlt, ha, dec float64, ok bool) {
+	ha, dec = s.AltAzToHADec(az, alt)
+	ha = wrap180(ha)
+	sign := -1.0
+	switch pier {
+	case PierWest:
+	case PierEast:
+		sign = 1
+	default:
+		return az, alt, ha, dec, true
+	}
+	switch {
+	case math.Abs(ha) < PierGuard:
+		ha = sign * PierGuard
+	case math.Abs(ha) > 180-PierGuard:
+		ha = sign * (180 - PierGuard)
+	case sign*ha < 0:
+		return az, alt, ha, dec, false
+	default:
+		return az, alt, ha, dec, true
+	}
+	dec = s.decAtAltitude(alt, ha, dec)
+	aimAz, aimAlt = s.HADecToAltAz(ha, dec)
+	return aimAz, aimAlt, ha, dec, true
+}
+
+func (s Site) decAtAltitude(alt, ha, near float64) float64 {
+	a, b := math.Sin(s.Lat*rad), math.Cos(s.Lat*rad)*math.Cos(ha*rad)
+	r := math.Hypot(a, b)
+	x := math.Sin(alt*rad) / r
+	if math.Abs(x) > 1 {
+		return near
+	}
+	phi := math.Atan2(b, a)
+	best := near
+	bestD := math.Inf(1)
+	for _, d := range []float64{math.Asin(x) - phi, math.Pi - math.Asin(x) - phi} {
+		dec := wrap180(d / rad)
+		if dec < -90 || dec > 90 {
+			continue
+		}
+		if dd := math.Abs(dec - near); dd < bestD {
+			best, bestD = dec, dd
+		}
+	}
+	return best
+}
+
+func (s Site) ColumnPiers(az float64, rows []float64) []string {
+	var out []string
+	for _, p := range []string{PierWest, PierEast} {
+		ok := true
+		for _, alt := range rows {
+			if _, _, _, _, k := s.Aim(az, alt, p); !k {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func ChoosePier(feasible []string, prev string) string {
+	for _, p := range feasible {
+		if p == prev {
+			return p
+		}
+	}
+	if len(feasible) > 0 {
+		return feasible[0]
+	}
+	return ""
+}
+
+type Order struct {
+	Columns   []float64
+	Piers     []string
+	Flips     int
+	Reachable int
+	Slew      time.Duration
+}
+
+func cyclicOrders(cols []float64) [][]float64 {
+	asc := slices.Clone(cols)
+	slices.SortFunc(asc, func(a, b float64) int { return cmp.Compare(wrap360(a), wrap360(b)) })
+	split := len(asc)
+	for i, az := range asc {
+		if wrap360(az) >= 180 {
+			split = i
+			break
+		}
+	}
+	south := append(slices.Clone(asc[split:]), asc[:split]...)
+	out := make([][]float64, 0, 4)
+	for _, o := range [][]float64{asc, south} {
+		out = append(out, o)
+		r := slices.Clone(o)
+		slices.Reverse(r)
+		out = append(out, r)
+	}
+	return out
+}
+
+func better(a, b Order) bool {
+	switch {
+	case a.Flips != b.Flips:
+		return a.Flips < b.Flips
+	case a.Reachable != b.Reachable:
+		return a.Reachable > b.Reachable
+	}
+	return a.Slew < b.Slew
+}
+
+func repAltitude(rows []float64, want float64) float64 {
+	best := rows[0]
+	for _, a := range rows {
+		if math.Abs(a-want) < math.Abs(best-want) {
+			best = a
+		}
+	}
+	return best
+}
+
+func ChooseOrder(site Site, s Safety, cols, rows []float64, start time.Time, from Mech, perColumn time.Duration) Order {
+	var best Order
+	alt := repAltitude(rows, rows[0]+5)
+	first := true
+	for _, cand := range cyclicOrders(cols) {
+		o := Order{Columns: cand}
+		pier := from.Pier()
+		if from == Home() {
+			pier = ""
+			for _, az := range cand {
+				if f := site.ColumnPiers(az, rows); len(f) == 1 {
+					pier = f[0]
+					break
+				}
+			}
+		}
+		at := from
+		for ci, az := range cand {
+			next := ChoosePier(site.ColumnPiers(az, rows), pier)
+			o.Piers = append(o.Piers, next)
+			if next == "" {
+				continue
+			}
+			if next != pier && (ci != 0 || from != Home()) {
+				o.Flips++
+			}
+			pier = next
+			aAz, aAlt, ha, dec, ok := site.Aim(az, alt, next)
+			if !ok {
+				continue
+			}
+			ck := NewChecker(site, s, start.Add(time.Duration(ci)*perColumn))
+			if _, err := ck.RouteOn(at, aAz, aAlt, next); err != nil {
+				continue
+			}
+			if m, ok := MechFor(ha, dec, next); ok {
+				o.Slew += SlewTime(at, m, DefaultSlewRate)
+				at = m
+			}
+			o.Reachable++
+		}
+		if first || better(o, best) {
+			best, first = o, false
+		}
+	}
+	return best
+}
+
+func SlewTime(a, b Mech, rate float64) time.Duration {
+	if rate <= 0 {
+		rate = DefaultSlewRate
+	}
+	travel := math.Max(math.Abs(b.Phi-a.Phi), math.Abs(b.Psi-a.Psi))
+	return time.Duration(travel/rate*float64(time.Second)) + slewSettle
+}
+
+func (c *Checker) sideWaypoints(from Mech) []Mech {
+	if from == Home() {
+		return nil
+	}
+	ha, dec := from.HADec()
+	edge := c.Safety.MeridianZone + 5
+	pier := from.Pier()
+	sign := -1.0
+	if pier == PierEast {
+		sign = 1
+	}
+	wha := sign * math.Min(math.Max(sign*ha, edge), 180-edge)
+	var out []Mech
+	for _, lift := range []float64{c.Safety.WaypointLift, 2 * c.Safety.WaypointLift, 3 * c.Safety.WaypointLift} {
+		wdec := math.Min(dec+lift, 85)
+		m, _ := MechFor(wha, wdec, pier)
+		if len(c.Safety.Candidates(wha, wdec)) != 1 {
+			continue
+		}
+		if _, alt := c.Site.HADecToAltAz(wha, wdec); alt < c.Safety.MinAlt+5 {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 type PlannedPosition struct {
-	Column, Row int
-	Az, Alt     float64
-	HA, Dec     float64
-	Piers       []string
-	SunSep      float64
-	Err         error
+	Column, Row   int
+	Az, Alt       float64
+	AimAz, AimAlt float64
+	HA, Dec       float64
+	Pier          string
+	Piers         []string
+	SunSep        float64
+	Slew          time.Duration
+	Flip          bool
+	Err           error
 }
 
 type Plan struct {
@@ -366,6 +618,8 @@ type Plan struct {
 	SunAlt    float64
 	SunErr    error
 	PerFrame  time.Duration
+	Flips     int
+	SlewRate  float64
 }
 
 func MakePlan(site Site, pc PlanConfig, s Safety, start time.Time, perFrame time.Duration) (*Plan, error) {
@@ -375,25 +629,47 @@ func MakePlan(site Site, pc PlanConfig, s Safety, start time.Time, perFrame time
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
-	p := &Plan{Start: start, Columns: pc.Columns(), Rows: pc.Rows(s.MinAlt), PerFrame: perFrame}
+	p := &Plan{Start: start, Rows: pc.Rows(s.MinAlt), PerFrame: perFrame, SlewRate: DefaultSlewRate}
 	p.SunAz, p.SunAlt = site.SunAltAz(start)
 	p.SunErr = NewChecker(site, s, start).SunOK()
 	perColumn := time.Duration(3) * perFrame
 	from := Home()
+	order := ChooseOrder(site, s, pc.Columns(), p.Rows, start, from, perColumn)
+	p.Columns, p.Flips = order.Columns, order.Flips
+	pier := ""
 	for ci, az := range p.Columns {
 		ck := NewChecker(site, s, start.Add(time.Duration(ci)*perColumn))
-		for ri, alt := range p.Rows {
-			ha, dec := site.AltAzToHADec(az, alt)
-			pp := PlannedPosition{Column: ci, Row: ri, Az: az, Alt: alt, HA: ha, Dec: dec, SunSep: ck.MinSunSep(HorVec(az, alt))}
-			for _, m := range s.Candidates(ha, dec) {
+		next := order.Piers[ci]
+		flip := next != "" && pier != "" && next != pier
+		if next != "" {
+			pier = next
+		}
+		for k := range p.Rows {
+			ri := len(p.Rows) - 1 - k
+			if ci%2 == 1 {
+				ri = k
+			}
+			alt := p.Rows[ri]
+			pp := PlannedPosition{Column: ci, Row: ri, Az: az, Alt: alt, Pier: next, Flip: flip && k == 0}
+			var ok bool
+			pp.AimAz, pp.AimAlt, pp.HA, pp.Dec, ok = site.Aim(az, alt, next)
+			pp.SunSep = ck.MinSunSep(HorVec(pp.AimAz, pp.AimAlt))
+			for _, m := range s.Candidates(pp.HA, pp.Dec) {
 				pp.Piers = append(pp.Piers, m.Pier())
 			}
-			_, pp.Err = ck.Route(from, az, alt)
+			switch {
+			case !ok || next == "":
+				pp.Err = fmt.Errorf("%w: az %.1f alt %.1f cannot be reached on the column's pier side", ErrUnsafe, az, alt)
+			default:
+				_, pp.Err = ck.RouteOn(from, pp.AimAz, pp.AimAlt, next)
+			}
+			if pp.Err == nil {
+				if m, ok := MechFor(pp.HA, pp.Dec, next); ok {
+					pp.Slew = SlewTime(from, m, p.SlewRate)
+					from = m
+				}
+			}
 			p.Positions = append(p.Positions, pp)
-		}
-		ha, dec := site.AltAzToHADec(az, p.Rows[0])
-		if c := s.Candidates(ha, dec); len(c) > 0 {
-			from = c[0]
 		}
 	}
 	return p, nil
@@ -405,19 +681,34 @@ func (p *Plan) Write(w io.Writer) {
 		_, _ = fmt.Fprintf(w, "REFUSE: %v\n", p.SunErr)
 	}
 	_, _ = fmt.Fprintf(w, "%d columns x %d rows; rows at %v\n", len(p.Columns), len(p.Rows), p.Rows)
-	_, _ = fmt.Fprintf(w, "%-4s %-4s %7s %6s %8s %7s %-18s %7s %s\n", "col", "row", "az", "alt", "HA", "dec", "pier", "sunsep", "status")
+	_, _ = fmt.Fprintf(w, "column order %v; %d pier flip(s), each between columns\n", p.Columns, p.Flips)
+	_, _ = fmt.Fprintf(w, "%-4s %-4s %7s %6s %7s %6s %8s %7s %-9s %-18s %7s %6s %s\n", "col", "row", "az", "alt", "aim az", "aim", "HA", "dec", "pier", "possible", "sunsep", "slew", "status")
 	ok := 0
+	var slews []time.Duration
+	var flipSlew time.Duration
 	for _, pp := range p.Positions {
 		status := "OK"
 		if pp.Err != nil {
 			status = "SKIP " + pp.Err.Error()
 		} else {
 			ok++
+			if pp.Flip {
+				flipSlew = max(flipSlew, pp.Slew)
+				status += " (pier flip)"
+			} else {
+				slews = append(slews, pp.Slew)
+			}
 		}
-		_, _ = fmt.Fprintf(w, "%-4d %-4d %7.2f %6.2f %8.2f %7.2f %-18s %7.1f %s\n", pp.Column, pp.Row, pp.Az, pp.Alt, pp.HA, pp.Dec, strings.Join(pp.Piers, ","), pp.SunSep, status)
+		_, _ = fmt.Fprintf(w, "%-4d %-4d %7.2f %6.2f %7.2f %6.2f %8.2f %7.2f %-9s %-18s %7.1f %5.0fs %s\n", pp.Column, pp.Row, pp.Az, pp.Alt, pp.AimAz, pp.AimAlt, pp.HA, pp.Dec, pp.Pier, strings.Join(pp.Piers, ","), pp.SunSep, pp.Slew.Seconds(), status)
 	}
-	adaptive := time.Duration(len(p.Columns)*3) * p.PerFrame
-	full := time.Duration(ok) * p.PerFrame
-	_, _ = fmt.Fprintf(w, "%d of %d positions pass the safety checks. Estimated time: about %s adaptive (3 frames per column), at most %s for every safe position.\n",
-		ok, len(p.Positions), adaptive.Round(time.Minute), full.Round(time.Minute))
+	slices.Sort(slews)
+	typical := time.Duration(0)
+	if len(slews) > 0 {
+		typical = slews[len(slews)/2]
+	}
+	adaptive := time.Duration(len(p.Columns)*3)*p.PerFrame + time.Duration(p.Flips)*flipSlew
+	full := time.Duration(ok)*p.PerFrame + time.Duration(p.Flips)*flipSlew
+	_, _ = fmt.Fprintf(w, "%d of %d positions pass the safety checks.\n", ok, len(p.Positions))
+	_, _ = fmt.Fprintf(w, "Slew per frame at %.0f deg/s: typically %.0fs, the pier flip %.0fs. With %s per frame: about %s adaptive (3 frames per column), at most %s for every safe position.\n",
+		p.SlewRate, typical.Seconds(), flipSlew.Seconds(), p.PerFrame, adaptive.Round(time.Minute), full.Round(time.Minute))
 }
