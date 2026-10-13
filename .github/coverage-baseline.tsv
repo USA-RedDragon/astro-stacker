@@ -2,7 +2,7 @@ cmd/discover.go	52	0
 cmd/horizon-survey/main.go	289	16
 cmd/horizon-survey/stdin_unix.go	1	0
 cmd/mosaics.go	10	0
-cmd/root.go	257	9
+cmd/root.go	259	9
 cmd/scheduling.go	8	0
 cmd/stack.go	62	0
 cmd/triggers.go	24	24
@@ -36,6 +36,8 @@ internal/catalog/gen/names.go	106	0
 internal/catalog/gen/nina.go	193	0
 internal/catalog/gen/shapes.go	27	0
 internal/catalog/notcatalogue.go	29	28
+internal/collabswitch/nina.go	107	96
+internal/collabswitch/service.go	199	161
 internal/conditions/conditions.go	240	185
 internal/conditions/moon.go	45	45
 internal/config/config.go	83	64
@@ -50,7 +52,9 @@ internal/darkcheck/pass.go	112	85
 internal/darkneed/darkneed.go	112	96
 internal/discover/adding.go	48	40
 internal/discover/classes.go	15	11
-internal/discover/collabs.go	351	298
+internal/discover/collabframes.go	89	76
+internal/discover/collabs.go	361	317
+internal/discover/colourbands.go	100	94
 internal/discover/completion.go	256	246
 internal/discover/evidence.go	114	109
 internal/discover/finder.go	193	188
@@ -63,7 +67,7 @@ internal/ephem/ephem.go	86	74
 internal/ephem/gen/main.go	91	0
 internal/ephem/observe.go	96	90
 internal/events/events.go	122	109
-internal/frameheader/frame.go	42	42
+internal/frameheader/frame.go	45	45
 internal/frameheader/header.go	115	109
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
@@ -71,7 +75,7 @@ internal/goalmeasure/runner.go	460	393
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/body.go	180	173
-internal/goals/bodyprogress.go	127	112
+internal/goals/bodyprogress.go	127	113
 internal/goals/fit.go	92	87
 internal/goals/image.go	124	120
 internal/goals/mask.go	42	35
@@ -81,7 +85,7 @@ internal/goals/progress.go	104	93
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	353	319
+internal/goals/tsgoals.go	353	322
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	106	84
 internal/halpha/halpha.go	177	154
@@ -91,11 +95,11 @@ internal/horizonsurvey/camera.go	115	111
 internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
-internal/horizonsurvey/nina.go	101	82
-internal/horizonsurvey/phd2.go	152	115
+internal/horizonsurvey/nina.go	101	81
+internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
-internal/horizonsurvey/runner.go	451	351
+internal/horizonsurvey/runner.go	451	350
 internal/horizonsurvey/segment.go	96	94
 internal/horizonsurvey/sim/sim.go	267	240
 internal/horizonsurvey/skyline.go	119	113
@@ -104,8 +108,8 @@ internal/imagedata/fitswrite.go	49	42
 internal/imagedata/pedestal16.go	9	9
 internal/imagedata/xisf.go	177	138
 internal/imagedata/xisfwrite.go	79	66
-internal/indexer/indexer.go	353	121
-internal/indexer/recent.go	79	66
+internal/indexer/indexer.go	354	166
+internal/indexer/recent.go	78	65
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/moon/moon.go	44	43
@@ -137,7 +141,7 @@ internal/ninapath/ninapath.go	9	9
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	207	178
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -176,6 +180,7 @@ internal/schedauto/windows.go	46	45
 internal/schedcmd/altitude.go	59	52
 internal/schedcmd/before.go	69	41
 internal/schedcmd/calibration.go	49	43
+internal/schedcmd/collab.go	46	42
 internal/schedcmd/command.go	5	4
 internal/schedcmd/edit.go	89	75
 internal/schedcmd/framing.go	55	51
@@ -189,7 +194,7 @@ internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/schedglobal.go	53	48
-internal/schedcmd/service.go	234	203
+internal/schedcmd/service.go	234	205
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/templates.go	30	28
 internal/schedcmd/window.go	58	53
@@ -199,6 +204,7 @@ internal/server/autofocus.go	26	22
 internal/server/bodies.go	149	124
 internal/server/bodynights.go	35	1
 internal/server/calibration.go	37	29
+internal/server/collabswitch.go	30	21
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	20	14
 internal/server/discover.go	148	127
@@ -211,9 +217,9 @@ internal/server/public.go	12	12
 internal/server/routes.go	368	105
 internal/server/scheddata.go	285	250
 internal/server/schedpreview.go	225	210
-internal/server/scheduler.go	92	54
+internal/server/scheduler.go	92	55
 internal/server/scheduling.go	58	32
-internal/server/server.go	101	40
+internal/server/server.go	102	41
 internal/server/skycutout.go	24	20
 internal/server/skyevents.go	65	51
 internal/server/sublength.go	11	9
@@ -278,7 +284,7 @@ internal/stacking/shadow.go	223	220
 internal/stacking/status.go	71	23
 internal/stacking/telescopes.go	61	56
 internal/stacking/tsverdicts.go	260	220
-internal/starfront/starfront.go	180	144
+internal/starfront/starfront.go	181	145
 internal/store/gorm/gorm.go	37	0
 internal/store/models/app/calibrationrequest.go	1	1
 internal/store/models/app/imageprocess.go	3	0
