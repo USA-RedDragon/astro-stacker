@@ -3,11 +3,14 @@ package app
 import "time"
 
 // SkyEventRun is the latest event search, kept so the page has events
-// right after a restart.
+// right after a restart. Rarities holds the rarities of every event the
+// search found, the ones the page leaves out too, so a restart does not
+// scan their recurrences again.
 type SkyEventRun struct {
 	ID         int `gorm:"primaryKey"`
 	ComputedAt time.Time
-	Result     string `gorm:"type:text"`
+	Result     string  `gorm:"type:text"`
+	Rarities   *string `gorm:"type:text"`
 }
 
 // SkyEventChoice is what the user chose for one event: its priority, and

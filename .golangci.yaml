@@ -97,7 +97,7 @@ linters:
         linters:
           - gosec
         text: G404
-      - path: internal/(metrics/metrics|catalog/embedded)\.go$
+      - path: internal/(metrics/metrics|catalog/embedded|server/skyevents_internal_test)\.go$
         linters:
           - gochecknoglobals
       - path: internal/publicframe/watermark\.go$
