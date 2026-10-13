@@ -21,6 +21,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
+	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
@@ -71,7 +72,7 @@ func splitByNight(batch []candidate, refNight string) ([]candidate, map[string][
 }
 
 func nightRefKey(object, night string) string {
-	return path.Join("stacks", object, "nights", night, "reference.fit")
+	return path.Join("stacks", ninapath.Folder(object), "nights", night, "reference.fit")
 }
 
 func (p *Pipeline) nightReferenceFile(object, night string) string {

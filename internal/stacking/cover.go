@@ -20,6 +20,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
+	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -528,7 +529,7 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 				s.CometCropX, s.CometCropY, s.CometCropW, s.CometCropH, s.Width, s.Height)
 		}
 	}
-	if err := p.renderCover(ctx, object, path.Join("stacks", object), linear); err != nil {
+	if err := p.renderCover(ctx, object, path.Join("stacks", ninapath.Folder(object)), linear); err != nil {
 		slog.Warn("Could not render the cover", "object", object, "error", err)
 	}
 }
@@ -575,7 +576,7 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 		linear[m.Filter] = fracCrop(layer{Key: *m.LinearKey, Effective: m.EffectiveSeconds, Panels: m.Panels},
 			m.CropX, m.CropY, m.CropW, m.CropH, m.Width, m.Height)
 	}
-	if err := p.renderCover(ctx, app.MosaicSubject(project), path.Join("mosaics", project), linear); err != nil {
+	if err := p.renderCover(ctx, app.MosaicSubject(project), path.Join("mosaics", ninapath.Folder(project)), linear); err != nil {
 		slog.Warn("Could not render the mosaic cover", "project", project, "error", err)
 	}
 }

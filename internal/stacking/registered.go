@@ -9,12 +9,14 @@ import (
 	"math"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
+	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 )
@@ -34,7 +36,7 @@ func structuralKeywords() map[string]bool {
 }
 
 func registeredKey(object, filter, frameKey string) string {
-	return path.Join("registered", object, filter, strings.TrimSuffix(path.Base(frameKey), path.Ext(frameKey))+registeredExt)
+	return path.Join("registered", ninapath.Folder(object), ninapath.Folder(filter), strings.TrimSuffix(path.Base(frameKey), path.Ext(frameKey))+registeredExt)
 }
 
 func encodeRegistered(src []byte) ([]byte, *imagedata.Image, error) {
@@ -213,9 +215,68 @@ func registeredStem(key string) string {
 	return strings.TrimSuffix(key, path.Ext(key))
 }
 
-func registeredTarget(key string) string {
-	parts := strings.SplitN(strings.TrimPrefix(key, registeredPrefix), "/", 2)
-	return parts[0]
+func registeredDir(key string) (string, string) {
+	dir, base := path.Split(strings.TrimPrefix(key, registeredPrefix))
+	return ninapath.Folder(strings.TrimSuffix(dir, "/")), base
+}
+
+func registeredParts(key string) (target, filter, base string) {
+	dir, base := path.Split(strings.TrimPrefix(registeredStem(key), registeredPrefix))
+	target, filter = path.Split(strings.TrimSuffix(dir, "/"))
+	return ninapath.Folder(strings.TrimSuffix(target, "/")), ninapath.Folder(filter), base
+}
+
+func sameRegistered(a, b string) bool {
+	ta, fa, ba := registeredParts(a)
+	tb, fb, bb := registeredParts(b)
+	return ta == tb && fa == fb && ba == bb
+}
+
+// registeredTargets are the targets a registered sub's key may belong to,
+// from masters, which maps the folder of each master's target and filter to
+// its targets. Keys are registered/<target>/<filter>/<sub>, with NINA's
+// folder names, or, in keys written before, the names with their slashes.
+func registeredTargets(key string, masters map[string][]string) []string {
+	dir, _ := registeredDir(key)
+	if o, ok := masters[dir]; ok {
+		return o
+	}
+	rest := strings.TrimPrefix(key, registeredPrefix)
+	if i := strings.Index(rest, "/"); i >= 0 {
+		return []string{rest[:i]}
+	}
+	return []string{rest}
+}
+
+func (p *Pipeline) mastersByFolder(ctx context.Context) (map[string][]string, error) {
+	var rows []struct{ Object, Filter string }
+	if err := p.db.WithContext(ctx).Model(&app.Stack{}).Select("object", "filter").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string, len(rows))
+	for _, r := range rows {
+		k := ninapath.Folder(r.Object + "/" + r.Filter)
+		if !slices.Contains(out[k], r.Object) {
+			out[k] = append(out[k], r.Object)
+		}
+	}
+	return out, nil
+}
+
+func (p *Pipeline) holdAll(objects []string) bool {
+	for i, o := range objects {
+		if !p.hold(o) {
+			p.releaseAll(objects[:i])
+			return false
+		}
+	}
+	return true
+}
+
+func (p *Pipeline) releaseAll(objects []string) {
+	for _, o := range objects {
+		p.release(o)
+	}
 }
 
 func gcDecide(obj registeredObject, rows []subRow, referenced map[string]bool, listed map[string]registeredObject, seen *time.Time, now time.Time, grace time.Duration) gcVerdict {
@@ -229,7 +290,7 @@ func gcDecide(obj registeredObject, rows []subRow, referenced map[string]bool, l
 		if r.Status != app.StackStatusAdded {
 			continue
 		}
-		if r.RegisteredKey == nil || registeredStem(*r.RegisteredKey) != registeredStem(obj.Key) {
+		if r.RegisteredKey == nil || !sameRegistered(*r.RegisteredKey, obj.Key) {
 			return gcAmbiguous
 		}
 		cur, ok := listed[*r.RegisteredKey]
@@ -312,6 +373,10 @@ func (p *Pipeline) collectRegistered(ctx context.Context, store registeredStore,
 		base := strings.TrimSuffix(path.Base(r.Key), path.Ext(r.Key))
 		byBase[base] = append(byBase[base], subRow{Status: r.Status, RegisteredKey: r.RegisteredKey})
 	}
+	masters, err := p.mastersByFolder(ctx)
+	if err != nil {
+		return res, err
+	}
 	listed := make(map[string]registeredObject, len(objs))
 	for _, o := range objs {
 		listed[o.Key] = o
@@ -348,13 +413,13 @@ func (p *Pipeline) collectRegistered(ctx context.Context, store registeredStore,
 		if p.stopping(ctx) {
 			break
 		}
-		target := registeredTarget(o.Key)
-		if !p.hold(target) {
+		targets := registeredTargets(o.Key, masters)
+		if !p.holdAll(targets) {
 			res.busy++
 			continue
 		}
 		err := p.removeUnreferenced(ctx, store, o)
-		p.release(target)
+		p.releaseAll(targets)
 		if err != nil {
 			res.failed++
 			slog.Warn("Could not delete an unreferenced registered sub", "key", o.Key, "error", err)

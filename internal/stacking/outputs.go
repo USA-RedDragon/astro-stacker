@@ -17,6 +17,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
+	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -32,7 +33,7 @@ const LinearMaxWidth = 1600
 const LinearMagic = "APLP"
 
 func stackPrefix(s *app.Stack) string {
-	return path.Join("stacks", s.Object, s.Filter)
+	return path.Join("stacks", ninapath.Folder(s.Object), ninapath.Folder(s.Filter))
 }
 
 // saveStack saves a master's row but its needs_rebuild, which sweeps mark
