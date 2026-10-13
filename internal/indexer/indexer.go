@@ -24,6 +24,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/measure"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
+	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	"github.com/minio/minio-go/v7"
@@ -33,6 +34,10 @@ import (
 
 func imageExtensions() map[string]bool {
 	return map[string]bool{".xisf": true, ".fits": true, ".fit": true, ".fts": true}
+}
+
+func Indexable(key string) bool {
+	return imageExtensions()[strings.ToLower(path.Ext(key))] && !starfront.Shared(key)
 }
 
 type Indexer struct {
@@ -476,14 +481,13 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 	}
 
 	present := make(map[string]bool, len(etags))
-	extensions := imageExtensions()
 	var listErr error
 	for obj := range ix.client.ListObjects(ctx, ix.bucket, minio.ListObjectsOptions{Recursive: true}) {
 		if obj.Err != nil {
 			listErr = obj.Err
 			break
 		}
-		if !extensions[strings.ToLower(path.Ext(obj.Key))] {
+		if !Indexable(obj.Key) {
 			continue
 		}
 		stats.Seen++
@@ -626,12 +630,13 @@ func optInt(n int) *int {
 func geometryColumns(f frameheader.Frame) map[string]any {
 	return map[string]any{
 		"width": optInt(f.Width), "height": optInt(f.Height), "focal_length": ptr(f.FocalLength), "pixel_size": ptr(f.PixelSize),
-		"telescope": optString(f.Telescope), "bayer_pattern": optString(f.BayerPattern), "geometry_rev": GeometryRevision,
+		"telescope": optString(f.Telescope), "bayer_pattern": optString(f.BayerPattern),
+		"collab_project": optString(f.CollabProject), "collab_panel": optInt(f.CollabPanel), "geometry_rev": GeometryRevision,
 	}
 }
 
 const (
-	GeometryRevision    = 1
+	GeometryRevision    = 2
 	geometryBackfillCap = 2000
 )
 
@@ -709,6 +714,7 @@ func fillFrame(dst *app.Frame, f frameheader.Frame) {
 		n := f.TSPanel
 		dst.TSPanel = &n
 	}
+	dst.CollabProject, dst.CollabPanel = optString(f.CollabProject), optInt(f.CollabPanel)
 	dst.MountRA, dst.MountDec = ptr(f.RA), ptr(f.Dec)
 	dst.PointingRead, dst.PointingWCS, dst.PointingRev = true, true, PointingRevision
 	dst.Width, dst.Height = optInt(f.Width), optInt(f.Height)
