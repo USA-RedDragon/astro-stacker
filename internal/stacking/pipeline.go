@@ -204,6 +204,10 @@ const (
 	VerdictMinGap  = 5 * time.Minute
 	MosaicKickWait = time.Minute
 	MosaicMinGap   = 5 * time.Minute
+	// CometQuiet is how long a comet target's star-aligned master is left
+	// alone before its comet master is stacked, so the comet master
+	// follows the master within minutes rather than after MosaicQuiet.
+	CometQuiet = time.Minute
 )
 
 // KickVerdicts asks for verdicts to be sent soon, as when lights are

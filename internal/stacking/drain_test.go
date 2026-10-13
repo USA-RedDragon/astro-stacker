@@ -8,6 +8,9 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 // With nothing in hand, a drained pipeline's status reporting stops at
@@ -94,5 +97,44 @@ func TestVerdictBudgetIsPerHour(t *testing.T) {
 	}
 	if got := p.verdictBudget(1, now); got != 0 {
 		t.Fatalf("an overspent hour leaves nothing: %d", got)
+	}
+}
+
+// A comet master starts a minute after its star-aligned master settles,
+// not after MosaicQuiet: a master updated moments ago asks for another pass.
+func TestCometMasterWaitsOnlyForTheMasterToSettle(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&app.Stack{}); err != nil {
+		t.Fatal(err)
+	}
+	key := "masters/161P.xisf"
+	if err := db.Create(&app.Stack{Object: "161P/Hartley-IRAS", Filter: "L", Subs: 5, MasterKey: &key, UpdatedAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
+	p.mosaicKick = &trigger.Debouncer{}
+	runs := make(chan struct{}, 10)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		p.mosaicKick.Run(ctx, 0, func(context.Context, []string) { runs <- struct{}{} })
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	<-runs
+	if err := p.cometsOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-runs:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a comet master whose master just changed was left for the backstop")
 	}
 }
