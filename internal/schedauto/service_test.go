@@ -328,3 +328,16 @@ func TestAnAppliedManualEditStillWaitsForTheSync(t *testing.T) {
 		t.Errorf("only the manual edit is sent while it syncs: %d, %v", len(sent.sent), err)
 	}
 }
+
+func TestAffects(t *testing.T) {
+	t.Parallel()
+	for kind, want := range map[schedcmd.Kind]bool{
+		schedcmd.KindProjectCreate: true, schedcmd.KindProjectEdit: true, schedcmd.KindProjectBatchEdit: true, schedcmd.KindProjectDelete: true,
+		schedcmd.KindTargetEdit: true, schedcmd.KindPlanBatchEdit: true, schedcmd.KindSchedulingGlobal: true,
+		schedcmd.KindSkip: false, schedcmd.KindAbortExposure: false, schedcmd.KindGoalEdit: false,
+	} {
+		if got := schedauto.Affects(schedcmd.Record{Kind: kind}); got != want {
+			t.Errorf("%s: %v", kind, got)
+		}
+	}
+}

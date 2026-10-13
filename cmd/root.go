@@ -232,6 +232,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			disc.Invalidate()
 		}
 		previews.Notice(r)
+		kick.onCommand(r)
 	})
 	comets := &bodies.CometList{DB: appStore.DB(), URL: cfg.Bodies.CometElementsURL, SBDBURL: cfg.Bodies.CometSBDBURL, UserAgent: horizons.UserAgent(cmd.Annotations["version"]),
 		Site: bodies.SiteFunc(siteFunc(cfg, appStore)), MinAlt: cfg.Discover.MinAltitude}
@@ -266,11 +267,12 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		extras.Grader = &observatory.GraderCache{Client: obs, Monitor: monitor}
 	}
 
+	startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
+	extras.Scheduling = startScheduling(indexCtx, cfg, appStore, schedulerDBStore, commands, bodyNights, horizon)
+	kick.scheduling = extras.Scheduling.Kick
 	watcher := &schedwatch.Watcher{DB: schedulerDBStore.DB()}
 	kick.listen(broker, watcher)
 	go watcher.Run(indexCtx)
-	startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
-	extras.Scheduling = startScheduling(indexCtx, cfg, appStore, schedulerDBStore, commands, bodyNights, horizon)
 
 	server := server.NewServer(cfg, appStore, schedulerDBStore, signer, broker, restacker, cmd.Annotations["version"], extras)
 	if err := server.Start(ctx); err != nil {

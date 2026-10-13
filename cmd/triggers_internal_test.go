@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedwatch"
 )
 
@@ -21,9 +22,10 @@ func (l *kickLog) take() []string {
 
 func newKicks(l *kickLog) *kicks {
 	return &kicks{
-		goals:     func(object, filter string) { l.heard = append(l.heard, "goals:"+object+"/"+filter) },
-		moonKeep:  l.fn("moonKeep"),
-		subLength: l.fn("subLength"),
+		goals:      func(object, filter string) { l.heard = append(l.heard, "goals:"+object+"/"+filter) },
+		moonKeep:   l.fn("moonKeep"),
+		subLength:  l.fn("subLength"),
+		scheduling: l.fn("scheduling"),
 	}
 }
 
@@ -32,7 +34,12 @@ func TestKicksFollowEventsAndPlanChanges(t *testing.T) {
 	l := &kickLog{}
 	broker := events.NewBroker()
 	w := &schedwatch.Watcher{}
-	newKicks(l).listen(broker, w)
+	k := newKicks(l)
+	k.onCommand(schedcmd.Record{Kind: schedcmd.KindProjectCreate})
+	if got := l.take(); got != nil {
+		t.Errorf("a command before every kick is assigned kicked %v", got)
+	}
+	k.listen(broker, w)
 	plans := func() {
 		for _, fn := range w.OnPlans {
 			fn()
@@ -48,7 +55,10 @@ func TestKicksFollowEventsAndPlanChanges(t *testing.T) {
 		{"subs triaged", func() { broker.Publish(events.Event{Type: events.TypeSubs, Object: "M31", Filter: "H-a"}) },
 			[]string{"moonKeep", "subLength"}},
 		{"preview rendered", func() { broker.Publish(events.Event{Type: events.TypePreview, Object: "M31"}) }, nil},
-		{"plans changed", plans, []string{"goals:/", "moonKeep", "subLength"}},
+		{"plans changed", plans, []string{"goals:/", "moonKeep", "scheduling", "subLength"}},
+		{"project drafted", func() { k.onCommand(schedcmd.Record{Kind: schedcmd.KindProjectCreate}) }, []string{"scheduling"}},
+		{"global settings saved", func() { k.onCommand(schedcmd.Record{Kind: schedcmd.KindSchedulingGlobal}) }, []string{"scheduling"}},
+		{"target skipped", func() { k.onCommand(schedcmd.Record{Kind: schedcmd.KindSkip}) }, nil},
 	}
 	for _, c := range cases {
 		c.do()
@@ -69,4 +79,5 @@ func TestNilKicksAreSkipped(t *testing.T) {
 	for _, fn := range append(w.OnPlans, w.OnSync...) {
 		fn()
 	}
+	(&kicks{}).onCommand(schedcmd.Record{Kind: schedcmd.KindProjectCreate})
 }

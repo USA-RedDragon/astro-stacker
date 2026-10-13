@@ -103,7 +103,7 @@ func (s SubLength) validate(perSecond bool) error {
 
 type Scheduling struct {
 	Auto          string `name:"auto" description:"Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on" default:"off"`
-	IntervalHours int    `name:"interval-hours" description:"Hours between working the values out again" default:"1"`
+	IntervalHours int    `name:"interval-hours" description:"Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change, and when a manual edit's hold ends" default:"1"`
 }
 
 func (s Scheduling) validate() error {
