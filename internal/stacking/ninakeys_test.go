@@ -12,13 +12,13 @@ import (
 
 func TestKeysUseNINAFolders(t *testing.T) {
 	t.Parallel()
-	const comet = "161P/Hartley-IRAS"
+	const comet = hartleyName
 	for got, want := range map[string]string{
-		stackPrefix(&app.Stack{Object: comet, Filter: "Luminance"}):         "stacks/161P-Hartley-IRAS/Luminance",
-		stackPrefix(&app.Stack{Object: "M 31", Filter: "Ha/OIII"}):          "stacks/M 31/Ha-OIII",
-		registeredKey(comet, "Luminance", "161P-Hartley-IRAS/LIGHT/a.xisf"): "registered/161P-Hartley-IRAS/Luminance/a.xisf",
-		nightRefKey(comet, "2026-10-12"):                                    "stacks/161P-Hartley-IRAS/nights/2026-10-12/reference.fit",
-		mosaicPrefix("Veil: East/West", "Red"):                              "mosaics/Veil_ East-West/Red",
+		stackPrefix(&app.Stack{Object: comet, Filter: filterLuminance}):         "stacks/161P-Hartley-IRAS/Luminance",
+		stackPrefix(&app.Stack{Object: "NGC 7000", Filter: "Ha/OIII"}):          "stacks/NGC 7000/Ha-OIII",
+		registeredKey(comet, filterLuminance, "161P-Hartley-IRAS/LIGHT/a.xisf"): "registered/161P-Hartley-IRAS/Luminance/a.xisf",
+		nightRefKey(comet, "2026-10-12"):                                        "stacks/161P-Hartley-IRAS/nights/2026-10-12/reference.fit",
+		mosaicPrefix("Veil: East/West", "Red"):                                  "mosaics/Veil_ East-West/Red",
 	} {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -29,15 +29,15 @@ func TestKeysUseNINAFolders(t *testing.T) {
 func TestRegisteredTargets(t *testing.T) {
 	t.Parallel()
 	masters := map[string][]string{
-		"161P-Hartley-IRAS-Luminance": {"161P/Hartley-IRAS"},
-		"M31-Ha-OIII":                 {"M31"},
+		"161P-Hartley-IRAS-Luminance": {hartleyName},
+		"M31-Ha-OIII":                 {objectM31},
 		"A-B-L":                       {"A/B", "A-B"},
 	}
 	for key, want := range map[string][]string{
-		"registered/161P-Hartley-IRAS/Luminance/a.xisf": {"161P/Hartley-IRAS"},
-		"registered/161P/Hartley-IRAS/Luminance/a.xisf": {"161P/Hartley-IRAS"},
-		"registered/M31/Ha/OIII/a.xisf":                 {"M31"},
-		"registered/M31/Ha-OIII/a.xisf":                 {"M31"},
+		"registered/161P-Hartley-IRAS/Luminance/a.xisf": {hartleyName},
+		"registered/161P/Hartley-IRAS/Luminance/a.xisf": {hartleyName},
+		"registered/M31/Ha/OIII/a.xisf":                 {objectM31},
+		"registered/M31/Ha-OIII/a.xisf":                 {objectM31},
 		"registered/A-B/L/a.xisf":                       {"A/B", "A-B"},
 		"registered/M33/Ha/a.xisf":                      {"M33"},
 		"registered/a.fit":                              {"a.fit"},
@@ -76,8 +76,8 @@ func TestReRegisteredSlashTargetIsCollected(t *testing.T) {
 func TestCollectRegisteredHoldsSlashTarget(t *testing.T) {
 	t.Parallel()
 	db := registeredDB(t)
-	const comet = "161P/Hartley-IRAS"
-	if err := db.Create(&app.Stack{Object: comet, Filter: "Luminance"}).Error; err != nil {
+	const comet = hartleyName
+	if err := db.Create(&app.Stack{Object: comet, Filter: filterLuminance}).Error; err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()

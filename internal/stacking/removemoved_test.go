@@ -31,7 +31,7 @@ func deletingS3(t *testing.T) (*minio.Client, func() []string) {
 	}))
 	t.Cleanup(srv.Close)
 	s3, err := minio.New(strings.TrimPrefix(srv.URL, "http://"), &minio.Options{
-		Creds: credentials.NewStaticV4("k", "s", ""), Region: "us-east-1"})
+		Creds: credentials.NewStaticV4("k", "s", ""), Region: testRegion})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestRemoveOldLayoutKeepsOtherTargetsAndNewKeys(t *testing.T) {
 	s3, deleted := deletingS3(t)
 	p := &Pipeline{s3: s3, dest: "out"}
 	ctx := context.Background()
-	p.removeOldLayout(ctx, "M31", []string{"stacks/M31/reference.fit"})
+	p.removeOldLayout(ctx, objectM31, []string{"stacks/M31/reference.fit"})
 	p.removeOldLayout(ctx, "C/2025 A6 (Lemmon)", []string{
 		"stacks/C/2025 A6 (Lemmon)/reference.fit",
 		"stacks/C/2025 A6 (Lemmon)/nights/2026-10-12/reference.fit",

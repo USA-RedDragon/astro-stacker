@@ -1,6 +1,10 @@
-package ninapath
+package ninapath_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
+)
 
 func TestFolder(t *testing.T) {
 	t.Parallel()
@@ -17,7 +21,7 @@ func TestFolder(t *testing.T) {
 		"a..b":                "a..b",
 	}
 	for in, want := range cases {
-		if got := Folder(in); got != want {
+		if got := ninapath.Folder(in); got != want {
 			t.Errorf("Folder(%q) = %q, want %q", in, got, want)
 		}
 	}
