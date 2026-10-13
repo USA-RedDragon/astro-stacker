@@ -103,6 +103,7 @@ type Status struct {
 	ActivitySince  *time.Time       `json:"activity_since,omitempty"`
 	Scores         []Score          `json:"scores,omitempty"`
 	ScoreTotal     *float64         `json:"score_total,omitempty"`
+	ScoreNote      string           `json:"score_note,omitempty"`
 	Skips          []Skip           `json:"skips,omitempty"`
 	Pending        []PendingCommand `json:"pending,omitempty"`
 	LastPlanAt     *time.Time       `json:"last_plan_at,omitempty"`
