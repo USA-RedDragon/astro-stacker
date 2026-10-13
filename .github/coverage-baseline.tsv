@@ -85,7 +85,7 @@ internal/goals/progress.go	104	93
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	353	319
+internal/goals/tsgoals.go	353	320
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	106	84
 internal/halpha/halpha.go	177	154
@@ -95,11 +95,11 @@ internal/horizonsurvey/camera.go	115	111
 internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
-internal/horizonsurvey/nina.go	101	83
+internal/horizonsurvey/nina.go	101	82
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
-internal/horizonsurvey/runner.go	451	350
+internal/horizonsurvey/runner.go	451	351
 internal/horizonsurvey/segment.go	96	94
 internal/horizonsurvey/sim/sim.go	267	240
 internal/horizonsurvey/skyline.go	119	113
@@ -175,7 +175,7 @@ internal/schedauto/overhead.go	71	69
 internal/schedauto/plan.go	109	100
 internal/schedauto/projection.go	75	67
 internal/schedauto/rules.go	24	24
-internal/schedauto/service.go	242	189
+internal/schedauto/service.go	242	185
 internal/schedauto/windows.go	46	45
 internal/schedcmd/altitude.go	59	52
 internal/schedcmd/before.go	69	41
@@ -239,7 +239,7 @@ internal/skyevents/geometry.go	84	83
 internal/skyevents/plan.go	381	312
 internal/skyevents/rarity.go	303	280
 internal/skyevents/search.go	467	455
-internal/skyevents/service.go	353	266
+internal/skyevents/service.go	354	268
 internal/skyevents/tracks.go	51	30
 internal/stacking/accumulator.go	160	156
 internal/stacking/astrometry.go	8	0
