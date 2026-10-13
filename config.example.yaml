@@ -145,7 +145,7 @@ stacking:
 public-frames:
   # Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg
   enabled: false
-  # Seconds between checks for newly accepted lights
+  # Seconds between backstop checks for newly accepted lights; a check also runs as soon as lights are triaged
   interval-seconds: 60
   # Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered
   max-age-days: 14

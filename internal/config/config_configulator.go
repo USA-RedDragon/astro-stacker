@@ -2176,7 +2176,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(200), names[60], "Milliseconds between deletions of unreferenced registered subs")
 	fs.Float64(names[61], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
 	fs.Bool(names[62], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
-	fs.Var(impl.NewInt(60), names[63], "Seconds between checks for newly accepted lights")
+	fs.Var(impl.NewInt(60), names[63], "Seconds between backstop checks for newly accepted lights; a check also runs as soon as lights are triaged")
 	fs.Var(impl.NewInt(14), names[64], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
 	fs.Float64(names[65], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
 	fs.Float64(names[66], 0.0, "Observatory east longitude in degrees")

@@ -182,7 +182,7 @@ type Goals struct {
 
 type PublicFrames struct {
 	Enabled         bool `name:"enabled" description:"Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg"`
-	IntervalSeconds int  `name:"interval-seconds" description:"Seconds between checks for newly accepted lights" default:"60"`
+	IntervalSeconds int  `name:"interval-seconds" description:"Seconds between backstop checks for newly accepted lights; a check also runs as soon as lights are triaged" default:"60"`
 	MaxAgeDays      int  `name:"max-age-days" description:"Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered" default:"14"`
 }
 

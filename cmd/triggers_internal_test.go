@@ -22,13 +22,14 @@ func (l *kickLog) take() []string {
 
 func newKicks(l *kickLog) *kicks {
 	return &kicks{
-		goals:      func(object, filter string) { l.heard = append(l.heard, "goals:"+object+"/"+filter) },
-		moonKeep:   l.fn("moonKeep"),
-		subLength:  l.fn("subLength"),
-		scheduling: l.fn("scheduling"),
-		verdicts:   l.fn("verdicts"),
-		mosaics:    l.fn("mosaics"),
-		goalSwitch: l.fn("goalSwitch"),
+		goals:        func(object, filter string) { l.heard = append(l.heard, "goals:"+object+"/"+filter) },
+		moonKeep:     l.fn("moonKeep"),
+		subLength:    l.fn("subLength"),
+		scheduling:   l.fn("scheduling"),
+		verdicts:     l.fn("verdicts"),
+		mosaics:      l.fn("mosaics"),
+		goalSwitch:   l.fn("goalSwitch"),
+		publicFrames: l.fn("publicFrames"),
 	}
 }
 
@@ -57,7 +58,7 @@ func TestKicksFollowEventsAndPlanChanges(t *testing.T) {
 		{"master updated", func() { broker.Publish(events.Event{Type: events.TypeMaster, Object: "M31", Filter: "H-a"}) },
 			[]string{"goals:M31/H-a", "mosaics"}},
 		{"subs triaged", func() { broker.Publish(events.Event{Type: events.TypeSubs, Object: "M31", Filter: "H-a"}) },
-			[]string{"moonKeep", "subLength", "verdicts"}},
+			[]string{"moonKeep", "publicFrames", "subLength", "verdicts"}},
 		{"frames indexed", func() { broker.Publish(events.Event{Type: events.TypeFrames}) }, []string{"mosaics"}},
 		{"sync arrived", func() {
 			for _, fn := range w.OnSync {
