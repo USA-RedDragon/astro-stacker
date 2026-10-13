@@ -500,7 +500,11 @@ func (p *Pipeline) solvePendingNightReferences(ctx context.Context, stack *app.S
 	now := time.Now()
 	for i := range refs {
 		nr := &refs[i]
-		if p.stopping(ctx) || !nightSolveDue(*nr, now) || !p.hold(stack.Object) {
+		if p.stopping(ctx) || !nightSolveDue(*nr, now) || !p.holdWait(ctx, stack.Object, bodyHoldWait) {
+			continue
+		}
+		if err := p.db.WithContext(ctx).Where("wcs IS NULL").First(nr, nr.ID).Error; err != nil {
+			p.release(stack.Object)
 			continue
 		}
 		local := p.nightReferenceFile(nr.Object, nightKey(&nr.Night))

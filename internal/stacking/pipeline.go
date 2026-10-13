@@ -143,6 +143,9 @@ type Pipeline struct {
 	// same target's reference and masters.
 	mu   sync.Mutex
 	busy map[string]bool
+	// waiting holds the targets a background job waits to take from the
+	// workers; claim passes them over so the job gets them between batches.
+	waiting map[string]int
 	// building serializes work on one calibration master's files.
 	building sync.Map // set key -> *sync.Mutex
 	// sites caches each target's observing site (latitude, east longitude),
@@ -604,9 +607,12 @@ const LiveWindow = 48 * time.Hour
 func (p *Pipeline) claim(q *gorm.DB) (*app.Frame, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(p.busy) > 0 {
-		busy := make([]string, 0, len(p.busy))
+	if len(p.busy)+len(p.waiting) > 0 {
+		busy := make([]string, 0, len(p.busy)+len(p.waiting))
 		for o := range p.busy {
+			busy = append(busy, o)
+		}
+		for o := range p.waiting {
 			busy = append(busy, o)
 		}
 		q = q.Session(&gorm.Session{}).Where("frames.object NOT IN ?", busy)
@@ -638,6 +644,39 @@ func (p *Pipeline) hold(object string) bool {
 	}
 	p.busy[object] = true
 	return true
+}
+
+const holdPoll = time.Second
+
+// holdWait is hold that, while a worker is stacking the target, keeps the
+// workers off it and waits up to limit for their batch to end. A target
+// imaged all night is otherwise claimed again the moment each batch ends.
+func (p *Pipeline) holdWait(ctx context.Context, object string, limit time.Duration) bool {
+	if p.hold(object) {
+		return true
+	}
+	p.mu.Lock()
+	if p.waiting == nil {
+		p.waiting = map[string]int{}
+	}
+	p.waiting[object]++
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		if p.waiting[object]--; p.waiting[object] <= 0 {
+			delete(p.waiting, object)
+		}
+		p.mu.Unlock()
+	}()
+	for end := time.Now().Add(limit); time.Now().Before(end); {
+		if !p.pause(ctx, holdPoll) {
+			return false
+		}
+		if p.hold(object) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Pipeline) release(object string) {
