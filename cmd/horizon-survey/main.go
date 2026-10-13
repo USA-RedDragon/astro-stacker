@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	hs "github.com/USA-RedDragon/astro-stacker/internal/horizonsurvey"
@@ -76,7 +78,7 @@ func run() int {
 		fmt.Fprint(os.Stderr, usage)
 		return 2
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
 		<-ctx.Done()
@@ -249,6 +251,10 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	cfg.Out, cfg.Plan, cfg.Safety, cfg.Log = abs, c.plan, c.safety, out
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	ignoreBackgroundRead()
+	go watchStdin(ctx, cancel, os.Stdin, out, stdinGrace)
 	phd, err := hs.DialPHD2(ctx, *phdAddr)
 	if err != nil {
 		return err
@@ -260,6 +266,39 @@ func runCmd(ctx context.Context, args []string, out io.Writer) error {
 	}
 	_, _ = fmt.Fprintf(out, "Frames are in %s. Next: horizon-survey analyze -dir %q\n", cfg.Out, cfg.Out)
 	return nil
+}
+
+const stdinGrace = 3 * time.Second
+
+var (
+	errStdinStop   = fmt.Errorf("%w: stop typed on the console", hs.ErrStopped)
+	errStdinClosed = fmt.Errorf("%w: the console input closed (ssh session ended?)", hs.ErrStopped)
+)
+
+func watchStdin(ctx context.Context, cancel context.CancelCauseFunc, in io.Reader, out io.Writer, grace time.Duration) {
+	start := time.Now()
+	sc := bufio.NewScanner(in)
+	for sc.Scan() {
+		switch strings.ToLower(strings.TrimSpace(sc.Text())) {
+		case "stop", "q", "quit", "exit":
+			_, _ = fmt.Fprintln(out, "stopping: the mount stops, tracking goes off and the mount goes home")
+			cancel(errStdinStop)
+			return
+		}
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if err := sc.Err(); err != nil {
+		_, _ = fmt.Fprintf(out, "console input is not readable (%v); to stop, create the STOP file in the output folder\n", err)
+		return
+	}
+	if time.Since(start) < grace {
+		_, _ = fmt.Fprintln(out, "console input is not interactive; to stop, create the STOP file in the output folder")
+		return
+	}
+	_, _ = fmt.Fprintln(out, "console input closed; stopping the survey")
+	cancel(errStdinClosed)
 }
 
 func analyzeCmd(args []string, out io.Writer) error {
