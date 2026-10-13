@@ -5,15 +5,19 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
 	"github.com/gin-gonic/gin"
 )
 
-const cutoutCacheControl = "public, max-age=604800"
+const (
+	cutoutCacheControl = "public, max-age=604800"
+	cutoutWriteTimeout = 90 * time.Second
+)
 
 func applySkyCutoutRoutes(g *gin.RouterGroup, svc *skycutout.Service) {
-	g.GET("/sky/cutout", func(c *gin.Context) {
+	g.GET("/sky/cutout", ExtendWriteDeadline(cutoutWriteTimeout), func(c *gin.Context) {
 		if svc == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: skycutout.ErrOff.Error()})
 			return

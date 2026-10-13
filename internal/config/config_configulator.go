@@ -338,7 +338,7 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("discover.sky-cutouts", configulator.LayerDefault, "default tag")
 	cfg.Discover.HiPS2FITSURL = "https://alasky.cds.unistra.fr/hips-image-services/hips2fits"
 	set("discover.hips2fits-url", configulator.LayerDefault, "default tag")
-	cfg.Discover.CutoutsPerMinute = 20
+	cfg.Discover.CutoutsPerMinute = 60
 	set("discover.cutouts-per-minute", configulator.LayerDefault, "default tag")
 	cfg.Scheduler.Queue = true
 	set("scheduler.queue", configulator.LayerDefault, "default tag")
@@ -2198,7 +2198,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Bool(names[82], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
 	fs.Bool(names[83], true, "Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database")
 	fs.String(names[84], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
-	fs.Var(impl.NewInt(20), names[85], "Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit")
+	fs.Var(impl.NewInt(60), names[85], "Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit")
 	fs.String(names[86], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
 	fs.String(names[87], "", "Bearer token for the plugin's API")
 	fs.Bool(names[88], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")

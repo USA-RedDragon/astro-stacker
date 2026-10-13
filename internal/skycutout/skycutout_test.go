@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -186,5 +187,103 @@ func TestWideFieldsAreServed(t *testing.T) {
 	}
 	if p, _ := proj.Load().(string); p != "TAN" {
 		t.Errorf("projection %s", p)
+	}
+}
+
+func TestAFullQueueAsksTheViewerToRetry(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	arrived := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		arrived <- struct{}{}
+		<-release
+		_, _ = w.Write(jpeg())
+	}))
+	defer srv.Close()
+	s := &skycutout.Service{Endpoint: srv.URL, MaxInFlight: 1, MaxWait: 50 * time.Millisecond}
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		p, _ := skycutout.Parse("10", "0", "1", "", "", "")
+		_, _ = s.Get(context.Background(), p)
+	})
+	<-arrived
+	p, _ := skycutout.Parse("20", "0", "1", "", "", "")
+	_, err := s.Get(context.Background(), p)
+	close(release)
+	wg.Wait()
+	var limited *skycutout.RateLimitError
+	if !errors.As(err, &limited) || limited.RetryAfter <= 0 {
+		t.Fatalf("a full queue gave %v, want a retry", err)
+	}
+}
+
+func TestNewCutoutsQueueForTheLimitInsteadOfFailing(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write(jpeg())
+	}))
+	defer srv.Close()
+	var mu sync.Mutex
+	now := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	var slept time.Duration
+	s := &skycutout.Service{
+		DB: openDB(t), Endpoint: srv.URL, PerMinute: 1, MaxWait: 2 * time.Minute,
+		Now: func() time.Time { mu.Lock(); defer mu.Unlock(); return now },
+		Sleep: func(_ context.Context, d time.Duration) error {
+			mu.Lock()
+			defer mu.Unlock()
+			now = now.Add(d)
+			slept += d
+			return nil
+		},
+	}
+	for _, ra := range []string{"10", "20"} {
+		p, _ := skycutout.Parse(ra, "0", "1", "", "", "")
+		if _, err := s.Get(context.Background(), p); err != nil {
+			t.Fatalf("ra %s: %v", ra, err)
+		}
+	}
+	if hits.Load() != 2 || slept != time.Minute {
+		t.Errorf("hits %d slept %v", hits.Load(), slept)
+	}
+	s.MaxWait = time.Second
+	p, _ := skycutout.Parse("30", "0", "1", "", "", "")
+	var limited *skycutout.RateLimitError
+	if _, err := s.Get(context.Background(), p); !errors.As(err, &limited) || limited.RetryAfter != time.Minute {
+		t.Errorf("past the wait budget: %v", err)
+	}
+}
+
+func TestAtMostMaxInFlightCutoutsFetchAtOnce(t *testing.T) {
+	t.Parallel()
+	var cur, peak atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := cur.Add(1)
+		for {
+			p := peak.Load()
+			if n <= p || peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		time.Sleep(30 * time.Millisecond)
+		cur.Add(-1)
+		_, _ = w.Write(jpeg())
+	}))
+	defer srv.Close()
+	s := &skycutout.Service{Endpoint: srv.URL, MaxInFlight: 2}
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			p, _ := skycutout.Parse(strconv.Itoa(10*i), "0", "1", "", "", "")
+			if _, err := s.Get(context.Background(), p); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if peak.Load() != 2 {
+		t.Errorf("peak in flight %d, want 2", peak.Load())
 	}
 }
