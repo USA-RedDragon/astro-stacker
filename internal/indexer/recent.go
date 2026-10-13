@@ -130,6 +130,7 @@ func (ix *Indexer) recentPrefixes(ctx context.Context) ([]string, error) {
 		}
 		for _, n := range names {
 			add(n)
+			add(ninaFolder(n))
 		}
 	}
 	slices.Sort(out)
@@ -160,4 +161,12 @@ func ScheduledTargets(sched *gorm.DB) func(context.Context) ([]string, error) {
 			Distinct("t.name").Pluck("t.name", &names).Error
 		return names, err
 	}
+}
+
+var ninaInvalid = strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-", "?", "-", "\"", "-", "<", "-", ">", "-", "|", "-")
+
+// ninaFolder is the folder NINA saves a target's images in: a file name
+// cannot hold path separators or other reserved characters.
+func ninaFolder(name string) string {
+	return ninaInvalid.Replace(name)
 }

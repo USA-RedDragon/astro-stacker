@@ -269,3 +269,17 @@ func TestScheduledTargetsWithoutTables(t *testing.T) {
 		t.Errorf("got %q, %v; want nothing", names, err)
 	}
 }
+
+func TestNinaFolder(t *testing.T) {
+	cases := map[string]string{
+		"161P/Hartley-IRAS": "161P-Hartley-IRAS",
+		"C/2024 T5 (ATLAS)": "C-2024 T5 (ATLAS)",
+		"M 31":              "M 31",
+		`a:b*c?d"e<f>g|h\i`: "a-b-c-d-e-f-g-h-i",
+	}
+	for in, want := range cases {
+		if got := ninaFolder(in); got != want {
+			t.Errorf("ninaFolder(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
