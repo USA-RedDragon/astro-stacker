@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -146,9 +147,9 @@ func TestHoldWaitTakesTargetBetweenBatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	for i, o := range []string{"161P/Hartley-IRAS", "161P/Hartley-IRAS", "M31"} {
+	for i, o := range []string{hartleyName, hartleyName, objectM31} {
 		d := now.Add(-time.Duration(i) * time.Minute)
-		if err := db.Create(&app.Frame{Key: o + string(rune('a'+i)), Type: frameTypeLight, Object: o, Filter: filterRed,
+		if err := db.Create(&app.Frame{Key: o + strconv.Itoa(i), Type: frameTypeLight, Object: o, Filter: filterRed,
 			LastModified: now, DateObs: &d}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +159,7 @@ func TestHoldWaitTakesTargetBetweenBatches(t *testing.T) {
 		return db.Model(&app.Frame{}).Joins("LEFT JOIN stack_frames sf ON sf.frame_id = frames.id").
 			Where("frames.type = ? AND sf.id IS NULL", frameTypeLight)
 	}
-	const comet = "161P/Hartley-IRAS"
+	const comet = hartleyName
 	if f, _ := p.claim(lights()); f == nil || f.Object != comet {
 		t.Fatalf("claimed %v, want the comet", f)
 	}
@@ -174,7 +175,7 @@ func TestHoldWaitTakesTargetBetweenBatches(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	p.release(comet)
-	if f, _ := p.claim(lights()); f == nil || f.Object != "M31" {
+	if f, _ := p.claim(lights()); f == nil || f.Object != objectM31 {
 		t.Fatalf("a worker claimed %v while the comet was waited for, want M31", f)
 	}
 	if !<-got {
@@ -200,19 +201,19 @@ func TestMeasureHeldNightReadsSubsStackedWhileWaiting(t *testing.T) {
 	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}, &app.Stack{}, &app.NightReference{}); err != nil {
 		t.Fatal(err)
 	}
-	stack := app.Stack{Object: "161P/Hartley-IRAS", Filter: "Luminance"}
+	stack := app.Stack{Object: hartleyName, Filter: filterLuminance}
 	if err := db.Create(&stack).Error; err != nil {
 		t.Fatal(err)
 	}
 	night := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
 	add := func(i int) {
 		d := time.Date(2026, 10, 13, 6, i, 0, 0, time.UTC)
-		f := app.Frame{Key: "161P-Hartley-IRAS/LIGHT/" + string(rune('a'+i)) + ".xisf", Type: frameTypeLight, Object: stack.Object,
+		f := app.Frame{Key: "161P-Hartley-IRAS/LIGHT/" + strconv.Itoa(i) + ".xisf", Type: frameTypeLight, Object: stack.Object,
 			Filter: stack.Filter, DateObs: &d, Night: &night}
 		if err := db.Create(&f).Error; err != nil {
 			t.Fatal(err)
 		}
-		reg := "registered/161P-Hartley-IRAS/Luminance/" + string(rune('a'+i)) + ".xisf"
+		reg := "registered/161P-Hartley-IRAS/Luminance/" + strconv.Itoa(i) + ".xisf"
 		if err := db.Create(&app.StackFrame{StackID: &stack.ID, FrameID: f.ID, Status: app.StackStatusAdded, RegisteredKey: &reg,
 			Weight: 1, Exposure: 22, Score: 1, ProcessedAt: d}).Error; err != nil {
 			t.Fatal(err)

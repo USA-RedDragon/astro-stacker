@@ -40,7 +40,7 @@ func fakeS3(t *testing.T) (*minio.Client, map[string]bool) {
 	}))
 	t.Cleanup(srv.Close)
 	s3, err := minio.New(strings.TrimPrefix(srv.URL, "http://"), &minio.Options{
-		Creds: credentials.NewStaticV4("k", "s", ""), Region: "us-east-1"})
+		Creds: credentials.NewStaticV4("k", "s", ""), Region: testRegion})
 	if err != nil {
 		t.Fatal(err)
 	}

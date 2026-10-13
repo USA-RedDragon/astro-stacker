@@ -8,4 +8,5 @@ const (
 	objectRhoOphiuchi = "Rho Ophiuchi"
 	objectOther       = "Other"
 	keyOld            = "old"
+	testRegion        = "us-east-1"
 )

@@ -4,15 +4,13 @@ package ninapath
 
 import "strings"
 
-var slashes = strings.NewReplacer(`\`, "-", "/", "-")
-
 // Folder is the folder NINA saves a target's images in, from
 // CoreUtil.ReplaceAllInvalidFilenameChars: path separators become "-", the
 // other characters Windows refuses in a file name become "_", and the name
 // is trimmed. "." and ".." become underscores so a key built from one stays
 // in its prefix.
 func Folder(name string) string {
-	s := slashes.Replace(strings.TrimSpace(name))
+	s := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(name), `\`, "-"), "/", "-")
 	s = strings.Map(func(r rune) rune {
 		if r < 0x20 || strings.ContainsRune(`"<>|:*?`, r) {
 			return '_'
