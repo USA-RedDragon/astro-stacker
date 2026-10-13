@@ -26,6 +26,8 @@ type kicks struct {
 	mosaics func()
 	// goalSwitch moves broadband goals with a zero point to depth.
 	goalSwitch func()
+	// adoption proposes mosaics for projects and loose lights.
+	adoption func()
 	// publicFrames renders each target's newest accepted light.
 	publicFrames func()
 
@@ -72,7 +74,7 @@ func (k *kicks) onEvent(e events.Event) {
 	case events.TypeSubs:
 		call(k.moonKeep, k.subLength, k.verdicts, k.publicFrames)
 	case events.TypeFrames:
-		call(k.mosaics)
+		call(k.mosaics, k.adoption)
 	}
 }
 
@@ -91,5 +93,5 @@ func (k *kicks) onPlans() {
 	if k.goals != nil {
 		k.goals("", "")
 	}
-	call(k.moonKeep, k.subLength, k.scheduling, k.goalSwitch)
+	call(k.moonKeep, k.subLength, k.scheduling, k.goalSwitch, k.adoption)
 }
