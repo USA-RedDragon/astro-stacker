@@ -151,18 +151,20 @@ func TestAbortsHomeTheMount(t *testing.T) {
 		name string
 		opts sim.Options
 		want error
+		mode string
+		at   time.Time
 	}{
-		{"slew fails", sim.Options{FailSlewAt: 4}, hs.ErrSlewFailed},
-		{"roof becomes unsafe", sim.Options{UnsafeAfter: 5}, hs.ErrRoofUnsafe},
-		{"mount reports the wrong place", sim.Options{ReportOffset: 1}, hs.ErrPointing},
-		{"mount reports an unknown pier side", sim.Options{ForcePier: hs.PierUnknown}, hs.ErrPier},
-		{"mount picks an unchecked pier side", sim.Options{ForcePier: hs.PierEast}, hs.ErrPier},
-		{"sequence starts during the run", sim.Options{SequenceAfter: 3}, hs.ErrSequence},
+		{"slew fails", sim.Options{FailSlewAt: 4}, hs.ErrSlewFailed, hs.ModeDusk, duskTime()},
+		{"roof becomes unsafe", sim.Options{UnsafeAfter: 5}, hs.ErrRoofUnsafe, hs.ModeDusk, duskTime()},
+		{"mount reports the wrong place", sim.Options{ReportOffset: 1}, hs.ErrPointing, hs.ModeDusk, duskTime()},
+		{"mount reports an unknown pier side", sim.Options{ForcePier: hs.PierUnknown}, hs.ErrPier, hs.ModeNight, deepNight()},
+		{"mount picks an unchecked pier side", sim.Options{ForcePier: hs.PierEast}, hs.ErrPier, hs.ModeNight, deepNight()},
+		{"sequence starts during the run", sim.Options{SequenceAfter: 3}, hs.ErrSequence, hs.ModeDusk, duskTime()},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			h := newHarness(t, c.opts, hs.ModeDusk, duskTime())
+			h := newHarness(t, c.opts, c.mode, c.at)
 			err := h.run(t.Context())
 			if !errors.Is(err, c.want) {
 				t.Fatalf("got %v, want %v", err, c.want)

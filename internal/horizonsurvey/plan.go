@@ -470,6 +470,7 @@ type Order struct {
 	Flips     int
 	Reachable int
 	Slew      time.Duration
+	StartSun  float64
 }
 
 func cyclicOrders(cols []float64) [][]float64 {
@@ -499,6 +500,8 @@ func better(a, b Order) bool {
 		return a.Flips < b.Flips
 	case a.Reachable != b.Reachable:
 		return a.Reachable > b.Reachable
+	case math.Abs(a.StartSun-b.StartSun) > 1:
+		return a.StartSun > b.StartSun
 	}
 	return a.Slew < b.Slew
 }
@@ -518,47 +521,63 @@ func ChooseOrder(site Site, s Safety, cols, rows []float64, start time.Time, fro
 	alt := repAltitude(rows, rows[0]+5)
 	first := true
 	for _, cand := range cyclicOrders(cols) {
-		o := Order{Columns: cand}
-		pier := from.Pier()
-		if from == Home() {
-			pier = ""
-			for _, az := range cand {
-				if f := site.ColumnPiers(az, rows); len(f) == 1 {
-					pier = f[0]
-					break
-				}
-			}
-		}
-		at := from
-		for ci, az := range cand {
-			next := ChoosePier(site.ColumnPiers(az, rows), pier)
-			o.Piers = append(o.Piers, next)
-			if next == "" {
-				continue
-			}
-			if next != pier && (ci != 0 || from != Home()) {
-				o.Flips++
-			}
-			pier = next
-			aAz, aAlt, ha, dec, ok := site.Aim(az, alt, next)
-			if !ok {
-				continue
-			}
-			ck := NewChecker(site, s, start.Add(time.Duration(ci)*perColumn))
-			if _, err := ck.RouteOn(at, aAz, aAlt, next); err != nil {
-				continue
-			}
-			if m, ok := MechFor(ha, dec, next); ok {
-				o.Slew += SlewTime(at, m, DefaultSlewRate)
-				at = m
-			}
-			o.Reachable++
-		}
+		o := scoreOrder(site, s, cand, rows, alt, start, from, perColumn)
 		if first || better(o, best) {
 			best, first = o, false
 		}
 	}
 	return best
+}
+
+func scoreOrder(site Site, s Safety, cand, rows []float64, alt float64, start time.Time, from Mech, perColumn time.Duration) Order {
+	o := Order{Columns: cand}
+	pier := from.Pier()
+	if from == Home() {
+		pier = ""
+		for _, az := range cand {
+			if f := site.ColumnPiers(az, rows); len(f) == 1 {
+				pier = f[0]
+				break
+			}
+		}
+	}
+	at := from
+	routed := false
+	for ci, az := range cand {
+		next := ChoosePier(site.ColumnPiers(az, rows), pier)
+		o.Piers = append(o.Piers, next)
+		if next == "" {
+			continue
+		}
+		if next != pier && (ci != 0 || from != Home()) {
+			o.Flips++
+			routed = false
+		}
+		pier = next
+		aAz, aAlt, ha, dec, ok := site.Aim(az, alt, next)
+		if !ok {
+			continue
+		}
+		ck := NewChecker(site, s, start.Add(time.Duration(ci)*perColumn))
+		if ck.PointOK(aAz, aAlt) != nil {
+			continue
+		}
+		if !routed {
+			if _, err := ck.RouteOn(at, aAz, aAlt, next); err != nil {
+				continue
+			}
+			routed = true
+		}
+		if o.Reachable == 0 {
+			o.StartSun = ck.MinSunSep(HorVec(aAz, aAlt))
+		}
+		if m, ok := MechFor(ha, dec, next); ok {
+			o.Slew += SlewTime(at, m, DefaultSlewRate)
+			at = m
+		}
+		o.Reachable++
+	}
+	return o
 }
 
 func SlewTime(a, b Mech, rate float64) time.Duration {
