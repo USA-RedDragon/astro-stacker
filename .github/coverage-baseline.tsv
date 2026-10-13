@@ -66,7 +66,7 @@ internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	109
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	404	342
+internal/goalmeasure/runner.go	404	343
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/body.go	161	154
@@ -90,11 +90,11 @@ internal/horizonsurvey/camera.go	115	111
 internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
-internal/horizonsurvey/nina.go	101	82
+internal/horizonsurvey/nina.go	101	81
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
-internal/horizonsurvey/runner.go	451	351
+internal/horizonsurvey/runner.go	451	350
 internal/horizonsurvey/segment.go	96	94
 internal/horizonsurvey/sim/sim.go	267	240
 internal/horizonsurvey/skyline.go	119	113
@@ -104,7 +104,7 @@ internal/imagedata/pedestal16.go	9	9
 internal/imagedata/xisf.go	177	138
 internal/imagedata/xisfwrite.go	79	66
 internal/indexer/indexer.go	353	121
-internal/indexer/recent.go	78	65
+internal/indexer/recent.go	80	67
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/moon/moon.go	44	43
