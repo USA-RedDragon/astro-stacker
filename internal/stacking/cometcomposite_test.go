@@ -5,6 +5,9 @@ import (
 	"math/rand/v2"
 	"slices"
 	"testing"
+	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
 // cometScene is n subs of a star field, registered on the stars, with a
@@ -138,10 +141,81 @@ func TestCometCompositeOnStarField(t *testing.T) {
 	}
 }
 
+// Two nights see the comet in different star fields. The master keeps the
+// stars of one night, and the other night's stars, which would trail
+// through it, none at all.
+func TestCometCompositeTwoNights(t *testing.T) {
+	t.Parallel()
+	const w, h = 800, 400
+	n1, n2 := newCometScene(w, h, 16, 0.03, 11), newCometScene(w, h, 16, 0.03, 12)
+	sky1, sky2 := frameWCS(100, 20, 0, w, h), frameWCS(101.5, 20.8, 35, w, h)
+	l1, l2 := n1.separate(t), n2.separate(t)
+	raC1, decC1 := sky1.toSky(n1.cx+1, float64(h)-n1.cy)
+	raC2, decC2 := sky2.toSky(n2.cx+1, float64(h)-n2.cy)
+	alone := func(l cometLayers) []float32 {
+		c := make([]float32, len(l.signal))
+		for i, v := range l.signal {
+			c[i] = v * 10
+		}
+		return c
+	}
+	comets, _ := combineNights(sky1, w, h, raC1, decC1, []nightImage{
+		{data: alone(l1), w: w, h: h, sky: sky1, raC: raC1, decC: decC1, weight: 1},
+		{data: alone(l2), w: w, h: h, sky: sky2, raC: raC2, decC: decC2, weight: 1},
+	})
+	m := cometOnField(l1.field.Master(10), comets)
+
+	truth := make([]float32, w*h)
+	for _, s := range n1.stars {
+		n1.blob(truth, s[0], s[1], s[2], 1.5)
+	}
+	n1.blob(truth, n1.cx, n1.cy, 0.03, 2)
+	n1.blob(truth, n1.cx, n1.cy, 0.01, 9)
+	bg := sorted(m)[len(m)/2]
+	var worst float64
+	for y := 15; y < h-15; y++ {
+		for x := 15; x < w-15; x++ {
+			if truth[y*w+x] > 0.002 {
+				continue
+			}
+			worst = max(worst, math.Abs(float64(m[y*w+x]-bg-truth[y*w+x])))
+		}
+	}
+	if worst > 0.004 {
+		t.Errorf("the master strays %.4f from night 1's sky between its stars", worst)
+	}
+	for _, s := range n1.stars {
+		if s[2] > 0.05 && math.Hypot(s[0]-n1.cx, s[1]-n1.cy) > 20 {
+			if v := m[int(math.Round(s[1]))*w+int(math.Round(s[0]))] - bg; v < 0.6*float32(s[2]) {
+				t.Errorf("night 1's star at (%.0f,%.0f) is %.3f, want about %.3f", s[0], s[1], v, s[2])
+			}
+		}
+	}
+	peak := m[int(n1.cy)*w+int(n1.cx)] - bg
+	h1 := l1.comet.Master(10)
+	want := h1[int(n1.cy)*w+int(n1.cx)] - sorted(h1)[len(h1)/2]
+	if math.Abs(float64(peak-want)) > 0.1*float64(want) {
+		t.Errorf("comet peak %.4f, night 1's %.4f", peak, want)
+	}
+}
+
 func sorted(p []float32) []float32 {
 	v := slices.Clone(p)
 	slices.Sort(v)
 	return v
+}
+
+func TestPickFieldNight(t *testing.T) {
+	t.Parallel()
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 0, 0, 0, 0, time.UTC) }
+	rows := []app.BodyNight{{Night: day(12), EffectiveHours: 1}, {Night: day(13), EffectiveHours: 0.5}, {Night: day(14), EffectiveHours: 1}}
+	all := append(slices.Clone(rows), app.BodyNight{Filter: filterRed, Night: day(13), EffectiveHours: 1})
+	if got := pickFieldNight(rows, all); !got.Night.Equal(day(13)) {
+		t.Errorf("picked %s, want the night with the most hours over all filters", got.Night)
+	}
+	if got := pickFieldNight(rows, rows); !got.Night.Equal(day(14)) {
+		t.Errorf("picked %s, want the later of equal nights", got.Night)
+	}
 }
 
 // The comet's sky is taken round it: a stack whose sky is higher there than

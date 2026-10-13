@@ -293,7 +293,7 @@ func TestImagedNightsWaitsAndSkips(t *testing.T) {
 	imaged := func(night string) app.BodyNight {
 		sig := bodyNightSignature(nights[night], body)
 		d, _ := time.Parse(goals.NightLayout, night)
-		return app.BodyNight{Night: d, Signature: sig, ImageSignature: sig, StarlessKey: &key, RefTime: &at}
+		return app.BodyNight{Night: d, Signature: sig, ImageSignature: bodyImageSignature(sig), StarlessKey: &key, RefTime: &at}
 	}
 	bs := bodyStack{body: body, nights: nights, have: map[string]app.BodyNight{"2026-10-12": imaged("2026-10-12")}}
 	if _, ok := imagedNights(bs); ok {
