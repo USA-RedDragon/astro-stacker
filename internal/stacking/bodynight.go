@@ -16,6 +16,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
@@ -337,7 +338,8 @@ func (p *Pipeline) imageNightIfDue(ctx context.Context, bs bodyStack, k string) 
 		return false, nil
 	}
 	sig := bodyNightSignature(rows, bs.body)
-	if row.Signature != sig || retryDue(row.Error, time.Time{}) || (row.ImageSignature == sig && !retryDue(row.ImageError, row.UpdatedAt)) {
+	image := bodyImageSignature(sig)
+	if row.Signature != sig || retryDue(row.Error, time.Time{}) || (row.ImageSignature == image && !retryDue(row.ImageError, row.UpdatedAt)) {
 		return false, nil
 	}
 	if !p.hold(bs.stack.Object) {
@@ -356,12 +358,12 @@ func (p *Pipeline) imageNightIfDue(ctx context.Context, bs bodyStack, k string) 
 	} else {
 		row.ImageError = nil
 	}
-	row.ImageSignature = sig
+	row.ImageSignature = image
 	if err := p.saveBodyNight(ctx, row); err != nil {
 		return true, err
 	}
 	if row.MasterKey != nil {
-		p.removeMoved(ctx, moved, path.Dir(*row.MasterKey), "body.fit", "body-starless.fit", "body.jpg")
+		p.removeMoved(ctx, moved, path.Dir(*row.MasterKey), "body.fit", "body-starless.fit", "body.jpg", bodyFieldName, bodyCometName)
 	}
 	return true, nil
 }
@@ -389,6 +391,79 @@ func (p *Pipeline) nightSubs(ctx context.Context, stack *app.Stack) (map[string]
 		out[k] = append(out[k], r)
 	}
 	return out, nil
+}
+
+// bodyImageMethod is part of a night's image signature, so a change to how
+// the images are made makes them again without measuring the nights again.
+// 1: the field and the comet are kept apart (publishNightLayers).
+const bodyImageMethod = 1
+
+// bodyImageSignature is the signature of a night's image whose measurement
+// has signature sig.
+func bodyImageSignature(sig string) string {
+	h := sha256.Sum256(fmt.Appendf(nil, "%s\x00image\x00%d", sig, bodyImageMethod))
+	return hex.EncodeToString(h[:16])
+}
+
+const (
+	bodyFieldName = "body-field.fit"
+	bodyCometName = "body-comet.fit"
+)
+
+// publishNightLayers keeps a night's field, its stars and sky with the
+// comet taken out, and the comet alone, sky-free, beside its image, at
+// prefix: combining nights puts the nights' comets on one night's field.
+// Without a field, those of an earlier image are removed.
+func (p *Pipeline) publishNightLayers(ctx context.Context, dir, prefix string, layers cometLayers, scaleExposure float64, cards, starlessCards []imagedata.Card) error {
+	if layers.field == nil {
+		if p.s3 == nil {
+			return nil
+		}
+		for _, n := range []string{bodyFieldName, bodyCometName} {
+			if err := p.s3.RemoveObject(ctx, p.dest, path.Join(prefix, n), minio.RemoveObjectOptions{}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	w, h := layers.field.W, layers.field.H
+	comet := make([]float32, len(layers.signal))
+	s := float32(scaleExposure)
+	for i, v := range layers.signal {
+		comet[i] = v * s
+	}
+	for name, img := range map[string]struct {
+		data  []float32
+		cards []imagedata.Card
+	}{
+		bodyFieldName: {layers.field.Master(scaleExposure), cards},
+		bodyCometName: {comet, starlessCards},
+	} {
+		f := filepath.Join(dir, name)
+		if err := writeFITSFile(f, w, h, 1, img.data, img.cards); err != nil {
+			return err
+		}
+		if err := p.upload(ctx, f, path.Join(prefix, name), contentTypeFITS); err != nil {
+			return err
+		}
+		_ = os.Remove(f)
+	}
+	return nil
+}
+
+// withWCS is cards with their plate solution replaced by wcs, or removed
+// without one.
+func withWCS(cards []imagedata.Card, wcs []frameheader.Card) []imagedata.Card {
+	out := cards[:0:0]
+	for _, c := range cards {
+		if !wcsKey.MatchString(c.Key) {
+			out = append(out, c)
+		}
+	}
+	for _, c := range wcs {
+		out = append(out, imageCard(c))
+	}
+	return out
 }
 
 func bodyNightSignature(rows []nightSub, body bodies.Target) string {
@@ -832,23 +907,9 @@ func (p *Pipeline) publishBodyNight(ctx context.Context, stack *app.Stack, layer
 	}
 	cards := p.masterHeader(ctx, stack, own, dir, "")
 	if wcs, ok := p.nightWCS(ctx, stack.Object, row.Night); ok {
-		kept := cards[:0:0]
-		for _, c := range cards {
-			if !wcsKey.MatchString(c.Key) {
-				kept = append(kept, c)
-			}
-		}
-		for _, c := range wcs {
-			kept = append(kept, imageCard(c))
-		}
-		cards = kept
+		cards = withWCS(cards, wcs)
 	}
-	starlessCards := cards[:0:0]
-	for _, c := range cards {
-		if !wcsKey.MatchString(c.Key) {
-			starlessCards = append(starlessCards, c)
-		}
-	}
+	starlessCards := withWCS(cards, nil)
 	fitsFile, starlessFile := filepath.Join(dir, "body.fit"), filepath.Join(dir, "body-starless.fit")
 	if err := writeFITSFile(fitsFile, acc.W, acc.H, 1, master, cards); err != nil {
 		return err
@@ -856,12 +917,15 @@ func (p *Pipeline) publishBodyNight(ctx context.Context, stack *app.Stack, layer
 	if err := writeFITSFile(starlessFile, acc.W, acc.H, 1, starless, starlessCards); err != nil {
 		return err
 	}
+	prefix := path.Join(stackPrefix(stack), "nights", night)
+	if err := p.publishNightLayers(ctx, dir, prefix, layers, stack.ScaleExposure, cards, starlessCards); err != nil {
+		return err
+	}
 	r := layers.crop()
 	jpg, err := preview.Render(&imagedata.Image{W: r.W, H: r.H, C: 1, Data: crop(master, acc.W, r)}, preview.DefaultOptions())
 	if err != nil {
 		return err
 	}
-	prefix := path.Join(stackPrefix(stack), "nights", night)
 	masterKey, starlessKey, previewKey := path.Join(prefix, "body.fit"), path.Join(prefix, "body-starless.fit"), path.Join(prefix, "body.jpg")
 	if err := p.upload(ctx, fitsFile, masterKey, contentTypeFITS); err != nil {
 		return err
