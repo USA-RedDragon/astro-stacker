@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -372,11 +373,7 @@ func (p *Pipeline) sendVerdicts(ctx context.Context, opts VerdictOptions) (verdi
 		known[r.AcquiredImageID] = r
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	maxNew := opts.Max
-	if maxNew <= 0 {
-		maxNew = 200
-	}
-	plan = planVerdicts(frames, images, known, now, maxNew)
+	plan = planVerdicts(frames, images, known, now, p.verdictBudget(opts.Max, now))
 	reportVerdicts(plan, opts.Mode)
 
 	if opts.Mode == verdictModeDryRun {
@@ -411,6 +408,9 @@ func (p *Pipeline) sendVerdicts(ctx context.Context, opts VerdictOptions) (verdi
 			return plan, fmt.Errorf("send verdict on acquired image %d: %w", s.Image.ID, err)
 		}
 		metrics.TSVerdictsSent.WithLabelValues(s.Kind).Inc()
+		if s.Kind == "new" {
+			p.verdictNews = append(p.verdictNews, now)
+		}
 	}
 	for _, r := range plan.Records {
 		if err := p.db.WithContext(ctx).Save(&r).Error; err != nil {
@@ -527,16 +527,31 @@ func reportVerdicts(plan verdictPlan, mode string) {
 	}
 }
 
-// runVerdicts sends verdicts every hour until the pipeline stops.
+// verdictBudget is how many new verdicts a sweep may send: perHour (200
+// when not set) in any hour, less those sent in the last hour. Sweeps run
+// soon after lights are triaged, so the cap is per hour, not per sweep.
+func (p *Pipeline) verdictBudget(perHour int, now time.Time) int {
+	if perHour <= 0 {
+		perHour = 200
+	}
+	cut := now.Add(-time.Hour)
+	p.verdictNews = slices.DeleteFunc(p.verdictNews, func(t time.Time) bool { return !t.After(cut) })
+	return max(0, perHour-len(p.verdictNews))
+}
+
+// runVerdicts sends verdicts at start, soon after each KickVerdicts and
+// every hour, until the pipeline stops.
 func (p *Pipeline) runVerdicts(ctx context.Context, opts VerdictOptions) {
-	for !p.stopping(ctx) {
+	waitCtx, cancel := p.untilDrained(ctx)
+	defer cancel()
+	p.verdictKick.Run(waitCtx, time.Hour, func(context.Context, []string) {
+		if p.stopping(ctx) {
+			return
+		}
 		if _, err := p.sendVerdicts(ctx, opts); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Sending verdicts to Target Scheduler failed", "error", err)
 		}
-		if !p.pause(ctx, time.Hour) {
-			return
-		}
-	}
+	})
 }
 
 // requeueStackerRejected sends lights recorded as rejected because Target

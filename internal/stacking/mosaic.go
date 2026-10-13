@@ -207,33 +207,31 @@ func filterMasters(g mosaicGroup, filter string, stacks []app.Stack) []app.Stack
 	return out
 }
 
-// runMosaics builds mosaics and linear fits that are due every interval
-// until ctx ends.
+// runMosaics builds the mosaics, linear fits and comet masters that are
+// due, at start, soon after each KickMosaics and every interval, until the
+// pipeline stops.
 func (p *Pipeline) runMosaics(ctx context.Context, interval time.Duration) {
-	for !p.stopping(ctx) {
-		if err := p.MosaicsOnce(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("Building mosaics failed", "error", err)
-		}
+	waitCtx, cancel := p.untilDrained(ctx)
+	defer cancel()
+	p.mosaicKick.Run(waitCtx, interval, func(context.Context, []string) { p.mosaicsOnce(ctx) })
+}
+
+func (p *Pipeline) mosaicsOnce(ctx context.Context) {
+	steps := []struct {
+		what string
+		run  func(context.Context) error
+	}{
+		{"Building mosaics failed", p.MosaicsOnce},
+		{"LinearFit failed", p.linearFitsOnce},
+		{"Comet masters failed", p.cometsOnce},
+		{"Checking for new darks failed", p.recalibrateDarks},
+	}
+	for _, st := range steps {
 		if p.stopping(ctx) {
 			return
 		}
-		if err := p.linearFitsOnce(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("LinearFit failed", "error", err)
-		}
-		if p.stopping(ctx) {
-			return
-		}
-		if err := p.cometsOnce(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("Comet masters failed", "error", err)
-		}
-		if p.stopping(ctx) {
-			return
-		}
-		if err := p.recalibrateDarks(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("Checking for new darks failed", "error", err)
-		}
-		if !p.pause(ctx, interval) {
-			return
+		if err := st.run(ctx); err != nil && ctx.Err() == nil {
+			slog.Error(st.what, "error", err)
 		}
 	}
 }

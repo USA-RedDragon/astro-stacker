@@ -26,6 +26,8 @@ func newKicks(l *kickLog) *kicks {
 		moonKeep:   l.fn("moonKeep"),
 		subLength:  l.fn("subLength"),
 		scheduling: l.fn("scheduling"),
+		verdicts:   l.fn("verdicts"),
+		mosaics:    l.fn("mosaics"),
 	}
 }
 
@@ -51,9 +53,15 @@ func TestKicksFollowEventsAndPlanChanges(t *testing.T) {
 		want []string
 	}{
 		{"master updated", func() { broker.Publish(events.Event{Type: events.TypeMaster, Object: "M31", Filter: "H-a"}) },
-			[]string{"goals:M31/H-a"}},
+			[]string{"goals:M31/H-a", "mosaics"}},
 		{"subs triaged", func() { broker.Publish(events.Event{Type: events.TypeSubs, Object: "M31", Filter: "H-a"}) },
-			[]string{"moonKeep", "subLength"}},
+			[]string{"moonKeep", "subLength", "verdicts"}},
+		{"frames indexed", func() { broker.Publish(events.Event{Type: events.TypeFrames}) }, []string{"mosaics"}},
+		{"sync arrived", func() {
+			for _, fn := range w.OnSync {
+				fn()
+			}
+		}, []string{"verdicts"}},
 		{"preview rendered", func() { broker.Publish(events.Event{Type: events.TypePreview, Object: "M31"}) }, nil},
 		{"plans changed", plans, []string{"goals:/", "moonKeep", "scheduling", "subLength"}},
 		{"project drafted", func() { k.onCommand(schedcmd.Record{Kind: schedcmd.KindProjectCreate}) }, []string{"scheduling"}},

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
@@ -48,5 +49,50 @@ func TestRetrySolve(t *testing.T) {
 		if got := retrySolve(c.tr, c.ref); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// The verdict and mosaic loops wait on kicks between runs; a drain ends
+// that wait at once.
+func TestDrainStopsKickedLoops(t *testing.T) {
+	t.Parallel()
+	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", DefaultPipelineOptions())
+	done := make(chan struct{})
+	go func() {
+		p.runVerdicts(context.Background(), VerdictOptions{})
+		close(done)
+	}()
+	p.KickVerdicts()
+	p.KickMosaics()
+	p.Drain()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the verdict loop kept waiting after a drain")
+	}
+	ctx, cancel := p.untilDrained(context.Background())
+	defer cancel()
+	if ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("the wait context outlived the drain")
+		}
+	}
+}
+
+func TestVerdictBudgetIsPerHour(t *testing.T) {
+	t.Parallel()
+	p := &Pipeline{}
+	now := time.Now()
+	if got := p.verdictBudget(0, now); got != 200 {
+		t.Fatalf("default budget %d", got)
+	}
+	p.verdictNews = []time.Time{now.Add(-2 * time.Hour), now.Add(-30 * time.Minute), now.Add(-time.Minute)}
+	if got := p.verdictBudget(3, now); got != 1 || len(p.verdictNews) != 2 {
+		t.Fatalf("budget %d, kept %d", got, len(p.verdictNews))
+	}
+	if got := p.verdictBudget(1, now); got != 0 {
+		t.Fatalf("an overspent hour leaves nothing: %d", got)
 	}
 }
