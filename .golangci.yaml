@@ -97,7 +97,7 @@ linters:
         linters:
           - gosec
         text: G404
-      - path: internal/metrics/metrics\.go$
+      - path: internal/(metrics/metrics|catalog/embedded)\.go$
         linters:
           - gochecknoglobals
       - path: internal/publicframe/watermark\.go$
