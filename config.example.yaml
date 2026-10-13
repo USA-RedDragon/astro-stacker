@@ -209,7 +209,7 @@ scheduler:
 goals:
   # Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours
   enabled: false
-  # Minutes between checks for masters to measure
+  # Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes
   interval-minutes: 30
   # Most registered subs read per measurement; a master with more uses a fixed random subset of this many
   max-subs: 200
