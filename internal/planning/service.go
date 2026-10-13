@@ -666,7 +666,7 @@ func (in Inputs) resolveBodyGoal(tr targetRow, g *FilterGoal, env targetEnv, gui
 	g.GoalSet = set
 	g.Goal = &goal
 	nights, subs := env.bodies.For(objs, g.StackKey)
-	prog, rd, st := goals.EvaluateBody(kind, nights, goal, env.bodies.Tonight, subs)
+	prog, rd, st := goals.EvaluateBodyTaken(kind, nights, goal, env.bodies.Tonight, subs, env.bodies.Taken(objs, g.StackKey))
 	g.Body = &st
 	g.Progress = prog
 	switch {

@@ -3,6 +3,7 @@ package goals
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"testing"
@@ -350,5 +351,135 @@ func TestEvaluateBodyKeepsImagingUntilMeasured(t *testing.T) {
 	_, rd, _ = EvaluateBody(BodyComet, []app.BodyNight{bad}, g, night("2026-10-12"), 20)
 	if rd.State != StateUnmeasurable || !rd.Open || rd.Reason != off {
 		t.Errorf("error tonight %+v", rd)
+	}
+}
+
+// replay161P is 161P/Hartley-IRAS in Luminance on the night of 2026-10-12:
+// 92 subs of 22 s from 05:57Z to 06:43Z, measured once at the end with SNR
+// 27.79 against a goal of 10. snrAt is what a measurement on n of those
+// subs gives, as SNR grows with the square root of the subs.
+func replay161P(n int) float64 { return 27.79 * math.Sqrt(float64(n)/92) }
+
+func replayNight(snr float64, subs int) app.BodyNight {
+	n := cometNight("2026-10-12", snr, subs)
+	n.EffectiveHours, n.GainPerHourPct = float64(subs)*22/3600, 50
+	return n
+}
+
+// firstDone is the first count of taken subs at which tonight's goal is
+// done, measured by measure(taken), 0 when never.
+func firstDone(t *testing.T, measure func(taken int) app.BodyNight) int {
+	t.Helper()
+	g := DefaultBodyGoal(BodyComet, filterL)
+	for taken := MinSubs; taken <= 92; taken++ {
+		m := measure(taken)
+		prog, rd, st := EvaluateBodyTaken(BodyComet, []app.BodyNight{m}, g, night("2026-10-12"), m.Subs, taken)
+		if prog != nil && prog.Done {
+			if rd.Open || st.Current == nil || !st.Current.Done {
+				t.Fatalf("done at %d subs but readiness %+v, current %+v", taken, rd, st.Current)
+			}
+			return taken
+		}
+	}
+	return 0
+}
+
+func TestReplay161PSwitchesFiltersAtTwelveSubsNotNinetyTwo(t *testing.T) {
+	t.Parallel()
+	if g := DefaultBodyGoal(BodyComet, filterL); g.SNR != 10 {
+		t.Fatalf("goal %v", g.SNR)
+	}
+	onlyAtEnd := firstDone(t, func(taken int) app.BodyNight {
+		if taken < 92 {
+			insufficient := ErrInsufficientData.Error()
+			n := replayNight(0, 0)
+			n.Error = &insufficient
+			return n
+		}
+		return replayNight(replay161P(92), 92)
+	})
+	if onlyAtEnd != 92 {
+		t.Fatalf("measured only at the end, the goal is met at %d subs", onlyAtEnd)
+	}
+	firstBatch := firstDone(t, func(int) app.BodyNight { return replayNight(replay161P(MinSubs), MinSubs) })
+	if firstBatch != 12 {
+		t.Fatalf("projected from the first %d measured subs, the goal is met at %d subs, want 12", MinSubs, firstBatch)
+	}
+	everyBatch := firstDone(t, func(taken int) app.BodyNight {
+		measured := max(MinSubs, taken/12*12)
+		return replayNight(replay161P(measured), measured)
+	})
+	if everyBatch < 12 || everyBatch > 15 {
+		t.Fatalf("measured after each batch of 12, the goal is met at %d subs, want 12-15", everyBatch)
+	}
+}
+
+func TestProjectionReopensWhenTheNextMeasurementFallsShort(t *testing.T) {
+	t.Parallel()
+	g := DefaultBodyGoal(BodyComet, filterL)
+	first := replayNight(replay161P(MinSubs), MinSubs)
+	prog, _, st := EvaluateBodyTaken(BodyComet, []app.BodyNight{first}, g, night("2026-10-12"), MinSubs, 12)
+	if prog == nil || !prog.Done || prog.ProjectedFrom != MinSubs || st.Current.ProjectedSNR == nil || st.Current.ProjectedSubs != 12 {
+		t.Fatalf("projected %+v %+v", prog, st.Current)
+	}
+	short := replayNight(9.5, 12)
+	prog, rd, st := EvaluateBodyTaken(BodyComet, []app.BodyNight{short}, g, night("2026-10-12"), 12, 12)
+	if prog == nil || prog.Done || prog.ProjectedFrom != 0 || !rd.Open || st.Current.ProjectedSNR != nil {
+		t.Fatalf("a measurement short of the projection reopens the goal: %+v %+v", prog, rd)
+	}
+	for taken, want := range map[int]bool{13: false, 14: true} {
+		if prog, _, _ := EvaluateBodyTaken(BodyComet, []app.BodyNight{short}, g, night("2026-10-12"), 12, taken); prog.Done != want {
+			t.Errorf("SNR 9.5 on 12 subs projected to %d subs: done %v, want %v", taken, prog.Done, want)
+		}
+	}
+	if _, ok := Project(short, 12); ok {
+		t.Error("no subs beyond those measured projects nothing")
+	}
+}
+
+func TestPublishMarksTonightDoneFromSubsTakenBeyondTheMeasurement(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sched, db := bodySchedDB(t), bodyAppDB(t)
+	now := time.Date(2026, 10, 13, 6, 5, 0, 0, time.UTC)
+	p := &Publisher{App: db, Sched: sched, Mode: PublishOn, Now: func() time.Time { return now },
+		Longitude: func(context.Context) (float64, error) { return -97.4, nil }}
+	addNightSubs(t, db, objComet, filterL, "2026-10-12", MinSubs)
+	if err := db.Create(new(replayNight(replay161P(MinSubs), MinSubs))).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Publish(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if c := readRows(t, sched)[guidComet+"/"+filterL]; c.Done != 0 {
+		t.Fatalf("8 subs at SNR %.2f are short of 10: %+v", replay161P(MinSubs), c)
+	}
+	d := night("2026-10-12")
+	stuck := []string{app.StackStatusLowScore, app.StackStatusCalibration, app.StackStatusNoMetadata, app.StackStatusRegistration, app.StackStatusFailed}
+	for i := range 4 + len(stuck) {
+		at := d.Add(30 * time.Hour)
+		f := app.Frame{Key: fmt.Sprintf("taken-%d", i), ETag: "e", LastModified: at, Type: typeLight, Object: objComet, Filter: filterL, DateObs: &at, Night: &d}
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+		if i >= 4 {
+			if err := db.Create(&app.StackFrame{FrameID: f.ID, Status: stuck[i-4]}).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	key := Key{Object: objComet, Filter: filterL}
+	for at, want := range map[time.Time]int{now: 12, now.Add(UntriagedFor + time.Minute): MinSubs} {
+		if got, err := TakenSubs(ctx, db, d, at); err != nil || got[key] != want {
+			t.Fatalf("at %s: taken %v, want %d: %v", at.Format(time.TimeOnly), got, want, err)
+		}
+	}
+	if _, err := p.Publish(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c := readRows(t, sched)[guidComet+"/"+filterL]
+	want := (replay161P(12) / 10) * (replay161P(12) / 10)
+	if c.Done != 1 || c.Progress == nil || math.Abs(*c.Progress-want) > 1e-6 || c.Reason == nil || *c.Reason == "" {
+		t.Fatalf("12 subs taken, 8 measured: the projection reaches the goal and is published %+v", c)
 	}
 }

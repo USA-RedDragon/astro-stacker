@@ -206,6 +206,11 @@ type BodyNightView struct {
 	Note           string     `json:"note,omitempty"`
 	PreviewKey     string     `json:"previewKey,omitempty"`
 	MeasuredAt     *time.Time `json:"measuredAt,omitempty"`
+	// ProjectedSNR is the SNR projected from the measured one to the
+	// ProjectedSubs taken that night, set while subs taken outrun the
+	// measurement.
+	ProjectedSNR  *float64 `json:"projectedSnr,omitempty"`
+	ProjectedSubs int      `json:"projectedSubs,omitempty"`
 }
 
 type BodyStatus struct {
@@ -299,7 +304,31 @@ func bodyCollecting(subs int) Readiness {
 	return rd
 }
 
+// Project scales a night's measured SNR to the taken subs of that night,
+// as SNR grows with the square root of the subs, so a goal can be marked
+// done before the next measurement. It returns false when there is nothing
+// to project: no SNR, or no subs beyond those measured.
+func Project(n app.BodyNight, taken int) (app.BodyNight, bool) {
+	if n.Error != nil || n.Subs <= 0 || taken <= n.Subs || !(n.SNR > 0) {
+		return n, false
+	}
+	scale := float64(taken) / float64(n.Subs)
+	n.SNR *= math.Sqrt(scale)
+	n.EffectiveHours *= scale
+	n.Subs = taken
+	return n, true
+}
+
 func EvaluateBody(kind string, nights []app.BodyNight, g Goal, tonight time.Time, tonightSubs int) (*Progress, Readiness, BodyStatus) {
+	return EvaluateBodyTaken(kind, nights, g, tonight, tonightSubs, 0)
+}
+
+// EvaluateBodyTaken is EvaluateBody that also projects tonight's measured
+// SNR to the taken subs of tonight, which run ahead of the stacked ones,
+// and marks the goal done once the projection reaches it. The next
+// measurement replaces the projection, and reopens the goal if it fell
+// short.
+func EvaluateBodyTaken(kind string, nights []app.BodyNight, g Goal, tonight time.Time, tonightSubs, taken int) (*Progress, Readiness, BodyStatus) {
 	kind = BodyKind(kind)
 	sorted := slices.Clone(nights)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Night.Before(sorted[j].Night) })
@@ -346,6 +375,18 @@ func EvaluateBody(kind string, nights []app.BodyNight, g Goal, tonight time.Time
 		rd.Reason = BodyErrorText(*cur.Error, cur.Subs)
 		return nil, rd, st
 	}
-	p := evaluateNight(kind, *cur, g)
-	return &p, Ready(&m, &p, tonightSubs), st
+	proj, projected := Project(*cur, taken)
+	if !projected {
+		p := evaluateNight(kind, *cur, g)
+		return &p, Ready(&m, &p, tonightSubs), st
+	}
+	p := evaluateNight(kind, proj, g)
+	p.ProjectedFrom = cur.Subs
+	pm := bodyMeasurement(proj)
+	rd := Ready(&pm, &p, tonightSubs)
+	rd.Reason = fmt.Sprintf("SNR %.1f projected from %.1f measured on %d subs to the %d subs taken; the next measurement checks it", proj.SNR, cur.SNR, cur.Subs, taken)
+	snr := proj.SNR
+	st.Current.ProjectedSNR, st.Current.ProjectedSubs = &snr, taken
+	st.Current.Progress, st.Current.Done = p.Progress, p.Done
+	return &p, rd, st
 }
