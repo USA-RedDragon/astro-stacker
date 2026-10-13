@@ -42,6 +42,8 @@ func open(t *testing.T, name string) *gorm.DB {
 	return db
 }
 
+const garlic = "Garlic Nebula"
+
 func testNow() time.Time { return time.Date(2026, 10, 12, 21, 0, 0, 0, time.UTC) }
 
 func fixture(t *testing.T, mode string) (*schedauto.Service, *sentCommands, *gorm.DB) {
@@ -247,5 +249,82 @@ func TestNewProjectTakesTheGlobalAndAutomaticValues(t *testing.T) {
 	}
 	if err := s.NewProject(ctx, "p", nil); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestOwnAppliedEditHoldsOnlyItsOwnValues(t *testing.T) {
+	t.Parallel()
+	s, sent, appDB := fixture(t, schedauto.ModeOn)
+	ctx := context.Background()
+	if _, err := s.Once(ctx); err != nil || len(sent.sent) != 1 {
+		t.Fatalf("sent %d: %v", len(sent.sent), err)
+	}
+	if err := appDB.Model(&schedcmd.Record{}).Where("id = ?", sent.sent[0].ID).Update("status", schedcmd.StatusApplied).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Once(ctx); err != nil || len(sent.sent) != 1 {
+		t.Fatalf("the same values are not sent again while the home copy catches up: %d sent, %v", len(sent.sent), err)
+	}
+	if r, _ := s.Current(ctx); r.LastRun == nil || len(r.LastRun.Left) != 0 {
+		t.Errorf("an applied automatic edit holds nothing back: %+v", r.LastRun)
+	}
+	if err := s.Sched.Exec(`update project set filterswitchfrequency = 5 where "Id" = 7`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Once(ctx); err != nil || len(sent.sent) != 2 {
+		t.Fatalf("a new difference is sent at once, not after the 30-minute hold: %d sent, %v", len(sent.sent), err)
+	}
+	var b schedcmd.EditPayload
+	if err := json.Unmarshal(sent.sent[1].Payload, &b); err != nil || b.ID != 7 {
+		t.Fatalf("edit %+v %v", b, err)
+	}
+	found := false
+	for _, c := range b.Changes {
+		found = found || c.Field == schedcmd.FieldFilterSwitchFrequency
+	}
+	if !found {
+		t.Errorf("changes %+v", b.Changes)
+	}
+}
+
+func TestOwnRefusedEditIsNotSentAgainAtOnce(t *testing.T) {
+	t.Parallel()
+	for _, st := range []schedcmd.Status{schedcmd.StatusConflict, schedcmd.StatusRejected, schedcmd.StatusFailed, schedcmd.StatusCancelled} {
+		t.Run(string(st), func(t *testing.T) {
+			t.Parallel()
+			s, sent, appDB := fixture(t, schedauto.ModeOn)
+			ctx := context.Background()
+			if _, err := s.Once(ctx); err != nil || len(sent.sent) != 1 {
+				t.Fatalf("sent %d: %v", len(sent.sent), err)
+			}
+			if err := appDB.Model(&schedcmd.Record{}).Where("id = ?", sent.sent[0].ID).Update("status", st).Error; err != nil {
+				t.Fatal(err)
+			}
+			for range 3 {
+				if _, err := s.Once(ctx); err != nil || len(sent.sent) != 1 {
+					t.Fatalf("a refused edit is held for the sync, not sent again each run: %d sent, %v", len(sent.sent), err)
+				}
+			}
+		})
+	}
+}
+
+func TestAnAppliedManualEditStillWaitsForTheSync(t *testing.T) {
+	t.Parallel()
+	s, sent, appDB := fixture(t, schedauto.ModeOn)
+	ctx := context.Background()
+	raw, err := json.Marshal(schedcmd.EditPayload{Entity: entity, ID: 7, Name: garlic, Changes: []schedcmd.FieldChange{{Field: "priority", Before: json.RawMessage("1"), After: json.RawMessage("2")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Commands.Submit(ctx, schedcmd.KindProjectEdit, raw, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appDB.Model(&schedcmd.Record{}).Where("id = ?", r.ID).Update("status", schedcmd.StatusApplied).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Once(ctx); err != nil || len(sent.sent) != 1 {
+		t.Errorf("only the manual edit is sent while it syncs: %d, %v", len(sent.sent), err)
 	}
 }
