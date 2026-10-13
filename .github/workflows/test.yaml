@@ -45,7 +45,14 @@ jobs:
 
       - name: Race tests
         run: |
-          go test ./... -race -timeout 20m
+          set -o pipefail
+          go test ./... -race -timeout 20m -json | tee race.json | jq -rj 'select(.Action == "output") | .Output'
+
+      - name: Slowest race packages
+        if: always()
+        run: |
+          jq -r 'select(.Test == null and (.Action == "pass" or .Action == "fail")) | "\(.Elapsed)\t\(.Action)\t\(.Package)"' race.json |
+            sort -rn | head -5 | while IFS=$'\t' read -r s a p; do echo "::notice title=race ${a}::${p} ${s}s"; done
 
   backend-unit-tests:
     runs-on: ubuntu-24.04
