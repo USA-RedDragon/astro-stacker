@@ -22,6 +22,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -36,6 +37,12 @@ const (
 	// its own edit the run only holds back sending the same values again.
 	SyncGrace = 30 * time.Minute
 	cacheFor  = time.Hour
+	// KickQuiet and KickMaxWait debounce project, target and plan changes
+	// into one run; StartAfter gives the observatory horizon and the body
+	// windows time to load after a restart.
+	KickQuiet   = time.Minute
+	KickMaxWait = 5 * time.Minute
+	StartAfter  = 10 * time.Minute
 )
 
 var (
@@ -119,6 +126,26 @@ type Service struct {
 	last    *Result
 	run     *RunStatus
 	proj    *ProjectionView
+
+	kickOnce sync.Once
+	kick     *trigger.Debouncer
+	recheck  *time.Timer
+}
+
+func (s *Service) debouncer() *trigger.Debouncer {
+	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait, StartAfter: StartAfter} })
+	return s.kick
+}
+
+// Kick asks for a run soon, as when projects, targets or plans change.
+func (s *Service) Kick() { s.debouncer().Kick() }
+
+// Affects reports whether a command changes what the run works from:
+// projects, targets, exposure plans or the global settings.
+func Affects(r schedcmd.Record) bool {
+	k := string(r.Kind)
+	return r.Kind == schedcmd.KindSchedulingGlobal || strings.HasPrefix(k, "project.") || strings.HasPrefix(k, "target.") ||
+		strings.HasPrefix(k, "exposureplan.")
 }
 
 func (s *Service) now() time.Time {
@@ -463,6 +490,7 @@ func (s *Service) Once(ctx context.Context) (*Result, error) {
 			return res, err
 		}
 	}
+	s.recheckAt(h.until)
 	edits, left := Edits(res.Projects, h.skip)
 	edits = slices.DeleteFunc(edits, h.alreadySent)
 	run := RunStatus{At: s.now().UTC(), Mode: mode, Left: left, Failed: []string{}, CommandIDs: []string{}}
@@ -507,21 +535,31 @@ func (s *Service) send(ctx context.Context, projects []ProjectResult, e schedcmd
 	return nil
 }
 
-// Run computes every interval and, when on, keeps the projects equal.
-func (s *Service) Run(ctx context.Context, every time.Duration) {
-	t := time.NewTimer(10 * time.Minute)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
+// recheckAt kicks a run when a hold ends, so a project held back is
+// edited then rather than at the next backstop.
+func (s *Service) recheckAt(at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.recheck != nil {
+		s.recheck.Stop()
+		s.recheck = nil
+	}
+	if at.IsZero() {
+		return
+	}
+	s.recheck = time.AfterFunc(max(0, time.Until(at))+time.Second, s.Kick)
+}
+
+// Run works the values out StartAfter after it starts, soon after each
+// Kick and when a hold ends, and every backstop, and, when on, keeps the
+// projects equal, until ctx ends.
+func (s *Service) Run(ctx context.Context, backstop time.Duration) {
+	defer s.recheckAt(time.Time{})
+	s.debouncer().Run(ctx, backstop, func(ctx context.Context, _ []string) {
 		if _, err := s.Once(ctx); err != nil && !errors.Is(err, ErrOff) && ctx.Err() == nil {
 			slog.Warn("Keeping projects on the global scheduling settings failed", "error", err)
 		}
-		t.Reset(every)
-	}
+	})
 }
 
 // Originals lists the projects' own values from before the stacker first

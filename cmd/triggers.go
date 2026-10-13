@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"sync/atomic"
+
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedauto"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedwatch"
 )
 
@@ -14,6 +18,12 @@ type kicks struct {
 	moonKeep func()
 	// subLength works the sub lengths out again.
 	subLength func()
+	// scheduling runs the global scheduling settings.
+	scheduling func()
+
+	// ready is set once every kick is assigned; commands sent earlier
+	// kick nothing.
+	ready atomic.Bool
 }
 
 func call(fns ...func()) {
@@ -29,6 +39,18 @@ func call(fns ...func()) {
 func (k *kicks) listen(broker *events.Broker, w *schedwatch.Watcher) {
 	broker.Listen(k.onEvent)
 	w.OnPlans = append(w.OnPlans, k.onPlans)
+	k.ready.Store(true)
+}
+
+// onCommand hears every scheduler command as it is sent, applied or
+// refused.
+func (k *kicks) onCommand(r schedcmd.Record) {
+	if !k.ready.Load() {
+		return
+	}
+	if schedauto.Affects(r) {
+		call(k.scheduling)
+	}
 }
 
 func (k *kicks) onEvent(e events.Event) {
@@ -46,5 +68,5 @@ func (k *kicks) onPlans() {
 	if k.goals != nil {
 		k.goals("", "")
 	}
-	call(k.moonKeep, k.subLength)
+	call(k.moonKeep, k.subLength, k.scheduling)
 }

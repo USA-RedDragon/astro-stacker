@@ -261,5 +261,5 @@ bodies:
 scheduling:
   # Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on
   auto: "off"
-  # Hours between working the values out again
+  # Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change, and when a manual edit's hold ends
   interval-hours: 1

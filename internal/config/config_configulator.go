@@ -2225,7 +2225,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[109], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
 	fs.String(names[110], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
 	fs.String(names[111], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
-	fs.Var(impl.NewInt(1), names[112], "Hours between working the values out again")
+	fs.Var(impl.NewInt(1), names[112], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change, and when a manual edit's hold ends")
 	return nil
 }
 

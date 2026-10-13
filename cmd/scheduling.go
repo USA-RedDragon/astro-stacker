@@ -24,6 +24,6 @@ func startScheduling(ctx context.Context, cfg *config.Config, appStore, schedSto
 		s.Horizon = horizon.Get
 	}
 	go s.Run(ctx, time.Duration(cfg.Scheduling.IntervalHours)*time.Hour)
-	slog.Info("Global scheduling settings started", "auto", cfg.Scheduling.Auto, "interval_hours", cfg.Scheduling.IntervalHours)
+	slog.Info("Global scheduling settings started", "auto", cfg.Scheduling.Auto, "backstop_hours", cfg.Scheduling.IntervalHours)
 	return s
 }
