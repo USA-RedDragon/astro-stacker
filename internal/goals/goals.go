@@ -59,6 +59,9 @@ type Progress struct {
 	Region         bool      `json:"region"`
 	Done           bool      `json:"done"`
 	MeasuredAt     time.Time `json:"measuredAt"`
+	// ProjectedFrom, when above zero, is how many subs the SNR was
+	// measured on: Achieved is projected from it to the subs taken since.
+	ProjectedFrom int `json:"projectedFrom,omitempty"`
 }
 
 type Key struct {

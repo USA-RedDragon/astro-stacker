@@ -18,10 +18,13 @@ type BodyInputs struct {
 	Nights      map[Key][]app.BodyNight
 	Tonight     time.Time
 	TonightSubs map[Key]int
+	// TonightTaken counts tonight's lights by target and filter as soon
+	// as they are indexed, stacked or not.
+	TonightTaken map[Key]int
 }
 
 func LoadBodyInputs(ctx context.Context, appDB, sched *gorm.DB, now time.Time, longitude *float64) (BodyInputs, error) {
-	in := BodyInputs{Nights: map[Key][]app.BodyNight{}, TonightSubs: map[Key]int{}, Tonight: NightOf(now, deref(longitude))}
+	in := BodyInputs{Nights: map[Key][]app.BodyNight{}, TonightSubs: map[Key]int{}, TonightTaken: map[Key]int{}, Tonight: NightOf(now, deref(longitude))}
 	if sched != nil {
 		stored, err := bodies.TargetsByName(ctx, sched)
 		if err != nil {
@@ -60,7 +63,62 @@ func LoadBodyInputs(ctx context.Context, appDB, sched *gorm.DB, now time.Time, l
 		return in, err
 	}
 	in.TonightSubs = subs
+	if in.TonightTaken, err = TakenSubs(ctx, appDB, in.Tonight, now); err != nil {
+		return in, err
+	}
 	return in, nil
+}
+
+// UntriagedFor is how long after it was taken a light the stacker has not
+// judged yet still counts as taken: one stuck longer may never stack, and
+// would keep a projection up that no measurement replaces.
+const UntriagedFor = 20 * time.Minute
+
+// kept are the stack statuses of lights headed for the night's stack.
+func kept() []string {
+	return []string{app.StackStatusAdded, app.StackStatusNight, app.StackStatusRecalibrate}
+}
+
+// TakenSubs counts the night's lights by target and filter that are headed
+// for its stack: those the stacker kept, and those taken in the last
+// UntriagedFor before now that it has not judged yet.
+func TakenSubs(ctx context.Context, appDB *gorm.DB, night, now time.Time) (map[Key]int, error) {
+	out := map[Key]int{}
+	if has, err := tables.Has(ctx, appDB, &app.Frame{}); err != nil || !has {
+		return out, err
+	}
+	var rows []struct {
+		Object string
+		Filter string
+		N      int
+	}
+	q := appDB.WithContext(ctx).Table("frames f").
+		Select("f.object AS object, f.filter AS filter, count(*) AS n").
+		Where("f.type = ? AND f.index_error IS NULL AND f.night >= ? AND f.night < ?", "LIGHT", night, night.AddDate(0, 0, 1))
+	if has, err := tables.Has(ctx, appDB, &app.StackFrame{}); err != nil {
+		return out, err
+	} else if has {
+		q = q.Where("(EXISTS (SELECT 1 FROM stack_frames sf WHERE sf.frame_id = f.id AND sf.status IN ?) OR "+
+			"(f.date_obs >= ? AND NOT EXISTS (SELECT 1 FROM stack_frames sf WHERE sf.frame_id = f.id)))", kept(), now.Add(-UntriagedFor))
+	} else {
+		q = q.Where("f.date_obs >= ?", now.Add(-UntriagedFor))
+	}
+	if err := q.Group("f.object, f.filter").Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("count tonight's lights: %w", err)
+	}
+	for _, r := range rows {
+		out[Key{Object: r.Object, Filter: r.Filter}] = r.N
+	}
+	return out, nil
+}
+
+// Taken is the most lights taken tonight by any of objects in filter.
+func (in BodyInputs) Taken(objects []string, filter string) int {
+	n := 0
+	for _, o := range objects {
+		n = max(n, in.TonightTaken[Key{Object: o, Filter: filter}])
+	}
+	return n
 }
 
 func NightSubs(ctx context.Context, appDB *gorm.DB, night time.Time) (map[Key]int, error) {
@@ -163,7 +221,7 @@ func (p *Publisher) bodyRows(guid, kind string, objs []string, goalRows map[stri
 			g.SNR = DefaultBodyGoal(kind, f).SNR
 		}
 		nights, subs := in.For(objs, f)
-		prog, rd, _ := EvaluateBody(kind, nights, g, in.Tonight, subs)
+		prog, rd, _ := EvaluateBodyTaken(kind, nights, g, in.Tonight, subs, in.Taken(objs, f))
 		var row progressRow
 		var pr Progress
 		if prog != nil {
