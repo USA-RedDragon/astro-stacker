@@ -22,6 +22,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"github.com/USA-RedDragon/astro-stacker/internal/tsmigration"
 	"gorm.io/gorm"
@@ -115,12 +116,30 @@ type Service struct {
 	Tolerance  float64
 	Now        func() time.Time
 
-	mu      sync.Mutex
-	refresh sync.Mutex
-	last    *Result
-	status  Status
-	dryRun  map[rowKey]TableRow
+	mu       sync.Mutex
+	refresh  sync.Mutex
+	last     *Result
+	status   Status
+	dryRun   map[rowKey]TableRow
+	kickOnce sync.Once
+	kick     *trigger.Debouncer
 }
+
+// KickQuiet and KickMaxWait debounce new sub measurements and plan changes
+// into one recompute.
+const (
+	KickQuiet   = 2 * time.Minute
+	KickMaxWait = 10 * time.Minute
+)
+
+func (s *Service) debouncer() *trigger.Debouncer {
+	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait} })
+	return s.kick
+}
+
+// Kick asks for the lengths to be worked out again soon, as when subs are
+// measured or exposure plans change.
+func (s *Service) Kick() { s.debouncer().Kick() }
 
 func (s *Service) now() time.Time {
 	if s.Now != nil {

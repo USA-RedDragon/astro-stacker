@@ -1,30 +1,72 @@
 package cmd
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedwatch"
 )
 
+type kickLog struct{ heard []string }
+
+func (l *kickLog) fn(name string) func() { return func() { l.heard = append(l.heard, name) } }
+
+func (l *kickLog) take() []string {
+	out := l.heard
+	l.heard = nil
+	slices.Sort(out)
+	return out
+}
+
+func newKicks(l *kickLog) *kicks {
+	return &kicks{
+		goals:     func(object, filter string) { l.heard = append(l.heard, "goals:"+object+"/"+filter) },
+		moonKeep:  l.fn("moonKeep"),
+		subLength: l.fn("subLength"),
+	}
+}
+
 func TestKicksFollowEventsAndPlanChanges(t *testing.T) {
 	t.Parallel()
-	var measured []string
-	k := &kicks{goals: func(object, filter string) { measured = append(measured, object+"/"+filter) }}
+	l := &kickLog{}
 	broker := events.NewBroker()
 	w := &schedwatch.Watcher{}
-	k.listen(broker, w)
-	broker.Publish(events.Event{Type: events.TypeMaster, Object: "M31", Filter: "H-a"})
-	broker.Publish(events.Event{Type: events.TypePreview, Object: "M33", Filter: "H-a"})
-	for _, fn := range w.OnPlans {
-		fn()
+	newKicks(l).listen(broker, w)
+	plans := func() {
+		for _, fn := range w.OnPlans {
+			fn()
+		}
 	}
-	if len(measured) != 2 || measured[0] != "M31/H-a" || measured[1] != "/" {
-		t.Fatalf("a master update measures that master, a plan change every master: %v", measured)
+	cases := []struct {
+		name string
+		do   func()
+		want []string
+	}{
+		{"master updated", func() { broker.Publish(events.Event{Type: events.TypeMaster, Object: "M31", Filter: "H-a"}) },
+			[]string{"goals:M31/H-a"}},
+		{"subs triaged", func() { broker.Publish(events.Event{Type: events.TypeSubs, Object: "M31", Filter: "H-a"}) },
+			[]string{"moonKeep", "subLength"}},
+		{"preview rendered", func() { broker.Publish(events.Event{Type: events.TypePreview, Object: "M31"}) }, nil},
+		{"plans changed", plans, []string{"goals:/", "moonKeep", "subLength"}},
 	}
+	for _, c := range cases {
+		c.do()
+		if got := l.take(); !slices.Equal(got, c.want) {
+			t.Errorf("%s kicked %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestNilKicksAreSkipped(t *testing.T) {
+	t.Parallel()
+	broker := events.NewBroker()
+	w := &schedwatch.Watcher{}
 	(&kicks{}).listen(broker, w)
-	broker.Publish(events.Event{Type: events.TypeMaster, Object: "M31"})
-	for _, fn := range w.OnPlans {
+	for _, typ := range []string{events.TypeMaster, events.TypeSubs, events.TypeFrames, events.TypeMosaic} {
+		broker.Publish(events.Event{Type: typ, Object: "M31"})
+	}
+	for _, fn := range append(w.OnPlans, w.OnSync...) {
 		fn()
 	}
 }

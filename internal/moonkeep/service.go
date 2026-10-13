@@ -15,6 +15,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -117,7 +118,23 @@ type Service struct {
 	last      *Result
 	status    Status
 	altStatus Status
+	kickOnce  sync.Once
+	kick      *trigger.Debouncer
 }
+
+// KickQuiet and KickMaxWait debounce verdict changes into one refit.
+const (
+	KickQuiet   = 2 * time.Minute
+	KickMaxWait = 10 * time.Minute
+)
+
+func (s *Service) debouncer() *trigger.Debouncer {
+	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait} })
+	return s.kick
+}
+
+// Kick asks for a refit soon, as when the stacker's verdicts change.
+func (s *Service) Kick() { s.debouncer().Kick() }
 
 func (s *Service) now() time.Time {
 	if s.Now != nil {
@@ -538,17 +555,14 @@ func (s *Service) refreshLocked(ctx context.Context) (*Result, error) {
 	return s.Latest(), nil
 }
 
-func (s *Service) Run(ctx context.Context, every time.Duration) {
-	for {
+// Run fits at start, soon after each Kick, and every backstop, until ctx
+// ends.
+func (s *Service) Run(ctx context.Context, backstop time.Duration) {
+	s.debouncer().Run(ctx, backstop, func(ctx context.Context, _ []string) {
 		if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Fitting the moon kept rates failed", "error", err)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(every):
-		}
-	}
+	})
 }
 
 const Schema = `create table if not exists ts_moon_keep (

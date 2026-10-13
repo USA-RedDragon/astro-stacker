@@ -123,7 +123,6 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	var stackBusy func() bool
 	var backfill func() goals.BackfillLive
 	broker := events.NewBroker()
-	kick := &kicks{}
 	newFrames := &wake.Signal{}
 	hz := horizons.New(cmd.Annotations["version"], appStore.DB())
 	hz.BaseURL = cfg.Bodies.HorizonsURL
@@ -136,13 +135,16 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	subLengths := &sublength.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Site: sublength.SiteFunc(siteFunc(cfg, appStore)),
 		Pedestal: cfg.Stacking.Pedestal, Mode: cfg.SubLength.Publish, NewLengths: cfg.SubLength.NewLengths,
 		Tolerance: cfg.SubLength.TolerancePct / 100}
+	kick := &kicks{}
 	moonKeep := &moonkeep.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Site: moonkeep.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.MoonKeep.Publish}
+	kick.moonKeep = moonKeep.Kick
 	go moonKeep.Run(indexCtx, time.Duration(cfg.MoonKeep.IntervalHours)*time.Hour)
-	slog.Info("Moon kept rates started", "publish", cfg.MoonKeep.Publish, "interval_hours", cfg.MoonKeep.IntervalHours)
+	slog.Info("Moon kept rates started", "publish", cfg.MoonKeep.Publish, "backstop_hours", cfg.MoonKeep.IntervalHours)
 	darkNeed.Planned = plannedDarks(subLengths)
+	kick.subLength = subLengths.Kick
 	go subLengths.Run(indexCtx, time.Duration(cfg.SubLength.IntervalMinutes)*time.Minute)
 	slog.Info("Sub lengths started", "publish", cfg.SubLength.Publish, "new_lengths", cfg.SubLength.NewLengths,
-		"interval_minutes", cfg.SubLength.IntervalMinutes, "tolerance_percent", cfg.SubLength.TolerancePct)
+		"backstop_minutes", cfg.SubLength.IntervalMinutes, "tolerance_percent", cfg.SubLength.TolerancePct)
 	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)

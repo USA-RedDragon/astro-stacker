@@ -195,17 +195,14 @@ func (s *Service) Refresh(ctx context.Context) (*Result, error) {
 	return s.Latest(), nil
 }
 
-func (s *Service) Run(ctx context.Context, every time.Duration) {
-	for {
+// Run computes at start, soon after each Kick, and every backstop, until
+// ctx ends.
+func (s *Service) Run(ctx context.Context, backstop time.Duration) {
+	s.debouncer().Run(ctx, backstop, func(ctx context.Context, _ []string) {
 		if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Computing sub lengths failed", "error", err)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(every):
-		}
-	}
+	})
 }
 
 const Schema = `create table if not exists ts_sub_length (
