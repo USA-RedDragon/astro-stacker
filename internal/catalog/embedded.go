@@ -8,6 +8,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -128,7 +129,13 @@ type Index struct {
 	sources []Source
 }
 
-func LoadEmbedded() (*Index, error) {
+var embeddedIndex = sync.OnceValues(buildEmbedded)
+
+// LoadEmbedded returns the index of the embedded catalogue. It is built once
+// and shared, so callers must not change it.
+func LoadEmbedded() (*Index, error) { return embeddedIndex() }
+
+func buildEmbedded() (*Index, error) {
 	ds, err := readDataset(embeddedData)
 	if err != nil {
 		return nil, err
