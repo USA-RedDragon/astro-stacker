@@ -48,7 +48,7 @@ func TestParseValidatesAndQuantises(t *testing.T) {
 	if d.Width != skycutout.DefaultWidth || d.Height != skycutout.DefaultHeight || d.Rotation != 0 {
 		t.Errorf("defaults %+v", d)
 	}
-	for _, bad := range [][3]string{{"", "1", "1"}, {"x", "1", "1"}, {"1", "91", "1"}, {"1", "1", "0"}, {"1", "1", "40"}, {"1", "1", "NaN"}} {
+	for _, bad := range [][3]string{{"", "1", "1"}, {"x", "1", "1"}, {"1", "91", "1"}, {"1", "1", "0"}, {"1", "1", "121"}, {"1", "1", "NaN"}} {
 		if _, err := skycutout.Parse(bad[0], bad[1], bad[2], "", "", ""); !errors.Is(err, skycutout.ErrBadRequest) {
 			t.Errorf("%v accepted: %v", bad, err)
 		}
@@ -161,5 +161,30 @@ func TestAnEndedRequestDoesNotFailOthersWaitingOnTheSameCutout(t *testing.T) {
 	wg.Wait()
 	if err != nil {
 		t.Fatalf("a viewer waiting on a cutout another viewer asked for got that viewer's ending: %v", err)
+	}
+}
+
+func TestWideFieldsAreServed(t *testing.T) {
+	t.Parallel()
+	var fov, proj atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fov.Store(r.URL.Query().Get("fov"))
+		proj.Store(r.URL.Query().Get("projection"))
+		_, _ = w.Write(jpeg())
+	}))
+	defer srv.Close()
+	s := &skycutout.Service{DB: openDB(t), Endpoint: srv.URL}
+	wide, err := skycutout.Parse("83.8", "-5", "73.8", "", "800", "560")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(context.Background(), wide); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := fov.Load().(string); f != "73.800" {
+		t.Errorf("fov %s", f)
+	}
+	if p, _ := proj.Load().(string); p != "TAN" {
+		t.Errorf("projection %s", p)
 	}
 }

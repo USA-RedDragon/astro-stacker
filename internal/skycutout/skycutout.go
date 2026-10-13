@@ -28,7 +28,7 @@ const (
 	ContentType      = "image/jpeg"
 
 	MinFOV        = 0.01
-	MaxFOV        = 30.0
+	MaxFOV        = 120.0
 	MinSize       = 64
 	MaxSize       = 1024
 	DefaultWidth  = 600
