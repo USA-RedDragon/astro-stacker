@@ -3,6 +3,7 @@ package horizonsurvey_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -47,7 +48,7 @@ func newHarness(t *testing.T, opts sim.Options, mode string, at time.Time) *harn
 	pc.AzStart = 5
 	site := testSite()
 	return &harness{sim: s, clock: opts.Clock, phd: phd, cfg: hs.RunConfig{
-		Out: t.TempDir(), Mode: mode, Plan: pc, Site: &site, Safety: hs.DefaultSafety(), Settle: 2 * time.Second, MaxFrames: 400, Log: io.Discard,
+		Out: t.TempDir(), Mode: mode, Plan: pc, Site: &site, Safety: hs.DefaultSafety(), Settle: 2 * time.Second, MaxFrames: 400, Log: io.Discard, StopPoll: 20 * time.Millisecond,
 	}}
 }
 
@@ -277,92 +278,6 @@ func TestTrackingLeftOnAfterHomeIsAnError(t *testing.T) {
 	}
 }
 
-func TestTrackingOffRetriesWhileNINASettles(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, sim.Options{TrackingFailures: 3}, hs.ModeDusk, duskTime())
-	h.cfg.MaxFrames = 3
-	err := h.run(t.Context())
-	if !errors.Is(err, hs.ErrFrameLimit) {
-		t.Fatalf("got %v, want the frame limit after retried tracking-off calls", err)
-	}
-	m := h.sim.Mount()
-	if m.TrackFails < 3 || m.Tracking {
-		t.Fatalf("tracking-off was not retried through the settling errors: %+v", m)
-	}
-	assertHomedAfterMoving(t, h.sim)
-}
-
-func TestTrackingOffGivesUpAfterBoundedRetries(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, sim.Options{TrackingFailures: 1000}, hs.ModeDusk, duskTime())
-	err := h.run(t.Context())
-	if !errors.Is(err, hs.ErrNINA) {
-		t.Fatalf("got %v, want the NINA error after the retries", err)
-	}
-	if m := h.sim.Mount(); m.TrackFails < hs.TrackingOffTries || m.Homes == 0 {
-		t.Fatalf("tracking-off retried %d times, homes %d", m.TrackFails, m.Homes)
-	}
-}
-
-func TestCaptureSavesThroughSaveImageWithoutAnEvent(t *testing.T) {
-	t.Parallel()
-	saveDir := t.TempDir()
-	s, err := sim.Start(t.Context(), sim.Options{Site: testSite(), Camera: smallCamera(sim.DuskCamera()), Clock: sim.NewClock(duskTime()), NoFrameEvent: true, SaveDir: saveDir})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	phd, err := hs.DialPHD2(t.Context(), s.PHD2Addr())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = phd.Close() }()
-	path := filepath.Join(t.TempDir(), "frame.fits")
-	if err := phd.Capture(t.Context(), 5, path); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := hs.LoadFrame(path); err != nil {
-		t.Fatalf("the saved frame does not load: %v", err)
-	}
-	saved := s.SavedImages()
-	if len(saved) != 1 {
-		t.Fatalf("save_image was called %d times, want 1", len(saved))
-	}
-	if _, err := os.Stat(saved[0]); !os.IsNotExist(err) {
-		t.Fatalf("PHD2's own copy %s was left behind (%v)", saved[0], err)
-	}
-}
-
-func TestNightLampsDoNotShortenTheExposure(t *testing.T) {
-	t.Parallel()
-	cam := smallCamera(sim.NightCamera())
-	cam.Lamps = []sim.Lamp{{Az: 5, Alt: 4.5, Radius: 0.6, Rate: 0.01}}
-	h := newHarness(t, sim.Options{Camera: cam}, hs.ModeNight, deepNight())
-	h.cfg.Plan.AzStep, h.cfg.Plan.AzStart, h.cfg.Full = 90, 5, true
-	if err := h.run(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	_, frames, err := hs.ReadRun(h.cfg.Out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lit := 0
-	for _, f := range frames {
-		if f.ExposureMS != 2000 {
-			t.Fatalf("%s was taken at %d ms; lamps must not shorten night exposures", f.File, f.ExposureMS)
-		}
-		if f.TargetAz == 5 && f.TargetAlt < 6.2 {
-			lit++
-			if f.Class == hs.ClassSky {
-				t.Fatalf("%s with a lamp in the foreground came back as sky", f.File)
-			}
-		}
-	}
-	if lit == 0 {
-		t.Fatal("no frame looked at the lamp")
-	}
-}
-
 func pierChanges(t *testing.T, dir string) (int, map[int]map[string]bool, map[int]int) {
 	t.Helper()
 	_, frames, err := hs.ReadRun(dir)
@@ -446,6 +361,147 @@ func TestNightRunKeepsOnePierSidePerColumn(t *testing.T) {
 	}
 	if worst, edges, at := checkSkyline(res.Skyline, h.sim.Camera(), sim.DemoSkyline); edges < 20 || worst > 0.5 {
 		t.Fatalf("%d edge bins, worst error %.3f at az %.2f", edges, worst, at)
+	}
+}
+
+func TestNightLampsDoNotShortenTheExposure(t *testing.T) {
+	t.Parallel()
+	cam := smallCamera(sim.NightCamera())
+	cam.Lamps = []sim.Lamp{{Az: 5, Alt: 4.5, Radius: 0.6, Rate: 0.01}}
+	h := newHarness(t, sim.Options{Camera: cam}, hs.ModeNight, deepNight())
+	h.cfg.Plan.AzStep, h.cfg.Plan.AzStart, h.cfg.Full = 90, 5, true
+	if err := h.run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	_, frames, err := hs.ReadRun(h.cfg.Out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lit := 0
+	for _, f := range frames {
+		if f.ExposureMS != 2000 {
+			t.Fatalf("%s was taken at %d ms; lamps must not shorten night exposures", f.File, f.ExposureMS)
+		}
+		if f.TargetAz == 5 && f.TargetAlt < 6.2 {
+			lit++
+			if f.Class == hs.ClassSky {
+				t.Fatalf("%s with a lamp in the foreground came back as sky", f.File)
+			}
+		}
+	}
+	if lit == 0 {
+		t.Fatal("no frame looked at the lamp")
+	}
+}
+
+func TestStopFileStopsAndHomes(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{}, hs.ModeDusk, duskTime())
+	go func() {
+		for h.sim.Mount().Slews < 3 {
+			time.Sleep(time.Millisecond)
+		}
+		_ = os.WriteFile(filepath.Join(h.cfg.Out, hs.StopFile), nil, 0o600)
+	}()
+	err := h.run(t.Context())
+	if !errors.Is(err, hs.ErrStopped) {
+		t.Fatalf("got %v, want ErrStopped", err)
+	}
+	assertHomedAfterMoving(t, h.sim)
+	if h.sim.Mount().Stops == 0 {
+		t.Fatal("the stop did not stop the slew")
+	}
+	run, _, rerr := hs.ReadRun(h.cfg.Out)
+	if rerr != nil || !strings.Contains(run.Outcome, "stopped") {
+		t.Fatalf("run outcome %q (%v)", run.Outcome, rerr)
+	}
+}
+
+func TestStopFileAtStartRefusesToMove(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{}, hs.ModeDusk, duskTime())
+	if err := os.WriteFile(filepath.Join(h.cfg.Out, hs.StopFile), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run(t.Context()); !errors.Is(err, hs.ErrStopFile) {
+		t.Fatalf("got %v, want ErrStopFile", err)
+	}
+	if m := h.sim.Mount(); m.Slews != 0 || m.Homes != 0 {
+		t.Fatalf("a stale STOP file still moved the mount: %+v", m)
+	}
+}
+
+func TestCancelCauseIsReported(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{}, hs.ModeDusk, duskTime())
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	why := fmt.Errorf("%w: console closed", hs.ErrStopped)
+	go func() {
+		for h.sim.Mount().Slews < 2 {
+			time.Sleep(time.Millisecond)
+		}
+		cancel(why)
+	}()
+	if err := h.run(ctx); !errors.Is(err, hs.ErrStopped) {
+		t.Fatalf("got %v, want the cancel cause", err)
+	}
+	assertHomedAfterMoving(t, h.sim)
+}
+
+func TestTrackingOffRetriesWhileNINASettles(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{TrackingFailures: 3}, hs.ModeDusk, duskTime())
+	h.cfg.MaxFrames = 3
+	err := h.run(t.Context())
+	if !errors.Is(err, hs.ErrFrameLimit) {
+		t.Fatalf("got %v, want the frame limit after retried tracking-off calls", err)
+	}
+	m := h.sim.Mount()
+	if m.TrackFails < 3 || m.Tracking {
+		t.Fatalf("tracking-off was not retried through the settling errors: %+v", m)
+	}
+	assertHomedAfterMoving(t, h.sim)
+}
+
+func TestTrackingOffGivesUpAfterBoundedRetries(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, sim.Options{TrackingFailures: 1000}, hs.ModeDusk, duskTime())
+	err := h.run(t.Context())
+	if !errors.Is(err, hs.ErrNINA) {
+		t.Fatalf("got %v, want the NINA error after the retries", err)
+	}
+	if m := h.sim.Mount(); m.TrackFails < hs.TrackingOffTries || m.Homes == 0 {
+		t.Fatalf("tracking-off retried %d times, homes %d", m.TrackFails, m.Homes)
+	}
+}
+
+func TestCaptureSavesThroughSaveImageWithoutAnEvent(t *testing.T) {
+	t.Parallel()
+	saveDir := t.TempDir()
+	s, err := sim.Start(t.Context(), sim.Options{Site: testSite(), Camera: smallCamera(sim.DuskCamera()), Clock: sim.NewClock(duskTime()), NoFrameEvent: true, SaveDir: saveDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	phd, err := hs.DialPHD2(t.Context(), s.PHD2Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = phd.Close() }()
+	path := filepath.Join(t.TempDir(), "frame.fits")
+	if err := phd.Capture(t.Context(), 5, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := hs.LoadFrame(path); err != nil {
+		t.Fatalf("the saved frame does not load: %v", err)
+	}
+	saved := s.SavedImages()
+	if len(saved) != 1 {
+		t.Fatalf("save_image was called %d times, want 1", len(saved))
+	}
+	if _, err := os.Stat(saved[0]); !os.IsNotExist(err) {
+		t.Fatalf("PHD2's own copy %s was left behind (%v)", saved[0], err)
 	}
 }
 

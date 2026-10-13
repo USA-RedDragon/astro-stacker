@@ -36,11 +36,15 @@ var (
 	ErrNoPixelScale = errors.New("PHD2 does not know its pixel scale; pass -pixel-scale")
 	ErrPier         = errors.New("the mount is on a pier side the safety checks did not cover")
 	ErrSite         = errors.New("the mount's site or clock does not match")
+	ErrStopped      = errors.New("stopped on request")
+	ErrStopFile     = errors.New("a STOP file is already in the output folder; remove it to start")
 )
 
 const (
+	StopFile     = "STOP"
 	coarseStep   = 3
 	estPerColumn = 45 * time.Second
+	stopPoll     = time.Second
 )
 
 type Clock interface {
@@ -88,6 +92,7 @@ type RunConfig struct {
 	Site       *Site
 	Astap      string
 	Log        io.Writer
+	StopPoll   time.Duration
 }
 
 type Runner struct {
@@ -244,13 +249,48 @@ func (r *Runner) checkRoof(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) Run(ctx context.Context) (err error) {
-	if err := r.Preflight(ctx); err != nil {
+func (r *Runner) stopPath() string { return filepath.Join(r.cfg.Out, StopFile) }
+
+func (r *Runner) checkStop() error {
+	if _, err := os.Stat(r.stopPath()); err == nil {
+		return fmt.Errorf("%w: %s exists", ErrStopped, r.stopPath())
+	}
+	return nil
+}
+
+func (r *Runner) watchStop(ctx context.Context, cancel context.CancelCauseFunc) {
+	poll := r.cfg.StopPoll
+	if poll <= 0 {
+		poll = stopPoll
+	}
+	t := time.NewTicker(poll)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := r.checkStop(); err != nil {
+				cancel(err)
+				return
+			}
+		}
+	}
+}
+
+func (r *Runner) Run(parent context.Context) (err error) {
+	if err := r.Preflight(parent); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(r.cfg.Out, 0o750); err != nil {
 		return err
 	}
+	if r.checkStop() != nil {
+		return fmt.Errorf("%w: %s", ErrStopFile, r.stopPath())
+	}
+	ctx, cancel := context.WithCancelCause(parent)
+	defer cancel(nil)
+	go r.watchStop(ctx, cancel)
 	if err := WriteJSON(filepath.Join(r.cfg.Out, RunFile), r.header); err != nil {
 		return err
 	}
@@ -258,6 +298,9 @@ func (r *Runner) Run(ctx context.Context) (err error) {
 		return err
 	}
 	defer func() {
+		if cause := context.Cause(ctx); err != nil && cause != nil && errors.Is(err, context.Canceled) {
+			err = cause
+		}
 		_ = r.man.Close()
 		ferr := r.finish(ctx, err)
 		r.header.Ended = r.clock.Now()
@@ -271,6 +314,7 @@ func (r *Runner) Run(ctx context.Context) (err error) {
 		}
 		_ = WriteJSON(filepath.Join(r.cfg.Out, RunFile), r.header)
 	}()
+	r.logf("to stop cleanly, create the file %s (or type stop and Enter)", r.stopPath())
 	if err := r.phd.EnsureIdle(ctx); err != nil {
 		return err
 	}
@@ -289,6 +333,9 @@ func (r *Runner) Run(ctx context.Context) (err error) {
 		r.side = r.mech.Pier()
 	}
 	for ci, az := range order.Columns {
+		if err := r.checkStop(); err != nil {
+			return err
+		}
 		if err := r.checkSequence(ctx); err != nil {
 			return err
 		}
@@ -473,6 +520,9 @@ func (r *Runner) shoot(ctx context.Context, ci, row int, az, alt float64, pier s
 		return "", ErrFrameLimit
 	}
 	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := r.checkStop(); err != nil {
 		return "", err
 	}
 	now := r.clock.Now()
