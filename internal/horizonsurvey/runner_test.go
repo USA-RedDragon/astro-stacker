@@ -31,6 +31,7 @@ func newHarness(t *testing.T, opts sim.Options, mode string, at time.Time) *harn
 			opts.Camera = smallCamera(sim.NightCamera())
 		}
 	}
+	out := t.TempDir()
 	opts.Site = testSite()
 	opts.Clock = sim.NewClock(at)
 	s, err := sim.Start(t.Context(), opts)
@@ -48,7 +49,7 @@ func newHarness(t *testing.T, opts sim.Options, mode string, at time.Time) *harn
 	pc.AzStart = 5
 	site := testSite()
 	return &harness{sim: s, clock: opts.Clock, phd: phd, cfg: hs.RunConfig{
-		Out: t.TempDir(), Mode: mode, Plan: pc, Site: &site, Safety: hs.DefaultSafety(), Settle: 2 * time.Second, MaxFrames: 400, Log: io.Discard, StopPoll: 20 * time.Millisecond,
+		Out: out, Mode: mode, Plan: pc, Site: &site, Safety: hs.DefaultSafety(), Settle: 2 * time.Second, MaxFrames: 400, Log: io.Discard, StopPoll: 20 * time.Millisecond,
 	}}
 }
 

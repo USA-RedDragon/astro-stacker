@@ -298,8 +298,12 @@ func (r *Runner) Run(parent context.Context) (err error) {
 		return err
 	}
 	defer func() {
-		if cause := context.Cause(ctx); err != nil && cause != nil && errors.Is(err, context.Canceled) {
-			err = cause
+		if cause := context.Cause(ctx); err != nil && cause != nil && ctx.Err() != nil && !errors.Is(err, cause) {
+			if errors.Is(err, context.Canceled) {
+				err = cause
+			} else {
+				err = errors.Join(cause, err)
+			}
 		}
 		_ = r.man.Close()
 		ferr := r.finish(ctx, err)
