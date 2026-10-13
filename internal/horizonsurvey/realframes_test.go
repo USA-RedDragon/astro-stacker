@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	hs "github.com/USA-RedDragon/astro-stacker/internal/horizonsurvey"
 	"github.com/klauspost/compress/zstd"
@@ -50,6 +51,53 @@ func realFramePath(t *testing.T, dir, name string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func timeForLST(site hs.Site, lst float64, near time.Time) time.Time {
+	t := near
+	for range 4 {
+		d := math.Mod(lst-site.LST(t)+540, 360) - 180
+		t = t.Add(time.Duration(d / 360.9856 * 24 * float64(time.Hour)))
+	}
+	return t
+}
+
+func writeRealRun(t *testing.T, dir string, frameDir func(name string) string) hs.Site {
+	t.Helper()
+	site := testSite()
+	pc := hs.PlanConfig{AzStep: 10, AltMin: 0, AltMax: 35, Overlap: 0.3, FieldW: 2.72, FieldH: 1.53}
+	h := hs.RunHeader{Started: time.Date(2026, 10, 13, 2, 0, 0, 0, time.UTC), Site: site, Mode: hs.ModeNight, PixelScale: 5.09, FrameW: 1920, FrameH: 1080, Plan: pc, Safety: hs.DefaultSafety()}
+	if err := hs.WriteJSON(filepath.Join(dir, hs.RunFile), h); err != nil {
+		t.Fatal(err)
+	}
+	man, err := hs.CreateManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = man.Close() }()
+	for _, f := range realFrames() {
+		src := frameDir(f.name)
+		if filepath.Dir(src) != dir {
+			b, err := os.ReadFile(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, f.name+".fits"), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		lst := math.Mod(f.ra+180, 360)
+		start := timeForLST(site, lst, h.Started)
+		rec := hs.FrameRecord{
+			File: f.name + ".fits", Row: f.row, TargetAz: 0, TargetAlt: f.alt, Start: start, ExposureMS: f.expMS, Mode: hs.ModeNight, PixelScale: 5.09,
+			Mount:  hs.MountState{RAHours: f.ra / 15, Dec: f.dec, SiderealHours: lst / 15, PierSide: hs.PierWest},
+			SkyRef: f.skyRef, StarRef: f.starRef,
+		}
+		if err := man.Append(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return site
 }
 
 func segmentReal(t *testing.T, f realFrame) hs.Segmentation {
@@ -115,6 +163,46 @@ func TestShortExposureBelowSkyIsObstruction(t *testing.T) {
 	f.starRef = 0
 	if seg := segmentReal(t, f); seg.Class != hs.ClassObst {
 		t.Fatalf("a 500 ms frame at %.3f of the expected sky level came back %s (%.3f obstructed)", seg.Median/f.skyRef, seg.Class, seg.ObstFrac)
+	}
+}
+
+func TestRealNightFramesAnalyze(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := t.TempDir()
+	writeRealRun(t, dir, func(name string) string { return realFramePath(t, src, name) })
+	res, err := hs.Analyze(hs.AnalyzeOptions{Dirs: []string{dir}, HRZStep: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Calibration == nil || res.Calibration.Frames != 2 || res.Calibration.Parity != -1 {
+		t.Fatalf("calibration %+v, want one from the two solved frames", res.Calibration)
+	}
+	classes := map[string]string{}
+	for _, f := range res.Frames {
+		classes[f.Record.File] = f.Class
+		if f.Err != nil {
+			t.Fatalf("%s: %v", f.Record.File, f.Err)
+		}
+	}
+	want := map[string]string{"hs_000_20_00_2000ms.fits": hs.ClassSky, "hs_000_08_00_2000ms.fits": hs.ClassSky, "hs_000_05_00_2000ms.fits": hs.ClassEdge, "hs_000_03_01_500ms.fits": hs.ClassObst}
+	for k, v := range want {
+		if classes[k] != v {
+			t.Fatalf("%s came back %s, want %s", k, classes[k], v)
+		}
+	}
+	edges := 0
+	for _, b := range res.Skyline.Bins {
+		if b.Kind != hs.BinEdge || !b.Measured || b.Edges == 0 {
+			continue
+		}
+		edges++
+		if b.Alt < 4.5 || b.Alt > 6.5 || math.Abs(math.Mod(b.Az+180, 360)-180) > 4 {
+			t.Fatalf("edge at az %.2f alt %.2f, want alt 4.5-6.5 near az 0", b.Az, b.Alt)
+		}
+	}
+	if edges < 5 {
+		t.Fatalf("only %d edge bins measured", edges)
 	}
 }
 

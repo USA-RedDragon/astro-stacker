@@ -1,6 +1,7 @@
 package horizonsurvey
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -94,6 +95,7 @@ func Analyze(opts AnalyzeOptions) (*Result, error) {
 	res := &Result{}
 	bottom, top := math.Inf(1), math.Inf(-1)
 	var cals []Calibration
+	var fixes []pointFix
 	for _, dir := range opts.Dirs {
 		h, frames, err := ReadRun(dir)
 		if err != nil {
@@ -117,8 +119,11 @@ func Analyze(opts AnalyzeOptions) (*Result, error) {
 			w, errW := strconv.Atoi(cards["NAXIS1"])
 			hh, errH := strconv.Atoi(cards["NAXIS2"])
 			if wcs, ok := ParseWCS(cards); ok && errW == nil && errH == nil && (f.Mount.PierSide == PierEast || f.Mount.PierSide == PierWest) {
-				th, par, sc := NewWCSGeometry(w, hh, h.Site, wcs, f.MidTime()).Orientation()
+				g := NewWCSGeometry(w, hh, h.Site, wcs, f.MidTime())
+				th, par, sc := g.Orientation()
 				cals = append(cals, Calibration{Theta: th, Parity: par, Scale: sc, PierSide: f.Mount.PierSide})
+				sha, sdec := g.Center()
+				fixes = append(fixes, pointFix{pier: f.Mount.PierSide, at: EqVec(f.Mount.HourAngle(), f.Mount.Dec), dx: wrap180(sha-f.Mount.HourAngle()) * math.Cos(sdec*rad), ddec: sdec - f.Mount.Dec})
 			}
 		}
 	}
@@ -143,7 +148,17 @@ func Analyze(opts AnalyzeOptions) (*Result, error) {
 			fr.Err = err
 			continue
 		}
-		g, src, err := FrameGeometry(fr.Record, im.W, im.H, fr.Site, cards, cal)
+		rec := fr.Record
+		fixNote := ""
+		if _, solved := ParseWCS(cards); !solved {
+			if dha, ddec, n := nearbyFix(fixes, rec.Mount); n > 0 {
+				rec.Mount.RAHours = math.Mod(rec.Mount.RAHours-dha/15+48, 24)
+				rec.Mount.Dec += ddec
+				fixNote = fmt.Sprintf(", corrected by %d nearby plate solve(s) (%.2f° hour angle, %.2f° declination)", n, dha, ddec)
+			}
+		}
+		g, src, err := FrameGeometry(rec, im.W, im.H, fr.Site, cards, cal)
+		src += fixNote
 		if err != nil {
 			fr.Err = err
 			logf("%v", err)
@@ -168,6 +183,8 @@ func Analyze(opts AnalyzeOptions) (*Result, error) {
 	return res, nil
 }
 
+const fixRadius = 20.0
+
 func fillSkyRef(frames []FrameRecord) {
 	var rates []float64
 	for _, f := range frames {
@@ -184,6 +201,49 @@ func fillSkyRef(frames []FrameRecord) {
 			frames[i].SkyRef = rate * float64(frames[i].ExposureMS)
 		}
 	}
+}
+
+type pointFix struct {
+	pier     string
+	at       Vec
+	dx, ddec float64
+}
+
+func nearbyFix(fixes []pointFix, m MountState) (dha, ddec float64, n int) {
+	at := EqVec(m.HourAngle(), m.Dec)
+	type near struct {
+		d float64
+		f pointFix
+	}
+	var ns []near
+	for _, f := range fixes {
+		if f.pier != m.PierSide {
+			continue
+		}
+		if d := Separation(at, f.at); d <= fixRadius {
+			ns = append(ns, near{d, f})
+		}
+	}
+	if len(ns) == 0 {
+		return 0, 0, 0
+	}
+	slices.SortFunc(ns, func(a, b near) int { return cmp.Compare(a.d, b.d) })
+	limit := math.Max(2*ns[0].d, 2)
+	k := 0
+	for k < len(ns) && k < 5 && ns[k].d <= limit {
+		k++
+	}
+	ns = ns[:k]
+	dxs, decs := make([]float64, len(ns)), make([]float64, len(ns))
+	for i, x := range ns {
+		dxs[i], decs[i] = x.f.dx, x.f.ddec
+	}
+	ddec = percentile(decs, 0.5)
+	c := math.Cos((m.Dec + ddec) * rad)
+	if c < 0.05 {
+		return 0, 0, 0
+	}
+	return percentile(dxs, 0.5) / c, ddec, len(ns)
 }
 
 func mergeCalibrations(cals []Calibration) Calibration {
