@@ -14,6 +14,8 @@ type kicks struct {
 	// goals measures a master's goal progress; with no object, every
 	// master's, as when goals change.
 	goals func(object, filter string)
+	// goalsPublish publishes goal progress.
+	goalsPublish func()
 	// moonKeep refits the Moon and altitude kept rates.
 	moonKeep func()
 	// subLength works the sub lengths out again.
@@ -74,7 +76,9 @@ func (k *kicks) onEvent(e events.Event) {
 	case events.TypeSubs:
 		call(k.moonKeep, k.subLength, k.verdicts, k.publicFrames)
 	case events.TypeFrames:
-		call(k.mosaics, k.adoption)
+		call(k.mosaics, k.adoption, k.goalsPublish)
+	case events.TypeBody:
+		call(k.goalsPublish)
 	}
 }
 

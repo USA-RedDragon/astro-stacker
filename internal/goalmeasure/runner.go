@@ -232,6 +232,10 @@ func (r *Runner) Kick(object, filter string) {
 	r.pubKick.Kick()
 }
 
+// KickPublish asks for goal progress to be published soon, as when a
+// moving target's night was measured or new lights change a projection.
+func (r *Runner) KickPublish() { r.pubKick.Kick() }
+
 const keySep = "\x00"
 
 // keysOf turns Debouncer keys made by Kick back into goal keys.

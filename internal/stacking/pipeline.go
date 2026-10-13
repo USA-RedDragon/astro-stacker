@@ -147,6 +147,12 @@ type Pipeline struct {
 	// waiting holds the targets a background job waits to take from the
 	// workers; claim passes them over so the job gets them between batches.
 	waiting map[string]int
+	// bodyObjects are the moving targets, as of the last body night pass;
+	// reserved are those of them whose master was updated since, held in
+	// waiting for the next pass.
+	bodyObjects map[string]bool
+	reserved    map[string]bool
+	bodyLoop    bool
 	// building serializes work on one calibration master's files.
 	building sync.Map // set key -> *sync.Mutex
 	// sites caches each target's observing site (latitude, east longitude),
@@ -189,6 +195,7 @@ type Pipeline struct {
 
 	verdictKick *trigger.Debouncer
 	mosaicKick  *trigger.Debouncer
+	bodyKick    *trigger.Debouncer
 	// verdictNews holds when each new verdict of the last hour was sent;
 	// only runVerdicts touches it.
 	verdictNews []time.Time
@@ -289,7 +296,8 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 	p := &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
 		busy: map[string]bool{}, working: map[string]*events.Worker{}, drain: make(chan struct{}),
 		verdictKick: &trigger.Debouncer{Quiet: VerdictQuiet, MaxWait: VerdictMaxWait, MinGap: VerdictMinGap},
-		mosaicKick:  &trigger.Debouncer{Quiet: MosaicKickWait, MaxWait: opts.MosaicInterval, MinGap: MosaicMinGap}}
+		mosaicKick:  &trigger.Debouncer{Quiet: MosaicKickWait, MaxWait: opts.MosaicInterval, MinGap: MosaicMinGap},
+		bodyKick:    &trigger.Debouncer{Quiet: BodyKickQuiet, MinGap: BodyKickMinGap}}
 	p.scorer.PerSecond = opts.ScorePerSecond
 	return p
 }
@@ -297,6 +305,7 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 // Run stacks new lights with opts.Workers workers until ctx is cancelled,
 // each sleeping interval when idle.
 func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
+	defer p.Events.Listen(p.onBodyEvent)()
 	var wg sync.WaitGroup
 	wg.Go(func() { p.reportStatus(ctx) })
 	wg.Go(func() {
