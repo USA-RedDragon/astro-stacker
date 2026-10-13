@@ -9,6 +9,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
+	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -112,7 +113,7 @@ func TestCometMasterWaitsOnlyForTheMasterToSettle(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := "masters/161P.xisf"
-	if err := db.Create(&app.Stack{Object: "161P/Hartley-IRAS", Filter: "L", Subs: 5, MasterKey: &key, UpdatedAt: time.Now()}).Error; err != nil {
+	if err := db.Create(&app.Stack{Object: hartleyName, Filter: "L", Subs: 5, MasterKey: &key, UpdatedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
 	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
@@ -136,5 +137,49 @@ func TestCometMasterWaitsOnlyForTheMasterToSettle(t *testing.T) {
 	case <-runs:
 	case <-time.After(5 * time.Second):
 		t.Fatal("a comet master whose master just changed was left for the backstop")
+	}
+}
+
+// A moving target's master update keeps the workers off it until the next
+// body night pass, so its night is measured between batches.
+func TestBodyMasterUpdateReservesTheTargetForItsNight(t *testing.T) {
+	t.Parallel()
+	p := NewPipeline(nil, "", "", nil, nil, siril.Runner{}, "", DefaultPipelineOptions())
+	p.bodyKick = &trigger.Debouncer{}
+	p.bodyObjects = map[string]bool{hartleyName: true}
+	master := events.Event{Type: events.TypeMaster, Object: hartleyName, Filter: "L"}
+	p.onBodyEvent(master)
+	if len(p.waiting) != 0 {
+		t.Fatal("with no body night loop running nothing is reserved")
+	}
+	p.setBodyLoop(true)
+	p.onBodyEvent(events.Event{Type: events.TypeMaster, Object: objectM31, Filter: "L"})
+	p.onBodyEvent(events.Event{Type: events.TypeSubs, Object: hartleyName, Filter: "L"})
+	p.onBodyEvent(master)
+	p.onBodyEvent(master)
+	if p.waiting[hartleyName] != 1 || len(p.waiting) != 1 {
+		t.Fatalf("one reservation for the moving target only: %v", p.waiting)
+	}
+	held := p.takeReservations()
+	p.onBodyEvent(master)
+	if p.waiting[hartleyName] != 2 {
+		t.Fatalf("an update during a pass reserves for the next one: %v", p.waiting)
+	}
+	p.Wake = &wake.Signal{}
+	woke := p.Wake.C()
+	p.dropReservations(held)
+	select {
+	case <-woke:
+	default:
+		t.Fatal("handing a target back does not wake the workers")
+	}
+	p.dropReservations(p.takeReservations())
+	if len(p.waiting) != 0 || len(p.reserved) != 0 {
+		t.Fatalf("reservations left: %v %v", p.waiting, p.reserved)
+	}
+	p.setBodyLoop(false)
+	p.onBodyEvent(master)
+	if len(p.waiting) != 0 {
+		t.Fatal("a stopped body night loop reserves nothing")
 	}
 }

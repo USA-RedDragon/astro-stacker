@@ -224,7 +224,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir, "ts_verdicts", cfg.Stacking.TSVerdicts)
 		}
 		if cfg.Goals.Enabled {
-			drainGoals, backfill, kick.goals = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy, kick.onMeasured)
+			drainGoals, backfill, kick.goals, kick.goalsPublish = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy, kick.onMeasured)
 		}
 	}
 
@@ -325,7 +325,7 @@ func afterScan(db *gorm.DB, broker *events.Broker, publish ...func(context.Conte
 }
 
 func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool,
-	measured func(object, filter string)) (func(), func() goals.BackfillLive, func(object, filter string)) {
+	measured func(object, filter string)) (func(), func() goals.BackfillLive, func(object, filter string), func()) {
 	opts := withLongitude(goalOptions(cfg, boosts, busy), siteFunc(cfg, appStore))
 	opts.OnMeasured = measured
 	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
@@ -345,7 +345,7 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 		case <-time.After(30 * time.Second):
 			slog.Warn("Goal measurement still busy at shutdown")
 		}
-	}, r.Live, r.Kick
+	}, r.Live, r.Kick, r.KickPublish
 }
 
 func startDepthSwitch(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, commands *schedcmd.Service, disc *discover.Service) func() {

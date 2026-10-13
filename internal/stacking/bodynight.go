@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
+	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
@@ -29,7 +30,6 @@ const (
 	StageBodyNight   = "body-night"
 	bodyNightMinSubs = 3
 	tailProbeArcsec  = 60.0
-	bodyMeasureEvery = 10 * time.Minute
 	bodyRetryAfter   = 2 * time.Hour
 	bodyNightPoll    = 2 * time.Minute
 	bodyCropMargin   = 256
@@ -50,15 +50,97 @@ type nightSub struct {
 	Night         time.Time
 }
 
+// Body night kicks are debounced by these: a moving target's night is
+// measured seconds after its master takes a batch, at most once a minute.
+const (
+	BodyKickQuiet  = 5 * time.Second
+	BodyKickMinGap = time.Minute
+)
+
+// KickBodyNights asks for the moving targets' nights to be measured soon.
+func (p *Pipeline) KickBodyNights() { p.bodyKick.Kick() }
+
+// runBodyNights measures, images and combines the moving targets' nights at
+// start, soon after each master update of one, and every bodyNightPoll,
+// until the pipeline stops.
 func (p *Pipeline) runBodyNights(ctx context.Context) {
-	for !p.stopping(ctx) {
+	p.setBodyLoop(true)
+	defer func() {
+		p.setBodyLoop(false)
+		p.dropReservations(p.takeReservations())
+	}()
+	waitCtx, cancel := p.untilDrained(ctx)
+	defer cancel()
+	p.bodyKick.Run(waitCtx, bodyNightPoll, func(context.Context, []string) {
+		if p.stopping(ctx) {
+			return
+		}
+		held := p.takeReservations()
+		defer p.dropReservations(held)
 		if err := p.bodyNightsOnce(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Body night stacks failed", "error", err)
 		}
-		if !p.pause(ctx, bodyNightPoll) {
-			return
+	})
+}
+
+// onBodyEvent reserves a moving target as its master is updated, before
+// the worker that updated it can claim its next batch, so its night is
+// measured between batches rather than after the last one.
+func (p *Pipeline) onBodyEvent(e events.Event) {
+	if e.Type != events.TypeMaster {
+		return
+	}
+	p.mu.Lock()
+	reserve := p.bodyLoop && p.bodyObjects[e.Object] && !p.reserved[e.Object]
+	if reserve {
+		if p.reserved == nil {
+			p.reserved = map[string]bool{}
+		}
+		if p.waiting == nil {
+			p.waiting = map[string]int{}
+		}
+		p.reserved[e.Object] = true
+		p.waiting[e.Object]++
+	}
+	p.mu.Unlock()
+	if reserve {
+		p.KickBodyNights()
+	}
+}
+
+func (p *Pipeline) setBodyLoop(on bool) {
+	p.mu.Lock()
+	p.bodyLoop = on
+	p.mu.Unlock()
+}
+
+// takeReservations returns the targets reserved so far; they stay off the
+// workers until dropReservations.
+func (p *Pipeline) takeReservations() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, 0, len(p.reserved))
+	for o := range p.reserved {
+		out = append(out, o)
+	}
+	p.reserved = nil
+	return out
+}
+
+// dropReservations hands the targets back to the workers and wakes them,
+// so a worker that passed one over while it was held takes it at once.
+func (p *Pipeline) dropReservations(objects []string) {
+	if len(objects) == 0 {
+		return
+	}
+	p.mu.Lock()
+	for _, o := range objects {
+		if p.waiting[o]--; p.waiting[o] <= 0 {
+			delete(p.waiting, o)
 		}
 	}
+	p.mu.Unlock()
+	p.Wake.Notify()
 }
 
 type bodyStack struct {
@@ -99,6 +181,15 @@ func (p *Pipeline) bodyStacks(ctx context.Context) ([]bodyStack, error) {
 		}
 		out = append(out, bodyStack{moving: moving, stack: s, body: body, nights: nights, have: have})
 	}
+	objects := map[string]bool{}
+	for i := range stacks {
+		if _, ok := bodies.OwnBody(stored, stacks[i].Object); ok {
+			objects[stacks[i].Object] = true
+		}
+	}
+	p.mu.Lock()
+	p.bodyObjects = objects
+	p.mu.Unlock()
 	return out, nil
 }
 
@@ -201,10 +292,7 @@ func (p *Pipeline) measureNightIfDue(ctx context.Context, bs bodyStack, k string
 		row = app.BodyNight{Object: bs.stack.Object, Filter: bs.stack.Filter, Night: night}
 	}
 	row.StackID, row.Kind = bs.stack.ID, goals.BodyKind(bs.body.Kind)
-	switch {
-	case row.Signature == sig && !retryDue(row.Error, row.MeasuredAt):
-		return row, nil
-	case had && row.Signature != sig && time.Since(row.MeasuredAt) < bodyMeasureEvery:
+	if row.Signature == sig && !retryDue(row.Error, row.MeasuredAt) {
 		return row, nil
 	}
 	if !p.holdWait(ctx, bs.stack.Object, bodyHoldWait) {
@@ -216,7 +304,11 @@ func (p *Pipeline) measureNightIfDue(ctx context.Context, bs bodyStack, k string
 	if err != nil || !measured {
 		return row, err
 	}
-	return row, p.saveBodyNight(ctx, row)
+	if err := p.saveBodyNight(ctx, row); err != nil {
+		return row, err
+	}
+	p.Events.Publish(events.Event{Type: events.TypeBody, Object: row.Object, Filter: row.Filter})
+	return row, nil
 }
 
 // measureHeldNight measures night k from the target's subs as they are once

@@ -28,6 +28,7 @@ func (l *kickLog) take() []string {
 func newKicks(l *kickLog) *kicks {
 	return &kicks{
 		goals:        func(object, filter string) { l.heard = append(l.heard, "goals:"+object+"/"+filter) },
+		goalsPublish: l.fn("goalsPublish"),
 		moonKeep:     l.fn("moonKeep"),
 		subLength:    l.fn("subLength"),
 		scheduling:   l.fn(kickScheduling),
@@ -65,7 +66,9 @@ func TestKicksFollowEventsAndPlanChanges(t *testing.T) {
 			[]string{"goals:M31/H-a", "mosaics"}},
 		{"subs triaged", func() { broker.Publish(events.Event{Type: events.TypeSubs, Object: testObject, Filter: "H-a"}) },
 			[]string{"moonKeep", "publicFrames", "subLength", "verdicts"}},
-		{"frames indexed", func() { broker.Publish(events.Event{Type: events.TypeFrames}) }, []string{"adoption", "mosaics"}},
+		{"frames indexed", func() { broker.Publish(events.Event{Type: events.TypeFrames}) }, []string{"adoption", "goalsPublish", "mosaics"}},
+		{"body night measured", func() { broker.Publish(events.Event{Type: events.TypeBody, Object: testObject, Filter: "Luminance"}) },
+			[]string{"goalsPublish"}},
 		{"sync arrived", func() {
 			for _, fn := range w.OnSync {
 				fn()
