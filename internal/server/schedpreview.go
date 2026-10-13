@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedwatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -433,10 +434,6 @@ func applyPreviewRoutes(g *gin.RouterGroup, src PreviewSource, cache *PreviewCac
 	})
 }
 
-const syncStampQuery = `SELECT
-	(SELECT COALESCE(MAX(batch_id), 0) FROM sym_incoming_batch WHERE channel_id <> 'heartbeat' AND status = 'OK') AS incoming,
-	(SELECT COALESCE(MAX(batch_id), 0) FROM sym_outgoing_batch WHERE channel_id <> 'heartbeat' AND status = 'OK') AS outgoing`
-
 // SyncStamp stamps preview inputs with the newest SymmetricDS batches the
 // scheduler database exchanged with the observatory, plus live state from
 // the plugin that is not in the database.
@@ -449,7 +446,7 @@ func SyncStamp(db *gorm.DB, live func() string) PreviewStamp {
 			Incoming int64
 			Outgoing int64
 		}
-		if err := db.WithContext(ctx).Raw(syncStampQuery).Scan(&row).Error; err != nil {
+		if err := db.WithContext(ctx).Raw(schedwatch.SyncStampQuery).Scan(&row).Error; err != nil {
 			return "", false
 		}
 		s := strconv.FormatInt(row.Incoming, 10) + "/" + strconv.FormatInt(row.Outgoing, 10)
