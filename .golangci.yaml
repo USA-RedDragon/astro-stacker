@@ -85,10 +85,6 @@ linters:
         linters:
           - gosec
         text: G204|G703
-      - path: internal/(astrometry/solvefield|stacking/telescopes)_test\.go$
-        linters:
-          - gosec
-        text: G306
       - path: internal/stacking/(header|outputs|process)\.go$
         linters:
           - gosec
