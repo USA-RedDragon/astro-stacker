@@ -341,7 +341,8 @@ func (s *Service) Load(ctx context.Context) error {
 	var known map[string]*Rarity
 	if row.Rarities != nil {
 		if err := json.Unmarshal([]byte(*row.Rarities), &known); err != nil {
-			return err
+			slog.Warn("Loading the saved event rarities failed", "error", err)
+			known = nil
 		}
 	}
 	s.mu.Lock()
