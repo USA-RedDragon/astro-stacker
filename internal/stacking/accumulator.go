@@ -5,7 +5,6 @@ package stacking
 import (
 	"fmt"
 	"math"
-	"slices"
 )
 
 // Options tune how a sub is folded into the master.
@@ -327,8 +326,7 @@ func background(p []float32, saturation float32) float64 {
 	if len(s) == 0 {
 		return 0
 	}
-	slices.Sort(s)
-	return float64(s[len(s)/2])
+	return float64(nth32(s, len(s)/2))
 }
 
 // Planes returns the state as four planes for storage: weight, mean, M2 and

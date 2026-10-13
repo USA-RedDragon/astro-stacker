@@ -835,8 +835,7 @@ func medianFilter(p []float32, w, h, r int) []float32 {
 							}
 						}
 					}
-					slices.Sort(win)
-					out[i] = win[len(win)/2]
+					out[i] = nth32(win, len(win)/2)
 				}
 			}
 		}()
