@@ -28,6 +28,7 @@ func newKicks(l *kickLog) *kicks {
 		scheduling: l.fn("scheduling"),
 		verdicts:   l.fn("verdicts"),
 		mosaics:    l.fn("mosaics"),
+		goalSwitch: l.fn("goalSwitch"),
 	}
 }
 
@@ -38,6 +39,7 @@ func TestKicksFollowEventsAndPlanChanges(t *testing.T) {
 	w := &schedwatch.Watcher{}
 	k := newKicks(l)
 	k.onCommand(schedcmd.Record{Kind: schedcmd.KindProjectCreate})
+	k.onMeasured("M31", "Luminance")
 	if got := l.take(); got != nil {
 		t.Errorf("a command before every kick is assigned kicked %v", got)
 	}
@@ -63,7 +65,8 @@ func TestKicksFollowEventsAndPlanChanges(t *testing.T) {
 			}
 		}, []string{"verdicts"}},
 		{"preview rendered", func() { broker.Publish(events.Event{Type: events.TypePreview, Object: "M31"}) }, nil},
-		{"plans changed", plans, []string{"goals:/", "moonKeep", "scheduling", "subLength"}},
+		{"plans changed", plans, []string{"goalSwitch", "goals:/", "moonKeep", "scheduling", "subLength"}},
+		{"goal measured", func() { k.onMeasured("M31", "Luminance") }, []string{"goalSwitch"}},
 		{"project drafted", func() { k.onCommand(schedcmd.Record{Kind: schedcmd.KindProjectCreate}) }, []string{"scheduling"}},
 		{"global settings saved", func() { k.onCommand(schedcmd.Record{Kind: schedcmd.KindSchedulingGlobal}) }, []string{"scheduling"}},
 		{"target skipped", func() { k.onCommand(schedcmd.Record{Kind: schedcmd.KindSkip}) }, nil},

@@ -221,7 +221,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir, "ts_verdicts", cfg.Stacking.TSVerdicts)
 		}
 		if cfg.Goals.Enabled {
-			drainGoals, backfill, kick.goals = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy)
+			drainGoals, backfill, kick.goals = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy, kick.onMeasured)
 		}
 	}
 
@@ -268,7 +268,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		extras.Grader = &observatory.GraderCache{Client: obs, Monitor: monitor}
 	}
 
-	startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
+	kick.goalSwitch = startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
 	extras.Scheduling = startScheduling(indexCtx, cfg, appStore, schedulerDBStore, commands, bodyNights, horizon)
 	kick.scheduling = extras.Scheduling.Kick
 	watcher := &schedwatch.Watcher{DB: schedulerDBStore.DB()}
@@ -321,9 +321,12 @@ func afterScan(db *gorm.DB, broker *events.Broker, publish ...func(context.Conte
 	}
 }
 
-func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool) (func(), func() goals.BackfillLive, func(object, filter string)) {
+func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool,
+	measured func(object, filter string)) (func(), func() goals.BackfillLive, func(object, filter string)) {
+	opts := withLongitude(goalOptions(cfg, boosts, busy), siteFunc(cfg, appStore))
+	opts.OnMeasured = measured
 	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
-		goalmeasure.VizierFetcher(nil, ""), withLongitude(goalOptions(cfg, boosts, busy), siteFunc(cfg, appStore)))
+		goalmeasure.VizierFetcher(nil, ""), opts)
 	r.XP = goalmeasure.VizierXPFetcher(nil, "")
 	done := make(chan struct{})
 	go func() {
@@ -342,13 +345,14 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 	}, r.Live, r.Kick
 }
 
-func startDepthSwitch(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, commands *schedcmd.Service, disc *discover.Service) {
+func startDepthSwitch(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, commands *schedcmd.Service, disc *discover.Service) func() {
 	if !cfg.Goals.Enabled || disc == nil {
-		return
+		return nil
 	}
 	sw := &goalswitch.Switcher{App: appStore.DB(), Sched: schedStore.DB(), Commands: commands, Classes: disc.ProjectClasses, Mode: cfg.Goals.DepthSwitch}
 	go sw.Run(ctx, time.Hour)
 	slog.Info("Depth goal switch started", "mode", cfg.Goals.DepthSwitch)
+	return sw.Kick
 }
 
 func goalOptions(cfg *config.Config, boosts goals.SeasonBoostSource, busy func() bool) goalmeasure.Options {
