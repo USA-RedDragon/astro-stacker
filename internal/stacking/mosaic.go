@@ -28,6 +28,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
+	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"github.com/minio/minio-go/v7"
@@ -822,7 +823,7 @@ func solved(file string) bool {
 }
 
 func mosaicPrefix(project, filter string) string {
-	return path.Join("mosaics", project, filter)
+	return path.Join("mosaics", ninapath.Folder(project), ninapath.Folder(filter))
 }
 
 // optics reads the focal length and binned pixel size from the header of one

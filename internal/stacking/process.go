@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/indexer"
+	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -431,7 +432,7 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 	if err := os.Rename(file, local); err != nil {
 		return "", tr, err
 	}
-	key := path.Join("stacks", object, "reference.fit")
+	key := path.Join("stacks", ninapath.Folder(object), "reference.fit")
 	if err := p.upload(ctx, local, key, "application/fits"); err != nil {
 		return "", tr, err
 	}

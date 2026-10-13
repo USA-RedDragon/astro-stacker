@@ -3,6 +3,7 @@ package publicframe
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -170,5 +171,12 @@ func TestPass(t *testing.T) {
 	}
 	if f.Key != Key("A", a0) || f.ETag == "" || f.Revision != Revision || f.DateObs == nil {
 		t.Errorf("stored frame %+v", f)
+	}
+}
+
+func TestKeyUsesNINAFolder(t *testing.T) {
+	t.Parallel()
+	if got, want := Key("161P/Hartley-IRAS", 7), "public/161P-Hartley-IRAS/7-r"+strconv.Itoa(Revision)+".jpg"; got != want {
+		t.Errorf("Key = %q, want %q", got, want)
 	}
 }

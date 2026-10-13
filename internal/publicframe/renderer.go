@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
@@ -259,7 +260,7 @@ func (r *Renderer) remove(ctx context.Context, key string) {
 // Key is where a light's public frame is stored: one object per light and
 // Revision, so a request never reads a frame half replaced.
 func Key(object string, frameID int) string {
-	return path.Join("public", object, strconv.Itoa(frameID)+"-r"+strconv.Itoa(Revision)+".jpg")
+	return path.Join("public", ninapath.Folder(object), strconv.Itoa(frameID)+"-r"+strconv.Itoa(Revision)+".jpg")
 }
 
 func (r *Renderer) renderAndStore(ctx context.Context, c Candidate, cur *app.PublicFrame) error {
