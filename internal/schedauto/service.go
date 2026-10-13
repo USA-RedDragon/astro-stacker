@@ -31,8 +31,9 @@ const (
 	ModeOff    = "off"
 	ModeDryRun = "dry-run"
 	ModeOn     = "on"
-	// SyncGrace is how long a project is left alone after an automatic
-	// edit, so the home copy of the scheduler database catches up first.
+	// SyncGrace is how long a project is left alone after a manual edit,
+	// so the home copy of the scheduler database catches up first. After
+	// its own edit the run only holds back sending the same values again.
 	SyncGrace = 30 * time.Minute
 	cacheFor  = time.Hour
 )
@@ -307,25 +308,92 @@ func editedProjects(r schedcmd.Record) []int64 {
 	return out
 }
 
-// busy is the projects with a project edit still waiting for the plugin,
-// or with a project edit by anyone in the last SyncGrace, so the home copy
-// of the scheduler database has caught up before the next edit.
-func (s *Service) busy(ctx context.Context) (map[int64]bool, error) {
-	out := map[int64]bool{}
-	waiting, err := s.Commands.Log.Waiting(ctx)
+// holds are the projects a run leaves alone for now.
+type holds struct {
+	// skip is the projects with a project edit still waiting for the
+	// plugin, or with a manual project edit, or one of the run's own the
+	// plugin refused, in the last SyncGrace, so the home copy of the
+	// scheduler database has caught up before the next edit and a refused
+	// edit is not sent again at once.
+	skip map[int64]bool
+	// sent is, by project and field, the value the run's own applied
+	// edits of the last SyncGrace set; the run does not send it again
+	// while the home copy catches up.
+	sent map[int64]map[string]string
+	// until is when the earliest hold ends, zero with none.
+	until time.Time
+}
+
+func (h *holds) ends(at time.Time) {
+	if h.until.IsZero() || at.Before(h.until) {
+		h.until = at
+	}
+}
+
+// waiting reports whether a command is not yet applied or refused.
+func waiting(st schedcmd.Status) bool {
+	return st == schedcmd.StatusSaved || st == schedcmd.StatusQueued || st == schedcmd.StatusPending
+}
+
+func (s *Service) busy(ctx context.Context) (holds, error) {
+	h := holds{skip: map[int64]bool{}, sent: map[int64]map[string]string{}}
+	pending, err := s.Commands.Log.Waiting(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list waiting commands: %w", err)
+		return h, fmt.Errorf("list waiting commands: %w", err)
 	}
 	recent, err := s.Commands.Log.List(ctx, schedcmd.Filter{Since: s.now().Add(-SyncGrace), Limit: schedcmd.MaxListLimit})
 	if err != nil {
-		return nil, fmt.Errorf("list recent project edits: %w", err)
+		return h, fmt.Errorf("list recent project edits: %w", err)
 	}
-	for _, r := range append(waiting, recent...) {
+	for _, r := range pending {
 		for _, id := range editedProjects(r) {
-			out[id] = true
+			h.skip[id] = true
 		}
 	}
-	return out, nil
+	slices.SortStableFunc(recent, func(a, b schedcmd.Record) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	for _, r := range recent {
+		ids := editedProjects(r)
+		switch {
+		case len(ids) == 0:
+		case waiting(r.Status):
+			for _, id := range ids {
+				h.skip[id] = true
+			}
+		case r.Author != Author, r.Status != schedcmd.StatusApplied:
+			for _, id := range ids {
+				h.skip[id] = true
+			}
+			h.ends(r.CreatedAt.Add(SyncGrace))
+		case r.Status == schedcmd.StatusApplied && r.Kind == schedcmd.KindProjectEdit:
+			var p schedcmd.EditPayload
+			if json.Unmarshal(r.Payload, &p) != nil {
+				continue
+			}
+			if h.sent[p.ID] == nil {
+				h.sent[p.ID] = map[string]string{}
+			}
+			for _, c := range p.Changes {
+				h.sent[p.ID][c.Field] = string(c.After)
+			}
+			h.ends(r.CreatedAt.Add(SyncGrace))
+		}
+	}
+	return h, nil
+}
+
+// alreadySent reports whether every change of e is a value the run's own
+// applied edits already set.
+func (h holds) alreadySent(e schedcmd.EditPayload) bool {
+	sent := h.sent[e.ID]
+	if sent == nil {
+		return false
+	}
+	for _, c := range e.Changes {
+		if v, ok := sent[c.Field]; !ok || v != string(c.After) {
+			return false
+		}
+	}
+	return true
 }
 
 // Edits are the project.edit payloads for every differing project not in
@@ -388,14 +456,15 @@ func (s *Service) Once(ctx context.Context) (*Result, error) {
 		s.setRun(RunStatus{At: s.now().UTC(), Mode: mode, Error: err.Error()})
 		return nil, err
 	}
-	skip := map[int64]bool{}
+	h := holds{}
 	if s.Commands != nil {
-		if skip, err = s.busy(ctx); err != nil {
+		if h, err = s.busy(ctx); err != nil {
 			s.setRun(RunStatus{At: s.now().UTC(), Mode: mode, Error: err.Error()})
 			return res, err
 		}
 	}
-	edits, left := Edits(res.Projects, skip)
+	edits, left := Edits(res.Projects, h.skip)
+	edits = slices.DeleteFunc(edits, h.alreadySent)
 	run := RunStatus{At: s.now().UTC(), Mode: mode, Left: left, Failed: []string{}, CommandIDs: []string{}}
 	for _, p := range res.Projects {
 		if p.Edit() != nil {
