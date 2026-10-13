@@ -1049,6 +1049,7 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 		}
 		keys[name] = k
 	}
+	moved := stack.CometKey
 	// UpdateColumns leaves updated_at, which the signature is made of.
 	if err := p.db.WithContext(ctx).Model(stack).UpdateColumns(map[string]any{
 		"comet_key": keys["comet.fit"], "comet_xisf_key": keys["comet.xisf"], "comet_preview_key": keys["comet.jpg"],
@@ -1058,6 +1059,7 @@ func (p *Pipeline) publishComet(ctx context.Context, stack *app.Stack, layers co
 	}).Error; err != nil {
 		return err
 	}
+	p.removeMoved(ctx, moved, prefix, "comet.fit", "comet.xisf", "comet-starless.fit", "comet-starless.xisf", "comet.jpg", "comet-linear.bin")
 	stack.CometLinearKey = ptrTo(keys["comet-linear.bin"])
 	stack.CometMethod = ptrTo(cometMethod)
 	stack.CometCropX, stack.CometCropY, stack.CometCropW, stack.CometCropH = r.X, r.Y, r.W, r.H

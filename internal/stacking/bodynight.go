@@ -251,6 +251,7 @@ func (p *Pipeline) imageNightIfDue(ctx context.Context, bs bodyStack, k string) 
 	if !p.hold(bs.stack.Object) {
 		return false, nil
 	}
+	moved := row.MasterKey
 	err := p.imageBodyNight(ctx, bs.stack, bs.body, rows, &row)
 	p.release(bs.stack.Object)
 	if err != nil {
@@ -264,7 +265,13 @@ func (p *Pipeline) imageNightIfDue(ctx context.Context, bs bodyStack, k string) 
 		row.ImageError = nil
 	}
 	row.ImageSignature = sig
-	return true, p.saveBodyNight(ctx, row)
+	if err := p.saveBodyNight(ctx, row); err != nil {
+		return true, err
+	}
+	if row.MasterKey != nil {
+		p.removeMoved(ctx, moved, path.Dir(*row.MasterKey), "body.fit", "body-starless.fit", "body.jpg")
+	}
+	return true, nil
 }
 
 func (p *Pipeline) nightSubs(ctx context.Context, stack *app.Stack) (map[string][]nightSub, error) {

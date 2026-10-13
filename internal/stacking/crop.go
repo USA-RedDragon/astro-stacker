@@ -309,8 +309,13 @@ func (p *Pipeline) recrop(ctx context.Context, s *app.Stack) error {
 	if err := p.putBytes(ctx, key, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG}); err != nil {
 		return err
 	}
-	return p.db.WithContext(ctx).Model(s).Updates(map[string]any{
+	moved := s.PreviewKey
+	if err := p.db.WithContext(ctx).Model(s).Updates(map[string]any{
 		"crop_x": r.X, "crop_y": r.Y, "crop_w": r.W, "crop_h": r.H, "crop_version": CropVersion,
 		"preview_key": key,
-	}).Error
+	}).Error; err != nil {
+		return err
+	}
+	p.removeMoved(ctx, moved, stackPrefix(s), "preview.jpg")
+	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
@@ -20,6 +21,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/ninapath"
 	"github.com/USA-RedDragon/astro-stacker/internal/preview"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -123,6 +125,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 		return err
 	}
 
+	moved := stack.MasterKey
 	keys := map[string]*string{}
 	for name, up := range map[string]func(key string) error{
 		"master.fit":  func(k string) error { return p.upload(ctx, masterFile, k, "application/fits") },
@@ -147,10 +150,76 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 	if err := p.saveStack(ctx, stack); err != nil {
 		return err
 	}
+	p.removeMoved(ctx, moved, prefix, "master.fit", "master.xisf", "state.fit", "preview.jpg", "linear.bin")
 	metrics.MastersUpdated.Inc()
 	p.refreshCover(ctx, stack.Object)
 	p.Events.Publish(events.Event{Type: events.TypeMaster, Object: stack.Object, Filter: stack.Filter})
 	return nil
+}
+
+// removeMoved deletes the files a master kept beside oldKey once its keys
+// moved to newDir, as they do for targets named before keys used NINA's
+// folder names.
+func (p *Pipeline) removeMoved(ctx context.Context, oldKey *string, newDir string, names ...string) {
+	if p.s3 == nil || oldKey == nil || *oldKey == "" || path.Dir(*oldKey) == newDir {
+		return
+	}
+	for _, n := range names {
+		k := path.Join(path.Dir(*oldKey), n)
+		if err := p.s3.RemoveObject(ctx, p.dest, k, minio.RemoveObjectOptions{}); err != nil {
+			slog.Warn("Could not remove a moved master file", "key", k, "error", err)
+		}
+	}
+}
+
+// stackKeys are the keys a target's masters, references and comet masters
+// are stored at.
+func (p *Pipeline) stackKeys(ctx context.Context, object string) []string {
+	var keys []string
+	var stacks []app.Stack
+	if err := p.db.WithContext(ctx).Where("object = ?", object).Find(&stacks).Error; err == nil {
+		for _, s := range stacks {
+			for _, k := range []*string{s.MasterKey, s.StateKey, s.XISFKey, s.PreviewKey, s.LinearKey, s.FittedKey,
+				s.CometKey, s.CometXISFKey, s.CometPreviewKey, s.CometLinearKey} {
+				if k != nil {
+					keys = append(keys, *k)
+				}
+			}
+			if s.CometKey != nil {
+				dir := path.Dir(*s.CometKey)
+				keys = append(keys, path.Join(dir, "comet-starless.fit"), path.Join(dir, "comet-starless.xisf"))
+			}
+		}
+	}
+	var refs []string
+	if err := p.db.WithContext(ctx).Model(&app.TargetReference{}).Where("object = ?", object).Pluck("object_key", &refs).Error; err == nil {
+		keys = append(keys, refs...)
+	}
+	if has, err := tables.Has(ctx, p.db, &app.NightReference{}); err == nil && has {
+		var nights []string
+		if err := p.db.WithContext(ctx).Model(&app.NightReference{}).Where("object = ?", object).Pluck("object_key", &nights).Error; err == nil {
+			keys = append(keys, nights...)
+		}
+	}
+	return keys
+}
+
+// removeOldLayout deletes those of keys that are in object's folder as it
+// was named before keys used NINA's folder names, once nothing refers to
+// them: the new keys are elsewhere and nothing overwrites the old.
+func (p *Pipeline) removeOldLayout(ctx context.Context, object string, keys []string) {
+	old, cur := path.Join("stacks", object)+"/", path.Join("stacks", ninapath.Folder(object))+"/"
+	if p.s3 == nil || old == cur {
+		return
+	}
+	for _, k := range keys {
+		if !strings.HasPrefix(k, old) || strings.HasPrefix(k, cur) {
+			continue
+		}
+		if err := p.s3.RemoveObject(ctx, p.dest, k, minio.RemoveObjectOptions{}); err != nil {
+			slog.Warn("Could not remove a moved master file", "key", k, "error", err)
+		}
+	}
 }
 
 func writeFITSFile(name string, w, h, c int, data []float32, cards []imagedata.Card) error {

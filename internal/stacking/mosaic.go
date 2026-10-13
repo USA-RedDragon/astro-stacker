@@ -404,6 +404,7 @@ func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string
 	defer p.finished(name)
 	start := time.Now()
 	var seams seamResult
+	moved := mosaic.MasterKey
 	buildErr := p.buildMosaic(ctx, g, filter, masters, &mosaic, &seams)
 	metrics.MosaicSeconds.Observe(time.Since(start).Seconds())
 	metrics.Mosaics.WithLabelValues(map[bool]string{true: "ok", false: "failed"}[buildErr == nil]).Inc()
@@ -437,6 +438,7 @@ func (p *Pipeline) mosaicIfDue(ctx context.Context, g mosaicGroup, filter string
 	if buildErr != nil {
 		return buildErr
 	}
+	p.removeMoved(ctx, moved, mosaicPrefix(g.Project, filter), "mosaic.fit", "mosaic.xisf", "preview.jpg", "linear.bin")
 	p.refreshMosaicCover(ctx, g.Project)
 	p.Events.Publish(events.Event{Type: events.TypeMosaic, Object: g.Project, Filter: filter})
 	slog.Info("Updated mosaic", "project", g.Project, "filter", filter, "panels", len(masters),

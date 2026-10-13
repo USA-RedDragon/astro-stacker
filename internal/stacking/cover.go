@@ -280,9 +280,14 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
+	moved := c.PreviewKey
 	c.Subject, c.Palette, c.PreviewKey, c.UpdatedAt, c.Version = subject, pal.Name, key, time.Now(), CoverVersion
 	metrics.Covers.WithLabelValues("colour").Inc()
-	return p.db.WithContext(ctx).Save(&c).Error
+	if err := p.db.WithContext(ctx).Save(&c).Error; err != nil {
+		return err
+	}
+	p.removeMoved(ctx, &moved, prefix, "color.jpg")
+	return nil
 }
 
 // framePlanes brings a cover's linear previews to one frame: trimmed to

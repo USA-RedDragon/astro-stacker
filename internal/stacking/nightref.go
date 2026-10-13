@@ -468,6 +468,10 @@ func (p *Pipeline) maybeReReferenceNight(ctx context.Context, object, night stri
 	slog.Warn("Replacing a night's registration reference; its subs register again", "object", object, "night", night,
 		"failed", counts.Failed, "registered", counts.Added, "reset", reset.Count+1)
 	reset.Object, reset.Count, reset.At = key, reset.Count+1, time.Now()
+	var oldKeys []string
+	if err := p.db.WithContext(ctx).Model(&app.NightReference{}).Where("object = ? AND night = ?", object, day).Pluck("object_key", &oldKeys).Error; err != nil {
+		return err
+	}
 	err = p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("object = ? AND night = ?", object, day).Delete(&app.NightReference{}).Error; err != nil {
 			return err
@@ -484,6 +488,7 @@ func (p *Pipeline) maybeReReferenceNight(ctx context.Context, object, night stri
 		return err
 	}
 	_ = os.Remove(p.nightReferenceFile(object, night))
+	p.removeOldLayout(ctx, object, oldKeys)
 	return nil
 }
 
