@@ -11,6 +11,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
+	"github.com/USA-RedDragon/astro-stacker/internal/collabswitch"
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
@@ -41,6 +42,7 @@ type Extras struct {
 	Mosaics      *mosaicplan.Service
 	Discover     *discover.Service
 	Collabs      *starfront.Poller
+	CollabSwitch *collabswitch.Service
 	Previews     PreviewSource
 	PreviewCache *PreviewCache
 	Now          func() time.Time

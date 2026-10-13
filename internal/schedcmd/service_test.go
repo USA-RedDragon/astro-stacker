@@ -309,6 +309,7 @@ func TestEveryKindHasAnInverseOrSaysNo(t *testing.T) {
 		schedcmd.KindCalibrationCancel:  `{"type":"flats","object":"M 31","target_id":12,"night":"2026-10-09"}`,
 		schedcmd.KindTemplatesMigrate:   notDry,
 		schedcmd.KindTemplatesRevert:    notDry,
+		schedcmd.KindCollabSwitch:       `{"on":true}`,
 	}
 	reg := schedcmd.Default()
 	for _, k := range reg.Kinds() {

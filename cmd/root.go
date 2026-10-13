@@ -15,6 +15,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/calreq"
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
+	"github.com/USA-RedDragon/astro-stacker/internal/collabswitch"
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
@@ -238,6 +239,9 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		previews.Notice(r)
 		kick.onCommand(r)
 	})
+	collabSwitch := &collabswitch.Service{NINA: collabswitch.NewNINA(cfg.Scheduler.NINAURL), DB: appStore.DB(), Commands: commands, Log: commands.Log,
+		Notify: commands.Notify, Events: broker}
+	go collabSwitch.Run(indexCtx)
 	comets := &bodies.CometList{DB: appStore.DB(), URL: cfg.Bodies.CometElementsURL, SBDBURL: cfg.Bodies.CometSBDBURL, UserAgent: horizons.UserAgent(cmd.Annotations["version"]),
 		Site: bodies.SiteFunc(siteFunc(cfg, appStore)), MinAlt: cfg.Discover.MinAltitude}
 	bodyNights := &bodies.NightService{Sched: schedulerDBStore.DB(), Horizons: hz, Elements: comets.ElementsOf, Site: bodies.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.Bodies.Publish}
@@ -255,7 +259,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		}}
 	go skyEvents.Run(indexCtx, skyevents.Interval)
 	slog.Info("Sky event finder started", "interval", skyevents.Interval)
-	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, MoonKeep: moonKeep, Bodies: bodyTables, BodyNights: bodyNights, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
+	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, MoonKeep: moonKeep, Bodies: bodyTables, BodyNights: bodyNights, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, CollabSwitch: collabSwitch, Backfill: backfill,
 		Comets:     comets,
 		Asteroids:  asteroids,
 		Cutouts:    newCutouts(cfg, appStore.DB()),
