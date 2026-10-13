@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -29,14 +28,13 @@ func (ix *Indexer) IndexRecent(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	extensions := imageExtensions()
 	var objs []minio.ObjectInfo
 	for _, prefix := range prefixes {
 		for obj := range ix.client.ListObjects(ctx, ix.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
 			if obj.Err != nil {
 				return 0, fmt.Errorf("list %q: %w", prefix, obj.Err)
 			}
-			if extensions[strings.ToLower(path.Ext(obj.Key))] {
+			if Indexable(obj.Key) {
 				objs = append(objs, obj)
 			}
 		}

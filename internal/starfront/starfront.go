@@ -28,6 +28,12 @@ const (
 	maxBody        = 8 << 20
 )
 
+const SharedPrefix = "starfront-shared/"
+
+func Shared(key string) bool {
+	return strings.HasPrefix(strings.TrimLeft(key, "/"), SharedPrefix)
+}
+
 type Region struct {
 	RA       float64 `json:"ra"`
 	Dec      float64 `json:"dec"`

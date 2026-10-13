@@ -219,3 +219,56 @@ func TestFrameGeometry(t *testing.T) {
 		t.Errorf("fits geometry %+v", f)
 	}
 }
+
+func TestStarfrontHeadersTagTheLight(t *testing.T) {
+	t.Parallel()
+	xml := `<?xml version="1.0" encoding="UTF-8"?><xisf version="1.0"><Image geometry="6248:4176:1" sampleFormat="UInt16">
+<FITSKeyword name="IMAGETYP" value="'LIGHT'" comment="Type of exposure"/>
+<FITSKeyword name="OBJECT" value="'Sim collab field panel 2'" comment="Name of the object of interest" />
+<FITSKeyword name="STARFRNT" value="'simproj0001'" comment="Starfront collaboration" />
+<FITSKeyword name="SFPANEL" value="2" comment="Starfront panel number" />
+</Image></xisf>`
+	kw, err := frameheader.Parse(xisf(xml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := frameheader.FromKeywords(kw)
+	if f.CollabProject != "simproj0001" || f.CollabPanel != 2 || f.Object != "Sim collab field panel 2" || f.Type != lightType {
+		t.Errorf("frame %+v", f)
+	}
+	b := fits("SIMPLE  =                    T", "IMAGETYP= 'LIGHT'", "STARFRNT= 'd07d82eb861e'      / Starfront collaboration", "SFPANEL =                    1")
+	kw, err = frameheader.Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := frameheader.FromKeywords(kw); f.CollabProject != "d07d82eb861e" || f.CollabPanel != 1 {
+		t.Errorf("FITS frame %+v", f)
+	}
+}
+
+const (
+	starfrnt = "STARFRNT"
+	sfPanel  = "SFPANEL"
+)
+
+func TestLightsWithoutStarfrontHeadersAreNotTagged(t *testing.T) {
+	t.Parallel()
+	cases := []frameheader.Keywords{
+		{},
+		{sfPanel: "3"},
+		{starfrnt: "  ", sfPanel: "3"},
+		{starfrnt: "p", sfPanel: "0"},
+		{starfrnt: "p", sfPanel: "1.5"},
+		{starfrnt: "p", sfPanel: "x"},
+	}
+	want := []struct {
+		project string
+		panel   int
+	}{{"", 0}, {"", 0}, {"", 0}, {"p", 0}, {"p", 0}, {"p", 0}}
+	for i, kw := range cases {
+		f := frameheader.FromKeywords(kw)
+		if f.CollabProject != want[i].project || f.CollabPanel != want[i].panel {
+			t.Errorf("%v read as %q panel %d", kw, f.CollabProject, f.CollabPanel)
+		}
+	}
+}

@@ -30,6 +30,8 @@ type Frame struct {
 	RA, Dec                             float64
 	TSProject, TSTarget, TSExposurePlan string
 	TSPanel                             int
+	CollabProject                       string
+	CollabPanel                         int
 	Width, Height                       int
 	FocalLength                         float64
 	PixelSize                           float64
@@ -84,6 +86,10 @@ func FromKeywords(k Keywords) Frame {
 	f.TSProject, f.TSTarget, f.TSExposurePlan = k.String("TSPROJ"), k.String("TSTARGET"), k.String("TSEXPPLN")
 	if n := k.Float("TSPANEL"); n >= 1 && n == math.Trunc(n) {
 		f.TSPanel = int(n)
+	}
+	f.CollabProject = strings.TrimSpace(k.String("STARFRNT"))
+	if n := k.Float("SFPANEL"); f.CollabProject != "" && n >= 1 && n == math.Trunc(n) {
+		f.CollabPanel = int(n)
 	}
 	return f
 }

@@ -27,6 +27,8 @@ type Frame struct {
 	TSTarget       *string    `gorm:"column:ts_target;index"`
 	TSExposurePlan *string    `gorm:"column:ts_exposure_plan"`
 	TSPanel        *int       `gorm:"column:ts_panel"`
+	CollabProject  *string    `gorm:"column:collab_project;index"`
+	CollabPanel    *int       `gorm:"column:collab_panel"`
 	DateObs        *time.Time `gorm:"index"`
 	// MountRA and MountDec are where the mount pointed, in degrees, from
 	// the header; PointingRead is set once the header has been checked for
