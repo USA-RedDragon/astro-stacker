@@ -219,6 +219,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			}
 			stackBusy = p.Busy
 			kick.verdicts, kick.mosaics = p.KickVerdicts, p.KickMosaics
+			kick.adoption = mosaicPlans.Kick
 			go mosaicPlans.RunAdoptionEvery(indexCtx, time.Hour)
 			slog.Info("Stacker started", "min_score", cfg.Stacking.MinScore, "work_dir", cfg.Stacking.WorkDir, "ts_verdicts", cfg.Stacking.TSVerdicts)
 		}

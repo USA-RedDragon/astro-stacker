@@ -11,12 +11,14 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicstore"
 	"github.com/USA-RedDragon/astro-stacker/internal/rigsource"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -46,7 +48,25 @@ type Service struct {
 	// BodyNight places a moving-body target on a night; nil leaves every
 	// target at its stored coordinates.
 	BodyNight BodyNightFunc
+
+	kickOnce sync.Once
+	kick     *trigger.Debouncer
 }
+
+// Adoption kicks are debounced by AdoptionQuiet and AdoptionMaxWait.
+const (
+	AdoptionQuiet   = 2 * time.Minute
+	AdoptionMaxWait = 10 * time.Minute
+)
+
+func (s *Service) debouncer() *trigger.Debouncer {
+	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: AdoptionQuiet, MaxWait: AdoptionMaxWait} })
+	return s.kick
+}
+
+// Kick asks for an adoption pass soon, as when projects or targets change
+// or new lights are indexed.
+func (s *Service) Kick() { s.debouncer().Kick() }
 
 func New(appDB, sched *gorm.DB) *Service {
 	return &Service{App: appDB, Sched: sched}

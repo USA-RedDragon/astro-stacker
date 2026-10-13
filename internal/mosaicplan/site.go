@@ -46,8 +46,10 @@ func (s *Service) SiteFallback(src SiteSource) {
 	}
 }
 
+// RunAdoptionEvery runs an adoption pass at start, soon after each Kick and
+// every interval, until ctx ends.
 func (s *Service) RunAdoptionEvery(ctx context.Context, interval time.Duration) {
-	for {
+	s.debouncer().Run(ctx, interval, func(ctx context.Context, _ []string) {
 		rep, err := s.RunAdoption(ctx, false)
 		switch {
 		case err != nil && ctx.Err() == nil:
@@ -55,10 +57,5 @@ func (s *Service) RunAdoptionEvery(ctx context.Context, interval time.Duration) 
 		case err == nil && rep.New+rep.Changed+rep.Auto > 0:
 			slog.Info("Mosaic adoption proposals", "new", rep.New, "changed", rep.Changed, "decided_automatically", rep.Auto, "to_review", rep.Review, "clean", rep.Clean)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+	})
 }
