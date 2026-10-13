@@ -181,3 +181,36 @@ func TestSubLength(t *testing.T) {
 		}
 	}
 }
+
+func TestSurveyMirror(t *testing.T) {
+	t.Parallel()
+	defConfig, err := configulator.New(config.ConfigSchema()).Default()
+	if err != nil {
+		t.Fatalf("failed to create default config: %v", err)
+	}
+	d := defConfig.Discover
+	if !d.SurveyMirror || d.SurveyBucket != "sky-survey" || d.SurveyPrefix != "hips/CDS_P_DSS2_color" || d.SurveyMaxOrder != 8 || d.SurveyCacheMB != 100 {
+		t.Errorf("survey mirror defaults %+v", d)
+	}
+	if err := defConfig.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		order, mb int
+		want      error
+	}{
+		{-1, 100, config.ErrInvalidSurveyMaxOrder},
+		{21, 100, config.ErrInvalidSurveyMaxOrder},
+		{8, 0, config.ErrInvalidSurveyCache},
+	} {
+		cfg := defConfig
+		cfg.Discover.SurveyMaxOrder, cfg.Discover.SurveyCacheMB = tt.order, tt.mb
+		if err := cfg.Validate(); !errors.Is(err, tt.want) {
+			t.Errorf("order %d cache %d: %v", tt.order, tt.mb, err)
+		}
+		cfg.Discover.SurveyMirror = false
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("mirror off, order %d cache %d: %v", tt.order, tt.mb, err)
+		}
+	}
+}
