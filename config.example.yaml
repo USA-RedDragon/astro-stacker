@@ -113,7 +113,7 @@ stacking:
   astrometry-timeout-seconds: 300
   # Targets stacked at once; each holds up to about 1.5 GB besides Siril
   workers: 1
-  # Minutes between checks for mosaics to build from panel masters; 0 turns mosaics off
+  # Minutes between backstop checks for mosaics, linear fits and comet masters to build; a master update or new frames start a check about a minute later, at most this long into a steady stream of them; 0 turns mosaics off
   mosaic-minutes: 10
   # Minimum minutes between rebuilds of a mosaic whose panel masters keep changing; a new panel rebuilds it at once
   mosaic-quiet-minutes: 30
@@ -133,7 +133,7 @@ stacking:
   # ts-verdicts-since: ""
   # Only subs of these targets; empty for all
   # ts-verdicts-targets: []
-  # Most new verdicts sent per hourly sweep
+  # Most new verdicts sent in any hour; a sweep runs about a minute after lights are triaged or Target Scheduler's images sync in, at most ten minutes into a steady stream of them, and hourly
   ts-verdicts-max: 200
   # Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all
   registered-grace-hours: 24

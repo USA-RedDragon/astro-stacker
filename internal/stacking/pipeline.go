@@ -25,6 +25,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/quality"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
 	"github.com/USA-RedDragon/astro-stacker/internal/wake"
 	"github.com/minio/minio-go/v7"
@@ -186,7 +187,43 @@ type Pipeline struct {
 	drain     chan struct{}
 	drainOnce sync.Once
 
+	verdictKick *trigger.Debouncer
+	mosaicKick  *trigger.Debouncer
+	// verdictNews holds when each new verdict of the last hour was sent;
+	// only runVerdicts touches it.
+	verdictNews []time.Time
+
 	objects registeredStore
+}
+
+// Verdict and mosaic kicks are debounced by these, so a night of new subs
+// sends verdicts and builds mosaics in batches.
+const (
+	VerdictQuiet   = time.Minute
+	VerdictMaxWait = 10 * time.Minute
+	MosaicKickWait = time.Minute
+)
+
+// KickVerdicts asks for verdicts to be sent soon, as when lights are
+// triaged or Target Scheduler's images sync in.
+func (p *Pipeline) KickVerdicts() { p.verdictKick.Kick() }
+
+// KickMosaics asks for mosaics, linear fits and comet masters to be built
+// soon if due, as when a master is updated or darks arrive.
+func (p *Pipeline) KickMosaics() { p.mosaicKick.Kick() }
+
+// untilDrained is ctx, also ended when the pipeline drains: for the wait
+// between runs, while the runs themselves keep ctx and finish their work.
+func (p *Pipeline) untilDrained(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-p.drain:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
 }
 
 // Drain stops the pipeline taking on new work: each loop finishes the batch,
@@ -244,7 +281,9 @@ func NewPipeline(s3 *minio.Client, source, dest string, db, sched *gorm.DB, runn
 		opts.RecalibrateLimit = DefaultPipelineOptions().RecalibrateLimit
 	}
 	p := &Pipeline{s3: s3, source: source, dest: dest, db: db, sched: sched, siril: runner, workDir: workDir, opts: opts,
-		busy: map[string]bool{}, working: map[string]*events.Worker{}, drain: make(chan struct{})}
+		busy: map[string]bool{}, working: map[string]*events.Worker{}, drain: make(chan struct{}),
+		verdictKick: &trigger.Debouncer{Quiet: VerdictQuiet, MaxWait: VerdictMaxWait},
+		mosaicKick:  &trigger.Debouncer{Quiet: MosaicKickWait, MaxWait: opts.MosaicInterval}}
 	p.scorer.PerSecond = opts.ScorePerSecond
 	return p
 }

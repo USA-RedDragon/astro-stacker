@@ -20,6 +20,10 @@ type kicks struct {
 	subLength func()
 	// scheduling runs the global scheduling settings.
 	scheduling func()
+	// verdicts sends the stacker's verdicts to Target Scheduler.
+	verdicts func()
+	// mosaics builds the mosaics, linear fits and comet masters due.
+	mosaics func()
 
 	// ready is set once every kick is assigned; commands sent earlier
 	// kick nothing.
@@ -39,6 +43,7 @@ func call(fns ...func()) {
 func (k *kicks) listen(broker *events.Broker, w *schedwatch.Watcher) {
 	broker.Listen(k.onEvent)
 	w.OnPlans = append(w.OnPlans, k.onPlans)
+	w.OnSync = append(w.OnSync, k.onSync)
 	k.ready.Store(true)
 }
 
@@ -59,9 +64,16 @@ func (k *kicks) onEvent(e events.Event) {
 		if k.goals != nil {
 			k.goals(e.Object, e.Filter)
 		}
+		call(k.mosaics)
 	case events.TypeSubs:
-		call(k.moonKeep, k.subLength)
+		call(k.moonKeep, k.subLength, k.verdicts)
+	case events.TypeFrames:
+		call(k.mosaics)
 	}
+}
+
+func (k *kicks) onSync() {
+	call(k.verdicts)
 }
 
 func (k *kicks) onPlans() {
