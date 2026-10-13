@@ -138,15 +138,19 @@ func TestPreviewCacheKeepsPlanUntilInputsChange(t *testing.T) {
 	if c := getCall(t, p, nil); c != 5 {
 		t.Fatalf("inside the stable TTL %d", c)
 	}
-	p.Notice(schedcmd.Record{Status: schedcmd.StatusPending})
+	p.Notice(schedcmd.Record{Status: schedcmd.StatusQueued})
 	if c := getCall(t, p, nil); c != 5 {
-		t.Fatalf("pending command invalidated %d", c)
+		t.Fatalf("queued command invalidated %d", c)
+	}
+	p.Notice(schedcmd.Record{Status: schedcmd.StatusPending})
+	if c := getCall(t, p, nil); c != 6 {
+		t.Fatalf("pending command did not invalidate %d", c)
 	}
 	p.Notice(schedcmd.Record{Status: schedcmd.StatusApplied})
-	if c := getCall(t, p, nil); c != 6 {
+	if c := getCall(t, p, nil); c != 7 {
 		t.Fatalf("after invalidate %d", c)
 	}
-	if _, err := p.Get(context.Background(), nil, true); err != nil || src.count() != 7 {
+	if _, err := p.Get(context.Background(), nil, true); err != nil || src.count() != 8 {
 		t.Fatalf("forced: %v %d", err, src.count())
 	}
 }

@@ -156,11 +156,16 @@ func (m *Monitor) PreviewInputs() string {
 			running.StartedAt = m.status.Exposure.StartedAt
 		}
 	}
+	pending := make([]string, 0, len(m.status.Pending))
+	for _, p := range m.status.Pending {
+		pending = append(pending, p.ID)
+	}
 	b, err := json.Marshal(struct {
-		Version string `json:"version"`
-		Skips   []Skip `json:"skips"`
-		Running any    `json:"running"`
-	}{m.status.Version, m.status.Skips, running})
+		Version string   `json:"version"`
+		Skips   []Skip   `json:"skips"`
+		Pending []string `json:"pending"`
+		Running any      `json:"running"`
+	}{m.status.Version, m.status.Skips, pending, running})
 	if err != nil {
 		return ""
 	}

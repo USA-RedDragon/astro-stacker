@@ -138,9 +138,11 @@ func (p *PreviewCache) Invalidate() {
 	}
 }
 
-// Notice invalidates the cache when a command was applied on the observatory.
+// Notice invalidates the cache when a command was applied on the observatory,
+// or is pending there: the plugin's preview applies pending commands where
+// they will apply, at the end of the running exposure.
 func (p *PreviewCache) Notice(r schedcmd.Record) {
-	if r.Status == schedcmd.StatusApplied {
+	if r.Status == schedcmd.StatusApplied || r.Status == schedcmd.StatusPending {
 		p.Invalidate()
 	}
 }
