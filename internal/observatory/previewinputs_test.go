@@ -25,6 +25,10 @@ func TestPreviewInputs(t *testing.T) {
 	if got := m.PreviewInputs(); got == base {
 		t.Fatalf("a skip did not change the inputs: %q", got)
 	}
+	m.SetStatus(observatory.Status{Version: pluginVersion, Pending: []observatory.PendingCommand{{ID: "a1bf4bee", Kind: "scheduler.skip"}}}, true)
+	if got := m.PreviewInputs(); got == base {
+		t.Fatalf("a pending skip did not change the inputs: %q", got)
+	}
 }
 
 func TestPreviewInputsFollowTheRunningExposure(t *testing.T) {
