@@ -111,8 +111,7 @@ func noiseLevel(p []float32, saturation float32) float64 {
 	if len(s) == 0 {
 		return 0
 	}
-	slices.Sort(s)
-	return float64(s[len(s)/2]) * madToSigma
+	return float64(nth32(s, len(s)/2)) * madToSigma
 }
 
 const madToSigma = 1.4826
