@@ -75,7 +75,7 @@ internal/goalmeasure/runner.go	460	393
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/body.go	180	173
-internal/goals/bodyprogress.go	127	113
+internal/goals/bodyprogress.go	127	112
 internal/goals/fit.go	92	87
 internal/goals/image.go	124	120
 internal/goals/mask.go	42	35
@@ -85,7 +85,7 @@ internal/goals/progress.go	104	93
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	353	322
+internal/goals/tsgoals.go	353	319
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	106	84
 internal/halpha/halpha.go	177	154
@@ -175,7 +175,7 @@ internal/schedauto/overhead.go	71	69
 internal/schedauto/plan.go	109	100
 internal/schedauto/projection.go	75	67
 internal/schedauto/rules.go	24	24
-internal/schedauto/service.go	242	185
+internal/schedauto/service.go	242	189
 internal/schedauto/windows.go	46	45
 internal/schedcmd/altitude.go	59	52
 internal/schedcmd/before.go	69	41
