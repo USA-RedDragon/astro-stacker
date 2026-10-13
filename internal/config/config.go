@@ -78,7 +78,7 @@ type Darks struct {
 type SubLength struct {
 	Publish         string  `name:"publish" description:"Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second" default:"off"`
 	NewLengths      bool    `name:"new-lengths" description:"Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals"`
-	IntervalMinutes int     `name:"interval-minutes" description:"Minutes between recomputing the lengths" default:"60"`
+	IntervalMinutes int     `name:"interval-minutes" description:"Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, at most ten minutes into a steady stream of them" default:"60"`
 	TolerancePct    float64 `name:"tolerance-percent" description:"The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars" default:"2"`
 }
 
@@ -120,7 +120,7 @@ func (s Scheduling) validate() error {
 
 type MoonKeep struct {
 	Publish       string `name:"publish" description:"Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it" default:"on"`
-	IntervalHours int    `name:"interval-hours" description:"Hours between refitting the kept rates" default:"24"`
+	IntervalHours int    `name:"interval-hours" description:"Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, at most ten minutes into a steady stream of them" default:"24"`
 }
 
 func (m MoonKeep) validate() error {
