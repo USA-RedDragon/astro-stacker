@@ -347,3 +347,33 @@ func TestCaptureSavesThroughSaveImageWithoutAnEvent(t *testing.T) {
 		t.Fatalf("PHD2's own copy %s was left behind (%v)", saved[0], err)
 	}
 }
+
+func TestNightLampsDoNotShortenTheExposure(t *testing.T) {
+	t.Parallel()
+	cam := smallCamera(sim.NightCamera())
+	cam.Lamps = []sim.Lamp{{Az: 5, Alt: 4.5, Radius: 0.6, Rate: 0.01}}
+	h := newHarness(t, sim.Options{Camera: cam}, hs.ModeNight, deepNight())
+	h.cfg.Plan.AzStep, h.cfg.Plan.AzStart, h.cfg.Full = 90, 5, true
+	if err := h.run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	_, frames, err := hs.ReadRun(h.cfg.Out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lit := 0
+	for _, f := range frames {
+		if f.ExposureMS != 2000 {
+			t.Fatalf("%s was taken at %d ms; lamps must not shorten night exposures", f.File, f.ExposureMS)
+		}
+		if f.TargetAz == 5 && f.TargetAlt < 6.2 {
+			lit++
+			if f.Class == hs.ClassSky {
+				t.Fatalf("%s with a lamp in the foreground came back as sky", f.File)
+			}
+		}
+	}
+	if lit == 0 {
+		t.Fatal("no frame looked at the lamp")
+	}
+}

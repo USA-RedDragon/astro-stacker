@@ -39,6 +39,8 @@ type FrameRecord struct {
 	PixelScale  float64    `json:"pixel_scale"`
 	Mount       MountState `json:"mount"`
 	SkyRef      float64    `json:"sky_ref"`
+	StarRef     float64    `json:"star_ref,omitempty"`
+	Stars       int        `json:"stars"`
 	Class       string     `json:"class"`
 	ObstFrac    float64    `json:"obstructed_fraction"`
 	SkyLevel    float64    `json:"sky_level"`

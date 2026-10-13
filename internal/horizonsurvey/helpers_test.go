@@ -13,6 +13,8 @@ func duskTime() time.Time { return time.Date(2026, 10, 13, 0, 25, 0, 0, time.UTC
 
 func nightTime() time.Time { return time.Date(2026, 10, 13, 2, 30, 0, 0, time.UTC) }
 
+func deepNight() time.Time { return time.Date(2026, 10, 13, 5, 0, 0, 0, time.UTC) }
+
 func smallCamera(c sim.Camera) sim.Camera {
 	c.W, c.H, c.Scale = 240, 135, 55
 	return c

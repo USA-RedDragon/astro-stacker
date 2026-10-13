@@ -55,7 +55,7 @@ func renderSurvey(t *testing.T, c synthCase) (*hs.Skyline, float64) {
 			tilt := math.Abs(math.Atan2(daz*math.Cos(calt*math.Pi/180), ualt-calt) * 180 / math.Pi)
 			maxTilt = math.Max(maxTilt, tilt)
 			skyRef := cam.SkyPerMS * float64(c.expMS)
-			seg := hs.Segment(pix, cam.W, cam.H, c.mode, skyRef)
+			seg := hs.Segment(pix, cam.W, cam.H, hs.SegmentOptions{Mode: c.mode, SkyRef: skyRef})
 			frames = append(frames, hs.FrameSkyline(geo, seg.Mask))
 		}
 	}

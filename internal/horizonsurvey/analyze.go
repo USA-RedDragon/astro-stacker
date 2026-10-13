@@ -102,6 +102,7 @@ func Analyze(opts AnalyzeOptions) (*Result, error) {
 		res.Headers = append(res.Headers, h)
 		bottom = math.Min(bottom, math.Max(h.Plan.AltMin, h.Safety.MinAlt))
 		top = math.Max(top, h.Plan.AltMax)
+		fillSkyRef(frames)
 		for _, f := range frames {
 			fr := FrameResult{Dir: dir, Site: h.Site, Record: f}
 			b, err := os.ReadFile(filepath.Clean(fr.Path()))
@@ -148,7 +149,7 @@ func Analyze(opts AnalyzeOptions) (*Result, error) {
 			logf("%v", err)
 			continue
 		}
-		seg := Segment(im.Plane(0), im.W, im.H, fr.Record.Mode, fr.Record.SkyRef)
+		seg := Segment(im.Plane(0), im.W, im.H, SegmentOptions{Mode: fr.Record.Mode, SkyRef: fr.Record.SkyRef, StarDensity: fr.Record.StarRef})
 		fr.Class, fr.Source = seg.Class, src
 		fr.Bins = FrameSkyline(g, seg.Mask)
 		fr.Outline = FrameOutline(g)
@@ -165,6 +166,24 @@ func Analyze(opts AnalyzeOptions) (*Result, error) {
 	}
 	res.Points = res.Skyline.Points(step)
 	return res, nil
+}
+
+func fillSkyRef(frames []FrameRecord) {
+	var rates []float64
+	for _, f := range frames {
+		if f.Mode == ModeNight && f.Class == ClassSky && f.SkyLevel > 0 && f.ExposureMS > 0 {
+			rates = append(rates, f.SkyLevel/float64(f.ExposureMS))
+		}
+	}
+	if len(rates) == 0 {
+		return
+	}
+	rate := percentile(rates, 0.5)
+	for i := range frames {
+		if frames[i].Mode == ModeNight && frames[i].SkyRef <= 0 {
+			frames[i].SkyRef = rate * float64(frames[i].ExposureMS)
+		}
+	}
 }
 
 func mergeCalibrations(cals []Calibration) Calibration {

@@ -94,6 +94,11 @@ type Camera struct {
 	GroundRate float64
 	Glow       float64
 	StarsPerMP float64
+	Lamps      []Lamp
+}
+
+type Lamp struct {
+	Az, Alt, Radius, Rate float64
 }
 
 func DuskCamera() Camera {
@@ -128,6 +133,11 @@ func Render(g hs.Geometry, cam Camera, sky Skyline, expMS int, seed uint64) []fl
 			if alt > sky(az) {
 				isSky[y*w+x] = true
 				v = cam.SkyPerMS * (1 + 0.15*math.Cos(az*math.Pi/180)) * (1 + cam.Glow*math.Exp(-math.Max(alt, 0)/10))
+			} else {
+				for _, l := range cam.Lamps {
+					d := hs.Separation(hs.HorVec(az, alt), hs.HorVec(l.Az, l.Alt))
+					v += l.Rate / (1 + math.Exp((d-l.Radius)/(0.1*l.Radius)))
+				}
 			}
 			pix[y*w+x] = float32(v * float64(expMS))
 		}
