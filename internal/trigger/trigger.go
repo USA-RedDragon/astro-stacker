@@ -22,6 +22,10 @@ type Debouncer struct {
 	// StartAfter delays the first run after Run starts; kicks before then
 	// wait for it.
 	StartAfter time.Duration
+	// MinGap, when above zero, keeps a kicked run this long after the end
+	// of the last run, so kicks a few minutes apart, as subs are during
+	// imaging, run the work at most this often.
+	MinGap time.Duration
 
 	mu        sync.Mutex
 	keys      map[string]struct{}
@@ -29,6 +33,7 @@ type Debouncer struct {
 	first     time.Time
 	last      time.Time
 	notBefore time.Time
+	ranAt     time.Time
 	starting  bool
 	kick      chan struct{}
 }
@@ -87,6 +92,9 @@ func (d *Debouncer) due() (time.Time, bool) {
 	}
 	if at.Before(d.notBefore) {
 		at = d.notBefore
+	}
+	if gap := d.ranAt.Add(d.MinGap); d.MinGap > 0 && !d.ranAt.IsZero() && at.Before(gap) {
+		at = gap
 	}
 	return at, true
 }
@@ -152,6 +160,9 @@ func (d *Debouncer) Run(ctx context.Context, backstop time.Duration, run func(ct
 			}
 			run(ctx, d.take())
 		}
+		d.mu.Lock()
+		d.ranAt = time.Now()
+		d.mu.Unlock()
 		if ctx.Err() != nil {
 			return
 		}

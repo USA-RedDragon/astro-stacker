@@ -38,10 +38,12 @@ const (
 	SyncGrace = 30 * time.Minute
 	cacheFor  = time.Hour
 	// KickQuiet and KickMaxWait debounce project, target and plan changes
-	// into one run; StartAfter gives the observatory horizon and the body
-	// windows time to load after a restart.
+	// into one run, KickMinGap keeps runs apart, and StartAfter gives the
+	// observatory horizon and the body windows time to load after a
+	// restart.
 	KickQuiet   = time.Minute
 	KickMaxWait = 5 * time.Minute
+	KickMinGap  = 5 * time.Minute
 	StartAfter  = 10 * time.Minute
 )
 
@@ -133,7 +135,9 @@ type Service struct {
 }
 
 func (s *Service) debouncer() *trigger.Debouncer {
-	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait, StartAfter: StartAfter} })
+	s.kickOnce.Do(func() {
+		s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait, MinGap: KickMinGap, StartAfter: StartAfter}
+	})
 	return s.kick
 }
 

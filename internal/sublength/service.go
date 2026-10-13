@@ -126,14 +126,16 @@ type Service struct {
 }
 
 // KickQuiet and KickMaxWait debounce new sub measurements and plan changes
-// into one recompute.
+// into one recompute, and KickMinGap keeps recomputes during imaging at
+// least that far apart.
 const (
 	KickQuiet   = 2 * time.Minute
 	KickMaxWait = 10 * time.Minute
+	KickMinGap  = 10 * time.Minute
 )
 
 func (s *Service) debouncer() *trigger.Debouncer {
-	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait} })
+	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait, MinGap: KickMinGap} })
 	return s.kick
 }
 

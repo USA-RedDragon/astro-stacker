@@ -122,14 +122,16 @@ type Service struct {
 	kick      *trigger.Debouncer
 }
 
-// KickQuiet and KickMaxWait debounce verdict changes into one refit.
+// KickQuiet and KickMaxWait debounce verdict changes into one refit, and
+// KickMinGap keeps refits during imaging at least that far apart.
 const (
 	KickQuiet   = 2 * time.Minute
 	KickMaxWait = 10 * time.Minute
+	KickMinGap  = 10 * time.Minute
 )
 
 func (s *Service) debouncer() *trigger.Debouncer {
-	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait} })
+	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: KickQuiet, MaxWait: KickMaxWait, MinGap: KickMinGap} })
 	return s.kick
 }
 
