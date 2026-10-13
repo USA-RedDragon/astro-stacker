@@ -1,6 +1,11 @@
 package discover
 
-import "context"
+import (
+	"context"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
+	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
+)
 
 func (s *Service) MatchSubject(ctx context.Context, subj Subject) ([]Link, string) {
 	if subj.HasPos {
@@ -11,3 +16,7 @@ func (s *Service) MatchSubject(ctx context.Context, subj Subject) ([]Link, strin
 }
 
 func NamedSHO(name string) bool { return namedSHO(name) }
+
+func BortleCriterion(r starfront.Requirements, v skybright.Value) (Criterion, bool) {
+	return bortleCriterion(r, v)
+}
