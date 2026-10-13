@@ -150,6 +150,7 @@ type schedulerShadow struct {
 	Queue      *bool   `json:"queue"       toml:"queue"       yaml:"queue"`
 	MetricsURL *string `json:"metrics-url" toml:"metrics-url" yaml:"metrics-url"`
 	UPS        *string `json:"ups"         toml:"ups"         yaml:"ups"`
+	NINAURL    *string `json:"nina-url"    toml:"nina-url"    yaml:"nina-url"`
 }
 
 type goalsShadow struct {
@@ -821,6 +822,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Scheduler.UPS != nil {
 			cfg.Scheduler.UPS = *s.Scheduler.UPS
 			set("scheduler.ups", configulator.LayerFile, file)
+		}
+		if s.Scheduler.NINAURL != nil {
+			cfg.Scheduler.NINAURL = *s.Scheduler.NINAURL
+			set("scheduler.nina-url", configulator.LayerFile, file)
 		}
 	}
 	if s.Goals != nil {
@@ -1876,6 +1881,10 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Scheduler.UPS = v
 		set("scheduler.ups", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduler", "nina-url"); ok {
+		cfg.Scheduler.NINAURL = v
+		set("scheduler.nina-url", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "goals", "enabled"); ok {
 		p, err := strconv.ParseBool(v)
 		if err != nil {
@@ -2163,6 +2172,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"scheduler" + o.Separator + "queue",
 		"scheduler" + o.Separator + "metrics-url",
 		"scheduler" + o.Separator + "ups",
+		"scheduler" + o.Separator + "nina-url",
 		"goals" + o.Separator + "enabled",
 		"goals" + o.Separator + "interval-minutes",
 		"goals" + o.Separator + "max-subs",
@@ -2296,28 +2306,29 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Bool(names[93], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
 	fs.String(names[94], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
 	fs.String(names[95], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
-	fs.Bool(names[96], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
-	fs.Var(impl.NewInt(30), names[97], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
-	fs.Var(impl.NewInt(200), names[98], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
-	fs.Var(impl.NewInt(3), names[99], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
-	fs.String(names[100], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
-	fs.String(names[101], "on", "About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
-	fs.String(names[102], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
-	fs.String(names[103], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[104], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
-	fs.Bool(names[105], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
-	fs.Var(impl.NewInt(60), names[106], "Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving")
-	fs.Float64(names[107], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
-	fs.String(names[108], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[109], "on", "Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it")
-	fs.Var(impl.NewInt(24), names[110], "Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving")
-	fs.String(names[111], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
-	fs.Var(impl.NewInt(60), names[112], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
-	fs.String(names[113], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
-	fs.String(names[114], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
-	fs.String(names[115], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
-	fs.String(names[116], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
-	fs.Var(impl.NewInt(1), names[117], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
+	fs.String(names[96], "", "Base URL of NINA's Advanced API on the observatory PC, e.g. http://observatory:1888/v2/api, for the collab switch on the Collabs page; empty leaves the switch unconfigured")
+	fs.Bool(names[97], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
+	fs.Var(impl.NewInt(30), names[98], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
+	fs.Var(impl.NewInt(200), names[99], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
+	fs.Var(impl.NewInt(3), names[100], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
+	fs.String(names[101], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.String(names[102], "on", "About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
+	fs.String(names[103], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
+	fs.String(names[104], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[105], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
+	fs.Bool(names[106], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
+	fs.Var(impl.NewInt(60), names[107], "Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving")
+	fs.Float64(names[108], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
+	fs.String(names[109], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[110], "on", "Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it")
+	fs.Var(impl.NewInt(24), names[111], "Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving")
+	fs.String(names[112], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
+	fs.Var(impl.NewInt(60), names[113], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
+	fs.String(names[114], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
+	fs.String(names[115], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
+	fs.String(names[116], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
+	fs.String(names[117], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
+	fs.Var(impl.NewInt(1), names[118], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
 	return nil
 }
 
@@ -3474,6 +3485,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Scheduler.UPS = v
 		set("scheduler.ups", configulator.LayerCLI, "--"+n)
+	}
+	if n := "scheduler" + o.Separator + "nina-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "scheduler.nina-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.Scheduler.NINAURL = v
+		set("scheduler.nina-url", configulator.LayerCLI, "--"+n)
 	}
 	if n := "goals" + o.Separator + "enabled"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
@@ -5984,6 +6007,19 @@ func (s *schedulerShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".ups", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
+		case "nina-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.NINAURL = &str
+			default:
+				return configJSONError(path+".nina-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -6608,6 +6644,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "scheduler.queue = %v\n", c.Scheduler.Queue)
 	fmt.Fprintf(&b, "scheduler.metrics-url = %v\n", c.Scheduler.MetricsURL)
 	fmt.Fprintf(&b, "scheduler.ups = %v\n", c.Scheduler.UPS)
+	fmt.Fprintf(&b, "scheduler.nina-url = %v\n", c.Scheduler.NINAURL)
 	fmt.Fprintf(&b, "goals.enabled = %v\n", c.Goals.Enabled)
 	fmt.Fprintf(&b, "goals.interval-minutes = %v\n", c.Goals.IntervalMinutes)
 	fmt.Fprintf(&b, "goals.max-subs = %v\n", c.Goals.MaxSubs)

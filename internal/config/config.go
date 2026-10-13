@@ -146,6 +146,7 @@ type Scheduler struct {
 	Queue      bool   `name:"queue" description:"Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory" default:"true"`
 	MetricsURL string `name:"metrics-url" description:"Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source"`
 	UPS        string `name:"ups" description:"The ups label of the observatory UPS in the NUT exporter's metrics" default:"observatory"`
+	NINAURL    string `name:"nina-url" description:"Base URL of NINA's Advanced API on the observatory PC, e.g. http://observatory:1888/v2/api, for the collab switch on the Collabs page; empty leaves the switch unconfigured"`
 }
 
 type Discover struct {

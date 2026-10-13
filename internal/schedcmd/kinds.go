@@ -371,6 +371,7 @@ func Builtin() []Spec {
 		ResumeSpec(),
 		ReplanSpec(),
 		AbortExposureSpec(),
+		CollabSwitchSpec(),
 		MosaicAdoptSpec(),
 		GlobalWeightsSpec(),
 		GlobalSchedulingSpec(),
