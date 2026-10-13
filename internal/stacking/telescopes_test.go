@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -233,10 +234,20 @@ func fakeSolveField(t *testing.T) (string, string) {
 	}
 	script := fmt.Sprintf("#!/bin/sh\necho \"$@\" > %q\nout=\nwhile [ $# -gt 1 ]; do [ \"$1\" = --dir ] && out=$2; shift; done\nprintf '%%s' %q > \"$out/$(basename \"$1\" .fit).wcs\"\n", record, header)
 	cmd := filepath.Join(dir, "solve-field")
-	if err := os.WriteFile(cmd, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	writeScript(t, cmd, script)
 	return cmd, record
+}
+
+// writeScript writes an executable script from a child process. If this
+// process opened it for writing, a fork in a parallel test could inherit
+// that descriptor and exec would fail with ETXTBSY (golang/go#22315).
+func writeScript(t *testing.T, path, script string) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", `cat > "$1" && chmod 700 "$1"`, "sh", path)
+	cmd.Stdin = strings.NewReader(script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("write %s: %v: %s", path, err, out)
+	}
 }
 
 func spa2Cards() []frameheader.Card {
