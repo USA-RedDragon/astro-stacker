@@ -5,7 +5,7 @@ cmd/mosaics.go	10	0
 cmd/root.go	244	9
 cmd/scheduling.go	8	0
 cmd/stack.go	62	0
-cmd/triggers.go	23	23
+cmd/triggers.go	24	24
 internal/astrometry/index.go	86	69
 internal/astrometry/procgroup_unix.go	3	3
 internal/astrometry/solvefield.go	52	44
@@ -67,11 +67,11 @@ internal/frameheader/frame.go	42	42
 internal/frameheader/header.go	115	109
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
-internal/goalmeasure/runner.go	459	393
+internal/goalmeasure/runner.go	460	393
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
-internal/goals/body.go	161	154
-internal/goals/bodyprogress.go	105	93
+internal/goals/body.go	180	173
+internal/goals/bodyprogress.go	127	112
 internal/goals/fit.go	92	87
 internal/goals/image.go	124	120
 internal/goals/mask.go	42	35
@@ -224,7 +224,7 @@ internal/sky/frame.go	40	40
 internal/sky/sky.go	92	91
 internal/sky/sunset.go	20	20
 internal/skybright/skybright.go	114	111
-internal/skycutout/skycutout.go	157	137
+internal/skycutout/skycutout.go	196	170
 internal/skyevents/autoplan.go	110	89
 internal/skyevents/exposure.go	44	42
 internal/skyevents/geometry.go	84	83
@@ -235,9 +235,9 @@ internal/skyevents/service.go	339	253
 internal/skyevents/tracks.go	51	30
 internal/stacking/accumulator.go	161	157
 internal/stacking/astrometry.go	8	0
-internal/stacking/bodynight.go	462	114
+internal/stacking/bodynight.go	512	146
 internal/stacking/bodypos.go	32	24
-internal/stacking/comet.go	557	359
+internal/stacking/comet.go	558	359
 internal/stacking/cometnights.go	230	84
 internal/stacking/cosmetic.go	61	50
 internal/stacking/cover.go	301	191
@@ -264,7 +264,7 @@ internal/stacking/mosaicseams.go	295	218
 internal/stacking/mosaicstars.go	191	173
 internal/stacking/nightref.go	328	68
 internal/stacking/outputs.go	167	58
-internal/stacking/pipeline.go	443	199
+internal/stacking/pipeline.go	453	208
 internal/stacking/pointing.go	93	64
 internal/stacking/process.go	267	47
 internal/stacking/rebuild.go	330	307
