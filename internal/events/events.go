@@ -72,6 +72,9 @@ type Broker struct {
 	subs   map[chan []byte]struct{}
 	status []byte // latest Status, sent to new listeners first
 	sticky map[string][]byte
+	// listeners hear every published event in process.
+	listeners    map[int]func(Event)
+	nextListener int
 	// done is closed by Close, which ends every stream.
 	done      chan struct{}
 	closeOnce sync.Once
@@ -88,7 +91,6 @@ func (b *Broker) Publish(e Event) {
 		return
 	}
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.next++
 	e.ID = b.next
 	if e.Time.IsZero() {
@@ -100,6 +102,36 @@ func (b *Broker) Publish(e Event) {
 	}
 	if msg, ok := frame(e); ok {
 		b.send(msg)
+	}
+	listeners := make([]func(Event), 0, len(b.listeners))
+	for _, fn := range b.listeners {
+		listeners = append(listeners, fn)
+	}
+	b.mu.Unlock()
+	for _, fn := range listeners {
+		fn(e)
+	}
+}
+
+// Listen calls fn with every event published until cancel is called. fn
+// runs on the publisher's goroutine, so it must return quickly. A nil
+// Broker never calls it.
+func (b *Broker) Listen(fn func(Event)) (cancel func()) {
+	if b == nil {
+		return func() {}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.listeners == nil {
+		b.listeners = map[int]func(Event){}
+	}
+	id := b.nextListener
+	b.nextListener++
+	b.listeners[id] = fn
+	return func() {
+		b.mu.Lock()
+		delete(b.listeners, id)
+		b.mu.Unlock()
 	}
 }
 
