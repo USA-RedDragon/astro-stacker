@@ -48,6 +48,9 @@ type Requirements struct {
 	MinScale            *float64            `json:"minScale"`
 	MaxScale            *float64            `json:"maxScale"`
 	AcceptColour        *bool               `json:"acceptColour"`
+	AcceptOscRgb        *bool               `json:"acceptOscRgb"`
+	AcceptOscNarrowband *bool               `json:"acceptOscNarrowband"`
+	MaxBortle           *int                `json:"maxBortle"`
 	ColourMaxMoon       *float64            `json:"colourMaxMoon"`
 	MaxHFR              *float64            `json:"maxHfr"`
 	MaxGuideRMS         *float64            `json:"maxGuideRms"`

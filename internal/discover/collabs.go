@@ -32,8 +32,6 @@ const (
 	VerdictNoFit     = "no"
 	VerdictUnchecked = "unchecked"
 
-	colourFilter = "OSC"
-
 	monthSampleText = "one sampled night per month, the night of the 15th, counting hours in astronomical darkness; the Moon is ignored"
 )
 
@@ -84,6 +82,7 @@ type Collab struct {
 	Months      [12]float64         `json:"months"`
 	BestMonths  []int               `json:"bestMonths"`
 	Have        []Have              `json:"have"`
+	ColourOnly  []string            `json:"colourOnly"`
 }
 
 type CollabsView struct {
@@ -97,11 +96,14 @@ type CollabsView struct {
 	ClosedAll int                   `json:"closedTotal"`
 	Rig       rigsource.Rig         `json:"rig"`
 	skybright.Value
-	Night          *NightInfo `json:"night,omitempty"`
-	SiteError      string     `json:"siteError,omitempty"`
-	BestMonthHours float64    `json:"bestMonthHours"`
-	MonthSample    string     `json:"monthSample"`
-	Overlap        float64    `json:"overlap"`
+	Night          *NightInfo     `json:"night,omitempty"`
+	SiteError      string         `json:"siteError,omitempty"`
+	BestMonthHours float64        `json:"bestMonthHours"`
+	MonthSample    string         `json:"monthSample"`
+	Overlap        float64        `json:"overlap"`
+	Frames         []CollabFrames `json:"frames"`
+	FramesError    string         `json:"framesError,omitempty"`
+	SharedPrefix   string         `json:"sharedPrefix"`
 }
 
 const (
@@ -143,6 +145,7 @@ type evidence struct {
 	night    *sky.Night
 	region   starfront.Region
 	practice practice
+	sky      skybright.Value
 }
 
 func criteria(p starfront.Project, rig Rig, info rigsource.Rig, ev evidence) []Criterion {
@@ -198,6 +201,7 @@ func criteria(p starfront.Project, rig Rig, info rigsource.Rig, ev evidence) []C
 		}
 	}
 	out = append(out, filterCriterion(r, rig, info))
+	out = append(out, siteCriteria(r, rig, info, ev)...)
 	out = append(out, qualityCriteria(r, rig, info)...)
 	if r.MinExposure != nil || r.MaxExposure != nil {
 		var ok, bad []string
@@ -349,7 +353,7 @@ func qualityCriteria(r starfront.Requirements, rig Rig, info rigsource.Rig) []Cr
 func canonicalHours(in map[string]float64) map[string]float64 {
 	out := make(map[string]float64, len(in))
 	for k, v := range in {
-		out[CanonicalFilter(k)] += v
+		out[BandName(k)] += v
 	}
 	return out
 }
@@ -357,7 +361,7 @@ func canonicalHours(in map[string]float64) map[string]float64 {
 func wantedFilters(r starfront.Requirements) ([]string, map[string]*float64) {
 	limits := map[string]*float64{}
 	for k, v := range r.Filters {
-		c := CanonicalFilter(k)
+		c := BandName(k)
 		if old, ok := limits[c]; ok && old != nil && (v == nil || *v > *old) {
 			continue
 		}
@@ -391,17 +395,17 @@ func filterCriterion(r starfront.Requirements, rig Rig, info rigsource.Rig) Crit
 	if !anyLimit {
 		c.Rule += ", any bandpass"
 	}
-	var have, notes, unknown []string
+	var have, notes, unknown, colourOnly []string
 	for _, f := range want {
 		limit := limits[f]
-		if f == colourFilter {
+		if IsColourBand(f) {
 			switch {
 			case info.Colour == nil:
-				unknown = append(unknown, "OSC needs a colour camera; camera type not measured")
+				unknown = append(unknown, f+" needs a colour camera; camera type not measured")
 			case rig.Colour:
 				have = append(have, f)
 			default:
-				notes = append(notes, "OSC needs a colour camera, yours is mono")
+				colourOnly = append(colourOnly, f)
 			}
 			continue
 		}
@@ -429,6 +433,9 @@ func filterCriterion(r starfront.Requirements, rig Rig, info rigsource.Rig) Crit
 		c.You = "no filters measured"
 	default:
 		c.You = "none"
+	}
+	if len(colourOnly) > 0 {
+		notes = append(notes, strings.Join(colourOnly, ", ")+" "+needs(len(colourOnly))+" a colour camera, yours is mono")
 	}
 	if len(notes)+len(unknown) > 0 {
 		c.You += "; " + strings.Join(slices.Concat(notes, unknown), "; ")
@@ -483,7 +490,7 @@ func regionHits(reg starfront.Region, subj Subject) bool {
 	return math.Hypot(dx, dy) <= subj.Radius
 }
 
-func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.State, n *sky.Night, yr *sky.Year, subjects []Subject, rig Rig, info rigsource.Rig, pr practice) Collab {
+func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.State, n *sky.Night, yr *sky.Year, subjects []Subject, rig Rig, info rigsource.Rig, pr practice, skyv skybright.Value) Collab {
 	reg := p.Payload.Region
 	c := Collab{
 		ID: p.ID, Name: p.Name, Coordinator: p.Coordinator, Status: p.Status, Kind: p.Payload.Kind, Created: p.CreatedAt(),
@@ -497,7 +504,8 @@ func (s *Service) collab(ctx context.Context, p starfront.Project, st starfront.
 			c.Progress[f] = math.Round(h*100) / 100
 		}
 	}
-	c.Criteria = criteria(p, rig, info, evidence{night: n, region: reg, practice: pr})
+	c.Criteria = criteria(p, rig, info, evidence{night: n, region: reg, practice: pr, sky: skyv})
+	c.ColourOnly = colourOnlyBands(p.Payload.Requirements, rig, info)
 	c.Verdict, c.Unchecked = verdict(c.Criteria)
 	c.Fits = c.Verdict == VerdictFits
 	if fit := rig.fit(reg.Width*60, reg.Height*60); fit != nil {
@@ -554,7 +562,17 @@ type sourced interface {
 
 func (s *Service) Collabs(ctx context.Context, src CollabSource) (CollabsView, error) {
 	rig, info := s.rig(ctx)
-	v := CollabsView{Open: []Collab{}, Closed: []Collab{}, Rig: info, Value: s.skyValue(ctx), BestMonthHours: goodMonthHours, MonthSample: monthSampleText, Overlap: sky.DefaultOverlap}
+	v := CollabsView{Open: []Collab{}, Closed: []Collab{}, Rig: info, Value: s.skyValue(ctx), BestMonthHours: goodMonthHours, MonthSample: monthSampleText, Overlap: sky.DefaultOverlap,
+		Frames: []CollabFrames{}, SharedPrefix: starfront.SharedPrefix}
+	var projects []starfront.Project
+	if src != nil {
+		projects = src.State().Projects
+	}
+	if f, err := s.collabFrames(ctx, projects); err != nil {
+		v.FramesError = err.Error()
+	} else {
+		v.Frames = f
+	}
 	if src == nil {
 		return v, nil
 	}
@@ -577,12 +595,12 @@ func (s *Service) Collabs(ctx context.Context, src CollabSource) (CollabsView, e
 	cutoff := s.now().Add(-30 * 24 * time.Hour)
 	for _, p := range st.Projects {
 		if p.Status == starfront.StatusOpen {
-			v.Open = append(v.Open, s.collab(ctx, p, st, n, yr, subjects, rig, info, pr))
+			v.Open = append(v.Open, s.collab(ctx, p, st, n, yr, subjects, rig, info, pr, v.Value))
 			continue
 		}
 		v.ClosedAll++
 		if p.CreatedAt().After(cutoff) {
-			v.Closed = append(v.Closed, s.collab(ctx, p, st, n, yr, subjects, rig, info, pr))
+			v.Closed = append(v.Closed, s.collab(ctx, p, st, n, yr, subjects, rig, info, pr, v.Value))
 		}
 	}
 	return v, nil
