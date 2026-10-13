@@ -52,4 +52,15 @@ func TestRestartKeepsTheRaritiesOfLeftOutEvents(t *testing.T) {
 	if got := older.cachedRarities(); len(got) != 1 || got[shownEvent] == nil || got[shownEvent].Key != shownEvent {
 		t.Fatalf("rarities from a row saved before they were kept: %v", got)
 	}
+
+	if err := db.Model(&app.SkyEventRun{}).Where("id = 1").Update("rarities", "{").Error; err != nil {
+		t.Fatal(err)
+	}
+	damaged := &Service{App: db}
+	if err := damaged.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if damaged.Latest() == nil || len(damaged.cachedRarities()) != 1 {
+		t.Fatalf("a damaged rarity column lost the saved search: %v", damaged.cachedRarities())
+	}
 }
