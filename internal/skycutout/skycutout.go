@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -40,6 +41,7 @@ const (
 	slotRetry         = 5 * time.Second
 	defaultMaxEntries = 2000
 	fetchTimeout      = 60 * time.Second
+	defaultLocalWait  = 15 * time.Second
 	maxBody           = 8 << 20
 	touchEvery        = time.Hour
 )
@@ -144,6 +146,8 @@ type Service struct {
 	MaxWait     time.Duration
 	MaxEntries  int
 	Off         bool
+	Local       *Renderer
+	LocalWait   time.Duration
 	Now         func() time.Time
 	Sleep       func(context.Context, time.Duration) error
 
@@ -289,6 +293,21 @@ func (s *Service) Get(ctx context.Context, p Params) (Cutout, error) {
 		defer cancel()
 		if row, err := s.cached(fctx, key); err == nil {
 			return Cutout{Data: row.Data, ETag: row.ETag}, nil
+		}
+		if s.Local != nil {
+			wait := s.LocalWait
+			if wait <= 0 {
+				wait = defaultLocalWait
+			}
+			lctx, cancel := context.WithTimeout(fctx, wait)
+			data, err := s.Local.Render(lctx, p)
+			cancel()
+			if err == nil {
+				return Cutout{Data: data, ETag: etag(data)}, nil
+			}
+			if !errors.Is(err, ErrNoMirrorOrder) {
+				slog.Warn("Could not render a survey cutout from the mirror; fetching it from hips2fits", "key", key, "error", err)
+			}
 		}
 		release, err := s.acquire(fctx)
 		if err != nil {

@@ -258,7 +258,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	extras := server.Extras{SkyEvents: skyEvents, Site: server.SiteSource(siteFunc(cfg, appStore)), DarkNeed: darkNeed, SubLength: subLengths, MoonKeep: moonKeep, Bodies: bodyTables, BodyNights: bodyNights, BiasNeed: biasNeed, FlatRequests: flatRequests, Commands: commands, Scheduler: monitor, Mosaics: mosaicPlans, Discover: disc, Collabs: collabs, Backfill: backfill,
 		Comets:     comets,
 		Asteroids:  asteroids,
-		Cutouts:    &skycutout.Service{DB: appStore.DB(), Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts},
+		Cutouts:    newCutouts(cfg, appStore.DB()),
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	extras.Framing = &server.BodyFraming{Tracker: &bodies.Tracker{Horizons: hz, Site: bodies.SiteFunc(siteFunc(cfg, appStore))},
 		Sched: schedulerDBStore.DB(), Frame: skyEvents.MeasuredFrame}
@@ -465,4 +465,27 @@ func bodyNightFunc(ref *atomic.Pointer[bodies.NightService]) mosaicplan.BodyNigh
 		ra, dec, usable, isBody := n.NightPoint(guid, night)
 		return mosaics.Point{RA: ra, Dec: dec}, usable, isBody
 	}
+}
+
+func newCutouts(cfg *config.Config, db *gorm.DB) *skycutout.Service {
+	svc := &skycutout.Service{DB: db, Endpoint: cfg.Discover.HiPS2FITSURL, PerMinute: cfg.Discover.CutoutsPerMinute, Off: !cfg.Discover.SkyCutouts}
+	if svc.Off || !cfg.Discover.SurveyMirror {
+		return svc
+	}
+	if cfg.S3.AccessKey == "" || cfg.S3.SecretKey == "" {
+		slog.Warn("No S3 credentials for the survey mirror; survey cutouts come from hips2fits")
+		return svc
+	}
+	s3, err := newS3(cfg)
+	if err != nil {
+		slog.Warn("Could not create the survey mirror's S3 client; survey cutouts come from hips2fits", "error", err)
+		return svc
+	}
+	svc.Local = &skycutout.Renderer{
+		Store:      skycutout.S3Tiles{Client: s3, Bucket: cfg.Discover.SurveyBucket, Prefix: cfg.Discover.SurveyPrefix},
+		MaxOrder:   cfg.Discover.SurveyMaxOrder,
+		CacheBytes: int64(cfg.Discover.SurveyCacheMB) << 20,
+	}
+	slog.Info("Survey cutouts render from the S3 mirror", "bucket", cfg.Discover.SurveyBucket, "prefix", cfg.Discover.SurveyPrefix, "max_order", cfg.Discover.SurveyMaxOrder)
+	return svc
 }

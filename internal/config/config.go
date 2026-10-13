@@ -3,6 +3,7 @@ package config
 //go:generate go tool configulator -type Config
 
 import (
+	"cmp"
 	"errors"
 	"time"
 
@@ -166,9 +167,14 @@ type Discover struct {
 	StarfrontURL     string   `name:"starfront-url" description:"Starfront collaboration server" default:"https://collab.starfront.space"`
 	StarfrontMinutes int      `name:"starfront-minutes" description:"Minutes between fetches of the collaboration list" default:"30"`
 	HAlphaMap        bool     `name:"halpha-map" description:"Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score" default:"true"`
-	SkyCutouts       bool     `name:"sky-cutouts" description:"Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database" default:"true"`
+	SkyCutouts       bool     `name:"sky-cutouts" description:"Serve DSS2 colour survey cutouts for framing previews, rendered from the S3 survey mirror or else fetched from CDS hips2fits and cached in the database" default:"true"`
 	HiPS2FITSURL     string   `name:"hips2fits-url" description:"CDS hips2fits service for the H-α map and survey cutouts" default:"https://alasky.cds.unistra.fr/hips-image-services/hips2fits"`
-	CutoutsPerMinute int      `name:"cutouts-per-minute" description:"Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit" default:"60"`
+	CutoutsPerMinute int      `name:"cutouts-per-minute" description:"Most survey cutouts fetched from hips2fits per minute; cached ones and ones rendered from the S3 mirror are served without limit" default:"60"`
+	SurveyMirror     bool     `name:"survey-mirror" description:"Render survey cutouts from the DSS2 colour HiPS tiles mirrored in S3 when a mirrored order is as fine as one output pixel; finer fields and mirror misses come from hips2fits" default:"true"`
+	SurveyBucket     string   `name:"survey-bucket" description:"S3 bucket holding the survey mirror, read with the s3 credentials" default:"sky-survey"`
+	SurveyPrefix     string   `name:"survey-prefix" description:"Path of the DSS2 colour HiPS inside the survey bucket" default:"hips/CDS_P_DSS2_color"`
+	SurveyMaxOrder   int      `name:"survey-max-order" description:"Deepest HiPS order in the survey mirror" default:"8"`
+	SurveyCacheMB    int      `name:"survey-cache-mb" description:"Memory for decoded survey tiles, in MB" default:"100"`
 }
 
 type Goals struct {
@@ -323,6 +329,8 @@ var (
 	ErrInvalidCalibrationPublish    = errors.New("calibration.publish must be off, dry-run or on")
 	ErrInvalidBodiesPublish         = errors.New("bodies.publish must be off, dry-run or on")
 	ErrInvalidBodiesInterval        = errors.New("bodies.interval-minutes must be at least 1")
+	ErrInvalidSurveyMaxOrder        = errors.New("discover.survey-max-order must be 0 to 20")
+	ErrInvalidSurveyCache           = errors.New("discover.survey-cache-mb must be at least 1")
 )
 
 func (c Config) validateCalibration() error {
@@ -352,6 +360,19 @@ func (c Config) validatePublishers() error {
 		return err
 	}
 	return c.Scheduling.validate()
+}
+
+func (d Discover) validate() error {
+	if !d.SurveyMirror {
+		return nil
+	}
+	if d.SurveyMaxOrder < 0 || d.SurveyMaxOrder > 20 {
+		return ErrInvalidSurveyMaxOrder
+	}
+	if d.SurveyCacheMB < 1 {
+		return ErrInvalidSurveyCache
+	}
+	return nil
 }
 
 func (c Config) Validate() error {
@@ -403,7 +424,7 @@ func (c Config) Validate() error {
 	if err := c.SubLength.validate(c.Stacking.ScorePerSecond); err != nil {
 		return err
 	}
-	if err := c.Bodies.validate(); err != nil {
+	if err := cmp.Or(c.Bodies.validate(), c.Discover.validate()); err != nil {
 		return err
 	}
 

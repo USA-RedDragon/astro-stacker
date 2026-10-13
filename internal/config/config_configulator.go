@@ -137,6 +137,11 @@ type discoverShadow struct {
 	SkyCutouts       *bool     `json:"sky-cutouts"        toml:"sky-cutouts"        yaml:"sky-cutouts"`
 	HiPS2FITSURL     *string   `json:"hips2fits-url"      toml:"hips2fits-url"      yaml:"hips2fits-url"`
 	CutoutsPerMinute *int      `json:"cutouts-per-minute" toml:"cutouts-per-minute" yaml:"cutouts-per-minute"`
+	SurveyMirror     *bool     `json:"survey-mirror"      toml:"survey-mirror"      yaml:"survey-mirror"`
+	SurveyBucket     *string   `json:"survey-bucket"      toml:"survey-bucket"      yaml:"survey-bucket"`
+	SurveyPrefix     *string   `json:"survey-prefix"      toml:"survey-prefix"      yaml:"survey-prefix"`
+	SurveyMaxOrder   *int      `json:"survey-max-order"   toml:"survey-max-order"   yaml:"survey-max-order"`
+	SurveyCacheMB    *int      `json:"survey-cache-mb"    toml:"survey-cache-mb"    yaml:"survey-cache-mb"`
 }
 
 type schedulerShadow struct {
@@ -340,6 +345,16 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("discover.hips2fits-url", configulator.LayerDefault, "default tag")
 	cfg.Discover.CutoutsPerMinute = 60
 	set("discover.cutouts-per-minute", configulator.LayerDefault, "default tag")
+	cfg.Discover.SurveyMirror = true
+	set("discover.survey-mirror", configulator.LayerDefault, "default tag")
+	cfg.Discover.SurveyBucket = "sky-survey"
+	set("discover.survey-bucket", configulator.LayerDefault, "default tag")
+	cfg.Discover.SurveyPrefix = "hips/CDS_P_DSS2_color"
+	set("discover.survey-prefix", configulator.LayerDefault, "default tag")
+	cfg.Discover.SurveyMaxOrder = 8
+	set("discover.survey-max-order", configulator.LayerDefault, "default tag")
+	cfg.Discover.SurveyCacheMB = 100
+	set("discover.survey-cache-mb", configulator.LayerDefault, "default tag")
 	cfg.Scheduler.Queue = true
 	set("scheduler.queue", configulator.LayerDefault, "default tag")
 	cfg.Scheduler.UPS = "observatory"
@@ -764,6 +779,26 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Discover.CutoutsPerMinute != nil {
 			cfg.Discover.CutoutsPerMinute = *s.Discover.CutoutsPerMinute
 			set("discover.cutouts-per-minute", configulator.LayerFile, file)
+		}
+		if s.Discover.SurveyMirror != nil {
+			cfg.Discover.SurveyMirror = *s.Discover.SurveyMirror
+			set("discover.survey-mirror", configulator.LayerFile, file)
+		}
+		if s.Discover.SurveyBucket != nil {
+			cfg.Discover.SurveyBucket = *s.Discover.SurveyBucket
+			set("discover.survey-bucket", configulator.LayerFile, file)
+		}
+		if s.Discover.SurveyPrefix != nil {
+			cfg.Discover.SurveyPrefix = *s.Discover.SurveyPrefix
+			set("discover.survey-prefix", configulator.LayerFile, file)
+		}
+		if s.Discover.SurveyMaxOrder != nil {
+			cfg.Discover.SurveyMaxOrder = *s.Discover.SurveyMaxOrder
+			set("discover.survey-max-order", configulator.LayerFile, file)
+		}
+		if s.Discover.SurveyCacheMB != nil {
+			cfg.Discover.SurveyCacheMB = *s.Discover.SurveyCacheMB
+			set("discover.survey-cache-mb", configulator.LayerFile, file)
 		}
 	}
 	if s.Scheduler != nil {
@@ -1765,6 +1800,53 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Discover.CutoutsPerMinute = int(p)
 		set("discover.cutouts-per-minute", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "survey-mirror"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.survey-mirror",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SurveyMirror = p
+		set("discover.survey-mirror", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "survey-bucket"); ok {
+		cfg.Discover.SurveyBucket = v
+		set("discover.survey-bucket", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "survey-prefix"); ok {
+		cfg.Discover.SurveyPrefix = v
+		set("discover.survey-prefix", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "survey-max-order"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.survey-max-order",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SurveyMaxOrder = int(p)
+		set("discover.survey-max-order", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "survey-cache-mb"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.survey-cache-mb",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.SurveyCacheMB = int(p)
+		set("discover.survey-cache-mb", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduler", "url"); ok {
 		cfg.Scheduler.URL = v
 		set("scheduler.url", configulator.LayerEnv, n)
@@ -2071,6 +2153,11 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"discover" + o.Separator + "sky-cutouts",
 		"discover" + o.Separator + "hips2fits-url",
 		"discover" + o.Separator + "cutouts-per-minute",
+		"discover" + o.Separator + "survey-mirror",
+		"discover" + o.Separator + "survey-bucket",
+		"discover" + o.Separator + "survey-prefix",
+		"discover" + o.Separator + "survey-max-order",
+		"discover" + o.Separator + "survey-cache-mb",
 		"scheduler" + o.Separator + "url",
 		"scheduler" + o.Separator + "token",
 		"scheduler" + o.Separator + "queue",
@@ -2196,36 +2283,41 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[80], "https://collab.starfront.space", "Starfront collaboration server")
 	fs.Var(impl.NewInt(30), names[81], "Minutes between fetches of the collaboration list")
 	fs.Bool(names[82], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
-	fs.Bool(names[83], true, "Serve DSS2 colour survey cutouts for framing previews, fetched from CDS hips2fits and cached in the database")
+	fs.Bool(names[83], true, "Serve DSS2 colour survey cutouts for framing previews, rendered from the S3 survey mirror or else fetched from CDS hips2fits and cached in the database")
 	fs.String(names[84], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
-	fs.Var(impl.NewInt(60), names[85], "Most survey cutouts fetched from hips2fits per minute; cached ones are served without limit")
-	fs.String(names[86], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
-	fs.String(names[87], "", "Bearer token for the plugin's API")
-	fs.Bool(names[88], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
-	fs.String(names[89], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
-	fs.String(names[90], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
-	fs.Bool(names[91], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
-	fs.Var(impl.NewInt(30), names[92], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
-	fs.Var(impl.NewInt(200), names[93], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
-	fs.Var(impl.NewInt(3), names[94], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
-	fs.String(names[95], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
-	fs.String(names[96], "on", "About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
-	fs.String(names[97], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
-	fs.String(names[98], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[99], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
-	fs.Bool(names[100], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
-	fs.Var(impl.NewInt(60), names[101], "Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving")
-	fs.Float64(names[102], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
-	fs.String(names[103], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[104], "on", "Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it")
-	fs.Var(impl.NewInt(24), names[105], "Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving")
-	fs.String(names[106], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
-	fs.Var(impl.NewInt(60), names[107], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
-	fs.String(names[108], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
-	fs.String(names[109], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
-	fs.String(names[110], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
-	fs.String(names[111], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
-	fs.Var(impl.NewInt(1), names[112], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
+	fs.Var(impl.NewInt(60), names[85], "Most survey cutouts fetched from hips2fits per minute; cached ones and ones rendered from the S3 mirror are served without limit")
+	fs.Bool(names[86], true, "Render survey cutouts from the DSS2 colour HiPS tiles mirrored in S3 when a mirrored order is as fine as one output pixel; finer fields and mirror misses come from hips2fits")
+	fs.String(names[87], "sky-survey", "S3 bucket holding the survey mirror, read with the s3 credentials")
+	fs.String(names[88], "hips/CDS_P_DSS2_color", "Path of the DSS2 colour HiPS inside the survey bucket")
+	fs.Var(impl.NewInt(8), names[89], "Deepest HiPS order in the survey mirror")
+	fs.Var(impl.NewInt(100), names[90], "Memory for decoded survey tiles, in MB")
+	fs.String(names[91], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
+	fs.String(names[92], "", "Bearer token for the plugin's API")
+	fs.Bool(names[93], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
+	fs.String(names[94], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
+	fs.String(names[95], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
+	fs.Bool(names[96], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
+	fs.Var(impl.NewInt(30), names[97], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
+	fs.Var(impl.NewInt(200), names[98], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
+	fs.Var(impl.NewInt(3), names[99], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
+	fs.String(names[100], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.String(names[101], "on", "About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
+	fs.String(names[102], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
+	fs.String(names[103], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[104], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
+	fs.Bool(names[105], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
+	fs.Var(impl.NewInt(60), names[106], "Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving")
+	fs.Float64(names[107], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
+	fs.String(names[108], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[109], "on", "Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it")
+	fs.Var(impl.NewInt(24), names[110], "Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving")
+	fs.String(names[111], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
+	fs.Var(impl.NewInt(60), names[112], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
+	fs.String(names[113], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
+	fs.String(names[114], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
+	fs.String(names[115], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
+	fs.String(names[116], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
+	fs.Var(impl.NewInt(1), names[117], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
 	return nil
 }
 
@@ -3262,6 +3354,66 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Discover.CutoutsPerMinute = v
 		set("discover.cutouts-per-minute", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "survey-mirror"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.survey-mirror",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SurveyMirror = v
+		set("discover.survey-mirror", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "survey-bucket"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.survey-bucket",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SurveyBucket = v
+		set("discover.survey-bucket", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "survey-prefix"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.survey-prefix",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SurveyPrefix = v
+		set("discover.survey-prefix", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "survey-max-order"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.survey-max-order",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SurveyMaxOrder = v
+		set("discover.survey-max-order", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "survey-cache-mb"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.survey-cache-mb",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.SurveyCacheMB = v
+		set("discover.survey-cache-mb", configulator.LayerCLI, "--"+n)
 	}
 	if n := "scheduler" + o.Separator + "url"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -5665,6 +5817,85 @@ func (s *discoverShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".cutouts-per-minute", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "survey-mirror":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.SurveyMirror = &b
+			default:
+				return configJSONError(path+".survey-mirror", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "survey-bucket":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.SurveyBucket = &str
+			default:
+				return configJSONError(path+".survey-bucket", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "survey-prefix":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.SurveyPrefix = &str
+			default:
+				return configJSONError(path+".survey-prefix", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "survey-max-order":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".survey-max-order", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".survey-max-order", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.SurveyMaxOrder = &num
+			default:
+				return configJSONError(path+".survey-max-order", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "survey-cache-mb":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".survey-cache-mb", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".survey-cache-mb", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.SurveyCacheMB = &num
+			default:
+				return configJSONError(path+".survey-cache-mb", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -6367,6 +6598,11 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "discover.sky-cutouts = %v\n", c.Discover.SkyCutouts)
 	fmt.Fprintf(&b, "discover.hips2fits-url = %v\n", c.Discover.HiPS2FITSURL)
 	fmt.Fprintf(&b, "discover.cutouts-per-minute = %v\n", c.Discover.CutoutsPerMinute)
+	fmt.Fprintf(&b, "discover.survey-mirror = %v\n", c.Discover.SurveyMirror)
+	fmt.Fprintf(&b, "discover.survey-bucket = %v\n", c.Discover.SurveyBucket)
+	fmt.Fprintf(&b, "discover.survey-prefix = %v\n", c.Discover.SurveyPrefix)
+	fmt.Fprintf(&b, "discover.survey-max-order = %v\n", c.Discover.SurveyMaxOrder)
+	fmt.Fprintf(&b, "discover.survey-cache-mb = %v\n", c.Discover.SurveyCacheMB)
 	fmt.Fprintf(&b, "scheduler.url = %v\n", c.Scheduler.URL)
 	fmt.Fprintf(&b, "scheduler.token = %v\n", c.Scheduler.Token)
 	fmt.Fprintf(&b, "scheduler.queue = %v\n", c.Scheduler.Queue)
