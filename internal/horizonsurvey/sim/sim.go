@@ -159,48 +159,55 @@ func Render(g hs.Geometry, cam Camera, sky Skyline, expMS int, seed uint64) []fl
 }
 
 type Options struct {
-	Site          hs.Site
-	Camera        Camera
-	Skyline       Skyline
-	Clock         *Clock
-	SlewTime      time.Duration
-	FailSlewAt    int
-	UnsafeAfter   int
-	SequenceBusy  bool
-	SafetyOff     bool
-	PHD2State     string
-	Solve         bool
-	PointingError float64
-	NoPixelScale  bool
-	ReportOffset  float64
-	ForcePier     string
-	ClockSkew     float64
-	SequenceAfter int
-	TrackingStuck bool
+	Site             hs.Site
+	Camera           Camera
+	Skyline          Skyline
+	Clock            *Clock
+	SlewTime         time.Duration
+	FailSlewAt       int
+	UnsafeAfter      int
+	SequenceBusy     bool
+	SafetyOff        bool
+	PHD2State        string
+	Solve            bool
+	PointingError    float64
+	NoPixelScale     bool
+	ReportOffset     float64
+	ForcePier        string
+	ClockSkew        float64
+	SequenceAfter    int
+	TrackingStuck    bool
+	TrackingFailures int
+	NoFrameEvent     bool
+	SaveDir          string
 }
 
 type Mount struct {
-	HA, Dec   float64
-	Pier      string
-	Tracking  bool
-	AtHome    bool
-	Slewing   bool
-	Slews     int
-	Homes     int
-	Stops     int
-	TrackOffs int
+	HA, Dec    float64
+	Pier       string
+	Tracking   bool
+	AtHome     bool
+	Slewing    bool
+	Slews      int
+	Homes      int
+	Stops      int
+	TrackOffs  int
+	TrackFails int
 }
 
 type Sim struct {
-	opts    Options
-	mu      sync.Mutex
-	mount   Mount
-	calls   []string
-	phdCall []string
-	frames  uint64
-	nina    *httptest.Server
-	phdLn   net.Listener
-	wg      sync.WaitGroup
+	opts      Options
+	trackFail int
+	unsaved   []byte
+	saved     []string
+	mu        sync.Mutex
+	mount     Mount
+	calls     []string
+	phdCall   []string
+	frames    uint64
+	nina      *httptest.Server
+	phdLn     net.Listener
+	wg        sync.WaitGroup
 }
 
 func Start(ctx context.Context, opts Options) (*Sim, error) {
@@ -310,6 +317,7 @@ func (s *Sim) serveNINA(w http.ResponseWriter, r *http.Request) {
 			pier = s.opts.ForcePier
 		}
 		s.mount.HA, s.mount.Dec, s.mount.Pier, s.mount.Tracking, s.mount.AtHome = ha, dd, pier, true, false
+		s.trackFail = s.opts.TrackingFailures
 		s.opts.Clock.Advance(s.opts.SlewTime)
 		reply(w, true, "Slew finished", "", 200)
 	case "/equipment/mount/slew/stop":
@@ -318,6 +326,12 @@ func (s *Sim) serveNINA(w http.ResponseWriter, r *http.Request) {
 	case "/equipment/mount/tracking":
 		if q.Get("mode") != "4" {
 			reply(w, false, nil, "unexpected tracking mode "+q.Get("mode"), 400)
+			return
+		}
+		if s.trackFail > 0 {
+			s.trackFail--
+			s.mount.TrackFails++
+			reply(w, false, nil, "Mount is still settling", 409)
 			return
 		}
 		s.mount.Tracking = s.opts.TrackingStuck && s.mount.AtHome
@@ -418,7 +432,16 @@ func (s *Sim) servePHD2(c net.Conn) {
 				continue
 			}
 			ok(0)
-			send(map[string]any{"Event": "SingleFrameComplete", "Success": true, "Path": p.Path})
+			if !s.opts.NoFrameEvent {
+				send(map[string]any{"Event": "SingleFrameComplete", "Success": true, "Path": p.Path})
+			}
+		case "save_image":
+			name, err := s.saveImage()
+			if err != nil {
+				fail(err.Error())
+				continue
+			}
+			ok(map[string]any{"filename": name})
 		default:
 			fail("not simulated: " + req.Method)
 		}
@@ -457,7 +480,37 @@ func (s *Sim) capture(expMS int, path string) error {
 		return fmt.Errorf("destination file already exists")
 	}
 	s.opts.Clock.Advance(time.Duration(expMS)*time.Millisecond + time.Second)
+	if s.opts.NoFrameEvent {
+		s.mu.Lock()
+		s.unsaved = buf.Bytes()
+		s.mu.Unlock()
+		return nil
+	}
 	return os.WriteFile(path, buf.Bytes(), 0o600)
+}
+
+func (s *Sim) saveImage() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.unsaved == nil {
+		return "", fmt.Errorf("no image to save")
+	}
+	f, err := os.CreateTemp(s.opts.SaveDir, "phd2_sim_*.fits")
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Write(s.unsaved); err != nil {
+		_ = f.Close()
+		return "", err
+	}
+	s.saved = append(s.saved, f.Name())
+	return f.Name(), f.Close()
+}
+
+func (s *Sim) SavedImages() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.saved...)
 }
 
 func (s *Sim) Camera() Camera { return s.opts.Camera }
