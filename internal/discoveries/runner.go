@@ -161,7 +161,6 @@ type Runner struct {
 
 	mu        sync.Mutex
 	live      Live
-	requested []Job
 	anchors   map[string][]Anchor
 	lastStage time.Time
 	busySince time.Time
@@ -209,12 +208,41 @@ func (r *Runner) Kick() { r.kick.Kick() }
 
 // Request queues one night of a target to be compared (again), outside the
 // backfill window if need be.
+// The request is stored as a queued run, so a restart keeps it; a request
+// with no group stands for each of the target's groups.
 func (r *Runner) Request(object string, night time.Time, group string) {
-	r.mu.Lock()
-	if len(r.requested) < maxRequested {
-		r.requested = append(r.requested, Job{Object: object, Group: group, Night: night, Requested: true})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	groups := []string{group}
+	if group == "" {
+		rows, err := r.subRows(ctx, object)
+		if err != nil {
+			slog.Warn("Could not queue a discovery request", "object", object, "error", err)
+			return
+		}
+		groups = groups[:0]
+		for g := range byGroup(rows)[object] {
+			groups = append(groups, g)
+		}
 	}
-	r.mu.Unlock()
+	night = dateOnly(night)
+	for _, g := range groups {
+		var found []app.DiscoveryRun
+		if err := r.db.WithContext(ctx).Where("object = ? AND night >= ? AND night < ? AND filter_group = ?", object, night, night.AddDate(0, 0, 1), g).
+			Limit(1).Find(&found).Error; err != nil {
+			slog.Warn("Could not queue a discovery request", "object", object, "error", err)
+			return
+		}
+		run := app.DiscoveryRun{Object: object, Night: night, Group: g}
+		if len(found) > 0 {
+			run = found[0]
+		}
+		run.State, run.Requested, run.Attempts, run.NextTry = app.DiscoveryQueued, true, 0, nil
+		if err := r.db.WithContext(ctx).Save(&run).Error; err != nil {
+			slog.Warn("Could not queue a discovery request", "object", object, "error", err)
+			return
+		}
+	}
 	r.kick.Kick()
 }
 
@@ -343,7 +371,12 @@ func (r *Runner) Pass(ctx context.Context) error {
 	if len(jobs) > 0 {
 		slog.Info("Discovery pass", "due", len(jobs))
 	}
-	for _, j := range jobs {
+	done := map[string]bool{}
+	run := func(j Job) error {
+		if done[j.key()] {
+			return nil
+		}
+		done[j.key()] = true
 		if r.stopping(ctx) {
 			return ctx.Err()
 		}
@@ -355,12 +388,24 @@ func (r *Runner) Pass(ctx context.Context) error {
 		r.live.Queued--
 		r.live.Done++
 		r.mu.Unlock()
-		if more, err := r.takeRequested(ctx); err == nil && len(more) > 0 {
-			for _, m := range more {
-				if r.stopping(ctx) {
-					return ctx.Err()
-				}
-				r.runOne(ctx, m)
+		return nil
+	}
+	for _, j := range jobs {
+		if err := run(j); err != nil {
+			return err
+		}
+		more, err := r.takeRequested(ctx)
+		if err != nil {
+			continue
+		}
+		for _, m := range more {
+			if !done[m.key()] {
+				r.mu.Lock()
+				r.live.Queued++
+				r.mu.Unlock()
+			}
+			if err := run(m); err != nil {
+				return err
 			}
 		}
 	}
@@ -467,36 +512,15 @@ func (r *Runner) settled(ctx context.Context, since time.Time) (map[string]bool,
 	return out, nil
 }
 
-// takeRequested returns and forgets the requested jobs, a job with no
-// group standing for each of the target's groups.
+// takeRequested returns the requested runs still queued, oldest first.
 func (r *Runner) takeRequested(ctx context.Context) ([]Job, error) {
-	r.mu.Lock()
-	req := r.requested
-	r.requested = nil
-	r.mu.Unlock()
-	var out []Job
-	for _, j := range req {
-		if j.Group != "" {
-			out = append(out, j)
-			continue
-		}
-		rows, err := r.subRows(ctx, j.Object)
-		if err != nil {
-			r.mu.Lock()
-			r.requested = append(req, r.requested...)
-			r.mu.Unlock()
-			return nil, err
-		}
-		var gs []string
-		for g := range byGroup(rows)[j.Object] {
-			gs = append(gs, g)
-		}
-		sort.Slice(gs, func(a, b int) bool {
-			return filterRank(gs[a]) < filterRank(gs[b]) || (filterRank(gs[a]) == filterRank(gs[b]) && gs[a] < gs[b])
-		})
-		for _, g := range gs {
-			out = append(out, Job{Object: j.Object, Group: g, Night: j.Night, Requested: true})
-		}
+	var runs []app.DiscoveryRun
+	if err := r.db.WithContext(ctx).Where("requested = ? AND state = ?", true, app.DiscoveryQueued).Order("updated_at").Limit(maxRequested).Find(&runs).Error; err != nil {
+		return nil, err
+	}
+	out := make([]Job, len(runs))
+	for i, run := range runs {
+		out[i] = Job{Object: run.Object, Group: run.Group, Night: dateOnly(run.Night), Requested: true}
 	}
 	return out, nil
 }
@@ -572,7 +596,11 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(req, jobs...), nil
+	asked := map[string]bool{}
+	for _, j := range req {
+		asked[j.key()] = true
+	}
+	return append(req, slices.DeleteFunc(jobs, func(j Job) bool { return asked[j.key()] })...), nil
 }
 
 func (r *Runner) runOne(ctx context.Context, j Job) {
