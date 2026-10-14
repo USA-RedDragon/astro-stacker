@@ -129,6 +129,8 @@ stacking:
   dust-check: true
   # On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it
   drain-seconds: 1200
+  # Leave out lights taken on or after this date (YYYY-MM-DD, UTC) whose sensor was more than 0.5 °C off its setpoint, and take such lights out of masters; older lights are stacked as before; empty turns the rule off
+  reject-off-temp-since: "2026-10-13"
   # Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on
   ts-verdicts: "off"
   # Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all
