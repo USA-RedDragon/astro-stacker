@@ -32,6 +32,8 @@ type kicks struct {
 	adoption func()
 	// publicFrames renders each target's newest accepted light.
 	publicFrames func()
+	// discoveries compares the nights whose subs are all stacked.
+	discoveries func()
 
 	// ready is set once every kick is assigned; commands sent earlier
 	// kick nothing.
@@ -72,7 +74,7 @@ func (k *kicks) onEvent(e events.Event) {
 		if k.goals != nil {
 			k.goals(e.Object, e.Filter)
 		}
-		call(k.mosaics)
+		call(k.mosaics, k.discoveries)
 	case events.TypeSubs:
 		call(k.moonKeep, k.subLength, k.verdicts, k.publicFrames)
 	case events.TypeFrames:

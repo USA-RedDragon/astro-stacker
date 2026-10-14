@@ -121,6 +121,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	var restacker middleware.Restacker
 	drainStacker := func() {}
 	drainGoals := func() {}
+	nights := discoveryHandle{drain: func() {}}
 	var stackBusy func() bool
 	var backfill func() goals.BackfillLive
 	broker := events.NewBroker()
@@ -146,7 +147,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	go subLengths.Run(indexCtx, time.Duration(cfg.SubLength.IntervalMinutes)*time.Minute)
 	slog.Info("Sub lengths started", "publish", cfg.SubLength.Publish, "new_lengths", cfg.SubLength.NewLengths,
 		"backstop_minutes", cfg.SubLength.IntervalMinutes, "tolerance_percent", cfg.SubLength.TolerancePct)
-	if cfg.Indexer.Enabled || cfg.Previews.Enabled || cfg.Stacking.Enabled || cfg.PublicFrames.Enabled || cfg.Goals.Enabled {
+	if needsS3(cfg) {
 		creds := credentials(cfg)
 		s3, err := newS3(cfg)
 		if err != nil {
@@ -227,6 +228,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if cfg.Goals.Enabled {
 			drainGoals, backfill, kick.goals, kick.goalsPublish = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy, kick.onMeasured)
 		}
+		nights = startDiscoveries(cfg, s3, appStore, schedulerDBStore, stackBusy, broker)
+		kick.discoveries = nights.kick
 	}
 
 	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill, mosaicPlans)
@@ -264,6 +267,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		Asteroids:  asteroids,
 		Cutouts:    newCutouts(cfg, appStore.DB()),
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
+	extras.Discoveries = nights.source
 	extras.Framing = &server.BodyFraming{Tracker: &bodies.Tracker{Horizons: hz, Site: bodies.SiteFunc(siteFunc(cfg, appStore))},
 		Sched: schedulerDBStore.DB(), Frame: skyEvents.MeasuredFrame}
 	if obs.Configured() {
@@ -296,6 +300,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 
 		slog.Info("Received signal", "signal", sig)
 		drainGoals()
+		nights.drain()
 		drainStacker()
 		stopIndexer()
 

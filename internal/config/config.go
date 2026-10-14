@@ -40,6 +40,7 @@ type Config struct {
 	Calibration  Calibration  `name:"calibration" description:"The bias backlog and requested flats the observatory's Target Scheduler Darks and Flats instructions work through"`
 	MoonKeep     MoonKeep     `name:"moon-keep" description:"How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, and by the target's altitude with the Moon down, fitted from its own verdicts for the plugin's weights and skips"`
 	Bodies       Bodies       `name:"bodies" description:"Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight"`
+	Discoveries  Discoveries  `name:"discoveries" description:"Each night of a target with 3 or more accepted nights compared with its other nights for variable stars, supernovae, asteroids and anything new"`
 	Scheduling   Scheduling   `name:"scheduling" description:"One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor and its minimum altitude at the hard limit"`
 	// MorningReport is the daily Telegram report on the night that ended.
 	MorningReport MorningReport `name:"morning-report" description:"A daily Telegram report on the night that just ended: safe and imaged hours, subs kept and rejected, unsafe events and how fast the flap closed, dew, autofocus, guiding and camera, with each imaged target's current stack"`
@@ -238,6 +239,24 @@ type Goals struct {
 	DepthSwitch     string `name:"depth-switch" description:"About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on" default:"on"`
 }
 
+type Discoveries struct {
+	Enabled         bool   `name:"enabled" description:"Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks"`
+	IntervalMinutes int    `name:"interval-minutes" description:"Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later" default:"10"`
+	Threads         int    `name:"threads" description:"Cores one comparison may use; comparisons run one at a time and wait while the stacker is working" default:"2"`
+	RefSubs         int    `name:"reference-subs" description:"Most subs per filter stacked into a night's reference, taken from the other nights in turn" default:"48"`
+	BackfillDays    int    `name:"backfill-days" description:"Nights from the last this many days are compared on their own; older nights only on request" default:"30"`
+	TNSKey          string `name:"tns-key" description:"Transient Name Server bot API key; empty skips TNS"`
+	TNSBotID        string `name:"tns-bot-id" description:"Transient Name Server bot ID"`
+	TNSBotName      string `name:"tns-bot-name" description:"Transient Name Server bot name"`
+}
+
+func (d Discoveries) validate() error {
+	if d.Enabled && (d.IntervalMinutes <= 0 || d.Threads <= 0 || d.RefSubs < 2 || d.BackfillDays < 0) {
+		return ErrInvalidDiscoveries
+	}
+	return nil
+}
+
 type PublicFrames struct {
 	Enabled         bool `name:"enabled" description:"Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg"`
 	IntervalSeconds int  `name:"interval-seconds" description:"Seconds between backstop checks for newly accepted lights; a check also runs as soon as lights are triaged" default:"60"`
@@ -367,6 +386,7 @@ var (
 	ErrInvalidTSVerdictsSince       = errors.New("stacking.ts-verdicts-since must be a date, YYYY-MM-DD")
 	ErrInvalidGoalsPublish          = errors.New("goals.publish must be off, dry-run or on")
 	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
+	ErrInvalidDiscoveries           = errors.New("discoveries needs positive interval-minutes and threads, reference-subs of 2 or more and backfill-days of 0 or more")
 	ErrInvalidGoalsDepthSwitch      = errors.New("goals.depth-switch must be off, dry-run or on")
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
 	ErrInvalidMoonKeepPublish       = errors.New("moon-keep.publish must be off, dry-run or on")
@@ -483,7 +503,7 @@ func (c Config) Validate() error {
 	if err := c.SubLength.validate(c.Stacking.ScorePerSecond); err != nil {
 		return err
 	}
-	if err := cmp.Or(c.Bodies.validate(), c.Discover.validate()); err != nil {
+	if err := cmp.Or(c.Bodies.validate(), c.Discover.validate(), c.Discoveries.validate()); err != nil {
 		return err
 	}
 
