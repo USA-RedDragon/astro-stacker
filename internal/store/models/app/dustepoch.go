@@ -15,6 +15,10 @@ type DustEpoch struct {
 	// Note says what changed, how the boundary was dated and why the
 	// fallback was chosen.
 	Note string `gorm:"type:text;not null;default:''"`
+	// Proposed marks a boundary the dust check proposed but was not sure
+	// enough of to apply (stacking.proposeDustEpoch); it is left out of the
+	// epochs until a person clears it.
+	Proposed bool `gorm:"not null;default:false"`
 }
 
 func (DustEpoch) TableName() string { return "dust_epochs" }

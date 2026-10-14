@@ -475,7 +475,7 @@ func same(a, b float64) bool {
 // Epochs loads the dust epoch boundaries (app.DustEpoch).
 func Epochs(ctx context.Context, db *gorm.DB) (calmatch.Epochs, error) {
 	var rows []app.DustEpoch
-	if err := db.WithContext(ctx).Order("start").Find(&rows).Error; err != nil {
+	if err := db.WithContext(ctx).Where("proposed = ?", false).Order("start").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load dust epochs: %w", err)
 	}
 	out := make(calmatch.Epochs, 0, len(rows))
