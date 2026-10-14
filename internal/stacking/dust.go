@@ -29,10 +29,23 @@ import (
 
 // Dust check timing.
 const (
-	// DustInterval is how often settled flat sets are looked for.
+	// DustInterval is how often settled flat sets and finished nights of
+	// lights are looked for.
 	DustInterval = 15 * time.Minute
+	// DustLightsQuiet is how long a night's lights must go without a new
+	// calibrated sub before they are checked.
+	DustLightsQuiet = time.Hour
+	// DustLightsKeep is how long calibrated sub copies are kept, and how
+	// old a night may be for its lights to be kept and checked.
+	DustLightsKeep = 14 * 24 * time.Hour
+	// DustLightsRecent is how recent a light's night must be for its
+	// calibrated copy to be kept, so calibrating old lights again doesn't
+	// check old nights again.
+	DustLightsRecent = 3 * 24 * time.Hour
+	// DustLightsMax is the most subs one night's check reads.
+	DustLightsMax = 150
 	// DustAlertWindow is how long a change counts in the gauges after its
-	// flat.
+	// flat or night.
 	DustAlertWindow = 36 * time.Hour
 	// DustRetry is the wait before a flat set that could not be checked,
 	// such as one whose master fails to build, is tried again.
@@ -96,11 +109,15 @@ func (d *dustState) waiting(key string, now time.Time) bool {
 	return ok && now.Sub(at) < DustRetry
 }
 
-// runDust checks settled flat sets for dust changes every DustInterval.
+// runDust checks settled flat sets and finished nights of lights for dust
+// changes every DustInterval.
 func (p *Pipeline) runDust(ctx context.Context) {
 	for !p.stopping(ctx) {
 		if err := p.CheckFlats(ctx); err != nil && ctx.Err() == nil {
 			slog.Error("Flat dust check failed", "error", err)
+		}
+		if err := p.checkLightNights(ctx, time.Now()); err != nil && ctx.Err() == nil {
+			slog.Error("Lights dust check failed", "error", err)
 		}
 		p.dustMetrics(ctx, time.Now())
 		if !p.pause(ctx, DustInterval) {
@@ -517,7 +534,7 @@ func (p *Pipeline) latestCatalogs(ctx context.Context, at time.Time) (map[string
 }
 
 // dustMetrics sets the dust gauges: the flat changes of the last
-// DustAlertWindow.
+// DustAlertWindow, and the latest checked night's lights within it.
 func (p *Pipeline) dustMetrics(ctx context.Context, now time.Time) {
 	var evs []app.DustEvent
 	if err := p.db.WithContext(ctx).Where("taken_at >= ? AND class IN ?", now.Add(-DustAlertWindow),
@@ -535,4 +552,15 @@ func (p *Pipeline) dustMetrics(ctx context.Context, now time.Time) {
 		}
 		metrics.FlatDustEvents.WithLabelValues(e.Filter, e.Class, scope).Inc()
 	}
+	var check app.DustLightCheck
+	if err := p.db.WithContext(ctx).Where("night >= ? AND status = ?", now.Add(-DustAlertWindow).Truncate(24*time.Hour),
+		dustcheck.LightsChecked).Order("night DESC").Limit(1).Find(&check).Error; err != nil {
+		return
+	}
+	var discs []dustcheck.Blob
+	if check.ID != 0 && check.Discs != "" {
+		_ = json.Unmarshal([]byte(check.Discs), &discs)
+	}
+	metrics.LightsDustResidual.Set(check.Deepest)
+	metrics.LightsDustMismatches.Set(float64(len(discs)))
 }

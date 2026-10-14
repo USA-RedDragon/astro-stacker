@@ -69,3 +69,39 @@ type DustEvent struct {
 	CropKey    *string
 	DetectedAt time.Time
 }
+
+// DustLightSub is one calibrated light's 4×4 binned copy, kept for its
+// night's lights check.
+type DustLightSub struct {
+	ID         int       `gorm:"primaryKey;autoIncrement"`
+	FrameID    int       `gorm:"not null;uniqueIndex"`
+	Night      time.Time `gorm:"type:date;not null;index"`
+	Object     string
+	Filter     string
+	FlatMaster string
+	Key        string `gorm:"not null"`
+	CreatedAt  time.Time
+}
+
+// DustLightCheck is one night's lights check: the lights' own flat divided
+// by the flats they were calibrated with, and the shadows left over.
+type DustLightCheck struct {
+	ID     int       `gorm:"primaryKey;autoIncrement"`
+	Night  time.Time `gorm:"type:date;not null;uniqueIndex"`
+	Subs   int
+	Fields int
+	// Status is checked, too_few_subs, one_field or failed
+	// (dustcheck.Lights*); a failed night is tried again when its subs
+	// change.
+	Status string
+	// ResidualKey is the residual map in the processed bucket, PreviewKey
+	// a stretched PNG of it.
+	ResidualKey *string
+	PreviewKey  *string
+	// Discs are the residual shadows (negative) and brightenings, as JSON
+	// dustcheck.Blob; Deepest is the largest residual depth in percent.
+	Discs     string `gorm:"type:text"`
+	Deepest   float64
+	Sigma     float64
+	CheckedAt time.Time
+}

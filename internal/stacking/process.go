@@ -338,6 +338,7 @@ func (p *Pipeline) calibrate(ctx context.Context, dir string, batch []candidate,
 			next++
 		}
 	}
+	p.keepDustSubs(ctx, out, time.Now())
 	return out, nil
 }
 

@@ -3,6 +3,7 @@ package stacking
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -141,7 +142,7 @@ func dustDB(t *testing.T) *gorm.DB {
 	}
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
-	if err := db.AutoMigrate(&app.Frame{}, &app.DustFlat{}, &app.DustEvent{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.DustFlat{}, &app.DustEvent{}, &app.DustLightSub{}, &app.DustLightCheck{}); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -229,6 +230,110 @@ func TestDustCheckFlats(t *testing.T) {
 		t.Errorf("flat dust gauge %v, want 1", got)
 	}
 }
+
+func TestDustCheckLights(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	p, db, objects := dustPipeline(t)
+	now := time.Now().UTC()
+	night := now.Truncate(24*time.Hour).AddDate(0, 0, -1)
+	for i := range 40 {
+		light := dustPlane(uint64(100+i), 0.1, 0, 0.02, dustDisc{1200, 800, 500, 0.008}) //nolint:gosec
+		m, err := dustcheck.SubMap(light, dustW, dustH)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := dustcheck.EncodeSub(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := dustSubKey(night, i+1)
+		if err := p.putBytes(ctx, key, b, minio.PutObjectOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		row := app.DustLightSub{FrameID: i + 1, Night: night, Object: fmt.Sprintf("field %d", i%2), Filter: filterRed, Key: key,
+			CreatedAt: now.Add(-2 * time.Hour)}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := p.checkLightNights(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	var check app.DustLightCheck
+	if err := db.First(&check).Error; err != nil {
+		t.Fatal(err)
+	}
+	var discs []dustcheck.Blob
+	_ = json.Unmarshal([]byte(check.Discs), &discs)
+	if check.Status != dustcheck.LightsChecked || check.Subs != 40 || check.Fields != 2 || len(discs) != 1 || check.Deepest < 0.4 {
+		t.Fatalf("lights check %+v, want one residual shadow", check)
+	}
+	if check.PreviewKey == nil || len(objects()[*check.PreviewKey]) == 0 {
+		t.Error("no residual preview")
+	}
+	p.dustMetrics(ctx, now)
+	if got := testutil.ToFloat64(metrics.LightsDustMismatches); got != 1 {
+		t.Errorf("lights mismatch gauge %v, want 1", got)
+	}
+	when := check.CheckedAt
+	if err := p.checkLightNights(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	db.First(&check)
+	if !check.CheckedAt.Equal(when) {
+		t.Error("an unchanged night was checked again")
+	}
+	if err := p.checkLightNights(ctx, now.Add(DustLightsKeep+48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var left int64
+	db.Model(&app.DustLightSub{}).Count(&left)
+	if left != 0 || len(objects()[dustSubKey(night, 1)]) != 0 {
+		t.Errorf("%d kept lights left after DustLightsKeep", left)
+	}
+}
+
+func TestKeepDustSubs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	p, db, objects := dustPipeline(t)
+	dir := p.workDir
+	now := time.Now().UTC()
+	recent := now.Truncate(24*time.Hour).AddDate(0, 0, -1)
+	old := recent.AddDate(0, 0, -10)
+	file := filepath.Join(dir, "pp.fit")
+	if err := writeFITSFile(file, dustW, dustH, 1, dustPlane(1, 0.1, 0, 0.01), nil); err != nil {
+		t.Fatal(err)
+	}
+	cal := func(id int, night time.Time, flat string) calibrated {
+		n := night
+		return calibrated{c: candidate{frame: app.Frame{ID: id, Key: fmt.Sprint(id), Object: objectM31, Filter: filterRed, Night: &n}},
+			path: file, flat: flat}
+	}
+	p.keepDustSubs(ctx, []calibrated{cal(1, recent, "f"), cal(2, old, "f"), cal(3, recent, "")}, now)
+	p.keepDustSubs(ctx, []calibrated{cal(1, recent, "g")}, now)
+	var rows []app.DustLightSub
+	db.Find(&rows)
+	if len(rows) != 1 || rows[0].FrameID != 1 || rows[0].FlatMaster != "g" {
+		t.Fatalf("kept %+v, want frame 1 once, with its latest flat", rows)
+	}
+	m, err := dustcheck.DecodeSub(objects()[rows[0].Key])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.W != dustW/4 || m.H != dustH/4 || math.Abs(float64(m.At(300, 200))-1) > 0.05 {
+		t.Errorf("kept map %dx%d at %v", m.W, m.H, m.At(300, 200))
+	}
+	p.opts.DustCheck = false
+	p.keepDustSubs(ctx, []calibrated{cal(4, recent, "f")}, now)
+	var n int64
+	db.Model(&app.DustLightSub{}).Count(&n)
+	if n != 1 {
+		t.Error("kept a light with the dust check off")
+	}
+}
+
 func TestMasterPixelsLeavesNoCopy(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -278,5 +383,46 @@ func TestMasterPixelsLeavesNoCopy(t *testing.T) {
 	left, _ := os.ReadDir(p.workDir)
 	if len(left) != 0 {
 		t.Errorf("left %d entries in the work directory", len(left))
+	}
+}
+
+func TestDustCheckLightsRecordsAFailedNight(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	p, db, _ := dustPipeline(t)
+	now := time.Now().UTC()
+	night := now.Truncate(24*time.Hour).AddDate(0, 0, -1)
+	for i := range 40 {
+		m := dustcheck.NewMap(60+i/39, 40)
+		for j := range m.Pix {
+			m.Pix[j] = 1
+		}
+		b, err := dustcheck.EncodeSub(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := dustSubKey(night, i+1)
+		if err := p.putBytes(ctx, key, b, minio.PutObjectOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		db.Create(&app.DustLightSub{FrameID: i + 1, Night: night, Object: fmt.Sprintf("field %d", i%2), Key: key, CreatedAt: now.Add(-2 * time.Hour)})
+	}
+	if err := p.checkLightNights(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	var check app.DustLightCheck
+	if err := db.First(&check).Error; err != nil {
+		t.Fatal(err)
+	}
+	if check.Status != dustcheck.LightsFailed || check.Subs != 40 {
+		t.Fatalf("check %+v, want a failed night of 40 subs", check)
+	}
+	when := check.CheckedAt
+	if err := p.checkLightNights(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	db.First(&check)
+	if !check.CheckedAt.Equal(when) {
+		t.Error("a failed night with the same subs was tried again")
 	}
 }
