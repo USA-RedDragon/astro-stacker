@@ -7,6 +7,9 @@ concurrency:
   group: "${{ github.workflow }} @ ${{ github.ref }}"
   cancel-in-progress: true
 
+env:
+  TESTCONTAINERS_RYUK_RECONNECTION_TIMEOUT: 30m
+
 jobs:
   test-linux:
     name: Test Linux
