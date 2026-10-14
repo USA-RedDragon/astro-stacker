@@ -26,6 +26,7 @@ const (
 	presenceSigma   = 1.0
 	presenceShare   = 0.5
 	meanAgreeSigma  = 2.0
+	medianShare     = 0.4
 	maxSingleShare  = 0.5
 	gaiaMatchPx     = 1.5
 	anchorRadius    = 5.0
@@ -719,7 +720,8 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, res *Result) []Candidate {
 			}
 			c.PresentIn, c.SubsTested = present, len(c.fluxes)
 			c.TopShare = top / math.Max(pos, 1e-12)
-			if float64(present) < presenceShare*float64(c.SubsTested) || c.TopShare >= maxSingleShare || sum < meanAgreeSigma*math.Sqrt(varSum) {
+			if float64(present) < presenceShare*float64(c.SubsTested) || c.TopShare >= maxSingleShare || sum < meanAgreeSigma*math.Sqrt(varSum) ||
+				median64(c.fluxes) < medianShare*sum/float64(len(c.fluxes)) {
 				continue
 			}
 			fn.PerSub++
