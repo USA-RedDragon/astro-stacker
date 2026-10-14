@@ -42,6 +42,10 @@ type Match struct {
 	SetTemp *float64 `json:"set_temp,omitempty"`
 	// RotationMismatch marks a flat taken at another rotator angle.
 	RotationMismatch bool `json:"rotation_mismatch,omitempty"`
+	// OtherDustEpoch marks a flat from another dust epoch than the lights,
+	// theirs having none; FallbackWhy says which was chosen and why.
+	OtherDustEpoch bool   `json:"other_dust_epoch,omitempty"`
+	FallbackWhy    string `json:"fallback_why,omitempty"`
 	// Scaled marks a dark whose thermal signal must be scaled to the lights.
 	Scaled      bool     `json:"scaled,omitempty"`
 	Exposure    *float64 `json:"exposure,omitempty"`
@@ -187,9 +191,12 @@ func loadSets(ctx context.Context, db *gorm.DB) ([]calmatch.Set, map[string]Impo
 			if f.LastModified.After(cur.Uploaded) {
 				cur.Uploaded = f.LastModified
 			}
+			if f.LastModified.Before(cur.FirstUploaded) {
+				cur.FirstUploaded = f.LastModified
+			}
 			continue
 		}
-		s.Count, s.Uploaded = 1, f.LastModified
+		s.Count, s.Uploaded, s.FirstUploaded = 1, f.LastModified, f.LastModified
 		sets = append(sets, s)
 		byKey[k] = append(idx, len(sets)-1)
 	}
@@ -271,6 +278,10 @@ func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.
 	if err != nil {
 		return nil, nil, err
 	}
+	epochs, err := Epochs(ctx, db)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	q := db.WithContext(ctx).Table("frames").Select(groupCols).
 		Where("type = ? AND night IS NOT NULL AND index_error IS NULL", "LIGHT")
@@ -287,6 +298,7 @@ func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.
 		g := calmatch.Group{
 			Night: l.Night, Filter: l.Filter, Exposure: val(l.Exposure), Gain: val(l.Gain),
 			Offset: val(l.Offset), SetTemp: val(l.SetTemp), BinX: val(l.BinX), Rotator: val(l.Rotator),
+			Epochs: epochs,
 		}
 		res := calmatch.Choose(g, sets)
 		rows = append(rows, Row{
@@ -310,7 +322,8 @@ func report(ctx context.Context, db *gorm.DB, object string) ([]Row, []calmatch.
 }
 
 func toMatch(m calmatch.Match, g calmatch.Group, dark bool, imported map[string]ImportedSet) Match {
-	out := Match{Quality: string(m.Quality), AgeDays: m.AgeDays, RotationMismatch: m.RotationMismatch, Scaled: m.Scaled}
+	out := Match{Quality: string(m.Quality), AgeDays: m.AgeDays, RotationMismatch: m.RotationMismatch, Scaled: m.Scaled,
+		OtherDustEpoch: m.OtherEpoch, FallbackWhy: m.FallbackWhy}
 	if m.Set == nil {
 		return out
 	}
@@ -457,4 +470,17 @@ func same(a, b float64) bool {
 		return math.IsNaN(a) && math.IsNaN(b)
 	}
 	return a == b
+}
+
+// Epochs loads the dust epoch boundaries (app.DustEpoch).
+func Epochs(ctx context.Context, db *gorm.DB) (calmatch.Epochs, error) {
+	var rows []app.DustEpoch
+	if err := db.WithContext(ctx).Order("start").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load dust epochs: %w", err)
+	}
+	out := make(calmatch.Epochs, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, calmatch.Epoch{Start: r.Start, Fallback: r.Fallback, Note: r.Note})
+	}
+	return out, nil
 }

@@ -4,8 +4,10 @@
 package calmatch
 
 import (
+	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -20,7 +22,10 @@ const (
 
 // Tolerances for treating two frames as taken with the same setup.
 const (
-	RotationToleranceDeg = 1.0
+	// RotationToleranceDeg is how far a flat's rotator angle may be from
+	// the lights' and still count as the same. Dust shadows move 6 to 12 px
+	// between angles a few degrees apart.
+	RotationToleranceDeg = 1.5
 	ExposureTolerance    = 0.01 // relative
 	SetTempExactC        = 1.0
 	// SetTempScaleMaxC is how far a dark's setpoint may be from the lights'
@@ -40,6 +45,9 @@ type Group struct {
 	SetTemp  float64 // NaN when unknown
 	BinX     float64
 	Rotator  float64 // NaN when there is no rotator
+	// Epochs are the dust epochs; a flat is taken from the lights' own
+	// when it has one. Nil treats all nights as one epoch.
+	Epochs Epochs
 }
 
 // Set is a candidate calibration set: frames of one type taken together.
@@ -61,8 +69,9 @@ type Set struct {
 	// bias set (coverage.Sets); zero for flats, which go by night.
 	From, To time.Time
 	// Uploaded is when the set's newest frame was uploaded; zero when
-	// unknown.
-	Uploaded time.Time
+	// unknown. FirstUploaded is when its oldest was.
+	Uploaded      time.Time
+	FirstUploaded time.Time
 	// Master is the key, in the source bucket, of a master made elsewhere
 	// for a set whose frames were never uploaded. Empty for sets built from
 	// their frames.
@@ -78,6 +87,17 @@ type Match struct {
 	// RotationMismatch is set when the chosen flat was taken at another
 	// rotator angle than the lights.
 	RotationMismatch bool
+	// RotationOff is how far, in degrees, a flat's rotator angle is from
+	// the lights'; 0 when either is unknown.
+	RotationOff float64
+	// OtherGain is set when the chosen flat was taken at another gain or
+	// offset than the lights.
+	OtherGain bool
+	// OtherEpoch is set when the chosen flat is from another dust epoch
+	// than the lights, as theirs has no flat in their filter; FallbackWhy
+	// then says why that one was chosen.
+	OtherEpoch  bool
+	FallbackWhy string
 	// Scaled is set when a dark needs its thermal signal scaled because the
 	// setpoint or exposure differs; that needs a master bias.
 	Scaled bool
@@ -123,15 +143,19 @@ func Choose(g Group, sets []Set) Result {
 	}
 }
 
-// Flats must match filter and binning. The same gain and offset are
-// preferred but not required: a master flat is calibrated with the bias
-// for its own gain and offset and then normalized, which leaves only the
-// illumination's shape, and that doesn't depend on gain. Rotation is
-// preferred but not required either. The rotator turns the camera and
-// filter wheel together, so dust on the sensor window and filters stays put
-// relative to the pixels; only the dimmer, rotation-symmetric vignetting and
-// dust on the optics in front of the rotator move. A flat at another gain
-// or angle is a fallback.
+// Flats must match filter and binning, and come from the lights' dust
+// epoch (Epochs) when it has one: a flat from across a dust change leaves
+// the new dust uncorrected or adds a bright copy of dust that is gone. When
+// the epoch has none, the epoch's Fallback says which to use. Within the
+// epoch a flat within RotationToleranceDeg of the lights' rotator angle
+// wins, then the nearest angle: the rotator turns the camera and filter
+// wheel together, so dust on the sensor window and filters stays nearly put
+// relative to the pixels, but its shadow shifts a few pixels with the angle.
+// The same gain and offset are preferred but not required: a master flat is
+// calibrated with the bias for its own gain and offset and then normalized,
+// which leaves only the illumination's shape, and that doesn't depend on
+// gain. Then the nearest night wins. A flat at another gain, angle, night or
+// epoch is a fallback.
 func chooseFlat(g Group, sets []Set) Match {
 	var cands []Set
 	for _, s := range sets {
@@ -142,8 +166,18 @@ func chooseFlat(g Group, sets []Set) Match {
 	if len(cands) == 0 {
 		return Match{Quality: Missing}
 	}
+	cands, why := g.Epochs.flatCandidates(g.Night, cands)
 	sameGain := func(s Set) bool { return same(s.Gain, g.Gain) && same(s.Offset, g.Offset) }
 	sort.SliceStable(cands, func(i, j int) bool {
+		ri, rj := rotationOK(cands[i].Rotator, g.Rotator), rotationOK(cands[j].Rotator, g.Rotator)
+		if ri != rj {
+			return ri
+		}
+		if !ri {
+			if ai, aj := rotationOff(cands[i].Rotator, g.Rotator), rotationOff(cands[j].Rotator, g.Rotator); ai != aj {
+				return ai < aj
+			}
+		}
 		if gi, gj := sameGain(cands[i]), sameGain(cands[j]); gi != gj {
 			return gi
 		}
@@ -151,19 +185,53 @@ func chooseFlat(g Group, sets []Set) Match {
 		if di != dj {
 			return di < dj
 		}
-		ri, rj := rotationOK(cands[i].Rotator, g.Rotator), rotationOK(cands[j].Rotator, g.Rotator)
-		if ri != rj {
-			return ri
-		}
 		return cands[i].Night.After(cands[j].Night)
 	})
 	best := cands[0]
 	m := Match{Set: &best, AgeDays: days(g.Night, best.Night), Quality: Fallback,
-		RotationMismatch: !rotationOK(best.Rotator, g.Rotator)}
-	if m.AgeDays == 0 && !m.RotationMismatch && sameGain(best) {
+		RotationMismatch: !rotationOK(best.Rotator, g.Rotator), RotationOff: rotationOff(best.Rotator, g.Rotator),
+		OtherGain: !sameGain(best), OtherEpoch: why != "", FallbackWhy: why}
+	if m.AgeDays == 0 && !m.RotationMismatch && sameGain(best) && !m.OtherEpoch {
 		m.Quality = Exact
 	}
 	return m
+}
+
+// FlatNote describes a flat match for the record of the lights it
+// calibrated: "exact", or "fallback: " and what differs.
+func (m Match) FlatNote() string {
+	switch {
+	case m.Set == nil:
+		return string(Missing)
+	case m.Quality == Exact:
+		return string(Exact)
+	}
+	var parts []string
+	if m.AgeDays > 0 {
+		parts = append(parts, fmt.Sprintf("%d nights apart", m.AgeDays))
+	}
+	if m.RotationMismatch {
+		parts = append(parts, fmt.Sprintf("rotator %.1f° off", m.RotationOff))
+	}
+	if m.OtherGain {
+		parts = append(parts, "other gain")
+	}
+	if m.OtherEpoch {
+		parts = append(parts, "other dust epoch ("+m.FallbackWhy+")")
+	}
+	if m.Set.Master != "" {
+		parts = append(parts, "master "+m.Set.Master)
+	}
+	return string(Fallback) + ": " + strings.Join(parts, ", ")
+}
+
+// rotationOff is how far apart two rotator angles are, 0 when either is
+// unknown.
+func rotationOff(a, b float64) float64 {
+	if math.IsNaN(a) || math.IsNaN(b) {
+		return 0
+	}
+	return angleDiff(a, b)
 }
 
 // Bias must match gain, offset and binning. Its temperature barely matters on

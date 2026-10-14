@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/astrometry"
@@ -160,6 +161,9 @@ type Pipeline struct {
 	// sites caches each target's observing site (latitude, east longitude),
 	// read from one of its lights' headers.
 	sites sync.Map // object -> [2]float64, or nil when the headers have none
+
+	// epochs are the dust epochs as last loaded with the calibration sets.
+	epochs atomic.Pointer[calmatch.Epochs]
 
 	// Events, if set, hears about updated masters and what workers do.
 	Events *events.Broker
@@ -449,6 +453,9 @@ func (p *Pipeline) RunOnce(ctx context.Context, object, filter string) (int, err
 	}
 	sets, err := coverage.Sets(ctx, p.db)
 	if err != nil {
+		return 0, err
+	}
+	if err := p.loadEpochs(ctx); err != nil {
 		return 0, err
 	}
 	positions, err := targetPositions(ctx, p.sched)
@@ -809,7 +816,7 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 	}
 	c.cal = calmatch.Choose(calmatch.Group{
 		Night: *f.Night, Filter: f.Filter, Exposure: *f.Exposure, Gain: val(f.Gain), Offset: val(f.Offset),
-		SetTemp: val(f.SetTemp), BinX: val(f.BinX), Rotator: val(f.Rotator),
+		SetTemp: val(f.SetTemp), BinX: val(f.BinX), Rotator: val(f.Rotator), Epochs: p.dustEpochs(),
 	}, sets)
 	// A missing dark doesn't hold a light back: at the cold setpoints darks
 	// are missing for, dark current is small and rejection takes the hot
@@ -827,6 +834,24 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		}
 	}
 	return c, ""
+}
+
+// loadEpochs reads the dust epochs for classify.
+func (p *Pipeline) loadEpochs(ctx context.Context) error {
+	e, err := coverage.Epochs(ctx, p.db)
+	if err != nil {
+		return err
+	}
+	p.epochs.Store(&e)
+	return nil
+}
+
+// dustEpochs are the dust epochs as last loaded, nil before.
+func (p *Pipeline) dustEpochs() calmatch.Epochs {
+	if e := p.epochs.Load(); e != nil {
+		return *e
+	}
+	return nil
 }
 
 // withMoon is a light's status once moon avoidance is applied: a light

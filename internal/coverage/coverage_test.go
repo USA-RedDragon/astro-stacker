@@ -16,6 +16,7 @@ import (
 const (
 	filterRed  = "Red"
 	typeDark   = "DARK"
+	typeFlat   = "FLAT"
 	gapNight   = "2025-11-16"
 	laterNight = "2025-11-17"
 	typeLight  = "LIGHT"
@@ -35,7 +36,7 @@ func TestReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&app.Frame{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.DustEpoch{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -58,7 +59,7 @@ func TestReport(t *testing.T) {
 	light2 := light
 	light2.Rotator = f(142.41) // same session, tiny rotator jitter
 	add(light2, 2)
-	add(app.Frame{Type: "FLAT", Filter: filterRed, Exposure: f(1.2), Gain: f(0), Offset: f(50), SetTemp: f(-10), BinX: f(1),
+	add(app.Frame{Type: typeFlat, Filter: filterRed, Exposure: f(1.2), Gain: f(0), Offset: f(50), SetTemp: f(-10), BinX: f(1),
 		Rotator: f(142.4), Night: day("2025-11-15")}, 30)
 	add(app.Frame{Type: typeDark, Exposure: f(600), Gain: f(0), Offset: f(50), SetTemp: f(0), BinX: f(1), Night: day("2025-02-06")}, 20)
 	add(app.Frame{Type: "BIAS", Exposure: f(0.00003), Gain: f(0), Offset: f(50), SetTemp: f(0), BinX: f(1), Night: day("2025-02-05")}, 60)
@@ -126,7 +127,7 @@ func TestSetFramesMatchesGrouping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&app.Frame{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.DustEpoch{}); err != nil {
 		t.Fatal(err)
 	}
 	n := 0
