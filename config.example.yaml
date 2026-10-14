@@ -125,6 +125,8 @@ stacking:
   calibration-settle-minutes: 180
   # Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear
   recalibrate-limit: 300
+  # Check each settled flat set for dust that came, went or moved since the last flat of its filter, and each night's lights for dust their flats don't hold
+  dust-check: true
   # On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it
   drain-seconds: 1200
   # Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on
