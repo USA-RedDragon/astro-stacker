@@ -30,7 +30,7 @@ func TestLinkMoversOnAnInterleavedNight(t *testing.T) {
 			dets[j] = append(dets[j], moverDet{X: 2500 - rate*m + rng.NormFloat64()*0.2, Y: 1400 + rate*m + rng.NormFloat64()*0.2, Flux: 0.5, SNR: 6})
 		}
 	}
-	tracks, transient := linkMovers(times, dets, scale)
+	tracks, transient := linkMovers(times, dets, scale, 3200*2200)
 	if len(tracks) != 2 {
 		t.Fatalf("want the asteroid moving 1.3 px between subs 5 minutes apart and the faint one seen in every 4th sub, have %d tracks", len(tracks))
 	}
@@ -83,5 +83,25 @@ func TestCutPassesAChangeSeenInOneFilter(t *testing.T) {
 	}
 	if out[0].SubsTested != 8 || out[0].PresentIn != 8 {
 		t.Errorf("tested %d, present %d", out[0].SubsTested, out[0].PresentIn)
+	}
+}
+
+func TestLinkMoversIgnoresChanceAlignmentsInACrowdedField(t *testing.T) {
+	t.Parallel()
+	const scale, n = 1.915, 15
+	rng := rand.New(rand.NewPCG(9, 1))
+	start := time.Date(2026, 10, 14, 2, 48, 0, 0, time.UTC)
+	times := make([]time.Time, n)
+	dets := make([][]moverDet, n)
+	for j := range n {
+		times[j] = start.Add(time.Duration(j) * 12 * time.Minute)
+		for range 6000 {
+			dets[j] = append(dets[j], moverDet{X: 100 + rng.Float64()*3000, Y: 100 + rng.Float64()*2000, Flux: 1, SNR: 5})
+		}
+		dets[j] = append(dets[j], moverDet{X: 800 + 0.3*float64(j*12), Y: 700 + 0.1*float64(j*12), Flux: 2, SNR: 9})
+	}
+	tracks, _ := linkMovers(times, dets, scale, 3000*2000)
+	if len(tracks) != 1 {
+		t.Fatalf("want the one mover among 6000 random detections a sub, have %d tracks", len(tracks))
 	}
 }

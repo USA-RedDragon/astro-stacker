@@ -27,6 +27,7 @@ const (
 	presenceShare   = 0.5
 	meanAgreeSigma  = 2.0
 	medianShare     = 0.4
+	minPromoteSubs  = 6
 	maxSingleShare  = 0.5
 	gaiaMatchPx     = 1.5
 	anchorRadius    = 5.0
@@ -621,7 +622,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	res.Candidates = in.cut(cands, ref, D, local, res)
 
 	in.stage("linking moving objects")
-	links, transient := linkMovers(times, dets, res.PixelScale)
+	links, transient := linkMovers(times, dets, res.PixelScale, validArea(edge))
 	for _, hs := range links {
 		res.Tracks = append(res.Tracks, in.track(hs, subs, dets, times))
 	}
@@ -955,7 +956,7 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			}
 			fn.NotResidual++
 			cc := c.Candidate
-			cc.LowConf = cc.SNR < PromoteSigma
+			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs
 			if cc.LowConf {
 				fn.LowConfident++
 			} else {
