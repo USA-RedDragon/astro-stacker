@@ -26,7 +26,8 @@ const (
 	gaiaFaintG    = 21.5
 	gaiaMaxRows   = 400000
 	vsxMaxRows    = 100000
-	catalogTimout = 3 * time.Minute
+	catalogTimout = 6 * time.Minute
+	gaiaTimeout   = 4 * time.Minute
 	sourceAlerce  = "ALeRCE"
 	sourceFink    = "Fink"
 	sourceTNS     = "TNS"
@@ -130,15 +131,32 @@ func num(s string) (float64, bool) {
 	return v, err == nil
 }
 
-// Gaia returns Gaia DR3 stars to G 21.5 within radius degrees, brightest
-// first, at most 400000.
+// Gaia returns Gaia DR3 stars within radius degrees, brightest first, at
+// most 400000: to G 21.5, or in a Milky Way field VizieR can't sort that
+// deep in time, to G 19.5 or 18.
 func (c *Catalogs) Gaia(ctx context.Context, ra, dec, radius float64) ([]Star, error) {
+	var err error
+	for _, faint := range []float64{gaiaFaintG, 19.5, 18} {
+		var stars []Star
+		if stars, err = c.gaia(ctx, ra, dec, radius, faint); err == nil {
+			return stars, nil
+		}
+		if ctx.Err() != nil {
+			return nil, err
+		}
+	}
+	return nil, err
+}
+
+func (c *Catalogs) gaia(ctx context.Context, ra, dec, radius, faint float64) ([]Star, error) {
+	ctx, cancel := context.WithTimeout(ctx, gaiaTimeout)
+	defer cancel()
 	q := url.Values{}
 	q.Set("-source", "I/355/gaiadr3")
 	q.Set("-c", fmt.Sprintf("%.6f %+.6f", ra, dec))
 	q.Set("-c.rd", fmt.Sprintf("%.4f", radius))
 	q.Set("-out", "RA_ICRS,DE_ICRS,Gmag")
-	q.Set("Gmag", fmt.Sprintf("<%g", gaiaFaintG))
+	q.Set("Gmag", fmt.Sprintf("<%g", faint))
 	q.Set("-out.max", strconv.Itoa(gaiaMaxRows))
 	q.Set("-sort", "Gmag")
 	b, err := c.get(ctx, or(c.VizierURL, vizierURL)+"?"+q.Encode())
