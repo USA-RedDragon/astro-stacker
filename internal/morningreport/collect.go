@@ -106,10 +106,29 @@ func (c Collector) Collect(ctx context.Context, night time.Time) (Report, error)
 	c.guiding(ctx, &r, spans)
 	c.guiderErrors(ctx, &r, nina)
 	c.cooler(ctx, &r, spans)
+	c.discoveries(ctx, &r)
 	if r.Subs.Count > 0 {
 		r.Images = c.images(ctx, r.Subs, night)
 	}
 	return r, nil
+}
+
+// discoveries counts the night's new candidates by target, from the night
+// comparisons finished so far.
+func (c Collector) discoveries(ctx context.Context, r *Report) {
+	var rows []struct {
+		Object string
+		N      int
+	}
+	if err := c.App.WithContext(ctx).Model(&app.DiscoveryRun{}).Select("object, SUM(new_candidates) AS n").
+		Where("night >= ? AND night < ? AND state = ? AND new_candidates > 0", r.Night, r.Night.AddDate(0, 0, 1), app.DiscoveryDone).
+		Group("object").Order("n DESC, object").Scan(&rows).Error; err != nil {
+		slog.Warn("Morning report: could not count discoveries", "error", err)
+		return
+	}
+	for _, row := range rows {
+		r.Discoveries = append(r.Discoveries, Count{Label: row.Object, N: row.N})
+	}
 }
 
 // dark finds the window's dark spans, or the whole window when the site is

@@ -52,6 +52,10 @@ type Report struct {
 
 	Camera Camera
 
+	// Discoveries are the targets whose night comparison found something
+	// that passed every check and matched nothing known.
+	Discoveries []Count
+
 	Images []Image
 }
 

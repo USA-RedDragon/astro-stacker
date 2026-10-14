@@ -63,7 +63,7 @@ func newMorningReport(cfg *config.Config, appStore, schedStore store.Store, send
 	svc := &morningreport.Service{
 		DB:          appStore.DB(),
 		Collector:   c,
-		Formatter:   morningreport.Formatter{Loc: loc, Zone: m.ZoneLabel},
+		Formatter:   morningreport.Formatter{Loc: loc, Zone: m.ZoneLabel, WebURL: cfg.HTTP.WebURL},
 		Schedule:    sched,
 		RetryAfter:  15 * time.Minute,
 		MaxAttempts: 4,

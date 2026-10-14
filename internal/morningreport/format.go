@@ -23,6 +23,8 @@ type Formatter struct {
 	Loc *time.Location
 	// Zone is the label after every time, such as "CT".
 	Zone string
+	// WebURL is the astro-processing site the discoveries line links to.
+	WebURL string
 }
 
 func esc(s string) string {
@@ -76,6 +78,28 @@ func plural(n int, one, many string) string {
 	return fmt.Sprintf("%d %s", n, many)
 }
 
+// discoveries is one line naming the targets with new candidates, when
+// there are any.
+func (f Formatter) discoveries(r Report) string {
+	if len(r.Discoveries) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(r.Discoveries))
+	for i, d := range r.Discoveries {
+		if i == 0 {
+			parts = append(parts, plural(d.N, "new candidate", "new candidates")+" on "+esc(d.Label))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d on %s", d.N, esc(d.Label)))
+		}
+	}
+	line := "<b>Discoveries</b> " + strings.Join(parts, ", ")
+	if f.WebURL != "" {
+		u := strings.TrimSuffix(f.WebURL, "/") + "/discoveries?night=" + r.Night.Format(time.DateOnly)
+		line += `: <a href="` + esc(u) + `">astro-processing</a>`
+	}
+	return line
+}
+
 func (f Formatter) title(r Report) string {
 	return "<b>Observatory, night of " + r.Night.Format("Mon Jan 2") + "</b>"
 }
@@ -85,7 +109,7 @@ func (f Formatter) Text(r Report) string {
 	if r.Subs != nil && r.Subs.Count == 0 {
 		return f.idle(r)
 	}
-	head := []string{f.title(r), f.summary(r)}
+	head := []string{f.title(r), f.summary(r), f.discoveries(r)}
 	tail := []string{f.unsafe(r), f.dew(r), f.autofocus(r), f.guiding(r), f.guiderErrors(r), f.camera(r)}
 	subs := f.subs(r)
 	for drop := 0; ; drop++ {
