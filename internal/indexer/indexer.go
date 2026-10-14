@@ -351,13 +351,14 @@ const photometryBatch = 200
 
 // photometryPending are the lights whose starlight hasn't been measured at
 // the current measure.PhotometryRevision, leaving out those no master will
-// take whatever their score (off target, duplicates, given up on).
+// take whatever their score (off target, duplicates, off their sensor
+// setpoint, given up on).
 func photometryPending(db *gorm.DB) *gorm.DB {
 	return db.Model(&app.Frame{}).
 		Where("type = ? AND index_error IS NULL", "LIGHT").
 		Where("photometry_rev IS NULL OR photometry_rev < ?", measure.PhotometryRevision).
 		Where("NOT EXISTS (SELECT 1 FROM stack_frames sf WHERE sf.frame_id = frames.id AND sf.status IN ?)",
-			[]string{app.StackStatusOffTarget, app.StackStatusDuplicate, app.StackStatusDead})
+			[]string{app.StackStatusOffTarget, app.StackStatusDuplicate, app.StackStatusOffTemp, app.StackStatusDead})
 }
 
 // MeasurePhotometry measures the starlight of lights (measure.Photometry),
