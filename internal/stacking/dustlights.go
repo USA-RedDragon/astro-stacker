@@ -184,6 +184,10 @@ func (p *Pipeline) checkLightNight(ctx context.Context, n dustNight, id int) err
 		if err != nil {
 			return err
 		}
+		if check.Sigma > dustcheck.LightsMaxNoise {
+			check.Status = dustcheck.LightsNoisy
+			res = nil
+		}
 		for _, d := range res {
 			slog.Warn("Lights hold dust their flats don't", "night", n.Night.Format(time.DateOnly), "x", d.X, "y", d.Y,
 				"diameter", d.Diameter, "depth", fmt.Sprintf("%+.2f%%", d.Peak))
