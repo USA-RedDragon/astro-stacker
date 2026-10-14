@@ -100,6 +100,7 @@ type stackingShadow struct {
 	Pedestal               *float64  `json:"pedestal"                   toml:"pedestal"                   yaml:"pedestal"`
 	CalibrationSettle      *int      `json:"calibration-settle-minutes" toml:"calibration-settle-minutes" yaml:"calibration-settle-minutes"`
 	RecalibrateLimit       *int      `json:"recalibrate-limit"          toml:"recalibrate-limit"          yaml:"recalibrate-limit"`
+	DustCheck              *bool     `json:"dust-check"                 toml:"dust-check"                 yaml:"dust-check"`
 	DrainSeconds           *int      `json:"drain-seconds"              toml:"drain-seconds"              yaml:"drain-seconds"`
 	TSVerdicts             *string   `json:"ts-verdicts"                toml:"ts-verdicts"                yaml:"ts-verdicts"`
 	TSVerdictsSince        *string   `json:"ts-verdicts-since"          toml:"ts-verdicts-since"          yaml:"ts-verdicts-since"`
@@ -339,6 +340,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("stacking.calibration-settle-minutes", configulator.LayerDefault, "default tag")
 	cfg.Stacking.RecalibrateLimit = 300
 	set("stacking.recalibrate-limit", configulator.LayerDefault, "default tag")
+	cfg.Stacking.DustCheck = true
+	set("stacking.dust-check", configulator.LayerDefault, "default tag")
 	cfg.Stacking.DrainSeconds = 1200
 	set("stacking.drain-seconds", configulator.LayerDefault, "default tag")
 	cfg.Stacking.TSVerdicts = "off"
@@ -686,6 +689,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Stacking.RecalibrateLimit != nil {
 			cfg.Stacking.RecalibrateLimit = *s.Stacking.RecalibrateLimit
 			set("stacking.recalibrate-limit", configulator.LayerFile, file)
+		}
+		if s.Stacking.DustCheck != nil {
+			cfg.Stacking.DustCheck = *s.Stacking.DustCheck
+			set("stacking.dust-check", configulator.LayerFile, file)
 		}
 		if s.Stacking.DrainSeconds != nil {
 			cfg.Stacking.DrainSeconds = *s.Stacking.DrainSeconds
@@ -1555,6 +1562,19 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Stacking.RecalibrateLimit = int(p)
 		set("stacking.recalibrate-limit", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "dust-check"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.dust-check",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Stacking.DustCheck = p
+		set("stacking.dust-check", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "stacking", "drain-seconds"); ok {
 		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
 		if err != nil {
@@ -2355,6 +2375,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"stacking" + o.Separator + "pedestal",
 		"stacking" + o.Separator + "calibration-settle-minutes",
 		"stacking" + o.Separator + "recalibrate-limit",
+		"stacking" + o.Separator + "dust-check",
 		"stacking" + o.Separator + "drain-seconds",
 		"stacking" + o.Separator + "ts-verdicts",
 		"stacking" + o.Separator + "ts-verdicts-since",
@@ -2505,87 +2526,88 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Float64(names[51], 506.0, "Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset")
 	fs.Var(impl.NewInt(180), names[52], "Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile")
 	fs.Var(impl.NewInt(300), names[53], "Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear")
-	fs.Var(impl.NewInt(1200), names[54], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
-	fs.String(names[55], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
-	fs.String(names[56], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
-	fs.StringSlice(names[57], nil, "Only subs of these targets; empty for all")
-	fs.Var(impl.NewInt(200), names[58], "Most new verdicts sent in any hour; a sweep runs about a minute after lights are triaged or Target Scheduler's images sync in, at most every five minutes, and hourly")
-	fs.Var(impl.NewInt(24), names[59], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
-	fs.Var(impl.NewInt(200), names[60], "Milliseconds between deletions of unreferenced registered subs")
-	fs.Float64(names[61], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
-	fs.Bool(names[62], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
-	fs.Var(impl.NewInt(60), names[63], "Seconds between backstop checks for newly accepted lights; a check also runs as soon as lights are triaged")
-	fs.Var(impl.NewInt(14), names[64], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
-	fs.Float64(names[65], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
-	fs.Float64(names[66], 0.0, "Observatory east longitude in degrees")
-	fs.Float64(names[67], 0.0, "Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise")
-	fs.Float64(names[68], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
-	fs.Float64(names[69], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from broadband (L, G, R, B) masters' zero points and their subs' sky")
-	fs.Float64(names[70], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
-	fs.Float64(names[71], 0.0, "Ignored: the pixel size is read from lights' XPIXSZ")
-	fs.Var(impl.NewInt(0), names[72], "Ignored: the image width is read from lights' headers")
-	fs.Var(impl.NewInt(0), names[73], "Ignored: the image height is read from lights' headers")
-	fs.Bool(names[74], false, "Ignored: a colour camera is recognised by BAYERPAT in lights' headers")
-	fs.StringSlice(names[75], nil, "Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights")
-	fs.Float64(names[76], 0.0, "Ignored: the typical HFR is measured from recent lights")
-	fs.Float64(names[77], 0.0, "Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights")
-	fs.StringSlice(names[78], nil, "Ignored: sub lengths per filter are read from recent lights")
-	fs.Bool(names[79], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
-	fs.String(names[80], "https://collab.starfront.space", "Starfront collaboration server")
-	fs.Var(impl.NewInt(30), names[81], "Minutes between fetches of the collaboration list")
-	fs.Bool(names[82], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
-	fs.Bool(names[83], true, "Serve DSS2 colour survey cutouts for framing previews, rendered from the S3 survey mirror or else fetched from CDS hips2fits and cached in the database")
-	fs.String(names[84], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
-	fs.Var(impl.NewInt(60), names[85], "Most survey cutouts fetched from hips2fits per minute; cached ones and ones rendered from the S3 mirror are served without limit")
-	fs.Bool(names[86], true, "Render survey cutouts from the DSS2 colour HiPS tiles mirrored in S3 when a mirrored order is as fine as one output pixel; finer fields and mirror misses come from hips2fits")
-	fs.String(names[87], "sky-survey", "S3 bucket holding the survey mirror, read with the s3 credentials")
-	fs.String(names[88], "hips/CDS_P_DSS2_color", "Path of the DSS2 colour HiPS inside the survey bucket")
-	fs.Var(impl.NewInt(8), names[89], "Deepest HiPS order in the survey mirror")
-	fs.Var(impl.NewInt(100), names[90], "Memory for decoded survey tiles, in MB")
-	fs.String(names[91], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
-	fs.String(names[92], "", "Bearer token for the plugin's API")
-	fs.Bool(names[93], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
-	fs.String(names[94], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
-	fs.String(names[95], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
-	fs.String(names[96], "", "Base URL of NINA's Advanced API on the observatory PC, e.g. http://observatory:1888/v2/api, for the collab switch on the Collabs page; empty leaves the switch unconfigured")
-	fs.Bool(names[97], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
-	fs.Var(impl.NewInt(30), names[98], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
-	fs.Var(impl.NewInt(200), names[99], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
-	fs.Var(impl.NewInt(3), names[100], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
-	fs.String(names[101], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
-	fs.String(names[102], "on", "About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
-	fs.String(names[103], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
-	fs.String(names[104], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[105], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
-	fs.Bool(names[106], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
-	fs.Var(impl.NewInt(60), names[107], "Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving")
-	fs.Float64(names[108], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
-	fs.String(names[109], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[110], "on", "Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it")
-	fs.Var(impl.NewInt(24), names[111], "Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving")
-	fs.String(names[112], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
-	fs.Var(impl.NewInt(60), names[113], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
-	fs.String(names[114], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
-	fs.String(names[115], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
-	fs.String(names[116], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
-	fs.Bool(names[117], false, "Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks")
-	fs.Var(impl.NewInt(10), names[118], "Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later")
-	fs.Var(impl.NewInt(2), names[119], "Cores one comparison may use; comparisons run one at a time and wait while the stacker is working")
-	fs.Var(impl.NewInt(48), names[120], "Most subs per filter stacked into a night's reference, taken from the other nights in turn")
-	fs.Var(impl.NewInt(30), names[121], "Nights from the last this many days are compared on their own; older nights only on request")
-	fs.String(names[122], "", "Transient Name Server bot API key; empty skips TNS")
-	fs.String(names[123], "", "Transient Name Server bot ID")
-	fs.String(names[124], "", "Transient Name Server bot name")
-	fs.String(names[125], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
-	fs.Var(impl.NewInt(1), names[126], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
-	fs.Bool(names[127], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
-	fs.String(names[128], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
-	fs.String(names[129], "America/Chicago", "IANA time zone of the send time and of the times in the report")
-	fs.String(names[130], "CT", "Label after every time in the report")
-	fs.String(names[131], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
-	fs.String(names[132], "", "Telegram bot token")
-	fs.String(names[133], "", "Telegram chat the report goes to")
-	fs.String(names[134], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
+	fs.Bool(names[54], true, "Check each settled flat set for dust that came, went or moved since the last flat of its filter, and each night's lights for dust their flats don't hold")
+	fs.Var(impl.NewInt(1200), names[55], "On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it")
+	fs.String(names[56], "off", "Tell Target Scheduler which subs were left out for low score or moon: off, dry-run (log what would be sent) or on")
+	fs.String(names[57], "", "Only subs taken on or after this date (YYYY-MM-DD, UTC); empty for all")
+	fs.StringSlice(names[58], nil, "Only subs of these targets; empty for all")
+	fs.Var(impl.NewInt(200), names[59], "Most new verdicts sent in any hour; a sweep runs about a minute after lights are triaged or Target Scheduler's images sync in, at most every five minutes, and hourly")
+	fs.Var(impl.NewInt(24), names[60], "Hours a registered sub no stacked sub references is kept before it is deleted; 0 keeps them all")
+	fs.Var(impl.NewInt(200), names[61], "Milliseconds between deletions of unreferenced registered subs")
+	fs.Float64(names[62], 0.5, "Stacked subs per second converted from 32-bit FITS to 16-bit XISF; 0 stops the conversion")
+	fs.Bool(names[63], false, "Render each recently imaged target's newest accepted light as a small watermarked JPEG in the processed bucket, served at /api/v1/public-light.jpg")
+	fs.Var(impl.NewInt(60), names[64], "Seconds between backstop checks for newly accepted lights; a check also runs as soon as lights are triaged")
+	fs.Var(impl.NewInt(14), names[65], "Targets with an accepted light from the last this many days get a frame; older frames are kept but not re-rendered")
+	fs.Float64(names[66], 0.0, "Observatory latitude in degrees; with site-longitude 0 too, the site is read from the newest light's FITS header (SITELAT, SITELONG)")
+	fs.Float64(names[67], 0.0, "Observatory east longitude in degrees")
+	fs.Float64(names[68], 0.0, "Observatory elevation in metres; unset reads SITEELEV from the newest light when the site comes from its header, and leaves the elevation unknown otherwise")
+	fs.Float64(names[69], 30.0, "Altitude in degrees an object must clear in astronomical darkness to count as up")
+	fs.Float64(names[70], 0.0, "Override for the dark-sky brightness in mag/arcsec²; 0 measures it from broadband (L, G, R, B) masters' zero points and their subs' sky")
+	fs.Float64(names[71], 0.0, "Ignored: the focal length is read from lights' FOCALLEN")
+	fs.Float64(names[72], 0.0, "Ignored: the pixel size is read from lights' XPIXSZ")
+	fs.Var(impl.NewInt(0), names[73], "Ignored: the image width is read from lights' headers")
+	fs.Var(impl.NewInt(0), names[74], "Ignored: the image height is read from lights' headers")
+	fs.Bool(names[75], false, "Ignored: a colour camera is recognised by BAYERPAT in lights' headers")
+	fs.StringSlice(names[76], nil, "Filter bandpasses in nm for collaboration limits (H=3); which filters are on the wheel is read from lights")
+	fs.Float64(names[77], 0.0, "Ignored: the typical HFR is measured from recent lights")
+	fs.Float64(names[78], 0.0, "Ignored: the typical guiding RMS is read from Target Scheduler's records of recent lights")
+	fs.StringSlice(names[79], nil, "Ignored: sub lengths per filter are read from recent lights")
+	fs.Bool(names[80], true, "Read Starfront's public collaboration list for the Collabs page; read-only, no account")
+	fs.String(names[81], "https://collab.starfront.space", "Starfront collaboration server")
+	fs.Var(impl.NewInt(30), names[82], "Minutes between fetches of the collaboration list")
+	fs.Bool(names[83], true, "Fetch the Finkbeiner 2003 H-α all-sky map once from CDS and cache it in the database, for the Finder's H-α column and score")
+	fs.Bool(names[84], true, "Serve DSS2 colour survey cutouts for framing previews, rendered from the S3 survey mirror or else fetched from CDS hips2fits and cached in the database")
+	fs.String(names[85], "https://alasky.cds.unistra.fr/hips-image-services/hips2fits", "CDS hips2fits service for the H-α map and survey cutouts")
+	fs.Var(impl.NewInt(60), names[86], "Most survey cutouts fetched from hips2fits per minute; cached ones and ones rendered from the S3 mirror are served without limit")
+	fs.Bool(names[87], true, "Render survey cutouts from the DSS2 colour HiPS tiles mirrored in S3 when a mirrored order is as fine as one output pixel; finer fields and mirror misses come from hips2fits")
+	fs.String(names[88], "sky-survey", "S3 bucket holding the survey mirror, read with the s3 credentials")
+	fs.String(names[89], "hips/CDS_P_DSS2_color", "Path of the DSS2 colour HiPS inside the survey bucket")
+	fs.Var(impl.NewInt(8), names[90], "Deepest HiPS order in the survey mirror")
+	fs.Var(impl.NewInt(100), names[91], "Memory for decoded survey tiles, in MB")
+	fs.String(names[92], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
+	fs.String(names[93], "", "Bearer token for the plugin's API")
+	fs.Bool(names[94], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
+	fs.String(names[95], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
+	fs.String(names[96], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
+	fs.String(names[97], "", "Base URL of NINA's Advanced API on the observatory PC, e.g. http://observatory:1888/v2/api, for the collab switch on the Collabs page; empty leaves the switch unconfigured")
+	fs.Bool(names[98], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
+	fs.Var(impl.NewInt(30), names[99], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
+	fs.Var(impl.NewInt(200), names[100], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
+	fs.Var(impl.NewInt(3), names[101], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
+	fs.String(names[102], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.String(names[103], "on", "About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
+	fs.String(names[104], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
+	fs.String(names[105], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[106], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
+	fs.Bool(names[107], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
+	fs.Var(impl.NewInt(60), names[108], "Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving")
+	fs.Float64(names[109], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
+	fs.String(names[110], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[111], "on", "Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it")
+	fs.Var(impl.NewInt(24), names[112], "Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving")
+	fs.String(names[113], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
+	fs.Var(impl.NewInt(60), names[114], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
+	fs.String(names[115], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
+	fs.String(names[116], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
+	fs.String(names[117], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
+	fs.Bool(names[118], false, "Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks")
+	fs.Var(impl.NewInt(10), names[119], "Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later")
+	fs.Var(impl.NewInt(2), names[120], "Cores one comparison may use; comparisons run one at a time and wait while the stacker is working")
+	fs.Var(impl.NewInt(48), names[121], "Most subs per filter stacked into a night's reference, taken from the other nights in turn")
+	fs.Var(impl.NewInt(30), names[122], "Nights from the last this many days are compared on their own; older nights only on request")
+	fs.String(names[123], "", "Transient Name Server bot API key; empty skips TNS")
+	fs.String(names[124], "", "Transient Name Server bot ID")
+	fs.String(names[125], "", "Transient Name Server bot name")
+	fs.String(names[126], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
+	fs.Var(impl.NewInt(1), names[127], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
+	fs.Bool(names[128], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
+	fs.String(names[129], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
+	fs.String(names[130], "America/Chicago", "IANA time zone of the send time and of the times in the report")
+	fs.String(names[131], "CT", "Label after every time in the report")
+	fs.String(names[132], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
+	fs.String(names[133], "", "Telegram bot token")
+	fs.String(names[134], "", "Telegram chat the report goes to")
+	fs.String(names[135], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
 	return nil
 }
 
@@ -3237,6 +3259,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Stacking.RecalibrateLimit = v
 		set("stacking.recalibrate-limit", configulator.LayerCLI, "--"+n)
+	}
+	if n := "stacking" + o.Separator + "dust-check"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "stacking.dust-check",
+				Source: "--" + n,
+			}
+		}
+		cfg.Stacking.DustCheck = v
+		set("stacking.dust-check", configulator.LayerCLI, "--"+n)
 	}
 	if n := "stacking" + o.Separator + "drain-seconds"; fs.Changed(n) {
 		v, err := fs.GetInt(n)
@@ -5723,6 +5757,19 @@ func (s *stackingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".recalibrate-limit", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "dust-check":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.DustCheck = &b
+			default:
+				return configJSONError(path+".dust-check", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
 		case "drain-seconds":
 			v, err := dec.ReadToken()
 			if err != nil {
@@ -7385,6 +7432,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "stacking.pedestal = %v\n", c.Stacking.Pedestal)
 	fmt.Fprintf(&b, "stacking.calibration-settle-minutes = %v\n", c.Stacking.CalibrationSettle)
 	fmt.Fprintf(&b, "stacking.recalibrate-limit = %v\n", c.Stacking.RecalibrateLimit)
+	fmt.Fprintf(&b, "stacking.dust-check = %v\n", c.Stacking.DustCheck)
 	fmt.Fprintf(&b, "stacking.drain-seconds = %v\n", c.Stacking.DrainSeconds)
 	fmt.Fprintf(&b, "stacking.ts-verdicts = %v\n", c.Stacking.TSVerdicts)
 	fmt.Fprintf(&b, "stacking.ts-verdicts-since = %v\n", c.Stacking.TSVerdictsSince)

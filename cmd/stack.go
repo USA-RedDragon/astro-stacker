@@ -93,6 +93,7 @@ func newPipeline(cfg *config.Config, s3 *minio.Client, appStore, schedStore stor
 	opts.MosaicSeams = cfg.Stacking.MosaicSeams
 	opts.CalibrationSettle = time.Duration(cfg.Stacking.CalibrationSettle) * time.Minute
 	opts.RecalibrateLimit = cfg.Stacking.RecalibrateLimit
+	opts.DustCheck = cfg.Stacking.DustCheck
 	opts.RegisteredGrace = time.Duration(cfg.Stacking.RegisteredGraceHours) * time.Hour
 	opts.RegisteredDeletePause = time.Duration(cfg.Stacking.RegisteredDeletePause) * time.Millisecond
 	opts.RegisteredBackfillRate = cfg.Stacking.RegisteredBackfillRate

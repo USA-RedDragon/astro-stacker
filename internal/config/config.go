@@ -284,6 +284,7 @@ type Stacking struct {
 	Pedestal           float64 `name:"pedestal" description:"Camera pedestal in ADU at offset 50, for scoring subs with no master bias measured at their gain and offset" default:"506"`
 	CalibrationSettle  int     `name:"calibration-settle-minutes" description:"Minutes a flat, dark or bias set must go without a new frame before a master is built from it; lights it matches wait meanwhile" default:"180"`
 	RecalibrateLimit   int     `name:"recalibrate-limit" description:"Most stacked lights waiting at once to be calibrated again with a better dark; more are queued as they clear" default:"300"`
+	DustCheck          bool    `name:"dust-check" description:"Check each settled flat set for dust that came, went or moved since the last flat of its filter, and each night's lights for dust their flats don't hold" default:"true"`
 	DrainSeconds       int     `name:"drain-seconds" description:"On shutdown, seconds to let the stacker finish the batch, master, mosaic or comet it is on before cancelling it" default:"1200"`
 	// TSVerdicts sends the subs left out of masters (low score, moon) back to
 	// Target Scheduler as rejected, so they stop counting toward its
