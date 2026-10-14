@@ -110,6 +110,9 @@ func (c Collector) Collect(ctx context.Context, night time.Time) (Report, error)
 	if r.Subs.Count > 0 {
 		r.Images = c.images(ctx, r.Subs, night)
 	}
+	if c.App != nil {
+		c.dust(ctx, &r)
+	}
 	return r, nil
 }
 
