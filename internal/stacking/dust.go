@@ -130,7 +130,7 @@ func (p *Pipeline) runDust(ctx context.Context) {
 func dustGroupKey(s calmatch.Set) string {
 	num := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
 	return strings.Join([]string{s.Night.Format(time.DateOnly), s.Object, s.Filter, num(s.Rotator),
-		num(s.Exposure), num(s.Gain), num(s.Offset), num(s.SetTemp), num(s.BinX)}, "\x00")
+		num(s.Exposure), num(s.Gain), num(s.Offset), num(s.SetTemp), num(s.BinX)}, "|")
 }
 
 type pendingFlat struct {
