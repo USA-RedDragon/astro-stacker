@@ -52,7 +52,7 @@ s3:
   # S3 access key
   # access-key: ""
   # S3 secret key
-  # secret-key: ""
+  # secret-key: "(secret)"
   # Bucket for previews and processed frames
   processed-bucket: "astro-processed"
   # S3 host browsers use for presigned URLs
@@ -275,3 +275,21 @@ scheduling:
   auto: "off"
   # Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends
   interval-hours: 1
+# A daily Telegram report on the night that just ended: safe and imaged hours, subs kept and rejected, unsafe events and how fast the flap closed, dew, autofocus, guiding and camera, with each imaged target's current stack
+morning-report:
+  # Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day
+  enabled: false
+  # Local time of day, HH:MM, the report is sent; each report covers the day before up to this time
+  time: "11:00"
+  # IANA time zone of the send time and of the times in the report
+  timezone: "America/Chicago"
+  # Label after every time in the report
+  zone-label: "CT"
+  # Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured
+  # loki-url: ""
+  # Telegram bot token
+  # telegram-token: "(secret)"
+  # Telegram chat the report goes to
+  # telegram-chat-id: ""
+  # First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night
+  # first-night: ""
