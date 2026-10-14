@@ -38,7 +38,7 @@ func TestVerdict(t *testing.T) {
 		app.StackStatusAdded: {true, true}, app.StackStatusNight: {true, true}, app.StackStatusRecalibrate: {true, true},
 		app.StackStatusMoon: {true, true}, app.StackStatusLowScore: {false, true}, app.StackStatusRejected: {false, true},
 		app.StackStatusOffTarget: {false, false}, app.StackStatusDead: {false, false}, app.StackStatusUnmeasured: {false, false},
-		app.StackStatusCalibration: {false, false}, "": {false, false},
+		app.StackStatusCalibration: {false, false}, app.StackStatusOffTemp: {false, false}, "": {false, false},
 	} {
 		if k, ok := Verdict(status); k != want[0] || ok != want[1] {
 			t.Errorf("Verdict(%q) = %v %v, want %v %v", status, k, ok, want[0], want[1])

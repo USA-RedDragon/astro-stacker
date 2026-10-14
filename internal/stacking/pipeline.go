@@ -36,6 +36,9 @@ import (
 // PipelineOptions configure the stacker.
 type PipelineOptions struct {
 	RejectDarksSince time.Time
+	// RejectOffTempSince is when lights off their sensor setpoint start to
+	// be left out (offTemp); zero turns the rule off.
+	RejectOffTempSince time.Time
 	// MinScore is the lowest sub score that goes into a master.
 	MinScore float64
 	// Pedestal is the camera's ADU offset, for scoring.
@@ -533,10 +536,14 @@ func (p *Pipeline) triage(ctx context.Context, frames []app.Frame, scores map[st
 		}
 		c, status := p.classify(f, scores, sets, positions)
 		status = withMoon(status, moonlit[f.ID] != "", moonFree)
+		status, warm := withTemp(status, f, p.opts.RejectOffTempSince)
 		if status != "" {
 			sf := p.leftOut(c, status)
 			if why := moonlit[f.ID]; status == app.StackStatusMoon {
 				sf.Error = &why
+			}
+			if status == app.StackStatusOffTemp {
+				sf.Error = &warm
 			}
 			if err := p.record(ctx, sf); err != nil {
 				return nil, err

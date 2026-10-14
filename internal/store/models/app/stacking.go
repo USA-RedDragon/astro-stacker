@@ -205,6 +205,7 @@ const (
 	StackStatusRecalibrate  = "recalibrate" // stacked with no dark or a worse one than now matches
 	StackStatusMoon         = "moon"        // breaks its filter's moon avoidance
 	StackStatusDuplicate    = "duplicate"   // the same file as an earlier light of the target
+	StackStatusOffTemp      = "off_temp"    // the sensor was off its setpoint (stacking.LightTempToleranceC)
 	StackStatusNight        = "night"
 )
 

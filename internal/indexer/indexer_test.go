@@ -77,7 +77,7 @@ func TestPhotometryPending(t *testing.T) {
 	}{
 		{"new", nil, ""}, {"old-rev", &old, app.StackStatusAdded}, {"measured", &cur, app.StackStatusAdded},
 		{"low", nil, app.StackStatusLowScore}, {"elsewhere", nil, app.StackStatusOffTarget},
-		{"twice", nil, app.StackStatusDuplicate}, {"dead", nil, app.StackStatusDead},
+		{"twice", nil, app.StackStatusDuplicate}, {"dead", nil, app.StackStatusDead}, {"warm", nil, app.StackStatusOffTemp},
 	} {
 		f := app.Frame{Key: c.key, Type: "LIGHT", LastModified: time.Now(), PhotometryRev: c.rev}
 		if err := db.Create(&f).Error; err != nil {

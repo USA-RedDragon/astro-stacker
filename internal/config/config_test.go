@@ -3,6 +3,7 @@ package config_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	configulator "github.com/USA-RedDragon/configulator/v2"
@@ -77,6 +78,33 @@ func TestTSVerdicts(t *testing.T) {
 		if err := cfg.Validate(); !errors.Is(err, tt.want) {
 			t.Errorf("mode %q since %q: Validate() = %v, want %v", tt.mode, tt.since, err, tt.want)
 		}
+	}
+}
+
+func TestRejectOffTempSince(t *testing.T) {
+	t.Parallel()
+
+	defConfig, err := configulator.New(config.ConfigSchema()).Default()
+	if err != nil {
+		t.Fatalf("failed to create default config: %v", err)
+	}
+	if defConfig.Stacking.RejectOffTempSince != "2026-10-13" {
+		t.Errorf("reject-off-temp-since defaults to %q, want 2026-10-13", defConfig.Stacking.RejectOffTempSince)
+	}
+	if got, want := defConfig.Stacking.RejectOffTempSinceTime(), time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("RejectOffTempSinceTime() = %v, want %v", got, want)
+	}
+	for since, want := range map[string]error{"": nil, "2026-10-13": nil, "October": config.ErrInvalidRejectOffTempSince,
+		"2026-10-13T00:00:00Z": config.ErrInvalidRejectOffTempSince} {
+		cfg := defConfig
+		cfg.Stacking.RejectOffTempSince = since
+		if err := cfg.Validate(); !errors.Is(err, want) {
+			t.Errorf("since %q: Validate() = %v, want %v", since, err, want)
+		}
+	}
+	defConfig.Stacking.RejectOffTempSince = ""
+	if !defConfig.Stacking.RejectOffTempSinceTime().IsZero() {
+		t.Error("an empty reject-off-temp-since must turn the rule off")
 	}
 }
 

@@ -377,7 +377,7 @@ type sub struct {
 }
 
 func skippedStatus() []string {
-	return []string{app.StackStatusOffTarget, app.StackStatusDead, app.StackStatusFailed, app.StackStatusDuplicate}
+	return []string{app.StackStatusOffTarget, app.StackStatusDead, app.StackStatusFailed, app.StackStatusDuplicate, app.StackStatusOffTemp}
 }
 
 func (s *Service) lights(ctx context.Context, images map[string]tsImage, peds quality.Pedestals, site sky.Site,

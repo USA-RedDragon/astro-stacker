@@ -22,12 +22,12 @@ import (
 //
 // Target Scheduler (TS) counts a sub toward its exposure plan once its own
 // grader accepts it, and stops imaging a target when the plans are full. The
-// stacker leaves many of those subs out of its masters (low_score, moon), so
-// TS stops early. sendVerdicts tells TS: for each such sub TS still counts,
-// it writes a row into stacker_verdict in the scheduler database, which
-// SymmetricDS copies to the observatory, where a trigger rejects the image and
-// takes one off its plan's accepted count (observatory-verdicts.sql in the
-// cluster repo). The trigger acts only while TS is not grading that plan, so
+// stacker leaves many of those subs out of its masters (low_score, moon,
+// off_temp), so TS stops early. sendVerdicts tells TS: for each such sub TS
+// still counts, it writes a row into stacker_verdict in the scheduler
+// database, which SymmetricDS copies to the observatory, where a trigger
+// rejects the image and takes one off its plan's accepted count
+// (observatory-verdicts.sql in the cluster repo). The trigger acts only while TS is not grading that plan, so
 // a verdict may not take at once; the image's grading comes back through
 // SymmetricDS, and a verdict TS does not show yet is sent again (its attempt
 // counter bumped, which fires the trigger again) with a backoff.
@@ -74,6 +74,8 @@ func verdictReason(status string) string {
 	switch status {
 	case app.StackStatusMoon:
 		return stackerReasonPrefix + " moon"
+	case app.StackStatusOffTemp:
+		return stackerReasonPrefix + " temperature"
 	default:
 		return stackerReasonPrefix + " sky"
 	}
@@ -129,7 +131,7 @@ func backoff(attempts int) time.Duration {
 }
 
 // planVerdicts decides what to send. frames are lights with status
-// low_score, moon or added; images TS's acquired images; known the verdicts
+// low_score, moon, off_temp or added; images TS's acquired images; known the verdicts
 // sent before, by acquired image.
 func planVerdicts(frames []verdictFrame, images []tsImage, known map[int]app.TSVerdict, now time.Time, maxNew int) verdictPlan {
 	type key struct{ target, file string }
@@ -191,7 +193,7 @@ func planVerdicts(frames []verdictFrame, images []tsImage, known map[int]app.TSV
 
 func wantedVerdict(status string) int {
 	switch status {
-	case app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon:
+	case app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon, app.StackStatusOffTemp:
 		return app.TSVerdictReject
 	case app.StackStatusAdded, app.StackStatusNight:
 		return app.TSVerdictAccept
@@ -259,13 +261,13 @@ func observeVerdict(v *app.TSVerdict, im tsImage, now *time.Time) {
 }
 
 // verdictFrames loads the lights the verdicts are about: left out for low
-// score or moon, or stacked after all when a verdict was sent for them.
+// score, moon or sensor temperature, or stacked after all when a verdict was sent for them.
 func (p *Pipeline) verdictFrames(ctx context.Context, opts VerdictOptions) ([]verdictFrame, error) {
 	q := p.db.WithContext(ctx).Table("stack_frames sf").
 		Select("sf.frame_id, f.key, f.object, f.filter, sf.status, coalesce(sf.metadata_source, '') AS source").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
 		Where("sf.status IN ? OR (sf.status IN ? AND EXISTS (SELECT 1 FROM ts_verdicts v WHERE v.frame_id = sf.frame_id))",
-			[]string{app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon}, stackedStatuses())
+			[]string{app.StackStatusLowScore, app.StackStatusUnmeasured, app.StackStatusMoon, app.StackStatusOffTemp}, stackedStatuses())
 	if !opts.Since.IsZero() {
 		q = q.Where("f.date_obs >= ?", opts.Since)
 	}
