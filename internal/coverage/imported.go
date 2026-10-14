@@ -41,18 +41,35 @@ type ImportedSet struct {
 type importedSpec struct {
 	typ, key, night string
 	gain            float64
+	filter          string
 }
 
 func importedSpecs() []importedSpec {
 	const dir = "offset240/masters/"
 	bias := dir + "masterBias_BIN-1_6248x4176.xisf"
 	return []importedSpec{
-		{biasType, bias, "2025-01-19", 0},
-		{biasType, bias, "2025-01-19", 100},
-		{darkType, dir + "masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-300.00s.xisf", "2025-01-21", 0},
-		{darkType, dir + "masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-600.00s.xisf", "2025-01-21", 100},
+		{biasType, bias, "2025-01-19", 0, ""},
+		{biasType, bias, "2025-01-19", 100, ""},
+		{darkType, dir + "masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-300.00s.xisf", "2025-01-21", 0, ""},
+		{darkType, dir + "masterDark_BIN-1_6248x4176_-20.00-EXPOSURE-600.00s.xisf", "2025-01-21", 100, ""},
+		{flatType, dustBDir + "masterFlat_BIN-1_6248x4176_FILTER-Red_mono.xisf", dustBNight, 0, "Red"},
+		{flatType, dustBDir + "masterFlat_BIN-1_6248x4176_FILTER-Green_mono.xisf", dustBNight, 0, "Green"},
+		{flatType, dustBDir + "masterFlat_BIN-1_6248x4176_FILTER-Blue_mono.xisf", dustBNight, 0, "Blue"},
+		{flatType, dustBDir + "masterFlat_BIN-1_6248x4176_FILTER-H-a_mono.xisf", dustBNight, 100, "H-a"},
 	}
 }
+
+// The dust epoch from 2026-04-16 to 2026-05-27 had one dust shadow (disc
+// B) and no flats. Its flats are made from each filter's 2025-05-13 master
+// flat times disc B's shadow, fitted as a radial profile to the 2026-09-28
+// flats at 142°, where it overlaps two later shadows. On that epoch's
+// lights they left less in the dust than either real flat (the 2025 flat
+// leaves disc B, the 2026 flat adds bright copies of the later shadows).
+const (
+	flatType   = "FLAT"
+	dustBDir   = "dustfix/offset50/"
+	dustBNight = "2026-04-30"
+)
 
 const (
 	folderOffset = `(?:^|/)offset(\d+(?:\.\d+)?)/`
@@ -72,7 +89,7 @@ func fromName(pattern, s string) (float64, bool) {
 func fromKey(sp importedSpec) ImportedSet {
 	night, _ := time.Parse("2006-01-02", sp.night)
 	s := ImportedSet{
-		Set: calmatch.Set{Type: sp.typ, Night: night, Gain: sp.gain, Exposure: 0, Offset: math.NaN(),
+		Set: calmatch.Set{Type: sp.typ, Night: night, Gain: sp.gain, Filter: sp.filter, Exposure: 0, Offset: math.NaN(),
 			SetTemp: math.NaN(), BinX: math.NaN(), Rotator: math.NaN(), Master: sp.key},
 		Basis: Basis{Night: BasisHandEntered, Gain: BasisHandEntered, Exposure: BasisHandEntered},
 	}

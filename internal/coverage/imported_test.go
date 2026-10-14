@@ -46,7 +46,14 @@ func TestImportedCalibrateOffset240(t *testing.T) {
 func TestImportedFromKey(t *testing.T) {
 	t.Parallel()
 	for _, s := range coverage.Imported() {
-		if s.Offset != 240 || s.BinX != 1 {
+		wantOffset := 240.0
+		if s.Type == typeFlat {
+			wantOffset = 50
+			if s.Filter == "" || !strings.HasPrefix(s.Master, "dustfix/") {
+				t.Errorf("%s: filter %q", s.Master, s.Filter)
+			}
+		}
+		if s.Offset != wantOffset || s.BinX != 1 {
 			t.Errorf("%s: offset %v bin %v", s.Master, s.Offset, s.BinX)
 		}
 		if s.Type == typeDark && (s.SetTemp != -20 || (s.Exposure != 300 && s.Exposure != 600)) {
@@ -61,7 +68,7 @@ func importedDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&app.Frame{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.DustEpoch{}); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -84,7 +91,7 @@ func TestImportedSetsReadHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sets) != 4 {
+	if len(sets) != 8 {
 		t.Fatalf("got %d sets", len(sets))
 	}
 	for _, s := range sets {
