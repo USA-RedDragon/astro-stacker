@@ -225,6 +225,7 @@ func (p *Pipeline) mosaicsOnce(ctx context.Context) {
 		{"LinearFit failed", p.linearFitsOnce},
 		{"Comet masters failed", p.cometsOnce},
 		{"Checking for new darks failed", p.recalibrateDarks},
+		{"Checking for better flats failed", p.recalibrateFlats},
 	}
 	for _, st := range steps {
 		if p.stopping(ctx) {
