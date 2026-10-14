@@ -7,7 +7,7 @@ cmd/morningreport.go	75	0
 cmd/mosaics.go	10	0
 cmd/root.go	265	9
 cmd/scheduling.go	8	0
-cmd/stack.go	63	0
+cmd/stack.go	64	0
 cmd/triggers.go	24	24
 internal/astrometry/index.go	86	69
 internal/astrometry/procgroup_unix.go	3	3
@@ -44,7 +44,7 @@ internal/collabswitch/nina.go	107	96
 internal/collabswitch/service.go	199	161
 internal/conditions/conditions.go	240	185
 internal/conditions/moon.go	45	45
-internal/config/config.go	107	69
+internal/config/config.go	114	76
 internal/coverage/biasbacklog.go	121	110
 internal/coverage/coverage.go	191	166
 internal/coverage/darkbacklog.go	261	231
@@ -117,7 +117,7 @@ internal/horizonsurvey/camera.go	115	111
 internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
-internal/horizonsurvey/nina.go	101	81
+internal/horizonsurvey/nina.go	101	83
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
@@ -174,7 +174,7 @@ internal/ninapath/ninapath.go	9	9
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	207	178
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -227,7 +227,7 @@ internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/schedglobal.go	53	48
-internal/schedcmd/service.go	234	203
+internal/schedcmd/service.go	234	205
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/templates.go	30	28
 internal/schedcmd/window.go	58	53
@@ -264,7 +264,7 @@ internal/sky/frame.go	40	40
 internal/sky/sky.go	92	91
 internal/sky/sunset.go	20	20
 internal/skybright/skybright.go	114	111
-internal/skycutout/render.go	158	147
+internal/skycutout/render.go	158	146
 internal/skycutout/s3tiles.go	10	0
 internal/skycutout/skycutout.go	207	181
 internal/skyevents/autoplan.go	110	89
@@ -279,7 +279,7 @@ internal/stacking/accumulator.go	160	156
 internal/stacking/astrometry.go	8	0
 internal/stacking/bodynight.go	535	148
 internal/stacking/bodypos.go	32	24
-internal/stacking/comet.go	587	383
+internal/stacking/comet.go	587	384
 internal/stacking/cometcomposite.go	105	98
 internal/stacking/cometnights.go	285	98
 internal/stacking/cosmetic.go	61	50
@@ -290,7 +290,7 @@ internal/stacking/coverstretch.go	120	116
 internal/stacking/crop.go	165	127
 internal/stacking/distortion.go	83	35
 internal/stacking/duplicate.go	34	29
-internal/stacking/dust.go	296	217
+internal/stacking/dust.go	309	224
 internal/stacking/dustepoch.go	34	29
 internal/stacking/dusthistory.go	100	0
 internal/stacking/dustlights.go	134	106
@@ -311,8 +311,9 @@ internal/stacking/mosaicseams.go	295	218
 internal/stacking/mosaicstars.go	191	173
 internal/stacking/nightref.go	328	68
 internal/stacking/nth.go	27	27
+internal/stacking/offtemp.go	45	42
 internal/stacking/outputs.go	167	60
-internal/stacking/pipeline.go	466	210
+internal/stacking/pipeline.go	471	239
 internal/stacking/pointing.go	93	64
 internal/stacking/process.go	271	47
 internal/stacking/rebuild.go	329	306
@@ -323,7 +324,7 @@ internal/stacking/rescore.go	79	53
 internal/stacking/shadow.go	223	220
 internal/stacking/status.go	71	23
 internal/stacking/telescopes.go	61	56
-internal/stacking/tsverdicts.go	260	220
+internal/stacking/tsverdicts.go	261	221
 internal/starfront/starfront.go	181	145
 internal/store/gorm/gorm.go	49	0
 internal/store/models/app/calibrationrequest.go	1	1
