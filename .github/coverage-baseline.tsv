@@ -67,7 +67,7 @@ internal/discover/match.go	175	162
 internal/discover/pick.go	584	539
 internal/discover/service.go	214	202
 internal/discover/subjects.go	251	222
-internal/discoveries/catalogs.go	235	203
+internal/discoveries/catalogs.go	245	210
 internal/discoveries/classify.go	141	119
 internal/discoveries/combine.go	93	87
 internal/discoveries/cutouts.go	76	67
@@ -77,7 +77,7 @@ internal/discoveries/image.go	227	204
 internal/discoveries/kernel.go	196	185
 internal/discoveries/masks.go	39	37
 internal/discoveries/movers.go	121	109
-internal/discoveries/runner.go	624	459
+internal/discoveries/runner.go	627	464
 internal/discoveries/wcs.go	135	120
 internal/dustcheck/blobs.go	108	106
 internal/dustcheck/compare.go	108	95
@@ -264,7 +264,7 @@ internal/sky/frame.go	40	40
 internal/sky/sky.go	92	91
 internal/sky/sunset.go	20	20
 internal/skybright/skybright.go	114	111
-internal/skycutout/render.go	158	146
+internal/skycutout/render.go	158	147
 internal/skycutout/s3tiles.go	10	0
 internal/skycutout/skycutout.go	207	181
 internal/skyevents/autoplan.go	110	89
