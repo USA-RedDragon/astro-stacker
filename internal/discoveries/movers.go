@@ -84,6 +84,35 @@ func transients(times []time.Time, dets [][]moverDet, scale float64) ([][2]float
 	return all, lab, transient
 }
 
+const moverFalseTracks = 0.05
+
+// chanceHits is how many subs besides a seed pair's two must agree before a
+// track is unlikely to be chance: with the transient detections of every
+// sub scattered over area, a prediction lands within 2.5 px of one in a
+// sub with probability density times the disc, so the agreeing subs of a
+// random pair are about Poisson with the sum of those as mean, and k is the
+// least count whose tail, times the pairs tried, is under 0.05 false
+// tracks. A crowded Milky Way field with many residuals needs more subs.
+func chanceHits(pts [][][2]float64, area float64, pairs int) int {
+	if area <= 0 || pairs == 0 {
+		return 0
+	}
+	var lambda float64
+	for _, p := range pts {
+		lambda += float64(len(p)) / area * math.Pi * moverPredictPx * moverPredictPx
+	}
+	term := math.Exp(-lambda)
+	cdf := term
+	for k := 1; k < len(pts); k++ {
+		if float64(pairs)*(1-cdf) < moverFalseTracks {
+			return k
+		}
+		term *= lambda / float64(k)
+		cdf += term
+	}
+	return len(pts)
+}
+
 // MinHits is how many of a night's n subs a track must be seen in: 5, or
 // 16% of the subs on a night of many, as chance alignments of noise grow
 // with the subs to pick from. On IC 3393's 51-sub L, R, G and B night chance
@@ -93,7 +122,7 @@ func MinHits(n int) int {
 	return max(MoverMinHits, int(math.Ceil(moverMinShare*float64(n))))
 }
 
-func linkMovers(times []time.Time, dets [][]moverDet, scale float64) ([][]hit, [][]bool) {
+func linkMovers(times []time.Time, dets [][]moverDet, scale, area float64) ([][]hit, [][]bool) {
 	n := len(times)
 	if n < MoverMinHits {
 		return nil, nil
@@ -123,6 +152,7 @@ func linkMovers(times []time.Time, dets [][]moverDet, scale float64) ([][]hit, [
 	vmin := moverMinArcMin / scale * 1440
 	seen := map[string]bool{}
 	var sets [][]hit
+	pairs := 0
 	for a := range n {
 		for b := a + 1; b < n && (b <= a+moverMaxGap || times[b].Sub(times[a]) <= moverPairWindow); b++ {
 			dt := days(a, b)
@@ -131,6 +161,7 @@ func linkMovers(times []time.Time, dets [][]moverDet, scale float64) ([][]hit, [
 			}
 			for ia, pa := range pts[a] {
 				for _, jb := range grids[b].Within(pa[0], pa[1], vmax*dt) {
+					pairs++
 					pb := pts[b][jb]
 					vx, vy := (pb[0]-pa[0])/dt, (pb[1]-pa[1])/dt
 					if math.Hypot(vx, vy) < vmin {
@@ -162,6 +193,9 @@ func linkMovers(times []time.Time, dets [][]moverDet, scale float64) ([][]hit, [
 				}
 			}
 		}
+	}
+	if need := chanceHits(pts, area, pairs) + 2; need > minHits {
+		sets = slices.DeleteFunc(sets, func(s []hit) bool { return len(s) < need })
 	}
 	sort.Slice(sets, func(i, j int) bool { return len(sets[i]) > len(sets[j]) })
 	var keep [][]hit
@@ -234,4 +268,16 @@ func fitTrack(ts []time.Time, xs, ys []float64) (t0 time.Time, x0, y0, vx, vy, r
 		rs += ex*ex + ey*ey
 	}
 	return t0, x0, y0, vx, vy, math.Sqrt(rs / n)
+}
+
+// validArea counts the pixels away from the edges, where detections are
+// made.
+func validArea(edge []bool) float64 {
+	n := 0
+	for _, e := range edge {
+		if !e {
+			n++
+		}
+	}
+	return float64(n)
 }
