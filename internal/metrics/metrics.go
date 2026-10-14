@@ -59,6 +59,9 @@ var (
 		Help: "Bytes the registered sub backfill read and wrote, by direction."}, []string{"direction"})
 	RegisteredBackfillRemaining = promauto.NewGauge(prometheus.GaugeOpts{Namespace: ns, Name: "registered_backfill_remaining",
 		Help: "Stacked subs whose registered copy is still 32-bit FITS."})
+	FlatDustEvents = promauto.NewGaugeVec(prometheus.GaugeOpts{Namespace: ns, Name: "flat_dust_events",
+		Help: "Dust changes in flats from the last 36 hours, by filter, kind (new, gone, moved) and scope (window, filter, unknown)."},
+		[]string{"filter", "kind", "scope"})
 	TSVerdictsSent = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "ts_verdicts_sent_total",
 		Help: "Verdicts written for Target Scheduler, by kind (new, retry, undo, redo)."}, []string{"kind"})
 )

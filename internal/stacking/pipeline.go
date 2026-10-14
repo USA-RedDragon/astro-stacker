@@ -89,6 +89,10 @@ type PipelineOptions struct {
 	RebuildCache     int64
 	RebuildCacheFree int64
 
+	// DustCheck checks settled flat sets and nights of lights for dust
+	// changes (runDust).
+	DustCheck bool
+
 	RegisteredGrace        time.Duration
 	RegisteredDeletePause  time.Duration
 	RegisteredBackfillRate float64
@@ -111,6 +115,7 @@ func DefaultPipelineOptions() PipelineOptions {
 		MosaicQuiet:       30 * time.Minute,
 		MosaicSeams:       true,
 		CalibrationSettle: 3 * time.Hour,
+		DustCheck:         true,
 		RecalibrateLimit:  300,
 		Stack:             DefaultOptions(),
 
@@ -207,6 +212,10 @@ type Pipeline struct {
 	verdictNews []time.Time
 
 	objects registeredStore
+
+	dust dustState
+	// dustMasterFor, if set, stands in for masterFor in the dust check.
+	dustMasterFor func(context.Context, calmatch.Set, []calmatch.Set) (string, string, error)
 }
 
 // Verdict and mosaic kicks are debounced by these, so a night of new subs
@@ -369,6 +378,9 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		}
 	})
 	wg.Go(func() { p.runRegisteredGC(ctx) })
+	if p.opts.DustCheck {
+		wg.Go(func() { p.runDust(ctx) })
+	}
 	wg.Go(func() { p.runRegisteredBackfill(ctx) })
 	if p.opts.MosaicInterval > 0 {
 		wg.Go(func() { p.runMosaics(ctx, p.opts.MosaicInterval) })

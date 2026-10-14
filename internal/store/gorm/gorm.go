@@ -51,6 +51,9 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err := seedDustEpochs(store.db); err != nil {
 		return nil, err
 	}
+	if err := store.db.AutoMigrate(app.DustFlat{}, app.DustEvent{}); err != nil {
+		return nil, err
+	}
 	if err := normalizeFilters(store.db); err != nil {
 		return nil, err
 	}
