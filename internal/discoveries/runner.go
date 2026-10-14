@@ -482,10 +482,8 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 				}
 				j := Job{Object: object, Group: g, Night: night}
 				if run, ok := have[j.key()]; ok {
-					if run.Method == Method && run.SubsHash == subsHash(subs) {
-						if run.State != app.DiscoveryFailed || run.Attempts >= maxAttempts || (run.NextTry != nil && run.NextTry.After(now)) {
-							continue
-						}
+					if run.Method == Method && run.SubsHash == subsHash(subs) && settledRun(run, now) {
+						continue
 					}
 				}
 				jobs = append(jobs, j)
@@ -533,13 +531,26 @@ func (r *Runner) runOne(ctx context.Context, j Job) {
 		msg := err.Error()
 		next := r.now().Add(failureBackoff)
 		r.db.Model(run).Updates(map[string]any{"state": state, "error": msg, "stage": "", "attempts": run.Attempts + 1, "next_try": next,
-			"finished_at": r.now(), "seconds": r.now().Sub(start).Seconds()})
+			"subs_hash": run.SubsHash, "method": Method, "finished_at": r.now(), "seconds": r.now().Sub(start).Seconds()})
 		if state == app.DiscoveryFailed {
 			slog.Warn("Discovery run failed", "object", j.Object, "night", j.Night.Format(time.DateOnly), "group", j.Group, "error", err)
 		} else {
 			slog.Info("Discovery run skipped", "object", j.Object, "night", j.Night.Format(time.DateOnly), "group", j.Group, "reason", err)
 		}
 	}
+}
+
+// settledRun says whether a run needs nothing more: done, skipped, or
+// failed and waiting out its backoff or out of attempts. A run left running
+// or queued by a restart is due again.
+func settledRun(run app.DiscoveryRun, now time.Time) bool {
+	switch run.State {
+	case app.DiscoveryDone, app.DiscoverySkipped:
+		return true
+	case app.DiscoveryFailed:
+		return run.Attempts >= maxAttempts || (run.NextTry != nil && run.NextTry.After(now))
+	}
+	return false
 }
 
 var errNotEligible = errors.New("fewer than 3 nights with accepted subs in this filter group")
