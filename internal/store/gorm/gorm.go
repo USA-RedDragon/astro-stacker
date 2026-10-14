@@ -45,10 +45,30 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err := store.db.AutoMigrate(app.DiscoveryRun{}, app.DiscoveryCandidate{}); err != nil {
 		return nil, err
 	}
+	if err := store.db.AutoMigrate(app.DustEpoch{}); err != nil {
+		return nil, err
+	}
+	if err := seedDustEpochs(store.db); err != nil {
+		return nil, err
+	}
 	if err := normalizeFilters(store.db); err != nil {
 		return nil, err
 	}
 	return store, nil
+}
+
+// seedDustEpochs fills an empty dust epoch table with the boundaries dated
+// from the lights by the 2026-10 dust study. It leaves a table with rows as
+// it is, so rows edited or removed by hand stay that way.
+func seedDustEpochs(db *gorm.DB) error {
+	var n int64
+	if err := db.Model(&app.DustEpoch{}).Count(&n).Error; err != nil || n > 0 {
+		return err
+	}
+	return db.Create(&[]app.DustEpoch{
+		{Start: time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC), Fallback: dustSeedAprilFallback, Note: dustSeedAprilNote},
+		{Start: time.Date(2026, 5, 28, 0, 0, 0, 0, time.UTC), Note: dustSeedMayNote},
+	}).Error
 }
 
 // normalizeFilters renames filters indexed before their names were
@@ -116,3 +136,15 @@ func (g *Gorm) WithContext(ctx context.Context) *Gorm {
 func (g *Gorm) DB() *gorm.DB {
 	return g.db
 }
+
+const (
+	dustSeedAprilFallback = "previous"
+	dustSeedAprilNote     = "Disc B, about 520 px across and 1.1 % deep near x 2610, y 1900, came between the nights of 2026-04-08 (clean) " +
+		"and 2026-04-16 (shadow present); no lights were taken between, so any start in that span splits the lights the same way. " +
+		"No flats were taken in this epoch. On its lights the 2025-05-13 flats left a mean of -0.16 % (rms 0.46 %) in the dust, " +
+		"the 2026-09-28 flats +0.45 % (rms 0.59 %) as they add bright copies of the later shadows, so the earlier epoch's flats " +
+		"are the fallback; Red, Green, Blue and H-a get synthesized flats instead (coverage dustBDir), which left +0.11 % (rms 0.35 %)."
+	dustSeedMayNote = "Disc A, overlapping disc B below it, and disc C near x 4830, y 2500 (0.35 % deep) came during the night of " +
+		"2026-05-27: the overlap darkened from -0.1 % to -0.9 % through that night and kept deepening to its full depth by 2026-06-01. " +
+		"The boundary is the first night with most of it; nights 2026-05-27 to 2026-06-01 hold partial shadows that no flat matches."
+)
