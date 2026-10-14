@@ -49,3 +49,24 @@ func NewSchedulerDBStore(cfg *config.Config) (Store, error) {
 		return nil, config.ErrInvalidStorageType
 	}
 }
+
+// OpenReadOnly opens the database at dsn without migrating it. On
+// PostgreSQL it holds one connection whose transactions are read only.
+func OpenReadOnly(typ types.StorageType, dsn string) (Store, error) {
+	g, err := gorm.NewGormStore(typ, dsn)
+	if err != nil {
+		return nil, err
+	}
+	if typ == types.StorageTypePostgres {
+		sqlDB, err := g.DB().DB()
+		if err != nil {
+			return nil, err
+		}
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+		if err := g.DB().Exec("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY").Error; err != nil {
+			return nil, err
+		}
+	}
+	return &gormStore{Gorm: g}, nil
+}

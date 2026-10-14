@@ -539,6 +539,14 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 	}
 }
 
+// CometCover reports whether a target's cover shows its comet masters,
+// each comet stacked on itself; stacks are its masters with a linear
+// preview.
+func CometCover(stacks []app.Stack) bool {
+	comet, _ := cometCover(stacks, nil)
+	return comet
+}
+
 // cometCover decides how a target's cover shows a comet. It is shown as its
 // comet masters see it, sharp, but only once every filter has one made by
 // the current cometMethod: comet-aligned and star-aligned channels put the

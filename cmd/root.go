@@ -65,7 +65,7 @@ func NewCommand(version, commit string) *cobra.Command {
 		SilenceErrors:     true,
 		DisableAutoGenTag: true,
 	}
-	cmd.AddCommand(newStackCommand())
+	cmd.AddCommand(newStackCommand(), newMorningReportCommand())
 	return cmd
 }
 
@@ -274,6 +274,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		go previews.Run(indexCtx)
 		extras.Grader = &observatory.GraderCache{Client: obs, Monitor: monitor}
 	}
+
+	startMorningReport(indexCtx, cfg, appStore, schedulerDBStore)
 
 	kick.goalSwitch = startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
 	extras.Scheduling = startScheduling(indexCtx, cfg, appStore, schedulerDBStore, commands, bodyNights, horizon)

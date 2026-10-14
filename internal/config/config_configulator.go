@@ -7,6 +7,7 @@ package config
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -196,26 +197,38 @@ type schedulingShadow struct {
 	IntervalHours *int    `json:"interval-hours" toml:"interval-hours" yaml:"interval-hours"`
 }
 
+type morningReportShadow struct {
+	Enabled        *bool   `json:"enabled"          toml:"enabled"          yaml:"enabled"`
+	Time           *string `json:"time"             toml:"time"             yaml:"time"`
+	Timezone       *string `json:"timezone"         toml:"timezone"         yaml:"timezone"`
+	ZoneLabel      *string `json:"zone-label"       toml:"zone-label"       yaml:"zone-label"`
+	LokiURL        *string `json:"loki-url"         toml:"loki-url"         yaml:"loki-url"`
+	TelegramToken  *string `json:"telegram-token"   toml:"telegram-token"   yaml:"telegram-token"`
+	TelegramChatID *string `json:"telegram-chat-id" toml:"telegram-chat-id" yaml:"telegram-chat-id"`
+	FirstNight     *string `json:"first-night"      toml:"first-night"      yaml:"first-night"`
+}
+
 type configShadow struct {
-	LogLevel     *string             `json:"log-level"     toml:"log-level"     yaml:"log-level"`
-	HTTP         *hTTPShadow         `json:"http"          toml:"http"          yaml:"http"`
-	Metrics      *metricsShadow      `json:"metrics"       toml:"metrics"       yaml:"metrics"`
-	PProf        *pProfShadow        `json:"pprof"         toml:"pprof"         yaml:"pprof"`
-	Storage      *storageShadow      `json:"storage"       toml:"storage"       yaml:"storage"`
-	S3           *s3Shadow           `json:"s3"            toml:"s3"            yaml:"s3"`
-	Indexer      *indexerShadow      `json:"indexer"       toml:"indexer"       yaml:"indexer"`
-	Previews     *previewsShadow     `json:"previews"      toml:"previews"      yaml:"previews"`
-	Stacking     *stackingShadow     `json:"stacking"      toml:"stacking"      yaml:"stacking"`
-	PublicFrames *publicFramesShadow `json:"public-frames" toml:"public-frames" yaml:"public-frames"`
-	Discover     *discoverShadow     `json:"discover"      toml:"discover"      yaml:"discover"`
-	Scheduler    *schedulerShadow    `json:"scheduler"     toml:"scheduler"     yaml:"scheduler"`
-	Goals        *goalsShadow        `json:"goals"         toml:"goals"         yaml:"goals"`
-	Darks        *darksShadow        `json:"darks"         toml:"darks"         yaml:"darks"`
-	SubLength    *subLengthShadow    `json:"sub-length"    toml:"sub-length"    yaml:"sub-length"`
-	Calibration  *calibrationShadow  `json:"calibration"   toml:"calibration"   yaml:"calibration"`
-	MoonKeep     *moonKeepShadow     `json:"moon-keep"     toml:"moon-keep"     yaml:"moon-keep"`
-	Bodies       *bodiesShadow       `json:"bodies"        toml:"bodies"        yaml:"bodies"`
-	Scheduling   *schedulingShadow   `json:"scheduling"    toml:"scheduling"    yaml:"scheduling"`
+	LogLevel      *string              `json:"log-level"      toml:"log-level"      yaml:"log-level"`
+	HTTP          *hTTPShadow          `json:"http"           toml:"http"           yaml:"http"`
+	Metrics       *metricsShadow       `json:"metrics"        toml:"metrics"        yaml:"metrics"`
+	PProf         *pProfShadow         `json:"pprof"          toml:"pprof"          yaml:"pprof"`
+	Storage       *storageShadow       `json:"storage"        toml:"storage"        yaml:"storage"`
+	S3            *s3Shadow            `json:"s3"             toml:"s3"             yaml:"s3"`
+	Indexer       *indexerShadow       `json:"indexer"        toml:"indexer"        yaml:"indexer"`
+	Previews      *previewsShadow      `json:"previews"       toml:"previews"       yaml:"previews"`
+	Stacking      *stackingShadow      `json:"stacking"       toml:"stacking"       yaml:"stacking"`
+	PublicFrames  *publicFramesShadow  `json:"public-frames"  toml:"public-frames"  yaml:"public-frames"`
+	Discover      *discoverShadow      `json:"discover"       toml:"discover"       yaml:"discover"`
+	Scheduler     *schedulerShadow     `json:"scheduler"      toml:"scheduler"      yaml:"scheduler"`
+	Goals         *goalsShadow         `json:"goals"          toml:"goals"          yaml:"goals"`
+	Darks         *darksShadow         `json:"darks"          toml:"darks"          yaml:"darks"`
+	SubLength     *subLengthShadow     `json:"sub-length"     toml:"sub-length"     yaml:"sub-length"`
+	Calibration   *calibrationShadow   `json:"calibration"    toml:"calibration"    yaml:"calibration"`
+	MoonKeep      *moonKeepShadow      `json:"moon-keep"      toml:"moon-keep"      yaml:"moon-keep"`
+	Bodies        *bodiesShadow        `json:"bodies"         toml:"bodies"         yaml:"bodies"`
+	Scheduling    *schedulingShadow    `json:"scheduling"     toml:"scheduling"     yaml:"scheduling"`
+	MorningReport *morningReportShadow `json:"morning-report" toml:"morning-report" yaml:"morning-report"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -400,6 +413,12 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("scheduling.auto", configulator.LayerDefault, "default tag")
 	cfg.Scheduling.IntervalHours = 1
 	set("scheduling.interval-hours", configulator.LayerDefault, "default tag")
+	cfg.MorningReport.Time = "11:00"
+	set("morning-report.time", configulator.LayerDefault, "default tag")
+	cfg.MorningReport.Timezone = "America/Chicago"
+	set("morning-report.timezone", configulator.LayerDefault, "default tag")
+	cfg.MorningReport.ZoneLabel = "CT"
+	set("morning-report.zone-label", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -928,6 +947,40 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Scheduling.IntervalHours != nil {
 			cfg.Scheduling.IntervalHours = *s.Scheduling.IntervalHours
 			set("scheduling.interval-hours", configulator.LayerFile, file)
+		}
+	}
+	if s.MorningReport != nil {
+		if s.MorningReport.Enabled != nil {
+			cfg.MorningReport.Enabled = *s.MorningReport.Enabled
+			set("morning-report.enabled", configulator.LayerFile, file)
+		}
+		if s.MorningReport.Time != nil {
+			cfg.MorningReport.Time = *s.MorningReport.Time
+			set("morning-report.time", configulator.LayerFile, file)
+		}
+		if s.MorningReport.Timezone != nil {
+			cfg.MorningReport.Timezone = *s.MorningReport.Timezone
+			set("morning-report.timezone", configulator.LayerFile, file)
+		}
+		if s.MorningReport.ZoneLabel != nil {
+			cfg.MorningReport.ZoneLabel = *s.MorningReport.ZoneLabel
+			set("morning-report.zone-label", configulator.LayerFile, file)
+		}
+		if s.MorningReport.LokiURL != nil {
+			cfg.MorningReport.LokiURL = *s.MorningReport.LokiURL
+			set("morning-report.loki-url", configulator.LayerFile, file)
+		}
+		if s.MorningReport.TelegramToken != nil {
+			cfg.MorningReport.TelegramToken = *s.MorningReport.TelegramToken
+			set("morning-report.telegram-token", configulator.LayerFile, file)
+		}
+		if s.MorningReport.TelegramChatID != nil {
+			cfg.MorningReport.TelegramChatID = *s.MorningReport.TelegramChatID
+			set("morning-report.telegram-chat-id", configulator.LayerFile, file)
+		}
+		if s.MorningReport.FirstNight != nil {
+			cfg.MorningReport.FirstNight = *s.MorningReport.FirstNight
+			set("morning-report.first-night", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -2063,6 +2116,47 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Scheduling.IntervalHours = int(p)
 		set("scheduling.interval-hours", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "morning-report", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.enabled",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.MorningReport.Enabled = p
+		set("morning-report.enabled", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "morning-report", "time"); ok {
+		cfg.MorningReport.Time = v
+		set("morning-report.time", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "morning-report", "timezone"); ok {
+		cfg.MorningReport.Timezone = v
+		set("morning-report.timezone", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "morning-report", "zone-label"); ok {
+		cfg.MorningReport.ZoneLabel = v
+		set("morning-report.zone-label", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "morning-report", "loki-url"); ok {
+		cfg.MorningReport.LokiURL = v
+		set("morning-report.loki-url", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "morning-report", "telegram-token"); ok {
+		cfg.MorningReport.TelegramToken = v
+		set("morning-report.telegram-token", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "morning-report", "telegram-chat-id"); ok {
+		cfg.MorningReport.TelegramChatID = v
+		set("morning-report.telegram-chat-id", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "morning-report", "first-night"); ok {
+		cfg.MorningReport.FirstNight = v
+		set("morning-report.first-night", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -2195,6 +2289,14 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"bodies" + o.Separator + "comet-sbdb-url",
 		"scheduling" + o.Separator + "auto",
 		"scheduling" + o.Separator + "interval-hours",
+		"morning-report" + o.Separator + "enabled",
+		"morning-report" + o.Separator + "time",
+		"morning-report" + o.Separator + "timezone",
+		"morning-report" + o.Separator + "zone-label",
+		"morning-report" + o.Separator + "loki-url",
+		"morning-report" + o.Separator + "telegram-token",
+		"morning-report" + o.Separator + "telegram-chat-id",
+		"morning-report" + o.Separator + "first-night",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -2329,6 +2431,14 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[116], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
 	fs.String(names[117], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
 	fs.Var(impl.NewInt(1), names[118], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
+	fs.Bool(names[119], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
+	fs.String(names[120], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
+	fs.String(names[121], "America/Chicago", "IANA time zone of the send time and of the times in the report")
+	fs.String(names[122], "CT", "Label after every time in the report")
+	fs.String(names[123], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
+	fs.String(names[124], "", "Telegram bot token")
+	fs.String(names[125], "", "Telegram chat the report goes to")
+	fs.String(names[126], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
 	return nil
 }
 
@@ -3762,6 +3872,102 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Scheduling.IntervalHours = v
 		set("scheduling.interval-hours", configulator.LayerCLI, "--"+n)
 	}
+	if n := "morning-report" + o.Separator + "enabled"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.enabled",
+				Source: "--" + n,
+			}
+		}
+		cfg.MorningReport.Enabled = v
+		set("morning-report.enabled", configulator.LayerCLI, "--"+n)
+	}
+	if n := "morning-report" + o.Separator + "time"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.time",
+				Source: "--" + n,
+			}
+		}
+		cfg.MorningReport.Time = v
+		set("morning-report.time", configulator.LayerCLI, "--"+n)
+	}
+	if n := "morning-report" + o.Separator + "timezone"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.timezone",
+				Source: "--" + n,
+			}
+		}
+		cfg.MorningReport.Timezone = v
+		set("morning-report.timezone", configulator.LayerCLI, "--"+n)
+	}
+	if n := "morning-report" + o.Separator + "zone-label"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.zone-label",
+				Source: "--" + n,
+			}
+		}
+		cfg.MorningReport.ZoneLabel = v
+		set("morning-report.zone-label", configulator.LayerCLI, "--"+n)
+	}
+	if n := "morning-report" + o.Separator + "loki-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.loki-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.MorningReport.LokiURL = v
+		set("morning-report.loki-url", configulator.LayerCLI, "--"+n)
+	}
+	if n := "morning-report" + o.Separator + "telegram-token"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.telegram-token",
+				Source: "--" + n,
+			}
+		}
+		cfg.MorningReport.TelegramToken = v
+		set("morning-report.telegram-token", configulator.LayerCLI, "--"+n)
+	}
+	if n := "morning-report" + o.Separator + "telegram-chat-id"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.telegram-chat-id",
+				Source: "--" + n,
+			}
+		}
+		cfg.MorningReport.TelegramChatID = v
+		set("morning-report.telegram-chat-id", configulator.LayerCLI, "--"+n)
+	}
+	if n := "morning-report" + o.Separator + "first-night"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "morning-report.first-night",
+				Source: "--" + n,
+			}
+		}
+		cfg.MorningReport.FirstNight = v
+		set("morning-report.first-night", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -4136,6 +4342,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Scheduling = &sub
+			}
+		case "morning-report":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("morning-report", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub morningReportShadow
+				if err := sub.decodeJSON(dec, "morning-report"); err != nil {
+					return err
+				}
+				s.MorningReport = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -4582,17 +4807,26 @@ func (s *s3Shadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 				return configJSONError(path+".access-key", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
 		case "secret-key":
-			v, err := dec.ReadToken()
-			if err != nil {
-				return err
-			}
-			switch v.Kind() {
-			case jsontext.KindNull:
-			case jsontext.KindString:
-				str := v.String()
-				s.SecretKey = &str
-			default:
-				return configJSONError(path+".secret-key", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			if err := func() error {
+				v, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				switch v.Kind() {
+				case jsontext.KindNull:
+				case jsontext.KindString:
+					str := v.String()
+					s.SecretKey = &str
+				default:
+					return configJSONError(path+".secret-key", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+				}
+				return nil
+			}(); err != nil {
+				return &configulator.ParseError{
+					Err:   errors.New("invalid value"),
+					Path:  path + ".secret-key",
+					Value: "(redacted)",
+				}
 			}
 		case "processed-bucket":
 			v, err := dec.ReadToken()
@@ -6530,6 +6764,142 @@ func (s *schedulingShadow) decodeJSON(dec *jsontext.Decoder, path string) error 
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *morningReportShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "enabled":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Enabled = &b
+			default:
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "time":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Time = &str
+			default:
+				return configJSONError(path+".time", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "timezone":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.Timezone = &str
+			default:
+				return configJSONError(path+".timezone", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "zone-label":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.ZoneLabel = &str
+			default:
+				return configJSONError(path+".zone-label", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "loki-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.LokiURL = &str
+			default:
+				return configJSONError(path+".loki-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "telegram-token":
+			if err := func() error {
+				v, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				switch v.Kind() {
+				case jsontext.KindNull:
+				case jsontext.KindString:
+					str := v.String()
+					s.TelegramToken = &str
+				default:
+					return configJSONError(path+".telegram-token", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+				}
+				return nil
+			}(); err != nil {
+				return &configulator.ParseError{
+					Err:   errors.New("invalid value"),
+					Path:  path + ".telegram-token",
+					Value: "(redacted)",
+				}
+			}
+		case "telegram-chat-id":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.TelegramChatID = &str
+			default:
+				return configJSONError(path+".telegram-chat-id", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "first-night":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.FirstNight = &str
+			default:
+				return configJSONError(path+".first-night", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -6564,7 +6934,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "s3.region = %v\n", c.S3.Region)
 	fmt.Fprintf(&b, "s3.bucket = %v\n", c.S3.Bucket)
 	fmt.Fprintf(&b, "s3.access-key = %v\n", c.S3.AccessKey)
-	fmt.Fprintf(&b, "s3.secret-key = %v\n", c.S3.SecretKey)
+	b.WriteString("s3.secret-key = (redacted)\n")
 	fmt.Fprintf(&b, "s3.processed-bucket = %v\n", c.S3.ProcessedBucket)
 	fmt.Fprintf(&b, "s3.public-endpoint = %v\n", c.S3.PublicEndpoint)
 	fmt.Fprintf(&b, "s3.public-use-ssl = %v\n", c.S3.PublicUseSSL)
@@ -6667,6 +7037,14 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "bodies.comet-sbdb-url = %v\n", c.Bodies.CometSBDBURL)
 	fmt.Fprintf(&b, "scheduling.auto = %v\n", c.Scheduling.Auto)
 	fmt.Fprintf(&b, "scheduling.interval-hours = %v\n", c.Scheduling.IntervalHours)
+	fmt.Fprintf(&b, "morning-report.enabled = %v\n", c.MorningReport.Enabled)
+	fmt.Fprintf(&b, "morning-report.time = %v\n", c.MorningReport.Time)
+	fmt.Fprintf(&b, "morning-report.timezone = %v\n", c.MorningReport.Timezone)
+	fmt.Fprintf(&b, "morning-report.zone-label = %v\n", c.MorningReport.ZoneLabel)
+	fmt.Fprintf(&b, "morning-report.loki-url = %v\n", c.MorningReport.LokiURL)
+	b.WriteString("morning-report.telegram-token = (redacted)\n")
+	fmt.Fprintf(&b, "morning-report.telegram-chat-id = %v\n", c.MorningReport.TelegramChatID)
+	fmt.Fprintf(&b, "morning-report.first-night = %v\n", c.MorningReport.FirstNight)
 	return b.String()
 }
 
