@@ -4,6 +4,7 @@ const (
 	frameTypeLight = "LIGHT"
 	frameTypeDark  = "DARK"
 	frameTypeBias  = "BIAS"
+	frameTypeFlat  = "FLAT"
 )
 
 const (
