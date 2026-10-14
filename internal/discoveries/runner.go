@@ -614,11 +614,29 @@ func (r *Runner) runOne(ctx context.Context, j Job) {
 		r.mu.Unlock()
 	}()
 	run, err := r.startRun(ctx, j)
+	if errors.Is(err, errClaimed) {
+		slog.Info("Discovery run is running elsewhere", "object", j.Object, "night", j.Night.Format(time.DateOnly), "group", j.Group)
+		return
+	}
 	if err != nil {
 		slog.Error("Could not start a discovery run", "object", j.Object, "night", j.Night.Format(time.DateOnly), "group", j.Group, "error", err)
 		return
 	}
+	beat, stopBeat := context.WithCancel(ctx)
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-beat.Done():
+				return
+			case <-t.C:
+				r.db.Model(&app.DiscoveryRun{}).Where("id = ?", run.ID).Update("updated_at", time.Now())
+			}
+		}
+	}()
 	err = r.compare(ctx, j, run)
+	stopBeat()
 	if err != nil && (ctx.Err() != nil || r.stopping(ctx)) {
 		r.db.Model(run).Updates(map[string]any{"state": app.DiscoveryQueued, "stage": ""})
 		return
@@ -662,6 +680,13 @@ func settledRun(run app.DiscoveryRun, now time.Time) bool {
 	return false
 }
 
+// errClaimed is a run another runner, such as a backfill job, is working
+// on: it updates the run at least every stageEvery, so one not updated for
+// claimFor is taken to have died.
+var errClaimed = errors.New("running elsewhere")
+
+const claimFor = 10 * time.Minute
+
 var errNotEligible = errors.New("fewer than 3 nights with accepted subs in this filter group")
 
 func (r *Runner) startRun(ctx context.Context, j Job) (*app.DiscoveryRun, error) {
@@ -673,6 +698,9 @@ func (r *Runner) startRun(ctx context.Context, j Job) (*app.DiscoveryRun, error)
 	run := app.DiscoveryRun{Object: j.Object, Night: j.Night, Group: j.Group}
 	if len(found) > 0 {
 		run = found[0]
+		if run.State == app.DiscoveryRunning && time.Since(run.UpdatedAt) < claimFor {
+			return nil, errClaimed
+		}
 	}
 	now := r.now()
 	run.State, run.Stage, run.Method, run.StartedAt, run.Error = app.DiscoveryRunning, "starting", Method, &now, nil
