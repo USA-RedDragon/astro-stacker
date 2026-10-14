@@ -199,20 +199,26 @@ func (p *Pipeline) CheckFlats(ctx context.Context) error {
 		}
 		nights[f.set.Night] = true
 	}
-	var ungrouped []time.Time
-	if err := p.db.WithContext(ctx).Model(&app.DustEvent{}).Where("group_key = ? AND class IN ? AND night IS NOT NULL", "",
-		[]string{dustcheck.ClassNew, dustcheck.ClassGone, dustcheck.ClassMoved}).Distinct("night").Pluck("night", &ungrouped).Error; err != nil {
+	var changed []time.Time
+	if err := p.db.WithContext(ctx).Model(&app.DustEvent{}).Where("class IN ? AND night IS NOT NULL",
+		[]string{dustcheck.ClassNew, dustcheck.ClassGone, dustcheck.ClassMoved}).Distinct("night").Pluck("night", &changed).Error; err != nil {
 		return err
 	}
-	for _, n := range ungrouped {
-		nights[n] = true
+	regroup := map[string]time.Time{}
+	for _, n := range changed {
+		regroup[n.Format(time.DateOnly)] = n
 	}
+	propose := map[string]bool{}
 	for n := range nights {
-		if err := p.groupDustNight(ctx, n); err != nil {
+		regroup[n.Format(time.DateOnly)] = n
+		propose[n.Format(time.DateOnly)] = true
+	}
+	for day, n := range regroup {
+		if err := p.groupDustNight(ctx, n, propose[day]); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			slog.Warn("Could not group a night's flat dust changes", "night", n.Format(time.DateOnly), "error", err)
+			slog.Warn("Could not group a night's flat dust changes", "night", day, "error", err)
 		}
 	}
 	return nil
@@ -469,8 +475,9 @@ func (p *Pipeline) compareFlat(ctx context.Context, row app.DustFlat, curRaw dus
 }
 
 // groupDustNight works out, across filters, which of a night's flat
-// changes are on the window and which on a filter.
-func (p *Pipeline) groupDustNight(ctx context.Context, night time.Time) error {
+// changes are on the window and which on a filter; with propose, its window
+// changes also propose dust epochs (proposeDustEpoch).
+func (p *Pipeline) groupDustNight(ctx context.Context, night time.Time, propose bool) error {
 	var flats []app.DustFlat
 	if err := p.db.WithContext(ctx).Where("night = ?", night).Find(&flats).Error; err != nil {
 		return err
@@ -532,7 +539,7 @@ func (p *Pipeline) groupDustNight(ctx context.Context, night time.Time) error {
 				}
 			}
 		}
-		if g.Scope == dustcheck.ScopeWindow {
+		if propose && g.Scope == dustcheck.ScopeWindow {
 			if err := p.proposeDustEpoch(ctx, night, g, members); err != nil {
 				return err
 			}
