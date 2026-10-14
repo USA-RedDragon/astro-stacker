@@ -26,8 +26,8 @@ const (
 	gaiaFaintG    = 21.5
 	gaiaMaxRows   = 400000
 	vsxMaxRows    = 100000
-	catalogTimout = 6 * time.Minute
-	gaiaTimeout   = 4 * time.Minute
+	catalogTimout = 8 * time.Minute
+	gaiaTimeout   = 7 * time.Minute
 	sourceAlerce  = "ALeRCE"
 	sourceFink    = "Fink"
 	sourceTNS     = "TNS"
