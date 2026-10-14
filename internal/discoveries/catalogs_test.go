@@ -125,3 +125,48 @@ func TestStampsRender(t *testing.T) {
 		t.Errorf("body at %.4f %.4f", ra, dec)
 	}
 }
+
+func TestClippedMeanDropsOneOutlierOfThree(t *testing.T) {
+	t.Parallel()
+	vals := [][]float32{{1, 1}, {1.02, 1}, {9, 1}}
+	load := func(_ context.Context, i int) (*Plane, float64, error) {
+		if i == 3 {
+			return nil, 0, nil
+		}
+		return &Plane{W: 2, H: 1, Data: vals[i]}, 1, nil
+	}
+	p, err := ClippedMean(context.Background(), 2, 1, 4, load, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(float64(p.Data[0])-1.01) > 1e-4 || p.Data[1] != 1 {
+		t.Errorf("stack %v, want the outlier left out", p.Data)
+	}
+}
+
+func TestSmallHelpers(t *testing.T) {
+	t.Parallel()
+	if d := wrapDeg(359.9 - 0.1); math.Abs(d+0.2) > 1e-9 {
+		t.Errorf("wrap %v", d)
+	}
+	g := Galaxy{Name: "G", RA: 359.99, Dec: 0, Major: 2, Minor: 1, PA: 90, HasOrientation: true}
+	if in, _ := g.Inside(0.005, 0, 1); !in {
+		t.Error("a point across RA 0 from a galaxy's centre should be inside it")
+	}
+	for _, id := range []int{1, 99999, 60466175} {
+		if s := trkSub(id, 1295); len(s) > 8 || s[0] != 'D' {
+			t.Errorf("trkSub(%d) = %q", id, s)
+		}
+	}
+	if trkSub(5, 1) == trkSub(5, 2) || trkSub(5, 100) == trkSub(51, 0) {
+		t.Error("trkSub collides")
+	}
+	l := Labelled{Candidate: Candidate{Sign: -1, SNR: 9}, Matches: []Match{{Catalog: "galaxy"}}}
+	if classOf(l) == ClassSupernova {
+		t.Error("a fading source is not a supernova candidate")
+	}
+	l.Sign = 1
+	if classOf(l) != ClassSupernova {
+		t.Error("a new source on a galaxy is a supernova candidate")
+	}
+}

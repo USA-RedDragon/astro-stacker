@@ -37,7 +37,14 @@ func (f *fakeDiscoveries) Cutout(_ context.Context, key string) ([]byte, error) 
 	return b, nil
 }
 
-const vetState = "state"
+const (
+	vetState   = "state"
+	objM33     = "M 33"
+	nightOct13 = "2026-10-13"
+	filterOIII = "O-III"
+	reqObject  = "object"
+	reqNight   = "night"
+)
 
 type discoveryAPI struct {
 	t   *testing.T
@@ -76,7 +83,10 @@ func newDiscoveryAPI(t *testing.T) *discoveryAPI {
 	t.Helper()
 	appStore := memStore(t)
 	db := appStore.DB()
-	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}); err != nil {
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.Stack{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&[]app.Stack{{Object: objM33, Filter: "Luminance"}, {Object: objM33, Filter: "H-a"}}).Error; err != nil {
 		t.Fatal(err)
 	}
 	night := time.Date(2025, 2, 28, 0, 0, 0, 0, time.UTC)
@@ -166,9 +176,18 @@ func TestDiscoveryRunsAndRequests(t *testing.T) {
 	if len(nights) != 1 || nights[0]["night"] != "2025-02-28" || nights[0]["new"] != 1.0 {
 		t.Errorf("nights %v", nights)
 	}
-	if w := a.do(http.MethodPost, "/api/v1/discoveries/runs", map[string]string{"object": "M 33", "night": "2026-10-13"}); w.Code != http.StatusAccepted ||
-		len(a.src.requested) != 1 || a.src.requested[0] != "M 33|2026-10-13|" {
+	if w := a.do(http.MethodPost, "/api/v1/discoveries/runs", map[string]string{reqObject: objM33, reqNight: nightOct13}); w.Code != http.StatusAccepted ||
+		len(a.src.requested) != 1 || a.src.requested[0] != objM33+"|"+nightOct13+"|" {
 		t.Errorf("request: %d %v", w.Code, a.src.requested)
+	}
+	if w := a.do(http.MethodPost, "/api/v1/discoveries/runs", map[string]string{reqObject: objM33, reqNight: nightOct13, "group": filterOIII}); w.Code != http.StatusBadRequest {
+		t.Errorf("a group the target has no filter of: %d", w.Code)
+	}
+	if w := a.do(http.MethodPost, "/api/v1/discoveries/runs", map[string]string{reqObject: "Nowhere", reqNight: nightOct13}); w.Code != http.StatusNotFound {
+		t.Errorf("an unknown target: %d", w.Code)
+	}
+	if w := a.do(http.MethodPost, "/api/v1/discoveries/runs", map[string]string{reqObject: objM33, reqNight: nightOct13, "group": "H-a"}); w.Code != http.StatusAccepted {
+		t.Errorf("a narrowband group: %d", w.Code)
 	}
 	var live discoveries.Live
 	a.get("/api/v1/discoveries/status", &live)

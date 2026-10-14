@@ -67,7 +67,7 @@ func (g Galaxy) Inside(ra, dec, factor float64) (bool, float64) {
 	if b <= 0 || !g.HasOrientation {
 		return sep <= a, sep
 	}
-	dx := (ra - g.RA) * math.Cos(g.Dec*deg) * 3600
+	dx := wrapDeg(ra-g.RA) * math.Cos(g.Dec*deg) * 3600
 	dy := (dec - g.Dec) * 3600
 	pa := g.PA * deg
 	u := dx*math.Sin(pa) + dy*math.Cos(pa)
@@ -161,7 +161,14 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 				if v.Max != 0 {
 					mx := v.Max
 					m.Mag = &mx
-					m.Note = fmt.Sprintf("%.2f to %.2f %s", v.Max, v.Min, strings.TrimSpace(v.Band))
+					switch {
+					case v.Amplitude && v.Min != 0:
+						m.Note = fmt.Sprintf("%.2f %s, amplitude %.2f", v.Max, strings.TrimSpace(v.Band), v.Min)
+					case v.Min != 0:
+						m.Note = fmt.Sprintf("%.2f to %.2f %s", v.Max, v.Min, strings.TrimSpace(v.Band))
+					default:
+						m.Note = fmt.Sprintf("%.2f %s", v.Max, strings.TrimSpace(v.Band))
+					}
 				}
 				l.Matches = append(l.Matches, m)
 			}
@@ -217,6 +224,11 @@ func segmentDistance(px, py, ax, ay, bx, by float64) float64 {
 	return math.Hypot(px-(ax+t*dx), py-(ay+t*dy))
 }
 
+// wrapDeg brings an angle difference into [-180, 180).
+func wrapDeg(d float64) float64 {
+	return math.Mod(math.Mod(d+180, 360)+360, 360) - 180
+}
+
 func bodyName(b Body) string {
 	if b.Number != "" {
 		return fmt.Sprintf("(%s) %s", b.Number, b.Name)
@@ -244,7 +256,7 @@ func classOf(l Labelled) string {
 		return ClassKnownTransient
 	case l.LowConf:
 		return ClassLowConfidence
-	case l.GaiaG == nil && has("galaxy"):
+	case l.Sign > 0 && l.GaiaG == nil && has("galaxy"):
 		return ClassSupernova
 	}
 	return ClassNewVariable

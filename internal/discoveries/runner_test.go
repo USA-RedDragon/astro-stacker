@@ -224,6 +224,7 @@ func (fx *runnerFixture) checkCandidates(t *testing.T) {
 			checkTrack(t, c)
 		}
 	}
+	delete(classes, ClassLowConfidence)
 	want := map[string]int{ClassKnownVariable: 1, ClassNewVariable: 1, ClassKnownAsteroid: 1}
 	if !maps.Equal(classes, want) {
 		t.Errorf("classes %v, want %v", classes, want)

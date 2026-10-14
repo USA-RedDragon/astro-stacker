@@ -251,7 +251,7 @@ type Discoveries struct {
 }
 
 func (d Discoveries) validate() error {
-	if d.Enabled && (d.IntervalMinutes <= 0 || d.Threads <= 0 || d.RefSubs < 2 || d.BackfillDays < 0) {
+	if d.Enabled && (d.IntervalMinutes <= 0 || d.Threads <= 0 || d.RefSubs < 2 || d.BackfillDays < 1) {
 		return ErrInvalidDiscoveries
 	}
 	return nil
@@ -387,7 +387,7 @@ var (
 	ErrInvalidTSVerdictsSince       = errors.New("stacking.ts-verdicts-since must be a date, YYYY-MM-DD")
 	ErrInvalidGoalsPublish          = errors.New("goals.publish must be off, dry-run or on")
 	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
-	ErrInvalidDiscoveries           = errors.New("discoveries needs positive interval-minutes and threads, reference-subs of 2 or more and backfill-days of 0 or more")
+	ErrInvalidDiscoveries           = errors.New("discoveries needs positive interval-minutes and threads, reference-subs of 2 or more and backfill-days of 1 or more")
 	ErrInvalidGoalsDepthSwitch      = errors.New("goals.depth-switch must be off, dry-run or on")
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
 	ErrInvalidMoonKeepPublish       = errors.New("moon-keep.publish must be off, dry-run or on")

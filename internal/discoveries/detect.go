@@ -195,6 +195,7 @@ type Result struct {
 	Candidates         []Candidate
 	Tracks             []Track
 	MidTime            time.Time
+	DroppedSubs        int
 	Start, End         time.Time
 	SubDetections      int
 	Night, Ref, Diff   *Plane
@@ -209,7 +210,14 @@ type prep struct {
 	mesh  *Mesh
 	scale float32
 	rms   float64
+	bad   bool
 }
+
+const minAnchors = 10
+
+// errBadSub is a sub too cloudy or too far off to scale to its master; it
+// is left out.
+var errBadSub = errors.New("too few anchor stars")
 
 type prepCache struct {
 	mu sync.Mutex
@@ -241,6 +249,9 @@ func (in *Input) loader(cache *prepCache, f FilterInput) subLoader {
 		cache.mu.Lock()
 		pp, ok := cache.m[s.FrameID]
 		cache.mu.Unlock()
+		if pp.bad {
+			return nil, prep{}, fmt.Errorf("%w: sub %d", errBadSub, s.FrameID)
+		}
 		if !ok {
 			pp.mesh = Background(p, 128, nil)
 			pp.mesh.Subtract(p)
@@ -251,8 +262,11 @@ func (in *Input) loader(cache *prepCache, f FilterInput) subLoader {
 					ratios = append(ratios, a.Flux/fl)
 				}
 			}
-			if len(ratios) < 10 {
-				return nil, prep{}, fmt.Errorf("sub %d: only %d anchor stars measured", s.FrameID, len(ratios))
+			if len(ratios) < minAnchors {
+				cache.mu.Lock()
+				cache.m[s.FrameID] = prep{bad: true}
+				cache.mu.Unlock()
+				return nil, prep{}, fmt.Errorf("%w: sub %d has %d anchor stars", errBadSub, s.FrameID, len(ratios))
 			}
 			pp.scale = float32(median64(ratios))
 			pp.rms = pp.mesh.GlobalRMS() * float64(pp.scale)
@@ -274,6 +288,9 @@ func (in *Input) loader(cache *prepCache, f FilterInput) subLoader {
 func stackLoader(load subLoader, subs []Sub) Loader {
 	return func(ctx context.Context, i int) (*Plane, float64, error) {
 		p, pp, err := load(ctx, subs[i])
+		if errors.Is(err, errBadSub) {
+			return nil, 0, nil
+		}
 		if err != nil {
 			return nil, 0, err
 		}
@@ -323,6 +340,7 @@ func Anchors(master *Plane) []Anchor {
 
 type filterStacks struct {
 	f     FilterInput
+	cache *prepCache
 	load  subLoader
 	night *Plane
 	ref   *Plane
@@ -385,6 +403,9 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	edge := edgeMask(valid, W, H, edgePixels)
 	res.ApSigma = emptyApertureSigma(D, edge, apertureR, emptyApertures)
 	res.NightApSigma = emptyApertureSigma(night, edge, apertureR, emptyApertures)
+	if !(res.ApSigma > 0) || !(res.NightApSigma > 0) {
+		return nil, errors.New("could not measure the noise: too little sky away from the edges")
+	}
 	if zp, ok := zeroPoint(ref, in.WCS, in.Gaia, edge, apertureR); ok {
 		res.ZeroPoint = &zp
 		d := zp - 2.5*math.Log10(DetectSigma*res.NightApSigma)
@@ -403,22 +424,51 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	in.stage("finding changes")
 	cands := in.findChanges(D, dmesh.RMSPlane(), ref, edge, bmask, res)
 
+	subs, dets, times, err := in.measureSubs(ctx, stacks, cands, valid, edge, bmask, res)
+	if err != nil {
+		return nil, err
+	}
+	res.Candidates = in.cut(cands, ref, D, res)
+
+	in.stage("linking moving objects")
+	for _, hs := range linkMovers(times, dets, res.PixelScale) {
+		res.Tracks = append(res.Tracks, in.track(hs, subs, dets, times))
+	}
+	for i := range res.Tracks {
+		if i >= maxTrackStamps {
+			break
+		}
+		if err := in.trackStamps(ctx, &res.Tracks[i], subs); err != nil {
+			return nil, err
+		}
+	}
+	res.Night, res.Ref, res.Diff, res.Valid, res.Edge = night, ref, D, valid, edge
+	return res, nil
+}
+
+// measureSubs measures every candidate in each of the night's subs minus
+// its filter's reference, and finds the point sources moving objects are
+// linked from.
+func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands []cand, valid, edge, bmask []bool, res *Result) ([]nightSub, [][]moverDet, []time.Time, error) {
 	in.stage("measuring the night's subs")
 	var subs []nightSub
 	for _, fs := range stacks {
 		for _, s := range fs.f.Night {
+			if fs.cache.m[s.FrameID].bad {
+				res.DroppedSubs++
+				continue
+			}
 			subs = append(subs, nightSub{fs, s})
 		}
 	}
 	sort.Slice(subs, func(a, b int) bool { return subs[a].sub.Start.Before(subs[b].sub.Start) })
 	dets := make([][]moverDet, len(subs))
 	times := make([]time.Time, len(subs))
-	sigs := make([]float64, len(subs))
 	var midSum float64
 	for j, ns := range subs {
 		p, _, err := ns.fs.load(ctx, ns.sub)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		for i, v := range p.Data {
 			r := ns.fs.ref.Data[i]
@@ -432,7 +482,6 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 		m.Subtract(p)
 		sig := emptyApertureSigma(p, edge, apertureR, 4000)
 		sigWide := emptyApertureSigma(p, edge, residualR, 4000)
-		sigs[j] = sig
 		for ci := range cands {
 			if cands[ci].wide {
 				lightPoint(&cands[ci], p, ns, residualR, sigWide, ns.fs.zpWide)
@@ -457,22 +506,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 			res.SubDepth = &v
 		}
 	}
-	res.Candidates = in.cut(cands, ref, D, res)
-
-	in.stage("linking moving objects")
-	for _, hs := range linkMovers(times, dets, res.PixelScale) {
-		res.Tracks = append(res.Tracks, in.track(hs, subs, dets, times))
-	}
-	for i := range res.Tracks {
-		if i >= maxTrackStamps {
-			break
-		}
-		if err := in.trackStamps(ctx, &res.Tracks[i], subs); err != nil {
-			return nil, err
-		}
-	}
-	res.Night, res.Ref, res.Diff, res.Valid, res.Edge = night, ref, D, valid, edge
-	return res, nil
+	return subs, dets, times, nil
 }
 
 // usable keeps the filters with enough subs on the night and in the
@@ -484,7 +518,8 @@ func (in *Input) usable(res *Result) []*filterStacks {
 		if len(f.Night) < 2 || len(f.Ref) < 2 || len(f.Anchors) < 10 {
 			continue
 		}
-		stacks = append(stacks, &filterStacks{f: f, load: in.loader(&prepCache{m: map[int]prep{}}, f)})
+		cache := &prepCache{m: map[int]prep{}}
+		stacks = append(stacks, &filterStacks{f: f, cache: cache, load: in.loader(cache, f)})
 		res.NightSubs += len(f.Night)
 		res.RefSubs += len(f.Ref)
 		res.Filters = append(res.Filters, f.Filter)
@@ -755,7 +790,7 @@ func (in *Input) track(hs []hit, subs []nightSub, dets [][]moverDet, times []tim
 	tr.RateArcmin = math.Hypot(tr.VX, tr.VY) * scale / 1440
 	ra0, dec0 := in.WCS.SkyOf(tr.X0, tr.Y0)
 	ra1, dec1 := in.WCS.SkyOf(tr.X0+tr.VX/24, tr.Y0+tr.VY/24)
-	dra := (ra1 - ra0) * math.Cos(dec0*deg)
+	dra := wrapDeg(ra1-ra0) * math.Cos(dec0*deg)
 	tr.PA = math.Mod(math.Atan2(dra, dec1-dec0)/deg+360, 360)
 	return tr
 }
