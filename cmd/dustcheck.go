@@ -139,6 +139,6 @@ func newDustLightsCommand() *cobra.Command {
 	c.Flags().StringVar(&to, "to", "", "night after the last, YYYY-MM-DD")
 	c.Flags().IntVar(&days, "days", 7, "days per window")
 	c.Flags().IntVar(&per, "per", 8, "most lights of one target and filter per window")
-	c.Flags().StringSliceVar(&probes, "probe", nil, "sensor position x,y (rows top first) to print the residual at; repeatable")
+	c.Flags().StringArrayVar(&probes, "probe", nil, "sensor position x,y (rows top first) to print the residual at; repeatable")
 	return c
 }
