@@ -1,9 +1,10 @@
 cmd/discover.go	52	0
+cmd/discoveries.go	16	0
 cmd/horizon-survey/main.go	289	16
 cmd/horizon-survey/stdin_unix.go	1	0
 cmd/morningreport.go	75	0
 cmd/mosaics.go	10	0
-cmd/root.go	260	9
+cmd/root.go	265	9
 cmd/scheduling.go	8	0
 cmd/stack.go	62	0
 cmd/triggers.go	24	24
@@ -41,7 +42,7 @@ internal/collabswitch/nina.go	107	96
 internal/collabswitch/service.go	199	161
 internal/conditions/conditions.go	240	185
 internal/conditions/moon.go	45	45
-internal/config/config.go	104	67
+internal/config/config.go	107	69
 internal/coverage/biasbacklog.go	121	110
 internal/coverage/coverage.go	179	158
 internal/coverage/darkbacklog.go	261	231
@@ -64,6 +65,18 @@ internal/discover/match.go	175	162
 internal/discover/pick.go	584	539
 internal/discover/service.go	214	202
 internal/discover/subjects.go	251	222
+internal/discoveries/catalogs.go	235	203
+internal/discoveries/classify.go	137	111
+internal/discoveries/combine.go	89	82
+internal/discoveries/cutouts.go	76	67
+internal/discoveries/detect.go	515	482
+internal/discoveries/extract.go	110	105
+internal/discoveries/image.go	227	204
+internal/discoveries/kernel.go	196	185
+internal/discoveries/masks.go	39	37
+internal/discoveries/movers.go	121	109
+internal/discoveries/runner.go	566	414
+internal/discoveries/wcs.go	135	120
 internal/ephem/ephem.go	86	74
 internal/ephem/gen/main.go	91	0
 internal/ephem/observe.go	96	90
@@ -96,7 +109,7 @@ internal/horizonsurvey/camera.go	115	111
 internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
-internal/horizonsurvey/nina.go	101	81
+internal/horizonsurvey/nina.go	101	82
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
@@ -122,9 +135,9 @@ internal/moonkeep/replay.go	82	81
 internal/moonkeep/samples.go	42	42
 internal/moonkeep/service.go	289	239
 internal/morningreport/analyze.go	209	197
-internal/morningreport/collect.go	235	122
+internal/morningreport/collect.go	242	129
 internal/morningreport/dark.go	46	44
-internal/morningreport/format.go	323	286
+internal/morningreport/format.go	335	298
 internal/morningreport/images.go	146	121
 internal/morningreport/night.go	15	15
 internal/morningreport/report.go	3	3
@@ -186,7 +199,7 @@ internal/schedauto/overhead.go	71	69
 internal/schedauto/plan.go	109	100
 internal/schedauto/projection.go	75	67
 internal/schedauto/rules.go	24	24
-internal/schedauto/service.go	242	189
+internal/schedauto/service.go	242	185
 internal/schedauto/windows.go	46	45
 internal/schedcmd/altitude.go	59	52
 internal/schedcmd/before.go	69	41
@@ -219,6 +232,7 @@ internal/server/collabswitch.go	30	21
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	20	14
 internal/server/discover.go	148	127
+internal/server/discoveries.go	239	169
 internal/server/goalmask.go	84	72
 internal/server/middleware/di.go	8	8
 internal/server/moonkeep.go	30	28
@@ -230,7 +244,7 @@ internal/server/scheddata.go	285	250
 internal/server/schedpreview.go	225	210
 internal/server/scheduler.go	92	55
 internal/server/scheduling.go	58	32
-internal/server/server.go	102	41
+internal/server/server.go	103	42
 internal/server/skycutout.go	24	20
 internal/server/skyevents.go	65	51
 internal/server/sublength.go	11	9
@@ -297,7 +311,7 @@ internal/stacking/status.go	71	23
 internal/stacking/telescopes.go	61	56
 internal/stacking/tsverdicts.go	260	220
 internal/starfront/starfront.go	181	145
-internal/store/gorm/gorm.go	37	0
+internal/store/gorm/gorm.go	39	0
 internal/store/models/app/calibrationrequest.go	1	1
 internal/store/models/app/imageprocess.go	3	0
 internal/store/models/app/stacking.go	1	1
@@ -312,7 +326,7 @@ internal/sublength/publish.go	92	76
 internal/sublength/recommend.go	92	87
 internal/sublength/sensor.go	6	6
 internal/sublength/service.go	385	264
-internal/trigger/trigger.go	81	80
+internal/trigger/trigger.go	81	79
 internal/tslink/tslink.go	179	156
 internal/tsmigration/tsmigration.go	13	11
 internal/wake/wake.go	14	14
