@@ -347,3 +347,13 @@ func TestWaitIdleGoesOnBesideALongBusyStacker(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestStatValue(t *testing.T) {
+	t.Parallel()
+	if v, ok := statValue("anon 123\nfile 456\nanon_thp 7\n", "anon"); !ok || v != 123 {
+		t.Errorf("anon %d %v", v, ok)
+	}
+	if _, ok := statValue("file 1\n", "anon"); ok {
+		t.Error("missing key found")
+	}
+}

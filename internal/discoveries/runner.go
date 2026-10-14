@@ -269,33 +269,41 @@ func (r *Runner) waitIdle(ctx context.Context) error {
 	return nil
 }
 
-// CgroupHeadroom reports whether the container's memory use plus need
-// stays under 80% of its limit, from the cgroup v2 files. Without a limit
-// it is true; when the files can't be read it is false.
+// CgroupHeadroom reports whether the container's anonymous memory plus
+// need stays under 80% of its limit, from the cgroup v2 files; page cache
+// is left out, as the kernel drops it under pressure. Without a limit it is
+// true; when the files can't be read it is false.
 func CgroupHeadroom(need int64) func() bool {
 	return func() bool {
-		read := func(name string) (int64, bool) {
-			b, err := os.ReadFile("/sys/fs/cgroup/" + name)
-			if err != nil {
-				return 0, false
-			}
-			t := strings.TrimSpace(string(b))
-			if t == "max" {
-				return -1, true
-			}
-			v, err := strconv.ParseInt(t, 10, 64)
-			return v, err == nil
-		}
-		limit, ok1 := read("memory.max")
-		used, ok2 := read("memory.current")
-		if !ok1 || !ok2 {
+		b, err := os.ReadFile("/sys/fs/cgroup/memory.max")
+		if err != nil {
 			return false
 		}
-		if limit < 0 {
+		limitText := strings.TrimSpace(string(b))
+		if limitText == "max" {
 			return true
 		}
-		return float64(used+need) < 0.8*float64(limit)
+		limit, err := strconv.ParseInt(limitText, 10, 64)
+		if err != nil {
+			return false
+		}
+		stat, err := os.ReadFile("/sys/fs/cgroup/memory.stat")
+		if err != nil {
+			return false
+		}
+		anon, ok := statValue(string(stat), "anon")
+		return ok && float64(anon+need) < 0.8*float64(limit)
 	}
+}
+
+func statValue(stat, key string) (int64, bool) {
+	for line := range strings.SplitSeq(stat, "\n") {
+		if name, val, found := strings.Cut(line, " "); found && name == key {
+			v, err := strconv.ParseInt(strings.TrimSpace(val), 10, 64)
+			return v, err == nil
+		}
+	}
+	return 0, false
 }
 
 func (r *Runner) setStage(s string) {
