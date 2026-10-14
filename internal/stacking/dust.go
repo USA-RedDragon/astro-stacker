@@ -49,7 +49,11 @@ const (
 	DustAlertWindow = 36 * time.Hour
 	// DustRetry is the wait before a flat set that could not be checked,
 	// such as one whose master fails to build, is tried again.
-	DustRetry     = 6 * time.Hour
+	DustRetry = 6 * time.Hour
+	// DustKeepBuilt is how old a flat set's night must be for the work
+	// directory's copy of a master the dust check built for it to be
+	// removed after: old sets' lights are stacked already.
+	DustKeepBuilt = 7 * 24 * time.Hour
 	dustCropHalf  = 700
 	dustCacheSize = 16
 )
@@ -246,9 +250,12 @@ func medianRotator(frames []app.Frame) float64 {
 // so checking the whole flat history leaves no copies behind; one not built
 // yet is built by masterFor and kept, as for lights.
 func (p *Pipeline) masterPixels(ctx context.Context, set calmatch.Set, all []calmatch.Set) ([]float32, int, int, string, error) {
-	file, key, err := p.dustMasterFile(ctx, set, all)
+	file, key, built, err := p.dustMasterFile(ctx, set, all)
 	if err != nil {
 		return nil, 0, 0, "", err
+	}
+	if built && time.Since(set.Night) > DustKeepBuilt {
+		defer p.dropLocalMaster(key)
 	}
 	if file == "" {
 		var cm app.CalibrationMaster
@@ -269,32 +276,45 @@ func (p *Pipeline) masterPixels(ctx context.Context, set calmatch.Set, all []cal
 	return data, w, h, key, err
 }
 
+// dropLocalMaster removes the work directory's copy of a master the dust
+// check built for an old set; masterFor downloads it again if lights need it.
+func (p *Pipeline) dropLocalMaster(key string) {
+	defer p.lockKey(key)()
+	if err := os.Remove(filepath.Join(p.workDir, "masters", key+".fit")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("Could not remove a master copy the dust check built", "key", key, "error", err)
+	}
+}
+
 // dustMasterFile is the local master of a set and its key, or "" and the
-// key when the master is built but has no local copy.
-func (p *Pipeline) dustMasterFile(ctx context.Context, set calmatch.Set, all []calmatch.Set) (string, string, error) {
+// key when the master is built but has no local copy; built says the
+// master was built just now.
+func (p *Pipeline) dustMasterFile(ctx context.Context, set calmatch.Set, all []calmatch.Set) (string, string, bool, error) {
 	if p.dustMasterFor != nil {
-		return p.dustMasterFor(ctx, set, all)
+		file, key, err := p.dustMasterFor(ctx, set, all)
+		return file, key, false, err
 	}
 	if set.Master != "" {
-		return p.masterFor(ctx, set, all)
+		file, key, err := p.masterFor(ctx, set, all)
+		return file, key, false, err
 	}
 	frames, err := coverage.SetFrames(ctx, p.db, set)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	key := setKey(set.Type, frames)
 	local := filepath.Join(p.workDir, "masters", key+".fit")
 	if _, err := os.Stat(local); err == nil {
-		return local, key, nil
+		return local, key, false, nil
 	}
 	var n int64
 	if err := p.db.WithContext(ctx).Model(&app.CalibrationMaster{}).Where("set_key = ?", key).Count(&n).Error; err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	if n > 0 {
-		return "", key, nil
+		return "", key, false, nil
 	}
-	return p.masterFor(ctx, set, all)
+	file, key, err := p.masterFor(ctx, set, all)
+	return file, key, err == nil, err
 }
 
 func dustMapKey(setKey string) string { return path.Join("dust", "flat", setKey+".map.zst") }
