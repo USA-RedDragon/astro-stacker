@@ -42,6 +42,9 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err := store.db.AutoMigrate(app.ObservatoryContact{}, app.ObservatoryHorizon{}, app.MorningReport{}); err != nil {
 		return nil, err
 	}
+	if err := store.db.AutoMigrate(app.DiscoveryRun{}, app.DiscoveryCandidate{}); err != nil {
+		return nil, err
+	}
 	if err := normalizeFilters(store.db); err != nil {
 		return nil, err
 	}

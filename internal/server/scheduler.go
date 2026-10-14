@@ -63,6 +63,7 @@ type Extras struct {
 	Asteroids    *bodies.AsteroidList
 	SkyEvents    *skyevents.Service
 	Site         SiteSource
+	Discoveries  DiscoverySource
 }
 
 const schedulerWriteTimeout = 45 * time.Second

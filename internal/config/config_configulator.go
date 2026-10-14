@@ -192,6 +192,17 @@ type bodiesShadow struct {
 	CometSBDBURL     *string `json:"comet-sbdb-url"     toml:"comet-sbdb-url"     yaml:"comet-sbdb-url"`
 }
 
+type discoveriesShadow struct {
+	Enabled         *bool   `json:"enabled"          toml:"enabled"          yaml:"enabled"`
+	IntervalMinutes *int    `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
+	Threads         *int    `json:"threads"          toml:"threads"          yaml:"threads"`
+	RefSubs         *int    `json:"reference-subs"   toml:"reference-subs"   yaml:"reference-subs"`
+	BackfillDays    *int    `json:"backfill-days"    toml:"backfill-days"    yaml:"backfill-days"`
+	TNSKey          *string `json:"tns-key"          toml:"tns-key"          yaml:"tns-key"`
+	TNSBotID        *string `json:"tns-bot-id"       toml:"tns-bot-id"       yaml:"tns-bot-id"`
+	TNSBotName      *string `json:"tns-bot-name"     toml:"tns-bot-name"     yaml:"tns-bot-name"`
+}
+
 type schedulingShadow struct {
 	Auto          *string `json:"auto"           toml:"auto"           yaml:"auto"`
 	IntervalHours *int    `json:"interval-hours" toml:"interval-hours" yaml:"interval-hours"`
@@ -227,6 +238,7 @@ type configShadow struct {
 	Calibration   *calibrationShadow   `json:"calibration"    toml:"calibration"    yaml:"calibration"`
 	MoonKeep      *moonKeepShadow      `json:"moon-keep"      toml:"moon-keep"      yaml:"moon-keep"`
 	Bodies        *bodiesShadow        `json:"bodies"         toml:"bodies"         yaml:"bodies"`
+	Discoveries   *discoveriesShadow   `json:"discoveries"    toml:"discoveries"    yaml:"discoveries"`
 	Scheduling    *schedulingShadow    `json:"scheduling"     toml:"scheduling"     yaml:"scheduling"`
 	MorningReport *morningReportShadow `json:"morning-report" toml:"morning-report" yaml:"morning-report"`
 }
@@ -409,6 +421,14 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("bodies.comet-elements-url", configulator.LayerDefault, "default tag")
 	cfg.Bodies.CometSBDBURL = "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c"
 	set("bodies.comet-sbdb-url", configulator.LayerDefault, "default tag")
+	cfg.Discoveries.IntervalMinutes = 10
+	set("discoveries.interval-minutes", configulator.LayerDefault, "default tag")
+	cfg.Discoveries.Threads = 2
+	set("discoveries.threads", configulator.LayerDefault, "default tag")
+	cfg.Discoveries.RefSubs = 48
+	set("discoveries.reference-subs", configulator.LayerDefault, "default tag")
+	cfg.Discoveries.BackfillDays = 30
+	set("discoveries.backfill-days", configulator.LayerDefault, "default tag")
 	cfg.Scheduling.Auto = "off"
 	set("scheduling.auto", configulator.LayerDefault, "default tag")
 	cfg.Scheduling.IntervalHours = 1
@@ -937,6 +957,40 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Bodies.CometSBDBURL != nil {
 			cfg.Bodies.CometSBDBURL = *s.Bodies.CometSBDBURL
 			set("bodies.comet-sbdb-url", configulator.LayerFile, file)
+		}
+	}
+	if s.Discoveries != nil {
+		if s.Discoveries.Enabled != nil {
+			cfg.Discoveries.Enabled = *s.Discoveries.Enabled
+			set("discoveries.enabled", configulator.LayerFile, file)
+		}
+		if s.Discoveries.IntervalMinutes != nil {
+			cfg.Discoveries.IntervalMinutes = *s.Discoveries.IntervalMinutes
+			set("discoveries.interval-minutes", configulator.LayerFile, file)
+		}
+		if s.Discoveries.Threads != nil {
+			cfg.Discoveries.Threads = *s.Discoveries.Threads
+			set("discoveries.threads", configulator.LayerFile, file)
+		}
+		if s.Discoveries.RefSubs != nil {
+			cfg.Discoveries.RefSubs = *s.Discoveries.RefSubs
+			set("discoveries.reference-subs", configulator.LayerFile, file)
+		}
+		if s.Discoveries.BackfillDays != nil {
+			cfg.Discoveries.BackfillDays = *s.Discoveries.BackfillDays
+			set("discoveries.backfill-days", configulator.LayerFile, file)
+		}
+		if s.Discoveries.TNSKey != nil {
+			cfg.Discoveries.TNSKey = *s.Discoveries.TNSKey
+			set("discoveries.tns-key", configulator.LayerFile, file)
+		}
+		if s.Discoveries.TNSBotID != nil {
+			cfg.Discoveries.TNSBotID = *s.Discoveries.TNSBotID
+			set("discoveries.tns-bot-id", configulator.LayerFile, file)
+		}
+		if s.Discoveries.TNSBotName != nil {
+			cfg.Discoveries.TNSBotName = *s.Discoveries.TNSBotName
+			set("discoveries.tns-bot-name", configulator.LayerFile, file)
 		}
 	}
 	if s.Scheduling != nil {
@@ -2099,6 +2153,83 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Bodies.CometSBDBURL = v
 		set("bodies.comet-sbdb-url", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.enabled",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discoveries.Enabled = p
+		set("discoveries.enabled", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "interval-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.interval-minutes",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discoveries.IntervalMinutes = int(p)
+		set("discoveries.interval-minutes", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "threads"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.threads",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discoveries.Threads = int(p)
+		set("discoveries.threads", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "reference-subs"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.reference-subs",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discoveries.RefSubs = int(p)
+		set("discoveries.reference-subs", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "backfill-days"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.backfill-days",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discoveries.BackfillDays = int(p)
+		set("discoveries.backfill-days", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "tns-key"); ok {
+		cfg.Discoveries.TNSKey = v
+		set("discoveries.tns-key", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "tns-bot-id"); ok {
+		cfg.Discoveries.TNSBotID = v
+		set("discoveries.tns-bot-id", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "tns-bot-name"); ok {
+		cfg.Discoveries.TNSBotName = v
+		set("discoveries.tns-bot-name", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduling", "auto"); ok {
 		cfg.Scheduling.Auto = v
 		set("scheduling.auto", configulator.LayerEnv, n)
@@ -2287,6 +2418,14 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"bodies" + o.Separator + "horizons-url",
 		"bodies" + o.Separator + "comet-elements-url",
 		"bodies" + o.Separator + "comet-sbdb-url",
+		"discoveries" + o.Separator + "enabled",
+		"discoveries" + o.Separator + "interval-minutes",
+		"discoveries" + o.Separator + "threads",
+		"discoveries" + o.Separator + "reference-subs",
+		"discoveries" + o.Separator + "backfill-days",
+		"discoveries" + o.Separator + "tns-key",
+		"discoveries" + o.Separator + "tns-bot-id",
+		"discoveries" + o.Separator + "tns-bot-name",
 		"scheduling" + o.Separator + "auto",
 		"scheduling" + o.Separator + "interval-hours",
 		"morning-report" + o.Separator + "enabled",
@@ -2429,16 +2568,24 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[114], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
 	fs.String(names[115], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
 	fs.String(names[116], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
-	fs.String(names[117], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
-	fs.Var(impl.NewInt(1), names[118], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
-	fs.Bool(names[119], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
-	fs.String(names[120], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
-	fs.String(names[121], "America/Chicago", "IANA time zone of the send time and of the times in the report")
-	fs.String(names[122], "CT", "Label after every time in the report")
-	fs.String(names[123], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
-	fs.String(names[124], "", "Telegram bot token")
-	fs.String(names[125], "", "Telegram chat the report goes to")
-	fs.String(names[126], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
+	fs.Bool(names[117], false, "Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks")
+	fs.Var(impl.NewInt(10), names[118], "Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later")
+	fs.Var(impl.NewInt(2), names[119], "Cores one comparison may use; comparisons run one at a time and wait while the stacker is working")
+	fs.Var(impl.NewInt(48), names[120], "Most subs per filter stacked into a night's reference, taken from the other nights in turn")
+	fs.Var(impl.NewInt(30), names[121], "Nights from the last this many days are compared on their own; older nights only on request")
+	fs.String(names[122], "", "Transient Name Server bot API key; empty skips TNS")
+	fs.String(names[123], "", "Transient Name Server bot ID")
+	fs.String(names[124], "", "Transient Name Server bot name")
+	fs.String(names[125], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
+	fs.Var(impl.NewInt(1), names[126], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
+	fs.Bool(names[127], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
+	fs.String(names[128], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
+	fs.String(names[129], "America/Chicago", "IANA time zone of the send time and of the times in the report")
+	fs.String(names[130], "CT", "Label after every time in the report")
+	fs.String(names[131], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
+	fs.String(names[132], "", "Telegram bot token")
+	fs.String(names[133], "", "Telegram chat the report goes to")
+	fs.String(names[134], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
 	return nil
 }
 
@@ -3848,6 +3995,102 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.Bodies.CometSBDBURL = v
 		set("bodies.comet-sbdb-url", configulator.LayerCLI, "--"+n)
 	}
+	if n := "discoveries" + o.Separator + "enabled"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.enabled",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.Enabled = v
+		set("discoveries.enabled", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "interval-minutes"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.interval-minutes",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.IntervalMinutes = v
+		set("discoveries.interval-minutes", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "threads"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.threads",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.Threads = v
+		set("discoveries.threads", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "reference-subs"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.reference-subs",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.RefSubs = v
+		set("discoveries.reference-subs", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "backfill-days"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.backfill-days",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.BackfillDays = v
+		set("discoveries.backfill-days", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "tns-key"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.tns-key",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.TNSKey = v
+		set("discoveries.tns-key", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "tns-bot-id"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.tns-bot-id",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.TNSBotID = v
+		set("discoveries.tns-bot-id", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "tns-bot-name"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.tns-bot-name",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.TNSBotName = v
+		set("discoveries.tns-bot-name", configulator.LayerCLI, "--"+n)
+	}
 	if n := "scheduling" + o.Separator + "auto"; fs.Changed(n) {
 		v, err := fs.GetString(n)
 		if err != nil {
@@ -4323,6 +4566,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.Bodies = &sub
+			}
+		case "discoveries":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("discoveries", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub discoveriesShadow
+				if err := sub.decodeJSON(dec, "discoveries"); err != nil {
+					return err
+				}
+				s.Discoveries = &sub
 			}
 		case "scheduling":
 			if dec.PeekKind() == jsontext.KindNull {
@@ -6710,6 +6972,161 @@ func (s *bodiesShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 
 // decodeJSON decodes the members of an object whose opening brace has
 // been read. path is the object's dotted path.
+func (s *discoveriesShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "enabled":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Enabled = &b
+			default:
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "interval-minutes":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".interval-minutes", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalMinutes = &num
+			default:
+				return configJSONError(path+".interval-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "threads":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".threads", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".threads", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Threads = &num
+			default:
+				return configJSONError(path+".threads", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "reference-subs":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".reference-subs", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".reference-subs", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.RefSubs = &num
+			default:
+				return configJSONError(path+".reference-subs", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "backfill-days":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".backfill-days", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".backfill-days", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.BackfillDays = &num
+			default:
+				return configJSONError(path+".backfill-days", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "tns-key":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.TNSKey = &str
+			default:
+				return configJSONError(path+".tns-key", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "tns-bot-id":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.TNSBotID = &str
+			default:
+				return configJSONError(path+".tns-bot-id", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "tns-bot-name":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.TNSBotName = &str
+			default:
+				return configJSONError(path+".tns-bot-name", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
 func (s *schedulingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 	for {
 		tok, err := dec.ReadToken()
@@ -7035,6 +7452,14 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "bodies.horizons-url = %v\n", c.Bodies.HorizonsURL)
 	fmt.Fprintf(&b, "bodies.comet-elements-url = %v\n", c.Bodies.CometElementsURL)
 	fmt.Fprintf(&b, "bodies.comet-sbdb-url = %v\n", c.Bodies.CometSBDBURL)
+	fmt.Fprintf(&b, "discoveries.enabled = %v\n", c.Discoveries.Enabled)
+	fmt.Fprintf(&b, "discoveries.interval-minutes = %v\n", c.Discoveries.IntervalMinutes)
+	fmt.Fprintf(&b, "discoveries.threads = %v\n", c.Discoveries.Threads)
+	fmt.Fprintf(&b, "discoveries.reference-subs = %v\n", c.Discoveries.RefSubs)
+	fmt.Fprintf(&b, "discoveries.backfill-days = %v\n", c.Discoveries.BackfillDays)
+	fmt.Fprintf(&b, "discoveries.tns-key = %v\n", c.Discoveries.TNSKey)
+	fmt.Fprintf(&b, "discoveries.tns-bot-id = %v\n", c.Discoveries.TNSBotID)
+	fmt.Fprintf(&b, "discoveries.tns-bot-name = %v\n", c.Discoveries.TNSBotName)
 	fmt.Fprintf(&b, "scheduling.auto = %v\n", c.Scheduling.Auto)
 	fmt.Fprintf(&b, "scheduling.interval-hours = %v\n", c.Scheduling.IntervalHours)
 	fmt.Fprintf(&b, "morning-report.enabled = %v\n", c.MorningReport.Enabled)

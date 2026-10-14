@@ -15,13 +15,14 @@ import (
 )
 
 const (
-	TypePreview = "preview" // a sub's preview was rendered
-	TypeMaster  = "master"  // a master was updated
-	TypeMosaic  = "mosaic"  // a project's mosaic was updated; Object is the project
-	TypeFrames  = "frames"  // new frames were indexed
-	TypeSubs    = "subs"    // a target's lights were measured or triaged; Object is the target
-	TypeBody    = "body"    // a moving target's night was measured; Object and Filter say which
-	TypeStatus  = "status"  // what the stacker is doing; not replayed
+	TypePreview   = "preview"   // a sub's preview was rendered
+	TypeMaster    = "master"    // a master was updated
+	TypeMosaic    = "mosaic"    // a project's mosaic was updated; Object is the project
+	TypeFrames    = "frames"    // new frames were indexed
+	TypeSubs      = "subs"      // a target's lights were measured or triaged; Object is the target
+	TypeBody      = "body"      // a moving target's night was measured; Object and Filter say which
+	TypeDiscovery = "discovery" // a night was compared; Object, Filter (the filter group) and Key (the night) say which
+	TypeStatus    = "status"    // what the stacker is doing; not replayed
 )
 
 // Status is a snapshot of the stacker's work.
