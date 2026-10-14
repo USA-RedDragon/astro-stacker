@@ -269,6 +269,24 @@ bodies:
   comet-elements-url: "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
   # JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list
   comet-sbdb-url: "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c"
+# Each night of a target with 3 or more accepted nights compared with its other nights for variable stars, supernovae, asteroids and anything new
+discoveries:
+  # Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks
+  enabled: false
+  # Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later
+  interval-minutes: 10
+  # Cores one comparison may use; comparisons run one at a time and wait while the stacker is working
+  threads: 2
+  # Most subs per filter stacked into a night's reference, taken from the other nights in turn
+  reference-subs: 48
+  # Nights from the last this many days are compared on their own; older nights only on request
+  backfill-days: 30
+  # Transient Name Server bot API key; empty skips TNS
+  # tns-key: ""
+  # Transient Name Server bot ID
+  # tns-bot-id: ""
+  # Transient Name Server bot name
+  # tns-bot-name: ""
 # One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor and its minimum altitude at the hard limit
 scheduling:
   # Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on
