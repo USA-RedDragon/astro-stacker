@@ -120,6 +120,12 @@ const columns = "id, profile_id, started_at, finished_at, duration_seconds, succ
 // Load returns the runs that finished at or after since, newest first. A
 // database without the table yet answers with no runs and Available false.
 func Load(ctx context.Context, db *gorm.DB, since time.Time, limit int) (Runs, error) {
+	return LoadBetween(ctx, db, since, time.Time{}, limit)
+}
+
+// LoadBetween is Load of the runs that finished before until; a zero until
+// has no end.
+func LoadBetween(ctx context.Context, db *gorm.DB, since, until time.Time, limit int) (Runs, error) {
 	out := Runs{Since: since.UTC(), Runs: []Run{}}
 	if db == nil {
 		return out, nil
@@ -134,8 +140,11 @@ func Load(ctx context.Context, db *gorm.DB, since time.Time, limit int) (Runs, e
 	}
 	limit = min(limit, MaxLimit)
 	var rows []row
-	if err := db.WithContext(ctx).Table(Table).Select(columns).
-		Where("finished_at >= ?", since.UTC()).
+	q := db.WithContext(ctx).Table(Table).Select(columns).Where("finished_at >= ?", since.UTC())
+	if !until.IsZero() {
+		q = q.Where("finished_at < ?", until.UTC())
+	}
+	if err := q.
 		Order("finished_at DESC, id DESC").Limit(limit).Scan(&rows).Error; err != nil {
 		return out, fmt.Errorf("load autofocus runs: %w", err)
 	}

@@ -41,6 +41,57 @@ type Config struct {
 	MoonKeep     MoonKeep     `name:"moon-keep" description:"How many subs the stacker keeps under each Moon, by filter, Moon phase, Moon altitude and distance from the target, and by the target's altitude with the Moon down, fitted from its own verdicts for the plugin's weights and skips"`
 	Bodies       Bodies       `name:"bodies" description:"Comets and other moving targets: nightly JPL Horizons position tables for the plugin and the list of comets observable tonight"`
 	Scheduling   Scheduling   `name:"scheduling" description:"One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor and its minimum altitude at the hard limit"`
+	// MorningReport is the daily Telegram report on the night that ended.
+	MorningReport MorningReport `name:"morning-report" description:"A daily Telegram report on the night that just ended: safe and imaged hours, subs kept and rejected, unsafe events and how fast the flap closed, dew, autofocus, guiding and camera, with each imaged target's current stack"`
+}
+
+type MorningReport struct {
+	Enabled        bool   `name:"enabled" description:"Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day"`
+	Time           string `name:"time" description:"Local time of day, HH:MM, the report is sent; each report covers the day before up to this time" default:"11:00"`
+	Timezone       string `name:"timezone" description:"IANA time zone of the send time and of the times in the report" default:"America/Chicago"`
+	ZoneLabel      string `name:"zone-label" description:"Label after every time in the report" default:"CT"`
+	LokiURL        string `name:"loki-url" description:"Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured"`
+	TelegramToken  string `name:"telegram-token" description:"Telegram bot token" secret:"true"`
+	TelegramChatID string `name:"telegram-chat-id" description:"Telegram chat the report goes to"`
+	FirstNight     string `name:"first-night" description:"First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night"`
+}
+
+// FirstNightDate is the first night whose report is sent, zero for every
+// night.
+func (m MorningReport) FirstNightDate() time.Time {
+	t, err := time.Parse(time.DateOnly, m.FirstNight)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// Clock is the send time as hour and minute.
+func (m MorningReport) Clock() (hour, minute int, err error) {
+	t, err := time.Parse("15:04", m.Time)
+	if err != nil {
+		return 0, 0, ErrInvalidMorningReportTime
+	}
+	return t.Hour(), t.Minute(), nil
+}
+
+func (m MorningReport) validate() error {
+	if !m.Enabled {
+		return nil
+	}
+	if _, _, err := m.Clock(); err != nil {
+		return err
+	}
+	if _, err := time.LoadLocation(m.Timezone); err != nil {
+		return ErrInvalidMorningReportZone
+	}
+	if m.TelegramToken == "" || m.TelegramChatID == "" {
+		return ErrMissingMorningReportTelegram
+	}
+	if m.FirstNight != "" && m.FirstNightDate().IsZero() {
+		return ErrInvalidMorningReportFirst
+	}
+	return nil
 }
 
 type Bodies struct {
@@ -255,7 +306,7 @@ type S3 struct {
 	Region    string `name:"region" description:"S3 region" default:"us-east-1"`
 	Bucket    string `name:"bucket" description:"Bucket holding the raw frames" default:"astro"`
 	AccessKey string `name:"access-key" description:"S3 access key"`
-	SecretKey string `name:"secret-key" description:"S3 secret key"`
+	SecretKey string `name:"secret-key" description:"S3 secret key" secret:"true"`
 	// Processed outputs (previews, calibrated subs, stacks) go here.
 	ProcessedBucket string `name:"processed-bucket" description:"Bucket for previews and processed frames" default:"astro-processed"`
 	// Browsers fetch presigned URLs, so they must be signed for the public
@@ -332,6 +383,10 @@ var (
 	ErrInvalidBodiesInterval        = errors.New("bodies.interval-minutes must be at least 1")
 	ErrInvalidSurveyMaxOrder        = errors.New("discover.survey-max-order must be 0 to 20")
 	ErrInvalidSurveyCache           = errors.New("discover.survey-cache-mb must be at least 1")
+	ErrInvalidMorningReportTime     = errors.New("morning-report.time must be HH:MM")
+	ErrInvalidMorningReportZone     = errors.New("morning-report.timezone must be an IANA time zone")
+	ErrMissingMorningReportTelegram = errors.New("morning-report needs telegram-token and telegram-chat-id when enabled")
+	ErrInvalidMorningReportFirst    = errors.New("morning-report.first-night must be a date, YYYY-MM-DD")
 )
 
 func (c Config) validateCalibration() error {
@@ -358,6 +413,9 @@ func (c Config) validatePublishers() error {
 		return err
 	}
 	if err := c.MoonKeep.validate(); err != nil {
+		return err
+	}
+	if err := c.MorningReport.validate(); err != nil {
 		return err
 	}
 	return c.Scheduling.validate()
