@@ -77,7 +77,7 @@ internal/discoveries/image.go	227	204
 internal/discoveries/kernel.go	196	185
 internal/discoveries/masks.go	39	37
 internal/discoveries/movers.go	121	109
-internal/discoveries/runner.go	627	464
+internal/discoveries/runner.go	648	480
 internal/discoveries/wcs.go	135	120
 internal/dustcheck/blobs.go	108	106
 internal/dustcheck/compare.go	108	95
@@ -117,7 +117,7 @@ internal/horizonsurvey/camera.go	115	111
 internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
-internal/horizonsurvey/nina.go	101	83
+internal/horizonsurvey/nina.go	101	81
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
