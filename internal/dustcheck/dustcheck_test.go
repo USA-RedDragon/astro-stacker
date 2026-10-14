@@ -159,6 +159,10 @@ func TestGroupChangesScope(t *testing.T) {
 	if one[0].Scope != dustcheck.ScopeWindow {
 		t.Errorf("a new shadow other filters already hold is %s, want window", one[0].Scope)
 	}
+	caught := dustcheck.GroupChanges([]dustcheck.Located{located("Luminance", 1000, 1000, -1)}, 4, others)
+	if caught[0].Scope != dustcheck.ScopeWindow {
+		t.Errorf("a new shadow in one filter that other filters' flats already hold is %s, want window", caught[0].Scope)
+	}
 	lone := dustcheck.GroupChanges([]dustcheck.Located{located("Luminance", 3000, 3000, -1)}, 1, others)
 	if lone[0].Scope != dustcheck.ScopeUnknown {
 		t.Errorf("a lone change with one filter checked is %s, want unknown", lone[0].Scope)
