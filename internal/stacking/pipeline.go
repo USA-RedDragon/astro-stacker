@@ -363,7 +363,8 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.markMixedGains(ctx)
 		p.markMiscounted(ctx)
 		// The exposure templates' moon avoidance can change: hourly.
-		// Duplicates found in masters are left for the sweep to restack.
+		// Duplicates and lights off their sensor setpoint found in masters
+		// are left for the sweep to restack.
 		// Masters are scored again as their lights' photometry comes in,
 		// before the sweep, which restacks what that marks.
 		for !p.stopping(ctx) {
@@ -371,6 +372,9 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 			p.reconcileLateRecords(ctx)
 			if err := p.dropDuplicates(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("Taking duplicates out of masters failed", "error", err)
+			}
+			if err := p.dropOffTemp(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("Taking lights off their sensor setpoint out of masters failed", "error", err)
 			}
 			if err := p.moonSweep(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("Moon sweep failed", "error", err)
