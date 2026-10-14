@@ -198,3 +198,85 @@ func TestTriageOffTemp(t *testing.T) {
 		}
 	}
 }
+
+// Lights stacked before the rule that break it are taken out of their
+// masters, which are marked for the moon sweep to stack again; lights in
+// the limit, without readings, or taken before the rule's date stay in, and
+// with the rule off nothing changes.
+func TestDropOffTemp(t *testing.T) {
+	t.Parallel()
+	db := offTempDB(t)
+	frames := offTempFrames(t, db,
+		[]string{"H/a.fits", "H/b.fits", "H/c.fits", "H/d.fits", "H/e.fits", "H/g.fits", "O/f.fits"},
+		[]*float64{ptrTo(10.3), ptrTo(2.5), nil, ptrTo(1.4), ptrTo(3.7), ptrTo(17.0), ptrTo(2.0)})
+	if err := db.Model(&frames[5]).Update("date_obs", ptrTo(summer())).Error; err != nil {
+		t.Fatal(err)
+	}
+	stack := app.Stack{Object: objectHartley, Filter: filterRed}
+	other := app.Stack{Object: objectOther, Filter: filterRed}
+	for _, s := range []*app.Stack{&stack, &other} {
+		if err := db.Create(s).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	statuses := []string{app.StackStatusAdded, app.StackStatusAdded, app.StackStatusAdded, app.StackStatusAdded,
+		app.StackStatusLowScore, app.StackStatusAdded, app.StackStatusAdded}
+	for i, f := range frames {
+		id := stack.ID
+		if i == len(frames)-1 {
+			id = other.ID
+		}
+		if err := db.Create(&app.StackFrame{ID: 100 + i, FrameID: f.ID, StackID: &id, Status: statuses[i]}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := (&Pipeline{db: db}).dropOffTemp(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var unchanged int64
+	if err := db.Model(&app.StackFrame{}).Where("status = ?", app.StackStatusAdded).Count(&unchanged).Error; err != nil {
+		t.Fatal(err)
+	}
+	if unchanged != 6 {
+		t.Errorf("rule off: %d lights still added, want 6", unchanged)
+	}
+	p := &Pipeline{db: db, opts: PipelineOptions{RejectOffTempSince: ruleSince()}}
+	if err := p.dropOffTemp(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var sfs []app.StackFrame
+	if err := db.Order("id").Find(&sfs).Error; err != nil {
+		t.Fatal(err)
+	}
+	want := []string{app.StackStatusOffTemp, app.StackStatusAdded, app.StackStatusAdded, app.StackStatusOffTemp,
+		app.StackStatusLowScore, app.StackStatusAdded, app.StackStatusAdded}
+	for i, sf := range sfs {
+		if sf.Status != want[i] || sf.NextAttemptAt != nil {
+			t.Errorf("%s: status %q (next %v), want %q", frames[i].Key, sf.Status, sf.NextAttemptAt, want[i])
+		}
+		if (sf.Status == app.StackStatusOffTemp) != (sf.Error != nil) {
+			t.Errorf("%s: error %v", frames[i].Key, sf.Error)
+		}
+	}
+	for _, s := range []app.Stack{stack, other} {
+		if err := db.First(&s, s.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if s.NeedsRebuild != (s.ID == stack.ID) {
+			t.Errorf("%s needs_rebuild %v", s.Object, s.NeedsRebuild)
+		}
+	}
+
+	if err := db.Model(&app.Stack{}).Where("id = ?", stack.ID).UpdateColumn("needs_rebuild", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := p.dropOffTemp(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&stack, stack.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stack.NeedsRebuild {
+		t.Error("a second pass with nothing left to take out marked the master again")
+	}
+}
