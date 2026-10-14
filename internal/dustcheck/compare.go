@@ -204,11 +204,11 @@ func (g Group) Filters() []string {
 
 // GroupChanges groups one night's changes across filters and says whether
 // each is on the window or a filter. A change in two or more filters is on
-// the window. A change in one filter is on that filter when another filter
-// was checked the same night and didn't show it. With only its own filter
-// checked, a new shadow that other filters' latest flats (others) already
-// hold is on the window; anything else is unknown. checked is how many
-// filters were compared that night.
+// the window, and so is a new shadow in one filter that other filters'
+// latest flats (others) already hold. Any other change in one filter is on
+// that filter when another filter was checked the same night and didn't
+// show it, and unknown otherwise. checked is how many filters were
+// compared that night.
 func GroupChanges(changes []Located, checked int, others map[string][]Blob) []Group {
 	var groups []Group
 	for _, c := range changes {
@@ -232,27 +232,32 @@ func GroupChanges(changes []Located, checked int, others map[string][]Blob) []Gr
 		g := &groups[gi]
 		fs := g.Filters()
 		switch {
-		case len(fs) >= 2:
+		case len(fs) >= 2, heldElsewhere(g.Members[0], others):
 			g.Scope = ScopeWindow
 		case checked >= 2:
 			g.Scope = ScopeFilter
 		default:
 			g.Scope = ScopeUnknown
-			m := g.Members[0]
-			if m.Peak >= 0 {
-				break
-			}
-			for f, cat := range others {
-				if f == m.Filter {
-					continue
-				}
-				for _, b := range cat {
-					if Near(b, m.Blob) {
-						g.Scope = ScopeWindow
-					}
-				}
-			}
 		}
 	}
 	return groups
+}
+
+// heldElsewhere reports whether a new shadow is already in another filter's
+// latest flat, as window dust that filter's flats caught earlier is.
+func heldElsewhere(m Located, others map[string][]Blob) bool {
+	if m.Peak >= 0 {
+		return false
+	}
+	for f, cat := range others {
+		if f == m.Filter {
+			continue
+		}
+		for _, b := range cat {
+			if Near(b, m.Blob) {
+				return true
+			}
+		}
+	}
+	return false
 }
