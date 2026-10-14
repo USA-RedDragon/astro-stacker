@@ -44,7 +44,7 @@ func (s *Service) Render(ctx context.Context, night time.Time) (string, []Photo,
 	if err != nil {
 		return "", nil, r, err
 	}
-	photos := make([]Photo, 0, len(r.Images))
+	photos := s.Formatter.dustPhotos(r)
 	for _, im := range r.Images {
 		if len(im.JPEG) == 0 {
 			continue

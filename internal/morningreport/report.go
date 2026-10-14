@@ -57,6 +57,12 @@ type Report struct {
 	Discoveries []Count
 
 	Images []Image
+
+	// Dust are the dust changes found in flats during the window;
+	// DustLights the night's lights check when it found dust the flats
+	// don't hold.
+	Dust       []DustChange
+	DustLights *DustLights
 }
 
 // Subs are the night's lights and the stacker's verdicts on them.
