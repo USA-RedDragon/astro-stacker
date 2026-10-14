@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
 	"path"
 	"slices"
 	"sort"
@@ -123,6 +124,10 @@ type Options struct {
 	BackfillDays int
 	// Busy pauses the work while the stacker is stacking.
 	Busy func() bool
+	// MaxWait and Headroom let the work go on beside a stacker that has been
+	// busy for MaxWait, while Headroom says there is memory to spare.
+	MaxWait  time.Duration
+	Headroom func() bool
 	// Catalog finds galaxies for supernova candidates.
 	Catalog func() (*catalog.Index, error)
 	// OnRun, if set, hears of each finished run.
@@ -159,6 +164,7 @@ type Runner struct {
 	requested []Job
 	anchors   map[string][]Anchor
 	lastStage time.Time
+	busySince time.Time
 }
 
 // Job is one night of one target's filter group.
@@ -227,12 +233,28 @@ func (r *Runner) stopping(ctx context.Context) bool {
 	}
 }
 
+// waitIdle waits while the stacker is working. Once it has been working
+// for MaxWait without a break, the comparison goes on beside it as long as
+// the container has Headroom of memory to spare, so a long stacking
+// backlog does not hold the comparisons back for days.
 func (r *Runner) waitIdle(ctx context.Context) error {
 	if r.opts.Busy == nil || !r.opts.Busy() {
+		r.mu.Lock()
+		r.busySince = time.Time{}
+		r.mu.Unlock()
 		return nil
 	}
+	r.mu.Lock()
+	if r.busySince.IsZero() {
+		r.busySince = time.Now()
+	}
+	since := r.busySince
+	r.mu.Unlock()
 	r.setStage("waiting for the stacker")
 	for r.opts.Busy() {
+		if r.opts.MaxWait > 0 && time.Since(since) >= r.opts.MaxWait && r.opts.Headroom != nil && r.opts.Headroom() {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -241,7 +263,39 @@ func (r *Runner) waitIdle(ctx context.Context) error {
 		case <-time.After(idlePoll):
 		}
 	}
+	r.mu.Lock()
+	r.busySince = time.Time{}
+	r.mu.Unlock()
 	return nil
+}
+
+// CgroupHeadroom reports whether the container's memory use plus need
+// stays under 80% of its limit, from the cgroup v2 files. Without a limit
+// it is true; when the files can't be read it is false.
+func CgroupHeadroom(need int64) func() bool {
+	return func() bool {
+		read := func(name string) (int64, bool) {
+			b, err := os.ReadFile("/sys/fs/cgroup/" + name)
+			if err != nil {
+				return 0, false
+			}
+			t := strings.TrimSpace(string(b))
+			if t == "max" {
+				return -1, true
+			}
+			v, err := strconv.ParseInt(t, 10, 64)
+			return v, err == nil
+		}
+		limit, ok1 := read("memory.max")
+		used, ok2 := read("memory.current")
+		if !ok1 || !ok2 {
+			return false
+		}
+		if limit < 0 {
+			return true
+		}
+		return float64(used+need) < 0.8*float64(limit)
+	}
 }
 
 func (r *Runner) setStage(s string) {
