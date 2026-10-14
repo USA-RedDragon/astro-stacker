@@ -43,6 +43,8 @@ func startDiscoveries(cfg *config.Config, s3 *minio.Client, appStore, schedStore
 		RefSubs:      d.RefSubs,
 		BackfillDays: d.BackfillDays,
 		Busy:         busy,
+		MaxWait:      30 * time.Minute,
+		Headroom:     discoveries.CgroupHeadroom(4 << 30),
 		Catalog:      sync.OnceValues(catalog.LoadEmbedded),
 		OnRun: func(run app.DiscoveryRun) {
 			broker.Publish(events.Event{Type: events.TypeDiscovery, Object: run.Object, Filter: run.Group, Key: run.Night.Format(time.DateOnly)})

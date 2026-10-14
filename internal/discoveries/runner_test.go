@@ -332,3 +332,18 @@ func TestRunnerBacksOffAfterAFailure(t *testing.T) {
 		t.Errorf("a run left running by a restart is not due again: %v %v", jobs, err)
 	}
 }
+
+func TestWaitIdleGoesOnBesideALongBusyStacker(t *testing.T) {
+	t.Parallel()
+	room := false
+	r := New(nil, nil, nil, nil, Options{Busy: func() bool { return true }, MaxWait: time.Millisecond, Headroom: func() bool { return room }})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := r.waitIdle(ctx); err == nil {
+		t.Error("went on without memory to spare")
+	}
+	room = true
+	if err := r.waitIdle(context.Background()); err != nil {
+		t.Error(err)
+	}
+}
