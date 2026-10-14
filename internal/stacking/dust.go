@@ -491,11 +491,13 @@ func (p *Pipeline) groupDustNight(ctx context.Context, night time.Time) error {
 		first := g.Members[0]
 		gk := fmt.Sprintf("%s:%d:%d", night.Format(time.DateOnly), first.X, first.Y)
 		filters := strings.Join(g.Filters(), ",")
+		var members []app.DustEvent
 		for _, m := range g.Members {
 			for i, l := range located {
 				if l.Filter != m.Filter || l.X != m.X || l.Y != m.Y {
 					continue
 				}
+				members = append(members, evs[i])
 				ids := []int{byID[i]}
 				if l.Class == dustcheck.ClassMoved {
 					for j, o := range located {
@@ -508,6 +510,11 @@ func (p *Pipeline) groupDustNight(ctx context.Context, night time.Time) error {
 					Updates(map[string]any{"scope": g.Scope, "filters": filters, "group_key": gk}).Error; err != nil {
 					return err
 				}
+			}
+		}
+		if g.Scope == dustcheck.ScopeWindow {
+			if err := p.proposeDustEpoch(ctx, night, g, members); err != nil {
+				return err
 			}
 		}
 	}

@@ -142,7 +142,7 @@ func dustDB(t *testing.T) *gorm.DB {
 	}
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
-	if err := db.AutoMigrate(&app.Frame{}, &app.DustFlat{}, &app.DustEvent{}, &app.DustLightSub{}, &app.DustLightCheck{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.DustFlat{}, &app.DustEvent{}, &app.DustLightSub{}, &app.DustLightCheck{}, &app.DustEpoch{}); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -228,6 +228,50 @@ func TestDustCheckFlats(t *testing.T) {
 	p.dustMetrics(ctx, night2.Add(30*time.Hour))
 	if got := testutil.ToFloat64(metrics.FlatDustEvents.WithLabelValues(filterRed, dustcheck.ClassNew, dustcheck.ScopeWindow)); got != 1 {
 		t.Errorf("flat dust gauge %v, want 1", got)
+	}
+	var epochs []app.DustEpoch
+	db.Find(&epochs)
+	if len(epochs) != 1 || !epochs[0].Proposed || !epochs[0].Start.Equal(night2) {
+		t.Fatalf("epochs %+v, want one proposed from %s: the flats before are 19 nights older", epochs, night2.Format(time.DateOnly))
+	}
+	if applied, err := coverage.Epochs(ctx, db); err != nil || len(applied) != 0 {
+		t.Errorf("applied epochs %v %v, want none while only proposed", applied, err)
+	}
+}
+
+func TestProposeDustEpochAppliesASureChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	p, db, _ := dustPipeline(t)
+	night := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	prevNight := night.AddDate(0, 0, -2)
+	prev := app.DustFlat{SetKey: "p", Night: &prevNight, Filter: filterRed, GroupKey: "p", MapKey: "p"}
+	db.Create(&prev)
+	members := make([]app.DustEvent, 0, 3)
+	located := make([]dustcheck.Located, 0, 3)
+	for _, f := range []string{filterRed, filterGreen, filterBlue} {
+		members = append(members, app.DustEvent{PrevID: prev.ID, Filter: f, Class: dustcheck.ClassNew, X: 2600, Y: 2400, Diameter: 600, Depth: -0.8})
+		located = append(located, dustcheck.Located{Filter: f, Event: dustcheck.Event{Class: dustcheck.ClassNew}})
+	}
+	g := dustcheck.Group{Members: located, Scope: dustcheck.ScopeWindow}
+	if err := p.proposeDustEpoch(ctx, night, g, members); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.proposeDustEpoch(ctx, night, g, members); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := coverage.Epochs(ctx, db)
+	if err != nil || len(applied) != 1 || !applied[0].Start.Equal(night) {
+		t.Fatalf("applied epochs %+v %v, want one from %s", applied, err, night.Format(time.DateOnly))
+	}
+	later := night.AddDate(0, 0, 1)
+	if err := p.proposeDustEpoch(ctx, later, g, members); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&app.DustEpoch{}).Count(&n)
+	if n != 1 {
+		t.Errorf("%d epochs, want no second one for a change already inside an epoch's bracket", n)
 	}
 }
 
