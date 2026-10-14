@@ -77,7 +77,7 @@ internal/discoveries/extract.go	110	105
 internal/discoveries/image.go	227	204
 internal/discoveries/kernel.go	196	185
 internal/discoveries/masks.go	39	37
-internal/discoveries/movers.go	134	130
+internal/discoveries/movers.go	157	151
 internal/discoveries/runner.go	662	491
 internal/discoveries/wcs.go	135	120
 internal/dustcheck/blobs.go	108	106
@@ -209,7 +209,7 @@ internal/schedauto/overhead.go	71	69
 internal/schedauto/plan.go	109	100
 internal/schedauto/projection.go	75	67
 internal/schedauto/rules.go	24	24
-internal/schedauto/service.go	242	189
+internal/schedauto/service.go	242	185
 internal/schedauto/windows.go	46	45
 internal/schedcmd/altitude.go	59	52
 internal/schedcmd/before.go	69	41
