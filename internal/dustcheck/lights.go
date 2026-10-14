@@ -21,6 +21,10 @@ const (
 	// that counts: window dust shadows are 390 px across and more, star
 	// and nebula leftovers smaller.
 	LightsMinDiameter = 300
+	// LightsMaxNoise is the roughest residual, as a fraction, whose discs
+	// are told; clean nights measured 0.06 % to 0.17 %, a cloudy week
+	// 0.38 %.
+	LightsMaxNoise = 0.0025
 )
 
 // Lights check outcomes.
@@ -29,6 +33,10 @@ const (
 	LightsTooFew   = "too_few_subs"
 	LightsOneField = "one_field"
 	LightsFailed   = "failed"
+	// LightsNoisy is a night whose residual is too rough to trust, as
+	// from clouds, moonlight or bright nebulae: its discs are kept but not
+	// told.
+	LightsNoisy = "noisy"
 )
 
 // SubMap bins a calibrated light 4×4 and divides it by its median, and

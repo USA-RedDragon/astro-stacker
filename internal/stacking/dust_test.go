@@ -470,3 +470,37 @@ func TestDustCheckLightsRecordsAFailedNight(t *testing.T) {
 		t.Error("a failed night with the same subs was tried again")
 	}
 }
+
+func TestDustCheckLightsLeavesANoisyNightUntold(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	p, db, _ := dustPipeline(t)
+	now := time.Now().UTC()
+	night := now.Truncate(24*time.Hour).AddDate(0, 0, -1)
+	for i := range 40 {
+		m, err := dustcheck.SubMap(dustPlane(uint64(300+i), 0.1, 0, 1.2), dustW, dustH) //nolint:gosec
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := dustcheck.EncodeSub(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := dustSubKey(night, i+1)
+		if err := p.putBytes(ctx, key, b, minio.PutObjectOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		db.Create(&app.DustLightSub{FrameID: i + 1, Night: night, Object: fmt.Sprintf("field %d", i%2), Key: key, CreatedAt: now.Add(-2 * time.Hour)})
+	}
+	if err := p.checkLightNights(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	var check app.DustLightCheck
+	if err := db.First(&check).Error; err != nil {
+		t.Fatal(err)
+	}
+	if check.Status != dustcheck.LightsNoisy {
+		t.Fatalf("check %+v, want a noisy night", check)
+	}
+	p.dustMetrics(ctx, now)
+}

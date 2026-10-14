@@ -90,7 +90,7 @@ type DustLightCheck struct {
 	Night  time.Time `gorm:"type:date;not null;uniqueIndex"`
 	Subs   int
 	Fields int
-	// Status is checked, too_few_subs, one_field or failed
+	// Status is checked, too_few_subs, one_field, noisy or failed
 	// (dustcheck.Lights*); a failed night is tried again when its subs
 	// change.
 	Status string

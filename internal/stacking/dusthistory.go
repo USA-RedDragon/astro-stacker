@@ -85,7 +85,11 @@ func (p *Pipeline) DustLightsHistory(ctx context.Context, h DustHistory, out io.
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "  residual noise %.3f%%, preview %s\n", check.Sigma*100, *check.PreviewKey)
+		noisy := ""
+		if check.Sigma > dustcheck.LightsMaxNoise {
+			noisy = " (too noisy to tell)"
+		}
+		fmt.Fprintf(out, "  residual noise %.3f%%%s, preview %s\n", check.Sigma*100, noisy, *check.PreviewKey)
 		for _, d := range discs {
 			fmt.Fprintf(out, "  disc at %d,%d d%d %+.2f%% edge %.2f sharp %.2f\n", d.X, d.Y, d.Diameter, d.Peak, d.Edge, d.Sharp)
 		}
