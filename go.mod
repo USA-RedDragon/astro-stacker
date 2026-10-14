@@ -12,7 +12,7 @@ require (
 	github.com/hebl/gohealpix v1.0.1
 	github.com/klauspost/compress v1.20.3
 	github.com/lmittmann/tint v1.2.1
-	github.com/minio/minio-go/v7 v7.3.0
+	github.com/minio/minio-go/v7 v7.4.1
 	github.com/pierrec/lz4/v4 v4.1.33
 	github.com/prometheus/client_golang v1.25.0
 	github.com/spf13/cobra v1.10.2
@@ -105,7 +105,7 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.6 // indirect
-	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
@@ -124,7 +124,7 @@ require (
 	golang.org/x/arch v0.29.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
