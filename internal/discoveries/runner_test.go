@@ -309,3 +309,25 @@ func TestGroupOfAndHash(t *testing.T) {
 		t.Error("hash")
 	}
 }
+
+func TestRunnerBacksOffAfterAFailure(t *testing.T) {
+	t.Parallel()
+	fx := newRunnerFixture(t)
+	fx.db.Where("object = ?", synthObject).Delete(&app.TargetReference{})
+	ctx := context.Background()
+	for range 2 {
+		if err := fx.r.Pass(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var runs []app.DiscoveryRun
+	fx.db.Find(&runs)
+	if len(runs) != 1 || runs[0].State != app.DiscoveryFailed || runs[0].Attempts != 1 || runs[0].SubsHash == "" || runs[0].NextTry == nil {
+		t.Fatalf("runs %+v", runs)
+	}
+	fx.db.Model(&runs[0]).Update("state", app.DiscoveryRunning)
+	jobs, err := fx.r.due(ctx)
+	if err != nil || len(jobs) != 1 {
+		t.Errorf("a run left running by a restart is not due again: %v %v", jobs, err)
+	}
+}
