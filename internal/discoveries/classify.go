@@ -236,6 +236,9 @@ func bodyName(b Body) string {
 	return b.Name
 }
 
+// classOf picks a candidate's class. A source gone since the reference with
+// no catalogued star there had nothing to fade, so it is most often a
+// reflection or trail in the reference, and is held at low confidence.
 func classOf(l Labelled) string {
 	has := func(cat ...string) bool {
 		for _, m := range l.Matches {
@@ -254,7 +257,7 @@ func classOf(l Labelled) string {
 		return ClassKnownAsteroid
 	case has(sourceAlerce, sourceFink, sourceTNS):
 		return ClassKnownTransient
-	case l.LowConf:
+	case l.LowConf, l.Sign < 0 && l.GaiaG == nil:
 		return ClassLowConfidence
 	case l.Sign > 0 && l.GaiaG == nil && has("galaxy"):
 		return ClassSupernova
