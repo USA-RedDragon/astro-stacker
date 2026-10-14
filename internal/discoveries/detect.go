@@ -174,6 +174,192 @@ func (t Track) Position(at time.Time) (x, y float64) {
 	return t.X0 + t.VX*d, t.Y0 + t.VY*d
 }
 
+type perSubStats struct {
+	present, n                  int
+	top, meanSigma, medianShare float64
+	reason                      string
+}
+
+// minFilterSubs is the fewest subs one filter needs for the per-sub checks
+// on its own. A change that fails them over all the night's subs may pass
+// on one filter's: a star's amplitude and even its sign of change differ
+// by colour (II Com, a dwarf nova on IC 3393, was brighter in L and fainter
+// in R, G and B). Off a catalogued star only L, which every source shows
+// in, may stand alone, so a feature of one colour's reference is not
+// taken for something new.
+const (
+	minFilterSubs  = 4
+	broadbandClear = "Luminance"
+)
+
+// perSub checks that the night's subs agree with the stack: the change is
+// over 1 sigma in at least half of them, no sub holds half the flux, their
+// mean is over 2 sigma and their median at least 0.4 of their mean.
+func perSub(fluxes, errs []float64) perSubStats {
+	st := perSubStats{n: len(fluxes)}
+	var pos, sum, varSum float64
+	for k, v := range fluxes {
+		sum += v
+		varSum += errs[k] * errs[k]
+		if v > presenceSigma*errs[k] {
+			st.present++
+		}
+		if v > 0 {
+			pos += v
+			st.top = math.Max(st.top, v)
+		}
+	}
+	st.top /= math.Max(pos, 1e-12)
+	st.meanSigma = sum / math.Max(math.Sqrt(varSum), 1e-12)
+	mean := sum / math.Max(float64(len(fluxes)), 1)
+	med := median64(fluxes)
+	if mean > 0 {
+		st.medianShare = med / mean
+	}
+	switch {
+	case float64(st.present) < presenceShare*float64(st.n):
+		st.reason = "present in too few subs"
+	case st.top >= maxSingleShare:
+		st.reason = "one sub holds most of the flux"
+	case st.meanSigma < meanAgreeSigma:
+		st.reason = "subs' mean disagrees"
+	case med < medianShare*mean:
+		st.reason = "subs' median disagrees"
+	}
+	return st
+}
+
+// filtersOf lists the filters of a candidate's light curve points.
+func filtersOf(pts []LightPoint) []string {
+	var out []string
+	for _, p := range pts {
+		if !slices.Contains(out, p.Filter) {
+			out = append(out, p.Filter)
+		}
+	}
+	return out
+}
+
+const (
+	localMinG       = 13.0
+	localMaxG       = 18.0
+	localIsolated   = 8.0
+	localNeighbours = 25
+	localMaxStars   = 30000
+	localSigma      = 3.5
+)
+
+// localFrac is the change of catalogued stars across the field, as a share
+// of each star's reference flux, so a candidate on a star is judged
+// against the stars around it: a flat or transparency mismatch shifts a
+// whole region alike and is not a change of one star. A star must stand
+// 3.5 times the robust spread of its 25 nearest neighbours above their
+// median: on Caldwell 14's 2026-10-09 night 867 changes on stars were within
+// that (their median excess 0.015 against a spread of 0.021), while IC 3393's
+// faintest known variable stood 3.75 spreads out.
+type localFrac struct {
+	grid *Grid
+	vals []float64
+}
+
+// localResiduals measures the fractional change of isolated Gaia stars of
+// G 13 to 18 in the difference.
+func (in *Input) localResiduals(ref, diff *Plane, edge []bool, res *Result) localFrac {
+	var all [][2]float64
+	var gs []float64
+	for _, s := range in.Gaia {
+		if s.G > localMaxG+3 {
+			continue
+		}
+		if x, y, ok := in.WCS.PixelOf(s.RA, s.Dec); ok && x >= 0 && y >= 0 && x < float64(ref.W) && y < float64(ref.H) {
+			all = append(all, [2]float64{x, y})
+			gs = append(gs, s.G)
+		}
+	}
+	near := NewGrid(all, localIsolated)
+	var pts [][2]float64
+	var vals []float64
+	for i, p := range all {
+		if gs[i] < localMinG || gs[i] > localMaxG || len(pts) >= localMaxStars {
+			continue
+		}
+		xi, yi := int(p[0]), int(p[1])
+		if edge[yi*ref.W+xi] || len(near.Within(p[0], p[1], localIsolated)) > 1 {
+			continue
+		}
+		r := Aperture(ref, p[0], p[1], residualR)
+		if !(r > residualRefSNR*res.ApSigma) {
+			continue
+		}
+		pts = append(pts, p)
+		vals = append(vals, Aperture(diff, p[0], p[1], residualR)/r)
+	}
+	return localFrac{grid: NewGrid(pts, 64), vals: vals}
+}
+
+// around is the median and robust spread of the fractional change of the
+// 25 stars nearest (x, y), leaving out the star at (x, y) itself.
+func (l localFrac) around(x, y float64) (median, spread float64, ok bool) {
+	if l.grid == nil {
+		return 0, 0, false
+	}
+	for _, r := range []float64{100, 200, 400, 800, 1600} {
+		type nb struct{ d, v float64 }
+		var ns []nb
+		for _, i := range l.grid.Within(x, y, r) {
+			p := l.grid.pts[i]
+			if d := math.Hypot(p[0]-x, p[1]-y); d > 3 {
+				ns = append(ns, nb{d, l.vals[i]})
+			}
+		}
+		if len(ns) < localNeighbours {
+			continue
+		}
+		sort.Slice(ns, func(a, b int) bool { return ns[a].d < ns[b].d })
+		v := make([]float64, localNeighbours)
+		for k := range v {
+			v[k] = ns[k].v
+		}
+		m := median64(v)
+		return m, 1.4826 * mad(sortedCopy(v), m), true
+	}
+	return 0, 0, false
+}
+
+func sortedCopy(v []float64) []float64 {
+	c := slices.Clone(v)
+	slices.Sort(c)
+	return c
+}
+
+// Rejection is a detection a per-sub, dipole or residual cut left out, and
+// the numbers behind it.
+type Rejection struct {
+	X, Y        float64
+	Sign        int
+	SNR         float64
+	Reason      string
+	PresentIn   int
+	Subs        int
+	TopShare    float64
+	MeanSigma   float64
+	MedianShare float64
+	Dipole      float64
+	Frac        float64
+}
+
+// MoverSub is what one sub gave the moving-object linker: its detections,
+// and the transient ones (seen at that spot in no other sub) the linker
+// works from.
+type MoverSub struct {
+	FrameID    int
+	Filter     string
+	Time       time.Time
+	Detections int
+	Transient  int
+	Points     [][2]float64
+}
+
 // Result is one night's comparison.
 type Result struct {
 	NightSubs, RefSubs int
@@ -196,6 +382,8 @@ type Result struct {
 	Candidates         []Candidate
 	Tracks             []Track
 	MidTime            time.Time
+	MoverSubs          []MoverSub
+	Rejected           []Rejection
 	DroppedSubs        int
 	Start, End         time.Time
 	SubDetections      int
@@ -403,7 +591,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	dmesh.Subtract(D)
 	edge := edgeMask(valid, W, H, edgePixels)
 	res.ApSigma = emptyApertureSigma(D, edge, apertureR, emptyApertures)
-	res.NightApSigma = emptyApertureSigma(night, edge, apertureR, emptyApertures)
+	res.NightApSigma = emptyApertureSigma(night, sourceMask(ref, edge), apertureR, emptyApertures)
 	if !(res.ApSigma > 0) || !(res.NightApSigma > 0) {
 		return nil, errors.New("could not measure the noise: too little sky away from the edges")
 	}
@@ -429,11 +617,23 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res.Candidates = in.cut(cands, ref, D, res)
+	local := in.localResiduals(ref, D, edge, res)
+	res.Candidates = in.cut(cands, ref, D, local, res)
 
 	in.stage("linking moving objects")
-	for _, hs := range linkMovers(times, dets, res.PixelScale) {
+	links, transient := linkMovers(times, dets, res.PixelScale)
+	for _, hs := range links {
 		res.Tracks = append(res.Tracks, in.track(hs, subs, dets, times))
+	}
+	for j, ns := range subs {
+		ms := MoverSub{FrameID: ns.sub.FrameID, Filter: ns.sub.Filter, Time: times[j], Detections: len(dets[j])}
+		for k, d := range dets[j] {
+			if j < len(transient) && transient[j][k] {
+				ms.Transient++
+				ms.Points = append(ms.Points, [2]float64{d.X, d.Y})
+			}
+		}
+		res.MoverSubs = append(res.MoverSubs, ms)
 	}
 	for i := range res.Tracks {
 		if i >= maxTrackStamps {
@@ -652,7 +852,7 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 			c.RefFlux = Aperture(ref, o.X, o.Y, residualR)
 			c.Frac = math.Abs(c.DiffFlux) / math.Max(c.RefFlux, 1e-12)
 			c.Dipole = dipole(sd, o.X, o.Y)
-			c.wide = c.RefFlux > residualRefSNR*res.ApSigma
+			c.wide = c.RefFlux > residualRefSNR*res.ApSigma*math.Sqrt(float64(res.NightSubs))
 			if gi, d := gaiaGrid.Nearest(o.X, o.Y, gaiaMatchPx); gi >= 0 {
 				g := in.Gaia[gaiaIdx[gi]].G
 				c.GaiaG, c.GaiaSepPx = &g, d
@@ -695,7 +895,7 @@ func lightPoint(c *cand, d *Plane, ns nightSub, r, sig float64, zp *float64) {
 
 // cut applies the per-sub, dipole and star residual cuts and grades what
 // is left.
-func (in *Input) cut(cands []cand, ref, diff *Plane, res *Result) []Candidate {
+func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Result) []Candidate {
 	var out []Candidate
 	for _, sign := range []int{1, -1} {
 		name := signName(sign)
@@ -705,32 +905,53 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, res *Result) []Candidate {
 			if c.Sign != sign {
 				continue
 			}
-			present := 0
-			var top, pos, sum, varSum float64
-			for k, v := range c.fluxes {
-				sum += v
-				varSum += c.errs[k] * c.errs[k]
-				if v > presenceSigma*c.errs[k] {
-					present++
-				}
-				if v > 0 {
-					pos += v
-					top = math.Max(top, v)
+			st := perSub(c.fluxes, c.errs)
+			if st.reason != "" {
+				for _, f := range filtersOf(c.Light) {
+					if f != broadbandClear && c.GaiaG == nil {
+						continue
+					}
+					var fl, er []float64
+					for k, pt := range c.Light {
+						if pt.Filter == f {
+							fl, er = append(fl, c.fluxes[k]), append(er, c.errs[k])
+						}
+					}
+					if len(fl) >= minFilterSubs {
+						if fs := perSub(fl, er); fs.reason == "" {
+							st = fs
+							break
+						}
+					}
 				}
 			}
-			c.PresentIn, c.SubsTested = present, len(c.fluxes)
-			c.TopShare = top / math.Max(pos, 1e-12)
-			if float64(present) < presenceShare*float64(c.SubsTested) || c.TopShare >= maxSingleShare || sum < meanAgreeSigma*math.Sqrt(varSum) ||
-				median64(c.fluxes) < medianShare*sum/float64(len(c.fluxes)) {
+			c.PresentIn, c.SubsTested, c.TopShare = st.present, st.n, st.top
+			reject := func(reason string) {
+				res.Rejected = append(res.Rejected, Rejection{X: c.X, Y: c.Y, Sign: c.Sign, SNR: c.SNR, Reason: reason, PresentIn: st.present, Subs: st.n,
+					TopShare: st.top, MeanSigma: st.meanSigma, MedianShare: st.medianShare, Dipole: c.Dipole, Frac: c.Frac})
+			}
+			if st.reason != "" {
+				reject(st.reason)
 				continue
 			}
 			fn.PerSub++
 			if c.Dipole > maxDipole {
+				reject("dipole")
 				continue
 			}
 			fn.NotDipole++
-			if c.RefFlux > residualRefSNR*res.ApSigma && c.Frac < minResidualFrac {
-				continue
+			if c.RefFlux > residualRefSNR*res.ApSigma {
+				if c.Frac < minResidualFrac {
+					reject("star residual")
+					continue
+				}
+				if m, spread, ok := local.around(c.X, c.Y); ok {
+					excess := float64(c.Sign) * (c.DiffFlux/c.RefFlux - m)
+					if excess < math.Max(minResidualFrac, localSigma*spread) {
+						reject(fmt.Sprintf("like its neighbours: %+.3f against their %+.3f ± %.3f", c.DiffFlux/c.RefFlux, m, spread))
+						continue
+					}
+				}
 			}
 			fn.NotResidual++
 			cc := c.Candidate
@@ -864,6 +1085,32 @@ func emptyApertureSigma(p *Plane, exclude []bool, r float64, n int) float64 {
 	}
 	_, sd := clippedStd(v)
 	return sd
+}
+
+// sourceMask marks the edge and every pixel within 3 px of one the
+// reference shows over 3 sigma, so empty apertures in a crowded field are
+// empty.
+func sourceMask(ref *Plane, edge []bool) []bool {
+	mesh := Background(ref, 128, nil)
+	rms := mesh.RMSPlane()
+	w, h := ref.W, ref.H
+	out := slices.Clone(edge)
+	row := make([]float32, w)
+	for y := range h {
+		mesh.rowInterp(mesh.Bg, y, row)
+		for x := range w {
+			v := ref.Data[y*w+x]
+			if isNaN32(v) || v-row[x] <= 3*rms[y*w+x] {
+				continue
+			}
+			for yy := max(0, y-3); yy <= min(h-1, y+3); yy++ {
+				for xx := max(0, x-3); xx <= min(w-1, x+3); xx++ {
+					out[yy*w+xx] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 func halton(i, base int) float64 {
