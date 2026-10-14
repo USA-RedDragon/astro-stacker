@@ -36,6 +36,11 @@ func open(t *testing.T, name string) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	return db
 }
 
