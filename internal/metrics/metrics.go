@@ -62,6 +62,10 @@ var (
 	FlatDustEvents = promauto.NewGaugeVec(prometheus.GaugeOpts{Namespace: ns, Name: "flat_dust_events",
 		Help: "Dust changes in flats from the last 36 hours, by filter, kind (new, gone, moved) and scope (window, filter, unknown)."},
 		[]string{"filter", "kind", "scope"})
+	LightsDustResidual = promauto.NewGauge(prometheus.GaugeOpts{Namespace: ns, Name: "lights_dust_residual_percent",
+		Help: "Depth in percent of the deepest dust shadow last night's lights hold that their flats don't; 0 when none or not checked."})
+	LightsDustMismatches = promauto.NewGauge(prometheus.GaugeOpts{Namespace: ns, Name: "lights_dust_mismatches",
+		Help: "Dust shadows last night's lights hold that their flats don't, or the other way round."})
 	TSVerdictsSent = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "ts_verdicts_sent_total",
 		Help: "Verdicts written for Target Scheduler, by kind (new, retry, undo, redo)."}, []string{"kind"})
 )
