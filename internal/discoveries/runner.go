@@ -15,6 +15,7 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,6 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // Method is the revision of the method; runs by an older one are redone.
@@ -52,6 +52,7 @@ const (
 	kickMaxWait    = 10 * time.Minute
 	stageEvery     = 20 * time.Second
 	EventType      = "discovery"
+	maxRequested   = 500
 )
 
 func broadband() []string { return []string{"Luminance", "Red", "Green", "Blue"} }
@@ -204,7 +205,9 @@ func (r *Runner) Kick() { r.kick.Kick() }
 // backfill window if need be.
 func (r *Runner) Request(object string, night time.Time, group string) {
 	r.mu.Lock()
-	r.requested = append(r.requested, Job{Object: object, Group: group, Night: night, Requested: true})
+	if len(r.requested) < maxRequested {
+		r.requested = append(r.requested, Job{Object: object, Group: group, Night: night, Requested: true})
+	}
 	r.mu.Unlock()
 	r.kick.Kick()
 }
@@ -417,6 +420,9 @@ func (r *Runner) takeRequested(ctx context.Context) ([]Job, error) {
 		}
 		rows, err := r.subRows(ctx, j.Object)
 		if err != nil {
+			r.mu.Lock()
+			r.requested = append(req, r.requested...)
+			r.mu.Unlock()
 			return nil, err
 		}
 		var gs []string
@@ -482,7 +488,11 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 				}
 				j := Job{Object: object, Group: g, Night: night}
 				if run, ok := have[j.key()]; ok {
-					if run.Method == Method && run.SubsHash == subsHash(subs) && settledRun(run, now) {
+					want := subsHash(subs)
+					if run.State == app.DiscoverySkipped {
+						want = skippedHash(want, len(nights))
+					}
+					if run.Method == Method && run.SubsHash == want && settledRun(run, now) {
 						continue
 					}
 				}
@@ -519,7 +529,7 @@ func (r *Runner) runOne(ctx context.Context, j Job) {
 		return
 	}
 	err = r.compare(ctx, j, run)
-	if ctx.Err() != nil || r.stopping(ctx) {
+	if err != nil && (ctx.Err() != nil || r.stopping(ctx)) {
 		r.db.Model(run).Updates(map[string]any{"state": app.DiscoveryQueued, "stage": ""})
 		return
 	}
@@ -530,6 +540,9 @@ func (r *Runner) runOne(ctx context.Context, j Job) {
 		}
 		msg := err.Error()
 		next := r.now().Add(failureBackoff)
+		if state == app.DiscoverySkipped {
+			run.SubsHash = skippedHash(run.SubsHash, run.RefNights+1)
+		}
 		r.db.Model(run).Updates(map[string]any{"state": state, "error": msg, "stage": "", "attempts": run.Attempts + 1, "next_try": next,
 			"subs_hash": run.SubsHash, "method": Method, "finished_at": r.now(), "seconds": r.now().Sub(start).Seconds()})
 		if state == app.DiscoveryFailed {
@@ -538,6 +551,12 @@ func (r *Runner) runOne(ctx context.Context, j Job) {
 			slog.Info("Discovery run skipped", "object", j.Object, "night", j.Night.Format(time.DateOnly), "group", j.Group, "reason", err)
 		}
 	}
+}
+
+// skippedHash marks a skipped run's subs with the group's night count, so
+// the night is tried again once more nights could make its reference.
+func skippedHash(hash string, nights int) string {
+	return fmt.Sprintf("%s:n%d", hash, nights)
 }
 
 // settledRun says whether a run needs nothing more: done, skipped, or
@@ -601,7 +620,13 @@ func (r *Runner) compare(ctx context.Context, j Job, run *app.DiscoveryRun) erro
 		return errNotEligible
 	}
 	tonight := nights[j.Night]
-	run.SubsHash = subsHash(tonight)
+	run.SubsHash, run.RefNights = subsHash(tonight), len(nights)-1
+	exposure := map[int]float64{}
+	for _, subs := range nights {
+		for _, s := range subs {
+			exposure[s.FrameID] = s.Exposure
+		}
+	}
 	in, err := r.input(ctx, j, nights)
 	if err != nil {
 		return err
@@ -612,10 +637,14 @@ func (r *Runner) compare(ctx context.Context, j Job, run *app.DiscoveryRun) erro
 		return err
 	}
 	r.setStage("checking the catalogues")
-	known := r.known(ctx, j.Object, res)
+	known, err := r.known(ctx, j.Object, res)
+	if err != nil {
+		return err
+	}
 	labelled, tracks, checked, failed := Classify(ctx, res, known, r.cat.AlertsFrom())
 	r.setStage("saving")
-	return r.save(ctx, run, j, res, in.WCS, known.Bodies, labelled, tracks, checked, failed, start)
+	return r.save(ctx, run, saveInput{res: res, wcs: in.WCS, bodies: known.Bodies, labelled: labelled, tracks: tracks,
+		checked: checked, failed: failed, exposure: exposure, start: start})
 }
 
 // input gathers a job's subs, anchors, plate solution and Gaia stars.
@@ -871,23 +900,24 @@ func (r *Runner) putJSON(ctx context.Context, key string, v any) error {
 
 // known asks the variable star and minor planet catalogues about the
 // field, and the built-in catalogue for its galaxies.
-func (r *Runner) known(ctx context.Context, object string, res *Result) Known {
+// Without the variable stars or the known asteroids every change and
+// track would look new, so either failing fails the run, which is tried
+// again later.
+func (r *Runner) known(ctx context.Context, object string, res *Result) (Known, error) {
 	k := Known{Epoch: res.MidTime}
 	radius := res.FieldRadius * 1.05
-	if vs, err := r.vsx(ctx, object, res.FieldRA, res.FieldDec, radius); err != nil {
-		k.Failed = append(k.Failed, "VSX")
-		slog.Warn("VSX lookup failed", "object", object, "error", err)
-	} else {
-		k.Variables = vs
-		k.Checked = append(k.Checked, "VSX")
+	vs, err := r.vsx(ctx, object, res.FieldRA, res.FieldDec, radius)
+	if err != nil {
+		return k, fmt.Errorf("variable star catalogue: %w", err)
 	}
-	if bs, err := r.cat.SkyBoT(ctx, res.FieldRA, res.FieldDec, radius, res.MidTime); err != nil {
-		k.Failed = append(k.Failed, "SkyBoT")
-		slog.Warn("SkyBoT lookup failed", "object", object, "error", err)
-	} else {
-		k.Bodies = bs
-		k.Checked = append(k.Checked, "SkyBoT")
+	k.Variables = vs
+	k.Checked = append(k.Checked, "VSX")
+	bs, err := r.cat.SkyBoT(ctx, res.FieldRA, res.FieldDec, radius, res.MidTime)
+	if err != nil {
+		return k, fmt.Errorf("known asteroids: %w", err)
 	}
+	k.Bodies = bs
+	k.Checked = append(k.Checked, "SkyBoT")
 	if r.opts.Catalog != nil {
 		if ix, err := r.opts.Catalog(); err == nil {
 			objs, _ := ix.Cone(ctx, res.FieldRA, res.FieldDec, radius)
@@ -907,7 +937,7 @@ func (r *Runner) known(ctx context.Context, object string, res *Result) Known {
 			k.Checked = append(k.Checked, "galaxies")
 		}
 	}
-	return k
+	return k, nil
 }
 
 func jsonString(v any) string {
@@ -954,20 +984,78 @@ type TrackRecord struct {
 	BodyNumber string       `json:"body_number,omitempty"`
 }
 
-func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, j Job, res *Result, w *WCS, bodies []Body, labelled []Labelled, tracks []LabelledTrack,
-	checked, failed []string, start time.Time) error {
-	prefix := RunPrefix(run)
-	if err := r.store.RemovePrefix(ctx, prefix); err != nil {
-		slog.Warn("Could not remove old discovery cutouts", "prefix", prefix, "error", err)
+type saveInput struct {
+	res      *Result
+	wcs      *WCS
+	bodies   []Body
+	labelled []Labelled
+	tracks   []LabelledTrack
+	checked  []string
+	failed   []string
+	exposure map[int]float64
+	start    time.Time
+}
+
+// trkSub is a track's ADES temporary designation: D, the run in base 36,
+// then the track's index in base 36, at most 8 characters.
+func trkSub(run, i int) string {
+	return strings.ToUpper(fmt.Sprintf("D%s%02s", strconv.FormatInt(int64(run), 36), strconv.FormatInt(int64(i%1296), 36)))
+}
+
+// counted says whether a candidate counts as new for the morning report:
+// a change or a track that matched nothing known, not on a linked track
+// and not vetted as an artifact or as known.
+func counted(c app.DiscoveryCandidate) bool {
+	if c.Vetting == app.VetArtifact || c.Vetting == app.VetKnown {
+		return false
 	}
-	exposure := map[int]float64{}
-	in, _ := r.subRows(ctx, j.Object)
-	for _, s := range in {
-		exposure[s.FrameID] = s.Exposure
+	if c.Kind == app.DiscoveryKindMover {
+		return c.Class == ClassUnknownMover
 	}
-	cands := make([]app.DiscoveryCandidate, 0, len(labelled)+len(tracks))
-	newCount := 0
-	for i, l := range labelled {
+	return c.Class == ClassSupernova || c.Class == ClassNewVariable
+}
+
+// trackCandidate stores a moving object as a candidate, with its detections
+// in the fields an ADES report needs.
+func trackCandidate(run *app.DiscoveryRun, i int, t LabelledTrack, res *Result, exposure map[int]float64) app.DiscoveryCandidate {
+	astro := 0.0
+	if res.AstroRMSArcsec != nil {
+		astro = *res.AstroRMSArcsec
+	}
+	rec := TrackRecord{Points: t.Points, TrkSub: trkSub(run.ID, i), RateArcmin: t.RateArcmin, PA: t.PA, ResidualPx: t.ResidualPx,
+		BodyName: t.BodyName, BodyNumber: t.BodyNumber}
+	mags := make([]float64, 0, len(t.Points))
+	snrs := make([]float64, 0, len(t.Points))
+	for _, p := range t.Points {
+		cen := res.HFRNight * 2 / math.Max(p.SNR, 1) * res.PixelScale
+		rms := math.Round(math.Hypot(astro, cen)*1000) / 1000
+		rec.ADES = append(rec.ADES, ADES{ObsTime: p.Time.UTC().Format("2006-01-02T15:04:05.000Z"), RA: round6(p.RA), Dec: round6(p.Dec), RMSRA: rms, RMSDec: rms,
+			AstCat: "Gaia3", Mag: p.Mag, RMSMag: p.MagErr, Band: "G", PhotCat: "Gaia3", Mode: "CCD", Exp: exposure[p.FrameID], Filter: p.Filter, FrameID: p.FrameID})
+		if p.Mag != nil {
+			mags = append(mags, *p.Mag)
+		}
+		snrs = append(snrs, p.SNR)
+	}
+	mid := t.Points[len(t.Points)/2]
+	c := app.DiscoveryCandidate{RunID: run.ID, Object: run.Object, Night: run.Night, Group: run.Group, Kind: app.DiscoveryKindMover, Class: t.Class,
+		X: mid.X, Y: mid.Y, RA: mid.RA, Dec: mid.Dec, Sign: 1, SNR: median64(snrs), PresentIn: len(t.Points), SubsTested: res.NightSubs,
+		Track: jsonString(rec), RateArcmin: &t.RateArcmin, OffsetArc: t.OffsetArc, Matches: jsonString(nonNil(matchList(t.Match)))}
+	if len(mags) > 0 {
+		m := median64(mags)
+		c.NightMag = &m
+	}
+	return c
+}
+
+func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, in saveInput) error {
+	res, w := in.res, in.wcs
+	var old []app.DiscoveryCandidate
+	if err := r.db.WithContext(ctx).Select("id, cutout_key").Where("run_id = ? AND cutout_key <> ''", run.ID).Find(&old).Error; err != nil {
+		return err
+	}
+	prefix := RunPrefix(run) + strconv.FormatInt(r.now().UnixNano(), 36) + "/"
+	cands := make([]app.DiscoveryCandidate, 0, len(in.labelled)+len(in.tracks))
+	for i, l := range in.labelled {
 		c := app.DiscoveryCandidate{RunID: run.ID, Object: run.Object, Night: run.Night, Group: run.Group, Kind: app.DiscoveryKindChange, Class: l.Class,
 			X: l.X, Y: l.Y, RA: l.RA, Dec: l.Dec, Sign: l.Sign, SNR: l.SNR, DiffFlux: l.DiffFlux, RefFlux: l.RefFlux, DeltaMag: l.DeltaMag,
 			NightMag: l.NightMag, RefMag: l.RefMag, GaiaG: l.GaiaG, Dipole: l.Dipole, PresentIn: l.PresentIn, SubsTested: l.SubsTested,
@@ -978,57 +1066,25 @@ func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, j Job, res *Re
 		} else {
 			slog.Warn("Could not save a cutout", "key", key, "error", err)
 		}
-		if IsNew(c.Class) {
-			newCount++
-		}
 		cands = append(cands, c)
 	}
 	known := 0
-	for i, t := range tracks {
-		rec := TrackRecord{Points: t.Points, TrkSub: fmt.Sprintf("A%06d", run.ID*100+i), RateArcmin: t.RateArcmin, PA: t.PA, ResidualPx: t.ResidualPx,
-			BodyName: t.BodyName, BodyNumber: t.BodyNumber}
-		astro := 0.0
-		if res.AstroRMSArcsec != nil {
-			astro = *res.AstroRMSArcsec
-		}
-		for _, p := range t.Points {
-			cen := res.HFRNight * 2 / math.Max(p.SNR, 1) * res.PixelScale
-			rms := math.Round(math.Hypot(astro, cen)*1000) / 1000
-			rec.ADES = append(rec.ADES, ADES{ObsTime: p.Time.UTC().Format("2006-01-02T15:04:05.000Z"), RA: round6(p.RA), Dec: round6(p.Dec), RMSRA: rms, RMSDec: rms,
-				AstCat: "Gaia3", Mag: p.Mag, RMSMag: p.MagErr, Band: "G", PhotCat: "Gaia3", Mode: "CCD", Exp: exposure[p.FrameID], Filter: p.Filter, FrameID: p.FrameID})
-		}
-		mid := t.Points[len(t.Points)/2]
-		mags := make([]float64, 0, len(t.Points))
-		snrs := make([]float64, 0, len(t.Points))
-		for _, p := range t.Points {
-			if p.Mag != nil {
-				mags = append(mags, *p.Mag)
-			}
-			snrs = append(snrs, p.SNR)
-		}
-		c := app.DiscoveryCandidate{RunID: run.ID, Object: run.Object, Night: run.Night, Group: run.Group, Kind: app.DiscoveryKindMover, Class: t.Class,
-			X: mid.X, Y: mid.Y, RA: mid.RA, Dec: mid.Dec, Sign: 1, SNR: median64(snrs), PresentIn: len(t.Points), SubsTested: res.NightSubs,
-			Track: jsonString(rec), RateArcmin: &t.RateArcmin, OffsetArc: t.OffsetArc, Matches: jsonString(nonNil(matchList(t.Match)))}
-		if len(mags) > 0 {
-			m := median64(mags)
-			c.NightMag = &m
-		}
+	for i, t := range in.tracks {
+		c := trackCandidate(run, i, t, res, in.exposure)
 		if t.Stamps != nil {
 			key := fmt.Sprintf("%sm%03d/", prefix, i)
-			if err := r.putStamps(ctx, key, *t.Stamps, w, mid.Time); err == nil {
+			if err := r.putStamps(ctx, key, *t.Stamps, w, t.Points[len(t.Points)/2].Time); err == nil {
 				c.CutoutKey = key
 			}
 		}
 		if t.Class == ClassKnownAsteroid {
 			known++
-		} else {
-			newCount++
 		}
 		cands = append(cands, c)
 	}
 	inField := 0
 	if res.SubDepth != nil {
-		for _, b := range bodiesInField(res, w, bodies) {
+		for _, b := range bodiesInField(res, w, in.bodies) {
 			if b.V <= *res.SubDepth {
 				inField++
 			}
@@ -1042,19 +1098,23 @@ func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, j Job, res *Re
 	run.HFRNight, run.HFRRef, run.Convolved, run.ApSigma = res.HFRNight, res.HFRRef, res.Convolved, res.ApSigma
 	run.ZeroPoint, run.Depth, run.SubDepth, run.AstroRMS, run.AstroStars = res.ZeroPoint, res.Depth, res.SubDepth, res.AstroRMSArcsec, res.AstroStars
 	run.PixelScale, run.FieldRA, run.FieldDec, run.MidTime = res.PixelScale, res.FieldRA, res.FieldDec, &mid
-	run.Funnel, run.Checked, run.Failed = jsonString(res.Funnel), strings.Join(checked, ","), strings.Join(failed, ",")
-	run.Candidates, run.NewCandidates, run.Tracks, run.KnownTracks, run.BodiesInField, run.SubDetections = len(labelled), newCount, len(tracks), known, inField, res.SubDetections
-	run.FinishedAt, run.Seconds = &now, now.Sub(start).Seconds()
+	run.Funnel, run.Checked, run.Failed = jsonString(res.Funnel), strings.Join(in.checked, ","), strings.Join(in.failed, ",")
+	run.Candidates, run.Tracks, run.KnownTracks, run.BodiesInField, run.SubDetections = len(in.labelled), len(in.tracks), known, inField, res.SubDetections
+	run.FinishedAt, run.Seconds = &now, now.Sub(in.start).Seconds()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var old []app.DiscoveryCandidate
-		if err := tx.Where("run_id = ? AND vetting <> ''", run.ID).Find(&old).Error; err != nil {
+		var vetted []app.DiscoveryCandidate
+		if err := tx.Where("run_id = ? AND vetting <> ''", run.ID).Find(&vetted).Error; err != nil {
 			return err
 		}
+		run.NewCandidates = 0
 		for i := range cands {
-			for _, o := range old {
+			for _, o := range vetted {
 				if o.Kind == cands[i].Kind && o.Sign == cands[i].Sign && math.Hypot(o.X-cands[i].X, o.Y-cands[i].Y) <= 2 {
 					cands[i].Vetting, cands[i].VetNote, cands[i].VettedAt = o.Vetting, o.VetNote, o.VettedAt
 				}
+			}
+			if counted(cands[i]) {
+				run.NewCandidates++
 			}
 		}
 		if err := tx.Where("run_id = ?", run.ID).Delete(&app.DiscoveryCandidate{}).Error; err != nil {
@@ -1065,17 +1125,26 @@ func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, j Job, res *Re
 				return err
 			}
 		}
-		return tx.Clauses(clause.Returning{}).Save(run).Error
+		return tx.Save(run).Error
 	})
 	if err != nil {
+		if rerr := r.store.RemovePrefix(context.WithoutCancel(ctx), prefix); rerr != nil {
+			slog.Warn("Could not remove unsaved discovery cutouts", "prefix", prefix, "error", rerr)
+		}
 		return err
+	}
+	for _, o := range old {
+		if err := r.store.RemovePrefix(ctx, o.CutoutKey); err != nil {
+			slog.Warn("Could not remove old discovery cutouts", "prefix", o.CutoutKey, "error", err)
+		}
 	}
 	counts := map[string]int{}
 	for _, c := range cands {
 		counts[c.Class]++
 	}
 	slog.Info("Discovery run", "object", run.Object, "night", run.Night.Format(time.DateOnly), "group", run.Group, "subs", res.NightSubs, "reference", res.RefSubs,
-		"candidates", len(labelled), "tracks", len(tracks), "new", newCount, "classes", counts, "depth", deref(res.Depth), "took", now.Sub(start).Round(time.Second))
+		"dropped_subs", res.DroppedSubs, "candidates", len(in.labelled), "tracks", len(in.tracks), "new", run.NewCandidates, "classes", counts,
+		"depth", deref(res.Depth), "failed_checks", in.failed, "took", now.Sub(in.start).Round(time.Second))
 	if r.opts.OnRun != nil {
 		r.opts.OnRun(*run)
 	}

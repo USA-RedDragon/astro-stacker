@@ -288,6 +288,23 @@ func requestDiscoveryRun(src DiscoverySource) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{errorKey: errNightFormat})
 			return
 		}
+		db, ok := appDB(c)
+		if !ok {
+			return
+		}
+		var filters []string
+		if err := db.Model(&app.Stack{}).Where("object = ?", body.Object).Distinct("filter").Pluck("filter", &filters).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+			return
+		}
+		if len(filters) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{errorKey: "no stacked target of that name"})
+			return
+		}
+		if body.Group != "" && !slices.ContainsFunc(filters, func(f string) bool { return discoveries.GroupOf(f) == body.Group }) {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "group must be broadband or one of the target's narrowband filters"})
+			return
+		}
 		src.Request(body.Object, t, body.Group)
 		c.JSON(http.StatusAccepted, gin.H{"queued": true})
 	}

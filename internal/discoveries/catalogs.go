@@ -171,6 +171,8 @@ type Variable struct {
 	Min    float64 `json:"min,omitempty"`
 	Band   string  `json:"band,omitempty"`
 	Period float64 `json:"period,omitempty"`
+	// Amplitude says Min is an amplitude, not the faintest magnitude.
+	Amplitude bool `json:"amplitude,omitempty"`
 }
 
 // VSX returns AAVSO's variable stars within radius degrees, from VizieR's
@@ -180,7 +182,7 @@ func (c *Catalogs) VSX(ctx context.Context, ra, dec, radius float64) ([]Variable
 	q.Set("-source", "B/vsx/vsx")
 	q.Set("-c", fmt.Sprintf("%.6f %+.6f", ra, dec))
 	q.Set("-c.rd", fmt.Sprintf("%.4f", radius))
-	q.Set("-out", "Name,Type,max,min,n_max,Period,RAJ2000,DEJ2000")
+	q.Set("-out", "Name,Type,max,f_min,min,n_max,Period,RAJ2000,DEJ2000")
 	q.Set("-out.max", strconv.Itoa(vsxMaxRows))
 	b, err := c.get(ctx, or(c.VizierURL, vizierURL)+"?"+q.Encode())
 	if err != nil {
@@ -202,7 +204,7 @@ func ParseVSX(b []byte) ([]Variable, error) {
 		if !ok1 || !ok2 {
 			continue
 		}
-		v := Variable{Name: r["Name"], Type: r["Type"], RA: a, Dec: d, Band: r["n_max"]}
+		v := Variable{Name: r["Name"], Type: r["Type"], RA: a, Dec: d, Band: r["n_max"], Amplitude: r["f_min"] == "("}
 		v.Max, _ = num(r["max"])
 		v.Min, _ = num(r["min"])
 		v.Period, _ = num(r["Period"])
