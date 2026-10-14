@@ -158,7 +158,7 @@ func (p *Pipeline) addSubs(ctx context.Context, object, filter string, stack *ap
 			Score: a.c.c.score.Score, Weight: a.c.c.score.Score * exp, Exposure: exp,
 			RegisteredKey: &a.key, DarkScale: a.c.darkScale, NoDark: a.c.c.cal.Dark.Set == nil && !precalibrated(a.c.c.frame),
 			BiasMaster: optional(a.c.bias), DarkMaster: optional(a.c.dark), FlatMaster: optional(a.c.flat),
-			MetadataSource: optional(a.c.c.source),
+			FlatMatch: a.c.flatMatch(), MetadataSource: optional(a.c.c.source),
 		}
 		if !rebuild {
 			sub, w, h, err := readSub(a.local)
@@ -224,6 +224,15 @@ func (p *Pipeline) storeRegistered(ctx context.Context, object, filter string, c
 }
 
 // optional is nil for an empty string.
+// flatMatch is the record of how well the sub's flat matched, nil for a
+// sub delivered calibrated.
+func (c calibrated) flatMatch() *string {
+	if c.flat == "" {
+		return nil
+	}
+	return optional(c.c.cal.Flat.FlatNote())
+}
+
 func optional(s string) *string {
 	if s == "" {
 		return nil

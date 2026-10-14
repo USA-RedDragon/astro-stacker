@@ -221,7 +221,7 @@ func (p *Pipeline) stackNightBatch(ctx context.Context, stack *app.Stack, night 
 		sf := app.StackFrame{FrameID: c.c.frame.ID, StackID: &stack.ID, Status: app.StackStatusNight,
 			Score: c.c.score.Score, Weight: c.c.score.Score * exp, Exposure: exp, DarkScale: c.darkScale,
 			NoDark: c.c.cal.Dark.Set == nil && !precalibrated(c.c.frame), BiasMaster: optional(c.bias), DarkMaster: optional(c.dark),
-			FlatMaster: optional(c.flat), MetadataSource: optional(c.c.source)}
+			FlatMaster: optional(c.flat), FlatMatch: c.flatMatch(), MetadataSource: optional(c.c.source)}
 		if registered[i] == "" {
 			msg := "Siril could not register the sub to its night's reference"
 			sf.StackID, sf.Status, sf.Weight, sf.Error = nil, app.StackStatusRegistration, 0, &msg

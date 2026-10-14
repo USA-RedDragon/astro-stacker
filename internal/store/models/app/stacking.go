@@ -238,6 +238,11 @@ type StackFrame struct {
 	BiasMaster *string
 	DarkMaster *string
 	FlatMaster *string
+	// FlatMatch is how well its flat matched (calmatch.Match.FlatNote):
+	// "exact", or "fallback: " and what differs, such as another dust
+	// epoch. Nil for a light calibrated before it was recorded or
+	// delivered calibrated.
+	FlatMatch *string `gorm:"type:text"`
 	// MetadataSource is what the light was scored from when it was last
 	// classified: MetadataSourceTS, or MetadataSourceHeader when Target
 	// Scheduler had no record of it. Nil for a light classified before it
