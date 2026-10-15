@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 )
 
 type altitudeSnapshot struct {
@@ -65,10 +62,7 @@ func TestProjectEditChecksMaximumAgainstMinimumAltitude(t *testing.T) {
 
 func TestProjectAltitudesFrom(t *testing.T) {
 	t.Parallel()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.SQLite(t, "")
 	for _, q := range []string{
 		`CREATE TABLE project ("Id" INTEGER PRIMARY KEY, minimumaltitude REAL, "maximumAltitude" REAL)`,
 		`INSERT INTO project VALUES (5, 30, 70), (6, 20, NULL)`,

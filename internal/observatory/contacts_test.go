@@ -9,9 +9,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 )
 
 type memContacts struct {
@@ -63,15 +61,7 @@ func TestSinceIsTheLastAnswerAcrossRestarts(t *testing.T) {
 
 func TestGormContacts(t *testing.T) {
 	t.Parallel()
-	db, err := gorm.Open(sqlite.Open("file:contacts?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	db := testdb.SQLite(t, "")
 	if err := db.AutoMigrate(&app.ObservatoryContact{}); err != nil {
 		t.Fatal(err)
 	}

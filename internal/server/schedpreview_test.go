@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,9 +12,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 )
 
 type stubPreviews struct {
@@ -282,11 +279,7 @@ func TestPreviewCacheRunStopsWithContext(t *testing.T) {
 
 func TestSyncStamp(t *testing.T) {
 	t.Parallel()
-	dsn := fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"), time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.SQLite(t, "")
 	if _, ok := server.SyncStamp(nil, nil)(context.Background()); ok {
 		t.Fatal("nil db stamped")
 	}

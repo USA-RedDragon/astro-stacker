@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -15,9 +14,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/schedglobal"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
-	"github.com/glebarez/sqlite"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 type sentCommands struct{ sent []schedcmd.Envelope }
@@ -35,11 +33,7 @@ func (k *sentCommands) Cancel(_ context.Context, id string) (schedcmd.Result, er
 
 func open(t *testing.T, name string) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s-%s?mode=memory&cache=shared", t.Name(), name)), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return db
+	return testdb.SQLite(t, name)
 }
 
 const garlic = "Garlic Nebula"
