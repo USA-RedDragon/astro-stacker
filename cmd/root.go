@@ -65,7 +65,7 @@ func NewCommand(version, commit string) *cobra.Command {
 		SilenceErrors:     true,
 		DisableAutoGenTag: true,
 	}
-	cmd.AddCommand(newStackCommand(), newMorningReportCommand(), newDiscoveryAlertCommand(), newDustCheckCommand(), newDiscoveriesCommand())
+	cmd.AddCommand(newStackCommand(), newMorningReportCommand(), newDiscoveryAlertCommand(), newDustCheckCommand(), newDiscoveriesCommand(), newCatalogMirrorCommand(), newCatalogCheckCommand())
 	return cmd
 }
 
