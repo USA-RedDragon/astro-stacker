@@ -989,6 +989,30 @@ func (r *Runner) vsx(ctx context.Context, object string, ra, dec, radius float64
 	return vs, nil
 }
 
+// simbad returns SIMBAD's variable stars in the field, cached for 30 days.
+// When SIMBAD can't be reached an older cache of the field is used, and
+// with none the run goes on without it, SIMBAD listed as failed.
+func (r *Runner) simbad(ctx context.Context, object string, ra, dec, radius float64) ([]Variable, error) {
+	key := keyPrefix + "cache/" + objectSlug(object) + "/simbad.json.zst"
+	var c vsxCache
+	cached := r.getJSON(ctx, key, &c) == nil && Separation(ra, dec, c.RA, c.Dec)+radius <= c.Radius+1e-9
+	if cached && r.now().Sub(c.Fetched) < vsxMaxAge {
+		return c.Stars, nil
+	}
+	vs, err := r.cat.SIMBAD(ctx, ra, dec, radius)
+	if err != nil {
+		if cached {
+			slog.Warn("SIMBAD could not be reached; using its older answer", "object", object, "fetched", c.Fetched, "error", err)
+			return c.Stars, nil
+		}
+		return nil, err
+	}
+	if err := r.putJSON(ctx, key, vsxCache{RA: ra, Dec: dec, Radius: radius, Fetched: r.now(), Stars: vs}); err != nil {
+		slog.Warn("Could not cache SIMBAD variables", "object", object, "error", err)
+	}
+	return vs, nil
+}
+
 func (r *Runner) getJSON(ctx context.Context, key string, v any) error {
 	b, err := r.store.Get(ctx, key)
 	if err != nil {
@@ -1021,9 +1045,10 @@ func (r *Runner) putJSON(ctx context.Context, key string, v any) error {
 
 // known asks the variable star and minor planet catalogues about the
 // field, and the built-in catalogue for its galaxies.
-// Without the variable stars or the known asteroids every change and
+// Without VSX's variable stars or the known asteroids every change and
 // track would look new, so either failing fails the run, which is tried
-// again later.
+// again later; SIMBAD, which adds variables VSX lacks, is listed as failed
+// and the run goes on.
 func (r *Runner) known(ctx context.Context, object string, res *Result) (Known, error) {
 	k := Known{Epoch: res.MidTime}
 	radius := res.FieldRadius * 1.05
@@ -1032,7 +1057,14 @@ func (r *Runner) known(ctx context.Context, object string, res *Result) (Known, 
 		return k, fmt.Errorf("variable star catalogue: %w", err)
 	}
 	k.Variables = vs
-	k.Checked = append(k.Checked, "VSX")
+	k.Checked = append(k.Checked, catalogVSX)
+	if sv, err := r.simbad(ctx, object, res.FieldRA, res.FieldDec, radius); err != nil {
+		slog.Warn("SIMBAD could not be reached", "object", object, "error", err)
+		k.Failed = append(k.Failed, catalogSIMBAD)
+	} else {
+		k.Variables = append(k.Variables, sv...)
+		k.Checked = append(k.Checked, catalogSIMBAD)
+	}
 	bs, err := r.cat.SkyBoT(ctx, res.FieldRA, res.FieldDec, radius, res.MidTime)
 	if err != nil {
 		return k, fmt.Errorf("known asteroids: %w", err)

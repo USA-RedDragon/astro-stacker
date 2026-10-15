@@ -22,6 +22,8 @@ const (
 	alerceURL     = "https://api.alerce.online/ztf/v1/objects/"
 	finkURL       = "https://api.ztf.fink-portal.org/api/v1/conesearch"
 	tnsURL        = "https://www.wis-tns.org/api/get/search"
+	simbadURL     = "https://simbad.cds.unistra.fr/simbad/sim-tap/sync"
+	simbadMaxRows = 200000
 	userAgent     = "astro-stacker/1 (+https://github.com/USA-RedDragon/astro-stacker)"
 	gaiaFaintG    = 21.5
 	gaiaMaxRows   = 400000
@@ -31,6 +33,8 @@ const (
 	sourceAlerce  = "ALeRCE"
 	sourceFink    = "Fink"
 	sourceTNS     = "TNS"
+	catalogVSX    = "VSX"
+	catalogSIMBAD = "SIMBAD"
 )
 
 // Catalogs fetches the catalogues a night's changes are checked against.
@@ -42,6 +46,7 @@ type Catalogs struct {
 	AlerceURL string
 	FinkURL   string
 	TNSURL    string
+	SIMBADURL string
 	// TNS needs a bot: with no key it is skipped.
 	TNSKey, TNSBotID, TNSBotName string
 }
@@ -182,16 +187,18 @@ func (c *Catalogs) gaia(ctx context.Context, ra, dec, radius, faint float64) ([]
 	return out, nil
 }
 
-// Variable is a VSX star.
+// Variable is a VSX star, or a SIMBAD object of a variable type.
 type Variable struct {
-	Name   string  `json:"name"`
-	Type   string  `json:"type"`
-	RA     float64 `json:"ra"`
-	Dec    float64 `json:"dec"`
-	Max    float64 `json:"max,omitempty"`
-	Min    float64 `json:"min,omitempty"`
-	Band   string  `json:"band,omitempty"`
-	Period float64 `json:"period,omitempty"`
+	// Catalog is SIMBAD for a SIMBAD object, empty for VSX.
+	Catalog string  `json:"catalog,omitempty"`
+	Name    string  `json:"name"`
+	Type    string  `json:"type"`
+	RA      float64 `json:"ra"`
+	Dec     float64 `json:"dec"`
+	Max     float64 `json:"max,omitempty"`
+	Min     float64 `json:"min,omitempty"`
+	Band    string  `json:"band,omitempty"`
+	Period  float64 `json:"period,omitempty"`
 	// Amplitude says Min is an amplitude, not the faintest magnitude.
 	Amplitude bool `json:"amplitude,omitempty"`
 }
@@ -230,6 +237,63 @@ func ParseVSX(b []byte) ([]Variable, error) {
 		v.Min, _ = num(r["min"])
 		v.Period, _ = num(r["Period"])
 		out = append(out, v)
+	}
+	return out, nil
+}
+
+// SIMBAD returns SIMBAD's variable stars within radius degrees: objects
+// of the variable star types and their kinds (Orion, rotating, long
+// period, Mira, RR Lyrae, eclipsing, Cepheid, cataclysmic, ...), and T Tauri
+// and Herbig Ae/Be stars, which vary by nature. SIMBAD knows variables VSX
+// lacks, such as Haro 4-411, an Orion variable in Orion's H-alpha field.
+func (c *Catalogs) SIMBAD(ctx context.Context, ra, dec, radius float64) ([]Variable, error) {
+	form := url.Values{}
+	form.Set("REQUEST", "doQuery")
+	form.Set("LANG", "ADQL")
+	form.Set("FORMAT", "tsv")
+	form.Set("QUERY", fmt.Sprintf("SELECT TOP %d main_id, ra, dec, otype FROM basic WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', %.6f, %.6f, %.4f)) = 1 "+
+		"AND (otype = 'V*..' OR otype = 'TT*..' OR otype = 'Ae*..')", simbadMaxRows, ra, dec, radius))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, or(c.SIMBADURL, simbadURL), strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	b, err := c.do(req)
+	if err != nil {
+		return nil, fmt.Errorf("simbad: %w", err)
+	}
+	return ParseSIMBAD(b)
+}
+
+// ParseSIMBAD reads the TSV of SIMBAD's TAP service: main_id, ra, dec and
+// otype, strings quoted. An error comes back as a VOTable instead.
+func ParseSIMBAD(b []byte) ([]Variable, error) {
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "main_id\t") {
+		msg := string(b)
+		if i := strings.Index(msg, `name="QUERY_STATUS" value="ERROR">`); i >= 0 {
+			msg = msg[i+len(`name="QUERY_STATUS" value="ERROR">`):]
+			msg, _, _ = strings.Cut(msg, "<")
+		}
+		if len(msg) > 200 {
+			msg = msg[:200]
+		}
+		return nil, fmt.Errorf("simbad: unexpected response: %s", strings.TrimSpace(msg))
+	}
+	unq := func(s string) string { return strings.Trim(strings.TrimSpace(s), `"`) }
+	out := make([]Variable, 0, len(lines)-1)
+	for _, line := range lines[1:] {
+		f := strings.Split(line, "\t")
+		if len(f) < 4 {
+			continue
+		}
+		a, ok1 := num(f[1])
+		d, ok2 := num(f[2])
+		if !ok1 || !ok2 {
+			continue
+		}
+		out = append(out, Variable{Catalog: catalogSIMBAD, Name: unq(f[0]), Type: unq(f[3]), RA: a, Dec: d})
 	}
 	return out, nil
 }
