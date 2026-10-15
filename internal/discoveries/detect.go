@@ -216,7 +216,10 @@ type Track struct {
 	RateArcmin float64
 	PA         float64
 	ResidualPx float64
-	Stamps     *Stamps
+	// Chi is the rms of the residuals in units of the detections' expected
+	// position errors.
+	Chi    float64
+	Stamps *Stamps
 }
 
 // Position is the track's fitted pixel at t.
@@ -444,6 +447,9 @@ type Result struct {
 	FieldRA, FieldDec  float64
 	FieldRadius        float64
 	SubDepthPerFilter  map[string]float64
+	// MoverNull is the linking null test; a track needs more detections
+	// than any of its tracks had.
+	MoverNull MoverNull
 }
 
 type prep struct {
@@ -679,9 +685,19 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 
 	in.stage("linking moving objects")
 	links, transient := linkMovers(times, dets, res.PixelScale, validArea(edge))
+	res.MoverNull = nullMovers(times, dets, links, res.PixelScale, validArea(edge))
 	bright := in.brightStars()
+	astroPx := 0.1
+	if res.AstroRMSArcsec != nil {
+		astroPx = *res.AstroRMSArcsec / res.PixelScale
+	}
 	for _, hs := range links {
-		if tr := in.track(hs, subs, dets, times); !onOneStar(tr, bright) {
+		if len(hs) <= res.MoverNull.MaxHits {
+			continue
+		}
+		tr := in.track(hs, subs, dets, times)
+		tr.Chi = trackChi(tr, res.HFRNight/hfrToSigma, astroPx)
+		if !onOneStar(tr, bright) && tr.Chi <= maxTrackChi {
 			res.Tracks = append(res.Tracks, tr)
 		}
 	}
