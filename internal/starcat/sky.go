@@ -46,6 +46,16 @@ func Round(v float64, decimals int) float64 {
 	return r
 }
 
+// Decimal returns a float32 column value as the float64 of its shortest
+// decimal, the number Gaia's files print and VizieR holds.
+func Decimal(v float32) float64 {
+	r, err := strconv.ParseFloat(strconv.FormatFloat(float64(v), 'g', -1, 32), 64)
+	if err != nil {
+		return float64(v)
+	}
+	return r
+}
+
 // Pixel returns the nested HEALPix pixel of a position at an order.
 func Pixel(order int, ra, dec float64) int64 {
 	return healpix.Vec2PixNest(int64(1)<<order, Vec(ra, dec))

@@ -16,7 +16,8 @@ import (
 func MirrorFetcher(g *starcat.Gaia, fallback StarFetcher) StarFetcher {
 	return func(ctx context.Context, ra, dec, radius float64) ([]goals.CatalogStar, error) {
 		got, err := g.Cone(ctx, starcat.Round(ra, 6), starcat.Round(dec, 6), starcat.Round(radius, 4), func(s *starcat.GaiaStar) bool {
-			return float64(s.G) >= goals.CatalogBrightG && float64(s.G) <= goals.CatalogFaintG
+			g := starcat.Decimal(s.G)
+			return g >= goals.CatalogBrightG && g <= goals.CatalogFaintG
 		})
 		if errors.Is(err, starcat.ErrUnavailable) && fallback != nil {
 			slog.Debug("Gaia mirror unavailable; asking VizieR", "error", err)
@@ -31,7 +32,7 @@ func MirrorFetcher(g *starcat.Gaia, fallback StarFetcher) StarFetcher {
 		}
 		out := make([]goals.CatalogStar, len(got))
 		for i, s := range got {
-			out[i] = goals.CatalogStar{RA: s.RA, Dec: s.Dec, G: float64(s.G)}
+			out[i] = goals.CatalogStar{RA: s.RA, Dec: s.Dec, G: starcat.Decimal(s.G)}
 		}
 		return out, nil
 	}
