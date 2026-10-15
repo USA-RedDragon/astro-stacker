@@ -212,6 +212,7 @@ func heldForConfirmation(l Labelled) bool {
 type PriorChange struct {
 	RA, Dec float64
 	Sign    int
+	SNR     float64
 	Night   time.Time
 	Group   string
 }
@@ -348,7 +349,7 @@ func placeMatches(c Candidate, k Known) []Match {
 		}
 	}
 	for _, p := range k.Prior {
-		if sep := Separation(c.RA, c.Dec, p.RA, p.Dec) * 3600; p.Sign == c.Sign && sep <= confirmArcsec {
+		if sep := Separation(c.RA, c.Dec, p.RA, p.Dec) * 3600; p.Sign == c.Sign && p.SNR >= PromoteSigma && sep <= confirmArcsec {
 			out = append(out, Match{Catalog: catalogNight, Name: p.Night.Format(time.DateOnly) + " " + p.Group, SepArcsec: sep,
 				Note: "changed the same way there"})
 		}

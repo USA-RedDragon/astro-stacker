@@ -23,10 +23,11 @@ func TestOneNightsChangeOnAStarIsHeldUntilConfirmed(t *testing.T) {
 		want  string
 	}{
 		{"one night alone", nil, ClassLowConfidence},
-		{"the same change on another night", []PriorChange{{RA: 312.5, Dec: 30.5 + 1.5/3600, Sign: 1, Night: other, Group: GroupBroadband}}, ClassNewVariable},
-		{"the same change in another filter group", []PriorChange{{RA: 312.5, Dec: 30.5, Sign: 1, Night: time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC), Group: testNarrowband}}, ClassNewVariable},
-		{"the opposite change on another night", []PriorChange{{RA: 312.5, Dec: 30.5, Sign: -1, Night: other, Group: GroupBroadband}}, ClassLowConfidence},
-		{"a change elsewhere", []PriorChange{{RA: 312.5, Dec: 30.5 + 10.0/3600, Sign: 1, Night: other, Group: testNarrowband}}, ClassLowConfidence},
+		{"the same change on another night", []PriorChange{{RA: 312.5, Dec: 30.5 + 1.5/3600, Sign: 1, SNR: 9, Night: other, Group: GroupBroadband}}, ClassNewVariable},
+		{"the same change in another filter group", []PriorChange{{RA: 312.5, Dec: 30.5, Sign: 1, SNR: 9, Night: time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC), Group: testNarrowband}}, ClassNewVariable},
+		{"the opposite change on another night", []PriorChange{{RA: 312.5, Dec: 30.5, Sign: -1, SNR: 9, Night: other, Group: GroupBroadband}}, ClassLowConfidence},
+		{"a change elsewhere", []PriorChange{{RA: 312.5, Dec: 30.5 + 10.0/3600, Sign: 1, SNR: 9, Night: other, Group: testNarrowband}}, ClassLowConfidence},
+		{"a weak change on another night", []PriorChange{{RA: 312.5, Dec: 30.5, Sign: 1, SNR: 5.5, Night: other, Group: GroupBroadband}}, ClassLowConfidence},
 	} {
 		ls := classifyChanges(ctx, t, res, Known{Prior: tc.prior})
 		if ls[0].Class != tc.want {
@@ -44,7 +45,7 @@ func TestZTFLightCurveJudgesANewVariable(t *testing.T) {
 	g, dm := 15.8, -0.25
 	other := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
 	res := &Result{Candidates: []Candidate{{RA: 189.3, Dec: 14.4, Sign: 1, SNR: 12, GaiaG: &g, DeltaMag: &dm}}}
-	k := Known{Prior: []PriorChange{{RA: 189.3, Dec: 14.4, Sign: 1, Night: other, Group: GroupBroadband}}}
+	k := Known{Prior: []PriorChange{{RA: 189.3, Dec: 14.4, Sign: 1, SNR: 9, Night: other, Group: GroupBroadband}}}
 	ctx := context.Background()
 	for _, tc := range []struct {
 		kind ztflc.Kind
@@ -165,7 +166,7 @@ func TestZTFAlwaysJudgesAConfirmedNewVariable(t *testing.T) {
 	}
 	confirmed := Candidate{RA: 12, Dec: 41, Sign: -1, SNR: 9, PresentIn: 20, SubsTested: 20, GaiaG: &g, DeltaMag: &dm}
 	res.Candidates = append(res.Candidates, confirmed)
-	k := Known{Prior: []PriorChange{{RA: 12, Dec: 41, Sign: -1, Night: other, Group: GroupBroadband}},
+	k := Known{Prior: []PriorChange{{RA: 12, Dec: 41, Sign: -1, SNR: 9, Night: other, Group: GroupBroadband}},
 		ZTF: func(_ context.Context, ra, _, _ float64) (ztflc.Verdict, error) {
 			if ra == 12 {
 				return ztflc.Verdict{Kind: ztflc.Flat, Amplitude: 0.03, Band: "r"}, nil
