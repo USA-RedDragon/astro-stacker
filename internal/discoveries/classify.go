@@ -197,11 +197,12 @@ const (
 	minNewStarMag = 0.1
 	// heldSigma is the least strength of a change held for a confirmation
 	// that ZTF may promote: one night alone, with nothing of ours to back
-	// it, must be strong. The three eclipses vetted in October 2026 stood at
-	// 64 to 113 sigma; the method-8 backfill's first nights had 22 held
-	// fadings ZTF called variable under 20 sigma, in nebulae and crowded
-	// fields.
-	heldSigma = 20.0
+	// it, must be strong. Over five nights' change null tests (Barnard's E,
+	// Cygnis Loop Panel 2, IC 3393, Andromeda, North America Nebula), 21
+	// false fadings of a star by 0.1 mag or more stood at 10 sigma or more,
+	// 3 at 15 and 2 at 20; of fadings of 0.15 to 0.5 mag injected into real
+	// stars of those nights, 15 sigma kept 173 of 243 found, 20 sigma 143.
+	heldSigma = 15.0
 )
 
 // minHeldPresent is the least share of its subs a held change must be seen
