@@ -299,7 +299,7 @@ func (f *fakeTNS) server(t *testing.T) *httptest.Server {
 		f.mu.Lock()
 		f.sends++
 		f.mu.Unlock()
-		if !strings.HasPrefix(r.Header.Get("User-Agent"), `tns_marker{"name":"bot","tns_id":"7","type":"bot"}`) || r.FormValue("api_key") != f.key {
+		if !strings.HasPrefix(r.Header.Get("User-Agent"), `tns_marker{"tns_id":7,"type":"bot","name":"bot"}`) || r.FormValue("api_key") != f.key {
 			http.Error(w, `{"id_code":401,"id_message":"Unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
