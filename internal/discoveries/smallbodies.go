@@ -151,7 +151,7 @@ func (c *Catalogs) SBIdent(ctx context.Context, ra, dec, radius float64, epoch t
 	q := url.Values{}
 	q.Set("mpc-code", "500")
 	q.Set("obs-time", strconv.FormatFloat(julian(epoch), 'f', 6, 64))
-	q.Set("fov-ra-center", sexaHMS(ra/15, "-"))
+	q.Set("fov-ra-center", sexaHMS(ra/15))
 	q.Set("fov-dec-center", sexaDMS(dec))
 	q.Set("fov-ra-hwidth", strconv.FormatFloat(radius/math.Max(math.Cos(dec*deg), 0.05), 'f', 4, 64))
 	q.Set("fov-dec-hwidth", strconv.FormatFloat(radius, 'f', 4, 64))
@@ -237,22 +237,22 @@ func splitSBIdentName(s string) (string, string) {
 	return head, name
 }
 
-func sexaHMS(h float64, sep string) string {
-	return sexa(math.Mod(h+24, 24), sep)
+func sexaHMS(h float64) string {
+	return sexa(math.Mod(h+24, 24))
 }
 
 // sexaDMS writes a declination as sb_ident wants it: dd-mm-ss.ss, M for minus.
 func sexaDMS(v float64) string {
 	if v < 0 {
-		return "M" + sexa(-v, "-")
+		return "M" + sexa(-v)
 	}
-	return sexa(v, "-")
+	return sexa(v)
 }
 
-func sexa(v float64, sep string) string {
+func sexa(v float64) string {
 	cs := int64(math.Round(v * 360000))
 	d, m, s := cs/360000, cs/6000%60, float64(cs%6000)/100
-	return fmt.Sprintf("%02d%s%02d%s%05.2f", d, sep, m, sep, s)
+	return fmt.Sprintf("%02d-%02d-%05.2f", d, m, s)
 }
 
 // bodyKey identifies a body across services: its number, else its name.
