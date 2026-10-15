@@ -342,8 +342,11 @@ func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store
 	measured func(object, filter string)) (func(), func() goals.BackfillLive, func(object, filter string), func()) {
 	opts := withLongitude(goalOptions(cfg, boosts, busy), siteFunc(cfg, appStore))
 	opts.OnMeasured = measured
-	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket},
-		goalmeasure.VizierFetcher(nil, ""), opts)
+	fetch := goalmeasure.VizierFetcher(nil, "")
+	if g, _ := catalogMirrors(cfg, s3); g != nil {
+		fetch = goalmeasure.MirrorFetcher(g, fetch)
+	}
+	r := goalmeasure.New(appStore.DB(), schedStore.DB(), goalmeasure.MinioGetter{Client: s3, Bucket: cfg.S3.ProcessedBucket}, fetch, opts)
 	r.XP = goalmeasure.VizierXPFetcher(nil, "")
 	done := make(chan struct{})
 	go func() {
