@@ -721,6 +721,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 	}
 	sort.Slice(subs, func(a, b int) bool { return subs[a].sub.Start.Before(subs[b].sub.Start) })
 	dets := make([][]moverDet, len(subs))
+	moverSharp := maxSharpness * psfSharpness(math.Min(res.HFRNight, res.HFRRef)/hfrToSigma)
 	times := make([]time.Time, len(subs))
 	var midSum float64
 	for j, ns := range subs {
@@ -751,7 +752,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 			d := *ns.fs.zp - 2.5*math.Log10(DetectSigma*sig)
 			res.SubDepthPerFilter[ns.sub.Filter] = math.Max(res.SubDepthPerFilter[ns.sub.Filter], d)
 		}
-		dets[j] = moverDetections(p, m.RMSPlane(), edge, bmask, sig)
+		dets[j] = moverDetections(p, m.RMSPlane(), edge, bmask, sig, moverSharp)
 		res.SubDetections += len(dets[j])
 		times[j] = ns.sub.Mid()
 		midSum += float64(ns.sub.Mid().UnixNano())
@@ -866,6 +867,7 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 	W, H := diff.W, diff.H
 	gaia := in.newGaiaIndex(W, H)
 	sigmaNight := res.HFRNight / hfrToSigma
+	sharpLimit := maxSharpness * psfSharpness(math.Max(res.HFRNight, res.HFRRef)/hfrToSigma)
 	var cands []cand
 	for _, sign := range []int{1, -1} {
 		name := signName(sign)
@@ -890,7 +892,7 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 				continue
 			}
 			fn.NotBright++
-			if o.B/math.Max(o.A, 1e-6) <= minAxisRatio || o.NPix < minPixels || o.A >= 4*sigmaNight {
+			if o.B/math.Max(o.A, 1e-6) <= minAxisRatio || o.NPix < minPixels || o.A >= 4*sigmaNight || sharpness(sd, o.X, o.Y) > sharpLimit {
 				continue
 			}
 			fn.PSFLike++
@@ -911,6 +913,64 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 		res.Funnel[name] = fn
 	}
 	return cands
+}
+
+// maxSharpness is how many times sharper than a star a detection may be.
+// Extract finds sources in the 3x3 filtered image, so a defect pixel,
+// spread over 2x2 pixels by the registration, passes the pixel count and
+// the shape's moments, measured on so few pixels, read round: the hot
+// pixels of candidates 13956 and 13767 were 5.6 and 5.3 times sharper than
+// the night's stars, the changes of 215 catalogued variables at most 3.0
+// (99% under 3.0), and the M 31 nova 1.5.
+const maxSharpness = 4.0
+
+// sharpness is the brightest pixel within 1 px of (x, y) over the sum of
+// the positive pixels within 2 px.
+func sharpness(p *Plane, x, y float64) float64 {
+	xi, yi := int(math.Round(x)), int(math.Round(y))
+	peak, pos := math.Inf(-1), 0.0
+	for yy := yi - 2; yy <= yi+2; yy++ {
+		for xx := xi - 2; xx <= xi+2; xx++ {
+			v := float64(p.At(xx, yy))
+			if math.IsNaN(v) {
+				continue
+			}
+			if v > 0 {
+				pos += v
+			}
+			if xx >= xi-1 && xx <= xi+1 && yy >= yi-1 && yy <= yi+1 {
+				peak = math.Max(peak, v)
+			}
+		}
+	}
+	if !(pos > 0) {
+		return 0
+	}
+	return peak / pos
+}
+
+// psfSharpness is the sharpness of a Gaussian star of the given sigma,
+// in pixels, centred on a pixel.
+func psfSharpness(sigma float64) float64 {
+	if !(sigma > 0) {
+		return math.Inf(1)
+	}
+	const n, sub = 11, 8
+	p := NewPlane(n, n)
+	for y := range n {
+		for x := range n {
+			var v float64
+			for sy := range sub {
+				for sx := range sub {
+					dx := float64(x-n/2) - 0.5 + (float64(sx)+0.5)/sub
+					dy := float64(y-n/2) - 0.5 + (float64(sy)+0.5)/sub
+					v += math.Exp(-(dx*dx + dy*dy) / (2 * sigma * sigma))
+				}
+			}
+			p.Data[y*n+x] = float32(v)
+		}
+	}
+	return sharpness(p, n/2, n/2)
 }
 
 // gaiaIndex finds the catalogued star at a pixel of the difference.

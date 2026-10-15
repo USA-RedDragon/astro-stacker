@@ -25,14 +25,15 @@ type moverDet struct {
 	X, Y, Flux, SNR float64
 }
 
-// moverDetections finds point sources in one sub minus its reference.
-func moverDetections(d *Plane, rms []float32, edge, bright []bool, apSigma float64) []moverDet {
+// moverDetections finds point sources in one sub minus its reference,
+// leaving out those sharper than sharpLimit: hot pixels.
+func moverDetections(d *Plane, rms []float32, edge, bright []bool, apSigma, sharpLimit float64) []moverDet {
 	objs := Extract(d, rms, nil, DetectSigma, 3)
 	var out []moverDet
 	for _, o := range objs {
 		xi, yi := pixelIndex(o.X, d.W), pixelIndex(o.Y, d.H)
 		i := yi*d.W + xi
-		if edge[i] || bright[i] || o.B/math.Max(o.A, 1e-6) <= moverMinRatio {
+		if edge[i] || bright[i] || o.B/math.Max(o.A, 1e-6) <= moverMinRatio || sharpness(d, o.X, o.Y) > sharpLimit {
 			continue
 		}
 		fl := Aperture(d, o.X, o.Y, apertureR)
