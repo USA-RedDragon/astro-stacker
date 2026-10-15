@@ -1,0 +1,43 @@
+package vetting
+
+import (
+	"testing"
+	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
+)
+
+func TestSuggestion(t *testing.T) {
+	t.Parallel()
+	night := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+	d := 0.58
+	sum := discoverysource.Summary{Source: app.DiscoverySource{Kind: app.DiscoveryKindChange}, Best: app.DiscoveryCandidate{Night: night, Sign: -1, DeltaMag: &d}}
+	ref := check.New(check.RefClean, check.Fail, "Hot pixels at this spot in S-II and H-a subs from 2025-11-08 and 2025-11-10 went into the reference image.")
+	flat := check.New(check.OwnChange, check.Fail, "The star stayed within 0.02 mag of normal.")
+	groups := []Group{{ID: check.GroupImage, Checks: []check.Check{ref}}, {ID: check.GroupOwn, Checks: []check.Check{flat}}}
+	s := suggest(sum, ownimage.Flags{RefContaminated: true}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, nil, nil, groups, changeOf(sum))
+	if s.State != app.VetArtifact || s.Say != "Artifact: reference image contaminated" || s.Confidence != High {
+		t.Errorf("reference contaminated %+v", s)
+	}
+	if s.Why != "The star did not fade. "+ref.Evidence+" That made this spot look fainter on the new nights." {
+		t.Errorf("why %q", s.Why)
+	}
+	s = suggest(sum, ownimage.Flags{}, nil, Known{Listed: "VSX lists it as V0123 And"}, check.New(check.Stays, check.Pass, ""), fetches{}, nil, nil, nil, changeOf(sum))
+	if s.State != app.VetKnown || s.Why != "VSX lists it as V0123 And." {
+		t.Errorf("known %+v", s)
+	}
+	e := &period.Ephemeris{Period: 9.98715, Kind: period.KindEclipsing, Eclipses: []period.Eclipse{{Phase: 0}, {Phase: 0.5}}}
+	pr := &period.Result{Ephemeris: e, Fits: []period.SurveyFit{{Survey: "ZTF", Agrees: true}, {Survey: "TESS", Agrees: true}}}
+	groups = []Group{{ID: check.GroupSurveys, Checks: []check.Check{
+		check.New(check.Fold, check.Pass, ""), check.New(check.Half, check.Pass, ""), check.Skipped(check.Double, ""),
+		check.New(check.TESS, check.Pass, ""), check.New(check.OwnTiming, check.Pass, ""),
+	}}}
+	s = suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, &period.Timing{Dip: 1}, groups, changeOf(sum))
+	if s.State != app.VetReal || s.Say != "Looks like a new eclipsing binary, repeats every 9.987 days" || s.Confidence != High {
+		t.Errorf("binary %+v", s)
+	}
+}

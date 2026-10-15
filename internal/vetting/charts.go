@@ -125,7 +125,7 @@ func yearOf(bjd float64) float64 { return 2000 + (bjd-2451545.0)/365.25 }
 
 func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ephemeris) Chart {
 	night := sum.Best.Night.UTC()
-	ch := Chart{ID: "night", Title: "Your night, " + dateWords(night), XUnit: "hours", YUnit: "dmag", YLabel: magFainter,
+	ch := Chart{ID: "night", Title: "Your night, " + dateWords(night), XUnit: "hours", YUnit: unitDMag, YLabel: magFainter,
 		Sub: "Your own brightness for this star against steady nearby stars."}
 	if curve == nil {
 		ch.Title, ch.Empty = "Your night", "Not measured yet"
@@ -210,7 +210,7 @@ func nearestMinimum(e *period.Ephemeris, bjd float64) float64 {
 func foldChart(s lc.Series, e *period.Ephemeris) Chart {
 	name := seriesName(s)
 	ch := Chart{ID: "fold", Title: fmt.Sprintf("%s, folded on %s days", name, periodText(e.Period)), XLabel: "Part of the cycle", YLabel: magFainter,
-		XUnit: "phase", YUnit: "dmag", X0: -0.25, X1: 0.75}
+		XUnit: "phase", YUnit: unitDMag, X0: -0.25, X1: 0.75}
 	level := 0.0
 	if !s.Relative {
 		level = levelOf(s)
@@ -285,7 +285,7 @@ func historyChart(s lc.Series, c change) Chart {
 	level := levelOf(s)
 	ch.YLabel, ch.YUnit = "Magnitude", "mag"
 	if s.Relative {
-		ch.YLabel, ch.YUnit = magFainter, "dmag"
+		ch.YLabel, ch.YUnit = magFainter, unitDMag
 	}
 	lo, hi := level, level
 	for _, i := range thin(len(pts)) {
