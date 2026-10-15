@@ -172,6 +172,11 @@ func newRunnerFixture(t *testing.T) *runnerFixture {
 	fx := &runnerFixture{f: newField(t), db: testDB(t), store: &memStore{m: map[string][]byte{}}}
 	f := fx.f
 	seedTarget(t, f, fx.db, fx.store)
+	nra, ndec := f.WCS.SkyOf(f.NewX, f.NewY)
+	if err := fx.db.Create(&app.DiscoveryCandidate{RunID: 999, Object: synthObject, Night: f.Nights[0], Group: GroupBroadband, Kind: app.DiscoveryKindChange,
+		Class: ClassLowConfidence, RA: nra, Dec: ndec, Sign: 1, SNR: 6, Matches: "[]"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	v := f.Stars[f.Var]
 	vra, vdec := f.WCS.SkyOf(v.X, v.Y)
 	first := f.subTime(len(f.Nights)-1, 0)
@@ -214,7 +219,7 @@ func (fx *runnerFixture) checkRun(t *testing.T) {
 func (fx *runnerFixture) checkCandidates(t *testing.T) {
 	t.Helper()
 	var cands []app.DiscoveryCandidate
-	fx.db.Order("id").Find(&cands)
+	fx.db.Where("run_id <> ?", 999).Order("id").Find(&cands)
 	classes := map[string]int{}
 	for _, c := range cands {
 		classes[c.Class]++
