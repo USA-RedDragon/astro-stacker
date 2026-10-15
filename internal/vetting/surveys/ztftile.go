@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
+	"sort"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/ephem"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
@@ -13,20 +15,24 @@ import (
 
 const (
 	tileMagic   = "ZTFT"
-	tileVersion = 1
+	tileVersion = 2
 	// tileNside is the HEALPix resolution of the ZTF tiles, about 0.23
 	// degrees across.
 	tileNside = 256
 	// timeUnit is the step of the stored times, in days (0.864 s).
 	timeUnit = 1e-5
 	// timeBase is the MJD the stored times count from.
-	timeBase  = 50000.0
+	timeBase = 50000.0
+	// errSteps is how many steps of the stored magnitude errors make a
+	// factor e; one step is 3%.
+	errSteps  = 32
 	lightKmS  = 299792.458
 	helioStep = 1e4
 )
 
 // ztfObject is one ZTF light curve: its object id, mean position, band
-// and good epochs, each at mid-exposure in UTC.
+// and good epochs, each at mid-exposure in UTC, in time order. Mag is in
+// millimag; Err is the error coded on a log scale.
 type ztfObject struct {
 	ID   int64
 	RA   float32
@@ -34,22 +40,40 @@ type ztfObject struct {
 	Band byte
 	T    []uint32
 	Mag  []int16
-	Err  []uint16
+	Err  []uint8
 }
 
 func (o *ztfObject) add(mjdUTC, mag, magErr float64) {
 	t := math.Round((mjdUTC - timeBase) / timeUnit)
 	m := math.Round(mag * 1000)
-	e := math.Round(magErr * 1000)
-	if t < 0 || t > math.MaxUint32 || m < math.MinInt16 || m > math.MaxInt16 || e <= 0 {
+	if t < 0 || t > math.MaxUint32 || m < math.MinInt16 || m > math.MaxInt16 || !(magErr > 0) {
 		return
 	}
+	e := math.Round(math.Log(math.Max(magErr*1000, 1)) * errSteps)
 	o.T = append(o.T, uint32(t))
 	o.Mag = append(o.Mag, int16(m))
-	o.Err = append(o.Err, uint16(math.Min(e, math.MaxUint16)))
+	o.Err = append(o.Err, uint8(math.Min(e, math.MaxUint8)))
 }
 
 func (o *ztfObject) mjd(i int) float64 { return timeBase + float64(o.T[i])*timeUnit }
+
+func (o *ztfObject) mag(i int) float64 { return float64(o.Mag[i]) / 1000 }
+
+func (o *ztfObject) magErr(i int) float64 { return math.Exp(float64(o.Err[i])/errSteps) / 1000 }
+
+// sort puts the epochs in time order.
+func (o *ztfObject) sort() {
+	idx := make([]int, len(o.T))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return o.T[idx[a]] < o.T[idx[b]] })
+	t, m, e := make([]uint32, len(idx)), make([]int16, len(idx)), make([]uint8, len(idx))
+	for i, j := range idx {
+		t[i], m[i], e[i] = o.T[j], o.Mag[j], o.Err[j]
+	}
+	o.T, o.Mag, o.Err = t, m, e
+}
 
 func vec(ra, dec float64) [3]float64 {
 	r, d := ra*math.Pi/180, dec*math.Pi/180
@@ -75,14 +99,38 @@ func tilesNear(ra, dec, radius float64) []int64 {
 	return out
 }
 
+// encodeTile writes a tile: the exposure times every object shares,
+// then per object its id, position and epoch count, then per epoch the
+// exposure index step, the magnitude in two byte planes and the coded
+// error, column by column so zstd finds the repeats.
 func encodeTile(band byte, objs []*ztfObject) []byte {
+	seen := map[uint32]bool{}
 	n := 0
 	for _, o := range objs {
+		o.sort()
 		n += len(o.T)
+		for _, t := range o.T {
+			seen[t] = true
+		}
 	}
-	b := make([]byte, 0, 16+len(objs)*20+n*8)
+	exps := make([]uint32, 0, len(seen))
+	for t := range seen {
+		exps = append(exps, t)
+	}
+	slices.Sort(exps)
+	index := make(map[uint32]int, len(exps))
+	for i, t := range exps {
+		index[t] = i
+	}
+	b := make([]byte, 0, 16+len(exps)*4+len(objs)*20+n*5)
 	b = append(b, tileMagic...)
 	b = append(b, tileVersion, band)
+	b = binary.AppendUvarint(b, uint64(len(exps)))
+	prev := uint32(0)
+	for _, t := range exps {
+		b = binary.AppendUvarint(b, uint64(t-prev))
+		prev = t
+	}
 	b = binary.AppendUvarint(b, uint64(len(objs)))
 	for _, o := range objs {
 		b = binary.AppendUvarint(b, uint64(o.ID))
@@ -91,21 +139,25 @@ func encodeTile(band byte, objs []*ztfObject) []byte {
 		b = binary.AppendUvarint(b, uint64(len(o.T)))
 	}
 	for _, o := range objs {
-		prev := int64(0)
+		last := -1
 		for _, t := range o.T {
-			b = binary.AppendVarint(b, int64(t)-prev)
-			prev = int64(t)
+			i := index[t]
+			b = binary.AppendUvarint(b, uint64(i-last))
+			last = i
 		}
 	}
 	for _, o := range objs {
 		for _, m := range o.Mag {
-			b = binary.LittleEndian.AppendUint16(b, uint16(m))
+			b = append(b, byte(uint16(m)>>8))
 		}
 	}
 	for _, o := range objs {
-		for _, e := range o.Err {
-			b = binary.LittleEndian.AppendUint16(b, e)
+		for _, m := range o.Mag {
+			b = append(b, byte(uint16(m)))
 		}
+	}
+	for _, o := range objs {
+		b = append(b, o.Err...)
 	}
 	return b
 }
@@ -130,19 +182,6 @@ func (r *tileReader) uvarint() uint64 {
 	return v
 }
 
-func (r *tileReader) varint() int64 {
-	if r.err != nil {
-		return 0
-	}
-	v, n := binary.Varint(r.b)
-	if n <= 0 {
-		r.err = errTile
-		return 0
-	}
-	r.b = r.b[n:]
-	return v
-}
-
 func (r *tileReader) u32() uint32 {
 	if r.err != nil || len(r.b) < 4 {
 		r.err = errTile
@@ -153,13 +192,13 @@ func (r *tileReader) u32() uint32 {
 	return v
 }
 
-func (r *tileReader) u16() uint16 {
-	if r.err != nil || len(r.b) < 2 {
+func (r *tileReader) bytes(n int) []byte {
+	if r.err != nil || len(r.b) < n {
 		r.err = errTile
-		return 0
+		return nil
 	}
-	v := binary.LittleEndian.Uint16(r.b)
-	r.b = r.b[2:]
+	v := r.b[:n]
+	r.b = r.b[n:]
 	return v
 }
 
@@ -171,12 +210,23 @@ func decodeTile(b []byte, keep func(ra, dec float64) bool) ([]*ztfObject, error)
 	}
 	band := b[5]
 	r := &tileReader{b: b[6:]}
+	ne := r.uvarint()
+	if r.err != nil || ne > uint64(len(b)) {
+		return nil, errTile
+	}
+	exps := make([]uint32, ne)
+	t := uint64(0)
+	for i := range exps {
+		t += r.uvarint()
+		exps[i] = uint32(t)
+	}
 	n := r.uvarint()
 	if r.err != nil || n > uint64(len(b)) {
 		return nil, errTile
 	}
 	objs := make([]ztfObject, n)
 	counts := make([]int, n)
+	total := 0
 	for i := range objs {
 		objs[i].ID = int64(r.uvarint())
 		objs[i].RA = math.Float32frombits(r.u32())
@@ -187,6 +237,7 @@ func decodeTile(b []byte, keep func(ra, dec float64) bool) ([]*ztfObject, error)
 			return nil, errTile
 		}
 		counts[i] = int(c)
+		total += int(c)
 	}
 	if r.err != nil {
 		return nil, r.err
@@ -196,38 +247,33 @@ func decodeTile(b []byte, keep func(ra, dec float64) bool) ([]*ztfObject, error)
 		want[i] = keep(float64(objs[i].RA), float64(objs[i].Dec))
 	}
 	for i := range objs {
-		prev := int64(0)
+		k := -1
 		for range counts[i] {
-			prev += r.varint()
+			k += int(r.uvarint())
+			if k < 0 || k >= len(exps) {
+				return nil, errTile
+			}
 			if want[i] {
-				objs[i].T = append(objs[i].T, uint32(prev))
+				objs[i].T = append(objs[i].T, exps[k])
 			}
 		}
 	}
-	for i := range objs {
-		for range counts[i] {
-			v := r.u16()
-			if want[i] {
-				objs[i].Mag = append(objs[i].Mag, int16(v))
-			}
-		}
-	}
-	for i := range objs {
-		for range counts[i] {
-			v := r.u16()
-			if want[i] {
-				objs[i].Err = append(objs[i].Err, v)
-			}
-		}
-	}
+	hi, lo, codes := r.bytes(total), r.bytes(total), r.bytes(total)
 	if r.err != nil {
 		return nil, fmt.Errorf("%w: %w", errTile, r.err)
 	}
 	var out []*ztfObject
+	at := 0
 	for i := range objs {
 		if want[i] {
-			out = append(out, &objs[i])
+			o := &objs[i]
+			for j := at; j < at+counts[i]; j++ {
+				o.Mag = append(o.Mag, int16(uint16(hi[j])<<8|uint16(lo[j])))
+			}
+			o.Err = append([]uint8(nil), codes[at:at+counts[i]]...)
+			out = append(out, o)
 		}
+		at += counts[i]
 	}
 	return out, nil
 }

@@ -22,6 +22,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 	"github.com/USA-RedDragon/astro-stacker/internal/ztflc"
+	"github.com/klauspost/compress/zstd"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -338,7 +339,7 @@ func (f *Fetcher) pullZTFFile(ctx context.Context, field Field, release, u strin
 			e.Epochs += len(o.T)
 		}
 		e.Objects += len(objs)
-		z, err := zstdEncode(encodeTile(q.Filter[1], objs))
+		z, err := zstdEncodeLevel(encodeTile(q.Filter[1], objs), zstd.SpeedBestCompression)
 		if err != nil {
 			return e, err
 		}
@@ -492,7 +493,7 @@ func (f *Fetcher) ztfFromTiles(ctx context.Context, field Field, m *ZTFManifest,
 		}
 		for _, o := range objs {
 			for i := range o.T {
-				out = append(out, ztfEpoch{Band: string(o.Band), OID: o.ID, MJD: o.mjd(i), Mag: float64(o.Mag[i]) / 1000, MagErr: float64(o.Err[i]) / 1000})
+				out = append(out, ztfEpoch{Band: string(o.Band), OID: o.ID, MJD: o.mjd(i), Mag: o.mag(i), MagErr: o.magErr(i)})
 			}
 		}
 	}

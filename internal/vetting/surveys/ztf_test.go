@@ -112,8 +112,8 @@ func TestZTFPrefetchAndRead(t *testing.T) {
 		for _, q := range apiG.Points {
 			if math.Abs(p.BJD-q.BJD) < 2e-5 {
 				matched++
-				if math.Abs(p.Mag-q.Mag) > 0.0006 {
-					t.Errorf("mag %v against %v", p.Mag, q.Mag)
+				if math.Abs(p.Mag-q.Mag) > 0.0006 || math.Abs(p.Err-q.Err)/q.Err > 0.03 {
+					t.Errorf("mag %v±%v against %v±%v", p.Mag, p.Err, q.Mag, q.Err)
 				}
 			}
 		}
@@ -156,8 +156,8 @@ func TestZTFUncoveredFallbackFails(t *testing.T) {
 func TestTileRoundTrip(t *testing.T) {
 	t.Parallel()
 	a := &ztfObject{ID: 802115100046506, RA: 323.277, Dec: 58.6343, Band: 'g'}
-	a.add(58208.4731693, 15.7305, 0.0143)
 	a.add(58209.5026485, 15.8037, 0.0145)
+	a.add(58208.4731693, 15.7305, 0.0143)
 	b := &ztfObject{ID: 802115100046507, RA: 323.2753, Dec: 58.6339, Band: 'g'}
 	b.add(58208.4731692, 16.1, 0.02)
 	objs, err := decodeTile(encodeTile('g', []*ztfObject{a, b}), func(ra, _ float64) bool { return ra > 323.276 })
@@ -170,8 +170,8 @@ func TestTileRoundTrip(t *testing.T) {
 	if d := math.Abs(objs[0].mjd(1)-58209.5026485) * 86400; d > 0.44 {
 		t.Errorf("time off by %.3f s", d)
 	}
-	if objs[0].Mag[1] != 15804 || objs[0].Err[0] != 14 {
-		t.Errorf("mag %v err %v", objs[0].Mag, objs[0].Err)
+	if objs[0].Mag[1] != 15804 || math.Abs(objs[0].magErr(0)-0.0143)/0.0143 > 0.016 {
+		t.Errorf("mag %v err %v", objs[0].Mag, objs[0].magErr(0))
 	}
 	if _, err := decodeTile([]byte("ZTFT\x01g\x05"), func(float64, float64) bool { return true }); err == nil {
 		t.Error("truncated tile read without error")
