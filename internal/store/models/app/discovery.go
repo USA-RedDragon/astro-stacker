@@ -90,6 +90,7 @@ type DiscoveryCandidate struct {
 	RateArcmin *float64
 	OffsetArc  *float64
 	CutoutKey  string
+	SourceID   *int   `gorm:"index"`
 	Vetting    string `gorm:"not null;default:''"`
 	VetNote    string `gorm:"type:text;not null;default:''"`
 	VettedAt   *time.Time
