@@ -88,15 +88,22 @@ type Fetcher struct {
 	Now        func() time.Time
 	// IRSAURL overrides https://irsa.ipac.caltech.edu, for tests.
 	IRSAURL string
+	// ATLASURL overrides the ATLAS forced photometry server, for tests.
+	ATLASURL string
 	// WorkDir holds the ZTF field files while Prefetch reads them; empty
 	// is the system temporary directory.
 	WorkDir string
 	// ZTFRelease names the ZTF data release to pull, "dr24"; empty takes
 	// the newest one IRSA lists.
 	ZTFRelease string
+	// ATLASMaxQueued is how many of our tasks may wait in the ATLAS queue
+	// before no more are queued; zero is DefaultATLASMaxQueued.
+	ATLASMaxQueued int
 
-	mu  sync.Mutex
-	eph *ephem.Ephemeris
+	mu        sync.Mutex
+	eph       *ephem.Ephemeris
+	atlasGap  time.Duration
+	lastATLAS time.Time
 }
 
 // ZTF is the star's ZTF light curves, from the field's ZTF files.

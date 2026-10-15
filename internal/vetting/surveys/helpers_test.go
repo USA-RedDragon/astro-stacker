@@ -76,12 +76,14 @@ func testFetcher(t *testing.T, h http.Handler) (*Fetcher, *memStore) {
 	t.Cleanup(srv.Close)
 	st := newMemStore()
 	return &Fetcher{
-		Store:   st,
-		Prefix:  "vetting/cache/",
-		HTTP:    srv.Client(),
-		IRSAURL: srv.URL,
-		WorkDir: t.TempDir(),
-		Now:     func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) },
+		Store:    st,
+		Prefix:   "vetting/cache/",
+		HTTP:     srv.Client(),
+		IRSAURL:  srv.URL,
+		ATLASURL: srv.URL + "/forcedphot",
+		WorkDir:  t.TempDir(),
+		Now:      func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) },
+		atlasGap: -1,
 	}, st
 }
 
