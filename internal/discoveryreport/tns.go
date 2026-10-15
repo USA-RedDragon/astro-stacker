@@ -33,7 +33,7 @@ func (t TNS) base() string {
 	if t.BaseURL != "" {
 		return strings.TrimRight(t.BaseURL, "/")
 	}
-	return "https://www.wis-tns.org/api"
+	return tnsmirror.Site("").API()
 }
 
 func (t TNS) client() *http.Client {

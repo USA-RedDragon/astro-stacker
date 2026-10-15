@@ -122,7 +122,7 @@ func known(in Input) *Known {
 	if !ok {
 		return nil
 	}
-	k := &Known{Name: t.Name, Link: TNSObjectLink(t.Name), Text: discoveries.KnownText(t), Discovered: t.Discovered}
+	k := &Known{Name: t.Name, Link: TNSObjectLink(in.Settings.TNSSite, t.Name), Text: discoveries.KnownText(t), Discovered: t.Discovered}
 	if ownReport(in, t) {
 		return k
 	}
@@ -289,7 +289,7 @@ func localCheck(in Input) (Check, bool) {
 		return Check{}, false
 	}
 	c := in.Cand
-	ck := Check{Key: "tns", Title: "Search TNS by position", Link: TNSSearchLink(c.RA, c.Dec), LinkText: "Open the TNS search for this spot"}
+	ck := Check{Key: "tns", Title: "Search TNS by position", Link: TNSSearchLink(in.Settings.TNSSite, c.RA, c.Dec), LinkText: "Open the TNS search for this spot"}
 	asOf := in.Local.AsOf.UTC().Format(stampLayout) + " UT"
 	var found []string
 	for _, h := range in.Local.Hits {

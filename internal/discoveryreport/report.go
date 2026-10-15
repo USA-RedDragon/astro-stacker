@@ -18,6 +18,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/tnsmirror"
 )
 
 const (
@@ -142,6 +143,8 @@ type Settings struct {
 	MPCCode         string
 	// TNSKey says whether a TNS bot key is configured.
 	TNSKey bool
+	// TNSSite is the TNS site the links point at; empty is production.
+	TNSSite tnsmirror.Site
 }
 
 // Input is what a report is drafted from.
@@ -236,13 +239,13 @@ func checked(run app.DiscoveryRun) (map[string]bool, map[string]bool) {
 }
 
 // TNSSearchLink is the TNS search page for a position.
-func TNSSearchLink(ra, dec float64) string {
+func TNSSearchLink(site tnsmirror.Site, ra, dec float64) string {
 	q := url.Values{"ra": {fmt.Sprintf("%.6f", ra)}, "decl": {fmt.Sprintf("%.6f", dec)}, "radius": {fmt.Sprintf("%g", SearchRadius)}, "coords_unit": {unitArcsec}}
-	return "https://www.wis-tns.org/search?" + q.Encode()
+	return site.Page("search?" + q.Encode())
 }
 
 // TNSObjectLink is the TNS page of a named object.
-func TNSObjectLink(name string) string {
+func TNSObjectLink(site tnsmirror.Site, name string) string {
 	n := strings.TrimSpace(name)
 	for _, p := range []string{"AT", "SN", "TDE", "FRB"} {
 		n = strings.TrimSpace(strings.TrimPrefix(n, p+" "))
@@ -250,7 +253,7 @@ func TNSObjectLink(name string) string {
 	if n == "" {
 		return ""
 	}
-	return "https://www.wis-tns.org/object/" + url.PathEscape(n)
+	return site.Page("object/" + url.PathEscape(n))
 }
 
 func checks(in Input) []Check {
@@ -303,7 +306,7 @@ func checks(in Input) []Check {
 	default:
 		out = append(out, Check{Key: keyAlerts, State: CheckOK, Title: titleAlerts, Detail: "ZTF alert brokers " + strings.Join(asked, " and ") + "; nothing within 3″"})
 	}
-	tns := Check{Key: "tns", Title: "Search TNS by position", Link: TNSSearchLink(c.RA, c.Dec), LinkText: "Open the TNS search for this spot"}
+	tns := Check{Key: "tns", Title: "Search TNS by position", Link: TNSSearchLink(in.Settings.TNSSite, c.RA, c.Dec), LinkText: "Open the TNS search for this spot"}
 	local, isLocal := localCheck(in)
 	switch {
 	case isLocal:
@@ -539,7 +542,7 @@ func tnsDraft(in Input) TNSDraft {
 	d.CanSend, d.SendReason = canSend(in, d)
 	if in.Saved != nil {
 		d.Name = in.Saved.TNSName
-		d.NameLink = TNSObjectLink(in.Saved.TNSName)
+		d.NameLink = TNSObjectLink(in.Settings.TNSSite, in.Saved.TNSName)
 		d.SentAt = in.Saved.SentAt
 		d.SentReply = in.Saved.SentReply
 	}

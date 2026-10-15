@@ -17,8 +17,11 @@ import (
 )
 
 const (
+	// DefaultSite is the production Transient Name Server.
+	DefaultSite = "https://www.wis-tns.org"
 	// DefaultBaseURL is the directory of the public objects files.
-	DefaultBaseURL = "https://www.wis-tns.org/system/files/tns_public_objects/"
+	DefaultBaseURL = DefaultSite + filesPath
+	filesPath      = "/system/files/tns_public_objects/"
 	// FullFile is the whole list, staged daily around midnight UT.
 	FullFile = "tns_public_objects.csv.zip"
 	maxZip   = 512 << 20
@@ -26,6 +29,26 @@ const (
 	// minGap spaces requests; TNS counts them over a running 60 s window.
 	minGap = 5 * time.Second
 )
+
+// Site is a TNS site's base URL, such as DefaultSite or
+// https://sandbox.wis-tns.org; empty is DefaultSite.
+type Site string
+
+func (s Site) root() string {
+	if t := strings.TrimRight(string(s), "/"); t != "" {
+		return t
+	}
+	return DefaultSite
+}
+
+// Files is the directory of the site's public objects files.
+func (s Site) Files() string { return s.root() + filesPath }
+
+// API is the site's API root.
+func (s Site) API() string { return s.root() + "/api" }
+
+// Page is the site's web page at path.
+func (s Site) Page(path string) string { return s.root() + "/" + strings.TrimLeft(path, "/") }
 
 // HourFile is the hourly delta file that ends at hour h (UT): the objects
 // added or changed in the hour before.
