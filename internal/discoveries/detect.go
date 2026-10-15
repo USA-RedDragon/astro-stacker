@@ -729,6 +729,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		sm := footprint(p)
 		for i, v := range p.Data {
 			r := ns.fs.ref.Data[i]
 			if isNaN32(v) || isNaN32(r) || !valid[i] {
@@ -753,6 +754,13 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 			res.SubDepthPerFilter[ns.sub.Filter] = math.Max(res.SubDepthPerFilter[ns.sub.Filter], d)
 		}
 		dets[j] = moverDetections(p, m.RMSPlane(), edge, bmask, sig, moverSharp)
+		if sm.ok {
+			for k := range dets[j] {
+				d := &dets[j][k]
+				d.SX, d.SY = sm.at(d.X, d.Y)
+				d.Sensor = true
+			}
+		}
 		res.SubDetections += len(dets[j])
 		times[j] = ns.sub.Mid()
 		midSum += float64(ns.sub.Mid().UnixNano())

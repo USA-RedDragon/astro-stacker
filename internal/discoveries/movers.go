@@ -19,10 +19,21 @@ const (
 	moverMinArcMin  = 0.15
 	moverPairWindow = 35 * time.Minute
 	moverMinShare   = 0.16
+	// sensorRepeatPx is how near two detections' sensor pixels must be for
+	// them to be one defect of the sensor.
+	sensorRepeatPx = 1.5
+	// sensorRepeats is how many other subs must have a detection on the
+	// same sensor pixel: a hot pixel is in nearly every sub, while a slow
+	// asteroid on dithered subs meets its own detections there by chance.
+	sensorRepeats = 3
 )
 
 type moverDet struct {
 	X, Y, Flux, SNR float64
+	// SX and SY are the sensor pixel the detection fell on, when the
+	// sub's sensorMap is known (Sensor).
+	SX, SY float64
+	Sensor bool
 }
 
 // moverDetections finds point sources in one sub minus its reference,
@@ -60,7 +71,9 @@ type hit struct{ sub, idx int }
 // MinHits(n) subs and must move at least 4 px between its first and last.
 // transients flattens the subs' detections and marks the ones no other
 // sub, far enough away in time for the slowest mover linked to have moved
-// 2 px, has a detection within 2 px of.
+// 2 px, has a detection within 2 px of on the sky, nor 3 such subs within
+// 1.5 px on the sensor, as for a hot pixel the registration walks across
+// the sky.
 func transients(times []time.Time, dets [][]moverDet, scale float64) ([][2]float64, []int, []bool) {
 	var all [][2]float64
 	var lab []int
@@ -70,17 +83,52 @@ func transients(times []time.Time, dets [][]moverDet, scale float64) ([][2]float
 			lab = append(lab, j)
 		}
 	}
+	var sens [][2]float64
+	var sensIdx []int
+	for _, ds := range dets {
+		for _, d := range ds {
+			if d.Sensor {
+				sens = append(sens, [2]float64{d.SX, d.SY})
+			} else {
+				sens = append(sens, [2]float64{math.NaN(), math.NaN()})
+			}
+		}
+	}
+	for i, p := range sens {
+		if !math.IsNaN(p[0]) {
+			sensIdx = append(sensIdx, i)
+		}
+	}
+	sensPts := make([][2]float64, len(sensIdx))
+	for k, i := range sensIdx {
+		sensPts[k] = sens[i]
+	}
 	g := NewGrid(all, moverRepeatPx)
+	sg := NewGrid(sensPts, sensorRepeatPx)
 	transient := make([]bool, len(all))
 	staticGap := time.Duration(moverRepeatPx * scale / moverMinArcMin * float64(time.Minute))
+	apart := func(i, k int) bool {
+		d := times[lab[k]].Sub(times[lab[i]])
+		return d >= staticGap || d <= -staticGap
+	}
 	for i, p := range all {
 		transient[i] = true
 		for _, k := range g.Within(p[0], p[1], moverRepeatPx) {
-			if d := times[lab[k]].Sub(times[lab[i]]); d >= staticGap || d <= -staticGap {
+			if apart(i, k) {
 				transient[i] = false
 				break
 			}
 		}
+		if !transient[i] || math.IsNaN(sens[i][0]) {
+			continue
+		}
+		subs := map[int]bool{}
+		for _, k := range sg.Within(sens[i][0], sens[i][1], sensorRepeatPx) {
+			if apart(i, sensIdx[k]) {
+				subs[lab[sensIdx[k]]] = true
+			}
+		}
+		transient[i] = len(subs) < sensorRepeats
 	}
 	return all, lab, transient
 }
