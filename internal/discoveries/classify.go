@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -115,13 +116,14 @@ type ZTFLookup func(ctx context.Context, ra, dec, amplitude float64) (ztflc.Verd
 // catalogZTF names the ZTF light curve check in matches and the checks.
 const catalogZTF = "ZTF"
 
-// ztfCheck asks ZTF about a new variable on a catalogued star: a star ZTF
-// shows varying by the change's size is a known variable, one ZTF shows
-// flat well below it holds no change of ours, and is held at low
-// confidence.
+// ztfCheck asks ZTF about a change on a catalogued star that is new, or
+// held only for want of a confirmation. A star ZTF shows varying by the
+// change's size confirms it: the star varies, and no catalogue lists it, so
+// it is a new variable. One ZTF shows flat well below it holds no change of
+// ours, and is held at low confidence.
 func ztfCheck(ctx context.Context, l *Labelled, lookup ZTFLookup) (checked, failed bool) {
 	c := l.Candidate
-	if lookup == nil || l.Class != ClassNewVariable || c.GaiaG == nil || c.DeltaMag == nil {
+	if lookup == nil || c.GaiaG == nil || c.DeltaMag == nil || (l.Class != ClassNewVariable && !heldForConfirmation(*l)) {
 		return false, false
 	}
 	v, err := lookup(ctx, c.RA, c.Dec, math.Abs(*c.DeltaMag))
@@ -131,13 +133,47 @@ func ztfCheck(ctx context.Context, l *Labelled, lookup ZTFLookup) (checked, fail
 	switch v.Kind {
 	case ztflc.Variable:
 		l.Matches = append(l.Matches, Match{Catalog: catalogZTF, Name: "ZTF light curve", Type: "variable", Note: fmt.Sprintf("varies by %.2f mag in ZTF %s", v.Amplitude, v.Band)})
-		l.Class = ClassKnownVariable
+		l.Class = ClassNewVariable
 	case ztflc.Flat:
 		l.Matches = append(l.Matches, Match{Catalog: catalogZTF, Name: "ZTF light curve", Type: "flat", Note: fmt.Sprintf("flat to %.2f mag in ZTF %s", v.Amplitude, v.Band)})
 		l.Class = ClassLowConfidence
 	case ztflc.Unknown:
 	}
 	return true, false
+}
+
+// minHeldSubs is the fewest subs a change held for few subs must be
+// measured in for a confirmation to promote it: one night's five broadband
+// subs caught the eclipse of 2MASS J21043883+4319143.
+const minHeldSubs = minFilterSubs
+
+// mayBeHeld says whether a change could be held for a confirmation: a
+// fading of a catalogued star, strong, in most of its subs and in enough of
+// them. A one-night brightening is not held: it is what a reference holding
+// the star in eclipse makes on the star's other nights, and ZTF cannot tell
+// when the star was faint.
+func mayBeHeld(c Candidate) bool {
+	return c.Sign < 0 && c.GaiaG != nil && c.SNR >= PromoteSigma && c.SubsTested >= minHeldSubs &&
+		float64(c.PresentIn) >= minHeldPresent*float64(c.SubsTested)
+}
+
+// minHeldPresent is the least share of its subs a held change must be seen
+// in for a confirmation to promote it. The three eclipses vetted in October
+// 2026 were in every sub; 56 of the 77 changes on stars the method-4
+// backfill called new, on one night each, were in under 80%.
+const minHeldPresent = 0.8
+
+// heldForConfirmation says whether a fading of a catalogued star is held at
+// low confidence only because nothing confirmed it: no other night or
+// filter group saw it, or it was strong but in under minPromoteSubs subs.
+func heldForConfirmation(l Labelled) bool {
+	if l.Class != ClassLowConfidence || !mayBeHeld(l.Candidate) {
+		return false
+	}
+	t := l
+	t.LowConf = false
+	t.Matches = append(slices.Clone(l.Matches), Match{Catalog: catalogNight})
+	return classOf(t) == ClassNewVariable
 }
 
 // PriorChange is a change found at a spot on another night, or in another
@@ -250,7 +286,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 				l.Matches = append(l.Matches, Match{Catalog: "SkyBoT", Name: bodyName(b), Type: b.Class, SepArcsec: sep, Mag: &v})
 			}
 		}
-		if alerts != nil && looked < maxAlertCandidates && !explained(l.Matches) && !c.LowConf {
+		if alerts != nil && looked < maxAlertCandidates && !explained(l.Matches) && (!c.LowConf || mayBeHeld(c)) {
 			looked++
 			as, ch, fl := alerts(ctx, c.RA, c.Dec, alertMatchArcsec)
 			checked, failed = union(checked, ch), union(failed, fl)
@@ -260,10 +296,9 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		}
 		l.Matches = append(l.Matches, placeMatches(c, k)...)
 		l.Class = classOf(l)
-		if l.Class == ClassNewVariable && c.SNR <= res.ChangeNull.MaxSNR {
+		if c.SNR <= res.ChangeNull.MaxSNR && (l.Class == ClassNewVariable || heldForConfirmation(l)) {
 			l.Class = ClassLowConfidence
-		}
-		if ch, fl := ztfCheck(ctx, &l, k.ZTF); ch {
+		} else if ch, fl := ztfCheck(ctx, &l, k.ZTF); ch {
 			checked = union(checked, []string{catalogZTF})
 		} else if fl {
 			failed = union(failed, []string{catalogZTF})
@@ -341,9 +376,12 @@ func bodyName(b Body) string {
 // one group are not independent: a change of the sky's color between the
 // night and the reference moves a star alike in L, R, G and B. One night's
 // change alone is held at low confidence, as the backfill of October 2026
-// found over a hundred such changes on stars and none held up. A source
-// where no star was before is not held: it may be a transient, and
-// follow-up imaging is asked for on it.
+// found over a hundred such changes on stars and none held up; the star's
+// ZTF light curve can confirm one instead (see ztfCheck). A source where no
+// star was before is not held: it may be a transient, and follow-up imaging
+// is asked for on it. An alert broker's ZTF object at a catalogued star is
+// that star's own variability in ZTF's differences, not a transient: only a
+// TNS entry makes a change on a star a known transient.
 func classOf(l Labelled) string {
 	has := func(cat ...string) bool {
 		for _, m := range l.Matches {
@@ -360,7 +398,7 @@ func classOf(l Labelled) string {
 		return ClassKnownVariable
 	case has("SkyBoT"):
 		return ClassKnownAsteroid
-	case has(sourceAlerce, sourceFink, sourceTNS):
+	case has(sourceTNS), l.GaiaG == nil && has(sourceAlerce, sourceFink):
 		return ClassKnownTransient
 	case l.LowConf, l.Sign < 0 && l.GaiaG == nil:
 		return ClassLowConfidence
