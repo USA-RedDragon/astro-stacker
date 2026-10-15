@@ -269,7 +269,7 @@ func checks(in Input) []Check {
 	}
 	switch {
 	case !done["VSX"] || failed["VSX"]:
-		out = append(out, Check{Key: keyVariable, State: CheckTodo, Title: titleVariable, Detail: "The variable star catalogue was not checked for this night"})
+		out = append(out, Check{Key: keyVariable, State: CheckTodo, Title: titleVariable, Detail: "The variable star catalog was not checked for this night"})
 	case len(has(ms, varCats...)) > 0:
 		m := has(ms, varCats...)[0]
 		out = append(out, Check{Key: keyVariable, State: CheckBad, Title: titleVariable, Detail: fmt.Sprintf("Matches %s %s, %.1f″ away", m.Catalog, m.Name, m.SepArcsec)})
@@ -508,9 +508,9 @@ func tnsDraft(in Input) TNSDraft {
 		d.Fields = append(d.Fields, unmeasured("non_detection", "Last time not seen", "The earlier nights at this spot are not measured yet"))
 	}
 	if h, ok := host(c); ok {
-		d.Fields = append(d.Fields, field("host", "Host galaxy", h.Name, fmt.Sprintf("From the catalogue, %.1f′ from the centre", h.SepArcsec/60)))
+		d.Fields = append(d.Fields, field("host", "Host galaxy", h.Name, fmt.Sprintf("From the catalog, %.1f′ from the center", h.SepArcsec/60)))
 	} else {
-		d.Fields = append(d.Fields, field("host", "Host galaxy", "none", "No catalogued galaxy at this spot"))
+		d.Fields = append(d.Fields, field("host", "Host galaxy", "none", "No cataloged galaxy at this spot"))
 	}
 	guess, _ := typeGuess(c)
 	d.Fields = append(d.Fields, field("type", "Object type (your guess)", guess, "From the comparison's class"))
@@ -692,7 +692,7 @@ func Build(in Input) Report {
 		r.Facts = append(r.Facts, field("subs", "Per sub", fmt.Sprintf("In %d of %d subs", c.PresentIn, c.SubsTested), "Per-sub difference at 3σ"))
 	}
 	if h, ok := host(c); ok {
-		r.Facts = append(r.Facts, field("host", "Host", fmt.Sprintf("%s, %.1f′ from the centre", h.Name, h.SepArcsec/60), "Catalogued galaxy"))
+		r.Facts = append(r.Facts, field("host", "Host", fmt.Sprintf("%s, %.1f′ from the center", h.Name, h.SepArcsec/60), "Cataloged galaxy"))
 	}
 	if c.GaiaG != nil {
 		r.Facts = append(r.Facts, field("star", "Star there", fmt.Sprintf("Gaia G %.2f", *c.GaiaG), "Gaia DR3"))
