@@ -370,6 +370,19 @@ func filterWords(run app.DiscoveryRun) string {
 	return strings.Join(fs, ", ")
 }
 
+// newLightSource says where a discovery magnitude comes from: the light
+// added since the reference, with the spot's total light and what was
+// there before as context.
+func newLightSource(c app.DiscoveryCandidate) string {
+	switch {
+	case c.Kind == app.DiscoveryKindMover:
+		return "The mover in the night's subs, Gaia G zero point"
+	case c.NightMag != nil && c.RefMag != nil:
+		return fmt.Sprintf("Light added since the reference, from the difference, Gaia G zero point; the spot's total is %.2f, %.2f before", *c.NightMag, *c.RefMag)
+	}
+	return "Night stack, Gaia G zero point; nothing measured there before"
+}
+
 func magErr(c app.DiscoveryCandidate) *float64 {
 	if c.SNR > 0 {
 		e := 1.0857 / c.SNR
@@ -474,12 +487,12 @@ func tnsDraft(in Input) TNSDraft {
 		d.Fields = append(d.Fields, unmeasured("discovery_time", "Discovery time (UT)", "No per-sub brightness for this candidate"))
 	}
 	filter := filterWords(run)
-	if c.NightMag != nil {
-		v := fmt.Sprintf("%.2f", *c.NightMag)
+	if m := discoveries.NewLight(c); m != nil {
+		v := fmt.Sprintf("%.2f", *m)
 		if e := magErr(c); e != nil {
 			v += fmt.Sprintf(" ± %.2f", *e)
 		}
-		d.Fields = append(d.Fields, field("mag", "Discovery magnitude", v, "Night stack, Gaia G zero point"))
+		d.Fields = append(d.Fields, field("mag", "Discovery magnitude", v, newLightSource(c)))
 	} else {
 		d.Fields = append(d.Fields, unmeasured("mag", "Discovery magnitude", "No zero point for this night"))
 	}
@@ -488,7 +501,7 @@ func tnsDraft(in Input) TNSDraft {
 		src = "Narrowband; TNS takes broadband magnitudes"
 	}
 	d.Fields = append(d.Fields, field("filter", "Filter", filter, src))
-	if s, ok := lastNonDetection(in.Spot, c.NightMag); ok {
+	if s, ok := lastNonDetection(in.Spot, discoveries.NewLight(c)); ok {
 		d.Fields = append(d.Fields, field("non_detection", "Last time not seen", fmt.Sprintf("night of %s, fainter than %.2f", s.Night.Format(time.DateOnly), *s.Limit),
 			fmt.Sprintf("%s, %d subs; forced photometry at this spot, 3σ", s.Filter, s.Subs)))
 	} else {
@@ -557,8 +570,8 @@ func copyText(fs []Field) string {
 func earlier(c app.DiscoveryCandidate, run app.DiscoveryRun, spot []discoveries.SpotNight) ([]EarlierNight, string) {
 	filter := filterWords(run)
 	hit := EarlierNight{Night: c.Night.Format(time.DateOnly), Filter: filter, Subs: run.NightSubs, Hit: true, Result: notMeasured}
-	if c.NightMag != nil {
-		hit.Result = fmt.Sprintf("%.2f", *c.NightMag)
+	if m := discoveries.NewLight(c); m != nil {
+		hit.Result = fmt.Sprintf("%.2f", *m)
 		if e := magErr(c); e != nil {
 			hit.Result += fmt.Sprintf(" ± %.2f", *e)
 		}
@@ -664,13 +677,14 @@ func Build(in Input) Report {
 	c := in.Cand
 	r := Report{CandidateID: c.ID, Object: c.Object, Night: c.Night.Format(time.DateOnly), Class: c.Class, Kind: c.Kind,
 		RA: RAText(c.RA), Dec: DecText(c.Dec)}
-	if c.NightMag != nil {
-		v := fmt.Sprintf("%.2f", *c.NightMag)
+	if m := discoveries.NewLight(c); m != nil {
+		v := fmt.Sprintf("%.2f", *m)
 		if e := magErr(c); e != nil {
 			v += fmt.Sprintf(" ± %.2f", *e)
 		}
-		filter := filterWords(in.Run)
-		r.Facts = append(r.Facts, field("brightness", "Brightness", v, filter))
+		r.Facts = append(r.Facts, field("brightness", "Brightness", v, filterWords(in.Run)+"; "+newLightSource(c)))
+	} else if c.NightMag != nil {
+		r.Facts = append(r.Facts, field("brightness", "Brightness", fmt.Sprintf("%.2f at the spot", *c.NightMag), filterWords(in.Run)+"; it faded, so no new light"))
 	} else {
 		r.Facts = append(r.Facts, unmeasured("brightness", "Brightness", "No zero point for this night"))
 	}

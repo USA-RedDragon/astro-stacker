@@ -85,12 +85,15 @@ func TestBuildFillsOnlyMeasuredValues(t *testing.T) {
 	c, run := nova(t)
 	r := Build(Input{Cand: c, Run: run, Spot: spots(), Instrument: "Refractor (405 mm), ZWO ASI2600MM Pro"})
 	for key, want := range map[string]string{
-		"ra": "00:42:13.912", "dec": "+41:16:36.13", "discovery_time": "2026-10-12 03:05:00", "mag": "18.06 ± 0.10",
-		"filter": "Clear (Luminance)", "non_detection": "night of 2026-07-20, fainter than 18.60", "host": "Andromeda Galaxy", "type": "Supernova (PSN)",
+		"ra": "00:42:13.912", "dec": "+41:16:36.13", "discovery_time": "2026-10-12 03:05:00", "mag": "19.26 ± 0.10",
+		"filter": "Clear (Luminance)", "non_detection": "night of 2026-07-13, fainter than 19.40", "host": "Andromeda Galaxy", "type": "Supernova (PSN)",
 	} {
 		if got := fieldOf(r, key); got.Value != want || got.Missing {
 			t.Errorf("%s = %+v, want %q", key, got, want)
 		}
+	}
+	if src := fieldOf(r, "mag").Source; !strings.Contains(src, "Light added since the reference") || !strings.Contains(src, "18.06, 18.49 before") {
+		t.Errorf("the discovery magnitude is the new light, with the spot's totals as context: %q", src)
 	}
 	if f := fieldOf(r, "reporter"); !f.Missing || f.Value != "Not set" {
 		t.Errorf("reporter %+v", f)
@@ -101,7 +104,7 @@ func TestBuildFillsOnlyMeasuredValues(t *testing.T) {
 	if r.TNS.CanSend || !strings.Contains(r.TNS.SendReason, "TNS bot key") {
 		t.Errorf("send without a key: %v %q", r.TNS.CanSend, r.TNS.SendReason)
 	}
-	if len(r.TNS.Earlier) != 5 || !r.TNS.Earlier[0].Hit || r.TNS.Earlier[0].Result != "18.06 ± 0.10" || r.TNS.Earlier[4].Result != "seen, 19.00 ± 0.20" {
+	if len(r.TNS.Earlier) != 5 || !r.TNS.Earlier[0].Hit || r.TNS.Earlier[0].Result != "19.26 ± 0.10" || r.TNS.Earlier[4].Result != "seen, 19.00 ± 0.20" {
 		t.Errorf("earlier %+v", r.TNS.Earlier)
 	}
 	if !strings.Contains(r.TNS.EarlierNote, "4 earlier nights") || !strings.Contains(r.TNS.EarlierNote, "seen on 1") {
@@ -234,7 +237,7 @@ func TestATReport(t *testing.T) {
 	nd := dig(t, e, "non_detection")
 	ph := dig(t, e, "photometry", "0")
 	if e["discovery_datetime"] != "2026-10-12 03:05:00" || e["at_type"] != "1" || e["host_name"] != "Andromeda Galaxy" || e["reporting_groupid"] != "12" ||
-		nd["limiting_flux"] != "18.60" || nd["filterid"] != "1" || ph["flux"] != "18.06" || ph["exptime"] != "8400" || ph["instrumentid"] != "34" {
+		nd["limiting_flux"] != "19.40" || nd["filterid"] != "1" || ph["flux"] != "19.26" || ph["exptime"] != "8400" || ph["instrumentid"] != "34" {
 		t.Errorf("report %+v", e)
 	}
 	if dig(t, e, "ra")["value"] != "00:42:13.912" {

@@ -204,7 +204,7 @@ func TestCaptionSaysOnlyWhatWasMeasured(t *testing.T) {
 		RA: 10.557966104327647, Dec: 41.27670411346332, Sign: 1, NightMag: ptr(18.056), RefMag: ptr(18.492), DeltaMag: ptr(-0.348), PresentIn: 28, SubsTested: 28,
 		Matches: `[{"catalog":"galaxy","name":"Andromeda Galaxy","sep_arcsec":344.2}]`}
 	got := Caption(c, "https://astro.test/")
-	for _, want := range []string{"possible supernova in Andromeda", "magnitude 18.06", "0.35 magnitudes brighter than the reference (18.49)",
+	for _, want := range []string{"possible supernova in Andromeda", "magnitude 19.26 of new light (18.06 with what was there)", "0.35 magnitudes brighter than the reference (18.49)",
 		"RA 00h 42m 13.91s, Dec +41° 16′ 36.1″", "In Andromeda Galaxy", "Seen in 28 of 28 subs", `href="https://astro.test/discoveries?night=2026-10-11"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("caption lacks %q:\n%s", want, got)
