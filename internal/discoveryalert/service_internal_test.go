@@ -524,3 +524,50 @@ func TestBackoffDoubles(t *testing.T) {
 		t.Errorf("backoff %v %v %v", s.Backoff(1), s.Backoff(2), s.Backoff(4))
 	}
 }
+
+func earlyMatches(t *testing.T, early bool) string {
+	t.Helper()
+	b, err := json.Marshal([]discoveries.Match{{Catalog: "galaxy", Name: "Andromeda Galaxy", Type: "Local Group galaxy", SepArcsec: 344}, {Catalog: "TNS", Name: "AT 2026acsi",
+		SepArcsec: 0.3, TNS: &discoveries.TNSEntry{Name: "AT 2026acsi", Group: "XOSS", Discovered: time.Date(2026, 9, 22, 15, 50, 24, 0, time.UTC),
+			OurClass: ClassNova, Seen: time.Date(2026, 9, 21, 4, 0, 0, 0, time.UTC), EarlyData: early}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// A known TNS object alerts only when we have early data on it, and then
+// says what TNS has and what to do, with no follow-up imaging.
+func TestEarlyDataOnAKnownObjectAlerts(t *testing.T) {
+	t.Parallel()
+	run := app.DiscoveryRun{State: app.DiscoveryDone, Checked: "VSX,SkyBoT,galaxies,ALeRCE,Fink,TNS"}
+	c := app.DiscoveryCandidate{Object: "Andromeda", Night: night(-3), Group: discoveries.GroupBroadband, Kind: app.DiscoveryKindChange, Class: discoveries.ClassKnownTransient,
+		RA: 10.55797, Dec: 41.27669, Sign: 1, NightMag: ptr(18.056), RefMag: ptr(18.492), Matches: earlyMatches(t, false)}
+	if Alertable(c, run) {
+		t.Error("a known object without early data alerts")
+	}
+	c.Matches = earlyMatches(t, true)
+	if !Alertable(c, run) {
+		t.Fatal("early data on a known object does not alert")
+	}
+	got := Caption(c, "")
+	for _, want := range []string{"<b>Early data on AT 2026acsi in Andromeda</b>", "Already known: AT 2026acsi (nova candidate, XOSS, Sep 22)",
+		"Early data: you have measurements from before its discovery; worth sending to TNS as photometry"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("caption lacks %q:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"credit", "first", "reported"} {
+		if strings.Contains(strings.ToLower(got), bad) {
+			t.Errorf("caption says %q:\n%s", bad, got)
+		}
+	}
+	if s := ShortCaption(0, c); !strings.Contains(s, "already known: AT 2026acsi (nova candidate, XOSS, Sep 22); early data") {
+		t.Errorf("short caption %q", s)
+	}
+	nova := c
+	nova.Class, nova.Matches = ClassNova, ""
+	if g := GroupText([]app.DiscoveryCandidate{nova, c}, ""); !strings.HasPrefix(g, "<b>2 finds in Andromeda</b>") || !strings.Contains(g, "2. already known: AT 2026acsi") {
+		t.Errorf("group text %s", g)
+	}
+}

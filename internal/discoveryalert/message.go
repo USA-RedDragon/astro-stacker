@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -123,6 +124,22 @@ func brightness(c app.DiscoveryCandidate) string {
 	return b.String()
 }
 
+// what names a candidate in a list: its class, or for a known object we
+// have early data on, its TNS label.
+func what(c app.DiscoveryCandidate) string {
+	if t, ok := EarlyKnown(c); ok {
+		return discoveries.KnownText(t) + "; early data"
+	}
+	return ClassWords(c.Class)
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 // Caption is one candidate's alert text, as Telegram HTML.
 func Caption(c app.DiscoveryCandidate, webURL string) string {
 	lines := []string{
@@ -130,6 +147,10 @@ func Caption(c app.DiscoveryCandidate, webURL string) string {
 		fmt.Sprintf("Night of %s, %s filters", c.Night.Format("Mon Jan 2"), esc(c.Group)),
 		esc(brightness(c)),
 		fmt.Sprintf("RA %s, Dec %s", RA(c.RA), Dec(c.Dec)),
+	}
+	if t, ok := EarlyKnown(c); ok {
+		lines[0] = fmt.Sprintf("<b>Early data on %s in %s</b>", esc(t.Name), esc(c.Object))
+		lines = append(lines[:1], append([]string{esc(upperFirst(discoveries.KnownText(t))), esc(discoveries.EarlyText)}, lines[1:]...)...)
 	}
 	if h := host(c); h != "" && c.Kind != app.DiscoveryKindMover {
 		lines = append(lines, "In "+esc(h))
@@ -148,10 +169,14 @@ func Caption(c app.DiscoveryCandidate, webURL string) string {
 // before their pictures.
 func GroupText(cands []app.DiscoveryCandidate, webURL string) string {
 	c0 := cands[0]
-	lines := []string{fmt.Sprintf("<b>%d new finds in %s</b>", len(cands), esc(c0.Object)),
+	head := "%d new finds in %s"
+	if slices.ContainsFunc(cands, func(c app.DiscoveryCandidate) bool { _, early := EarlyKnown(c); return early }) {
+		head = "%d finds in %s"
+	}
+	lines := []string{fmt.Sprintf("<b>"+head+"</b>", len(cands), esc(c0.Object)),
 		fmt.Sprintf("Night of %s, %s filters", c0.Night.Format("Mon Jan 2"), esc(c0.Group))}
 	for i, c := range cands {
-		line := fmt.Sprintf("%d. %s: %s; RA %s, Dec %s", i+1, esc(ClassWords(c.Class)), esc(brightness(c)), RA(c.RA), Dec(c.Dec))
+		line := fmt.Sprintf("%d. %s: %s; RA %s, Dec %s", i+1, esc(what(c)), esc(brightness(c)), RA(c.RA), Dec(c.Dec))
 		if h := host(c); h != "" && c.Kind != app.DiscoveryKindMover {
 			line += "; in " + esc(h)
 		}
@@ -169,7 +194,7 @@ func GroupText(cands []app.DiscoveryCandidate, webURL string) string {
 
 // ShortCaption labels one picture of a group.
 func ShortCaption(i int, c app.DiscoveryCandidate) string {
-	return fmt.Sprintf("%d. %s, RA %s, Dec %s", i+1, esc(ClassWords(c.Class)), RA(c.RA), Dec(c.Dec))
+	return fmt.Sprintf("%d. %s, RA %s, Dec %s", i+1, esc(what(c)), RA(c.RA), Dec(c.Dec))
 }
 
 // SummaryText is the one message for a run with more than MaxPerRun new

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/morningreport"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
@@ -171,7 +172,7 @@ func (s *Service) seed(ctx context.Context) (bool, error) {
 	}
 	rows := []app.DiscoveryAlert{}
 	for _, p := range pairs {
-		if NewClass(p.c.Class) {
+		if _, early := EarlyKnown(p.c); NewClass(p.c.Class) || early {
 			rows = append(rows, alertRow(p.c, true))
 		}
 	}
@@ -437,7 +438,7 @@ func (s *Service) requestFollowups(ctx context.Context) error {
 	var rows []app.DiscoveryAlert
 	err := s.DB.WithContext(ctx).Table("discovery_alerts a").Select("a.*").
 		Joins("JOIN discovery_alert_messages m ON m.id = a.message_id").
-		Where("NOT a.baseline AND NOT m.summary AND a.night >= ?", s.today().AddDate(0, 0, -MaxAgeNights)).
+		Where("NOT a.baseline AND NOT m.summary AND a.night >= ? AND a.class <> ?", s.today().AddDate(0, 0, -MaxAgeNights), discoveries.ClassKnownTransient).
 		Where("m.sent_at IS NOT NULL OR m.sending_at IS NOT NULL").
 		Where("NOT EXISTS (SELECT 1 FROM discovery_followups f WHERE f.alert_id = a.id)").
 		Order("a.id").Find(&rows).Error

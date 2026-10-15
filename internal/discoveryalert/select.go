@@ -85,11 +85,26 @@ func ChecksPassed(run app.DiscoveryRun, kind string) bool {
 	return slices.ContainsFunc(OptionalBrokers(), func(b string) bool { return slices.Contains(checked, b) && !slices.Contains(failed, b) })
 }
 
-// Alertable says whether a stored candidate is a high-confidence new find
-// from a finished run whose catalogue checks back it. A change on a moving
-// object's path is part of that mover, not a find of its own.
+// EarlyKnown is a change TNS already has, from the local TNS copy, that
+// we measured in the days before its discovery.
+func EarlyKnown(c app.DiscoveryCandidate) (discoveries.TNSEntry, bool) {
+	if c.Kind != app.DiscoveryKindChange || c.Class != discoveries.ClassKnownTransient {
+		return discoveries.TNSEntry{}, false
+	}
+	m, ok := discoveries.TNSMatch(matches(c))
+	if !ok || !m.TNS.EarlyData {
+		return discoveries.TNSEntry{}, false
+	}
+	return *m.TNS, true
+}
+
+// Alertable says whether a stored candidate is a high-confidence new find,
+// or a known object we have early data on, from a finished run whose
+// catalogue checks back it. A change on a moving object's path is part of
+// that mover, not a find of its own.
 func Alertable(c app.DiscoveryCandidate, run app.DiscoveryRun) bool {
-	if run.State != app.DiscoveryDone || !NewClass(c.Class) {
+	_, early := EarlyKnown(c)
+	if run.State != app.DiscoveryDone || !NewClass(c.Class) && !early {
 		return false
 	}
 	if c.Vetting == app.VetArtifact || c.Vetting == app.VetKnown {
