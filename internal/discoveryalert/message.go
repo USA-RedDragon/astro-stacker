@@ -97,9 +97,15 @@ func brightness(c app.DiscoveryCandidate) string {
 		return strings.Join(parts, ", ")
 	}
 	var b strings.Builder
-	if finite(c.NightMag) {
-		fmt.Fprintf(&b, "magnitude %.2f", *c.NightMag)
-	} else {
+	m := discoveries.NewLight(c)
+	switch {
+	case finite(m) && finite(c.RefMag):
+		fmt.Fprintf(&b, "magnitude %.2f of new light (%.2f with what was there)", *m, *c.NightMag)
+	case finite(m):
+		fmt.Fprintf(&b, "magnitude %.2f", *m)
+	case finite(c.NightMag):
+		fmt.Fprintf(&b, "magnitude %.2f at the spot", *c.NightMag)
+	default:
 		b.WriteString("magnitude not measured")
 	}
 	switch {

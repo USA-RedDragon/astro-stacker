@@ -373,10 +373,11 @@ func ATReport(c app.DiscoveryCandidate, run app.DiscoveryRun, spot []discoveries
 		return nil, fmt.Errorf("%w: the position's uncertainty is not measured", ErrInvalid)
 	}
 	p, ok := discovery(c)
-	if !ok || c.NightMag == nil {
+	mag := discoveries.NewLight(c)
+	if !ok || mag == nil {
 		return nil, fmt.Errorf("%w: the discovery time or magnitude is not measured", ErrInvalid)
 	}
-	nd, ok := lastNonDetection(spot, c.NightMag)
+	nd, ok := lastNonDetection(spot, mag)
 	if !ok {
 		return nil, fmt.Errorf("%w: the last non-detection is not measured", ErrInvalid)
 	}
@@ -398,7 +399,7 @@ func ATReport(c app.DiscoveryCandidate, run app.DiscoveryRun, spot []discoveries
 		return nil, fmt.Errorf("%w: the last non-detection is narrowband", ErrInvalid)
 	}
 	e := magErr(c)
-	flux := map[string]any{"obsdate": p.Time.UTC().Format("2006-01-02 15:04:05"), colFlux: fmt.Sprintf("%.2f", *c.NightMag), "flux_error": fmt.Sprintf("%.2f", *e),
+	flux := map[string]any{"obsdate": p.Time.UTC().Format("2006-01-02 15:04:05"), colFlux: fmt.Sprintf("%.2f", *mag), "flux_error": fmt.Sprintf("%.2f", *e),
 		"limiting_flux": "", "flux_unitid": unit, "filterid": clearID, "instrumentid": st.TNSInstrumentID, "exptime": fmt.Sprintf("%.0f", exposure),
 		"observer": st.Reporter, "comments": "Night stack of " + itoa(run.NightSubs) + " subs"}
 	entry := map[string]any{
