@@ -1,6 +1,7 @@
 package discoveries
 
 import (
+	"math"
 	"math/rand/v2"
 	"testing"
 	"time"
@@ -103,5 +104,61 @@ func TestLinkMoversIgnoresChanceAlignmentsInACrowdedField(t *testing.T) {
 	tracks, _ := linkMovers(times, dets, scale, 3000*2000)
 	if len(tracks) != 1 {
 		t.Fatalf("want the one mover among 6000 random detections a sub, have %d tracks", len(tracks))
+	}
+}
+
+// TestStarResidualIsNotAMover: the alert tests' synthetic field linked a
+// "mover" of 5 detections at 0.28"/min on a G 14.8 star, every detection
+// within 3 px of it, one with a negative flux: the star's subtraction
+// residual, its centroid moving with each sub's seeing.
+func TestStarResidualIsNotAMover(t *testing.T) {
+	t.Parallel()
+	pts := [][2]float64{{470.09, 1050.80}, {472.31, 1049.60}, {470.03, 1050.40}, {467.54, 1050.34}, {467.53, 1049.11}}
+	var tr Track
+	for _, p := range pts {
+		tr.Points = append(tr.Points, TrackPoint{X: p[0], Y: p[1]})
+	}
+	stars := NewGrid([][2]float64{{470.0, 1050.8}, {900, 900}}, 8)
+	if !onOneStar(tr, stars) {
+		t.Error("a track whose detections all sit within 3 px of one bright star is its residual")
+	}
+	moving := Track{Points: []TrackPoint{{X: 465, Y: 1050}, {X: 470, Y: 1050}, {X: 475, Y: 1050}, {X: 480, Y: 1050}}}
+	if onOneStar(moving, stars) {
+		t.Error("an asteroid passing a star is not the star's residual")
+	}
+	d := NewPlane(64, 64)
+	gauss := func(x0, y0, amp, sigma float64) {
+		for y := range 64 {
+			for x := range 64 {
+				dx, dy := float64(x)-x0, float64(y)-y0
+				d.Data[y*64+x] += float32(amp * math.Exp(-(dx*dx+dy*dy)/(2*sigma*sigma)))
+			}
+		}
+	}
+	gauss(20, 20, 1, 1.4)
+	gauss(44, 44, 1, 2.6)
+	gauss(44, 44, -2, 1.0)
+	rms := make([]float32, 64*64)
+	for i := range rms {
+		rms[i] = 0.01
+	}
+	none := make([]bool, 64*64)
+	ring := 0
+	for _, o := range Extract(d, rms, nil, DetectSigma, 3) {
+		if Aperture(d, o.X, o.Y, apertureR) <= 0 {
+			ring++
+		}
+	}
+	if ring == 0 {
+		t.Fatal("the residual left no detection with a negative aperture flux to test")
+	}
+	dets := moverDetections(d, rms, none, none, 0.05, math.Inf(1))
+	for _, m := range dets {
+		if !(m.Flux > 0) {
+			t.Errorf("a detection with no light in its aperture was kept: %+v", m)
+		}
+	}
+	if len(dets) == 0 || math.Hypot(dets[0].X-20, dets[0].Y-20) > 0.5 {
+		t.Errorf("the star-like source was not kept: %+v", dets)
 	}
 }
