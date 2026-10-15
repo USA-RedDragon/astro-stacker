@@ -80,6 +80,7 @@ func TestLive(t *testing.T) {
 		{Object: "North America Nebula Panel 2", RA: 314.7, Dec: 44.0, Radius: 0.9},
 		{Object: "Cygnis Loop Panel 2", RA: 313.0, Dec: 29.77, Radius: 0.9},
 	}
+	all := fields
 	if only := os.Getenv("SURVEYS_LIVE_FIELDS"); only != "" {
 		var keep []Field
 		for _, fl := range fields {
@@ -113,9 +114,9 @@ func TestLive(t *testing.T) {
 		field Field
 		star  Target
 	}{
-		{fields[1], ic1396Star()},
-		{fields[2], Target{GaiaID: 2161911134648201984, RA: 316.1618044989729, Dec: 43.32066480535969, G: 14.239096}},
-		{fields[0], Target{GaiaID: 381299950937609856, RA: 10.889334020094406, Dec: 41.66242846940393, PMRA: 2.1529643903735414, PMDec: -0.9269362575248431, G: 15.043443}},
+		{all[1], ic1396Star()},
+		{all[2], Target{GaiaID: 2161911134648201984, RA: 316.1618044989729, Dec: 43.32066480535969, G: 14.239096}},
+		{all[0], Target{GaiaID: 381299950937609856, RA: 10.889334020094406, Dec: 41.66242846940393, PMRA: 2.1529643903735414, PMDec: -0.9269362575248431, G: 15.043443}},
 	}
 	for _, s := range stars {
 		if !containsField(fields, s.field) {
