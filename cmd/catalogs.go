@@ -214,6 +214,14 @@ func sameAtPrecision(viz string, local float64) bool {
 type diffs struct {
 	cols  map[string]int
 	first map[string]string
+	f32   map[string]int
+}
+
+func (d *diffs) addF32(col string) {
+	if d.f32 == nil {
+		d.f32 = map[string]int{}
+	}
+	d.f32[col]++
 }
 
 func (d *diffs) add(col, id, viz string, local any) {
@@ -227,6 +235,14 @@ func (d *diffs) add(col, id, viz string, local any) {
 }
 
 func (d *diffs) report(out io.Writer) {
+	f32 := make([]string, 0, len(d.f32))
+	for k := range d.f32 {
+		f32 = append(f32, k)
+	}
+	sort.Strings(f32)
+	for _, k := range f32 {
+		fmt.Fprintf(out, "  %s: %d rows differ only by VizieR holding the column as float32; local keeps the source file's digits\n", k, d.f32[k])
+	}
 	if len(d.cols) == 0 {
 		fmt.Fprintln(out, "  every value matches at VizieR's printed precision")
 		return
@@ -370,7 +386,11 @@ func checkVSX(ctx context.Context, out io.Writer, v *starcat.VSX, ra, dec, radiu
 			col string
 			v   float64
 		}{{"RAJ2000", s.RA}, {"DEJ2000", s.Dec}, {"max", s.Max}, {"min", s.Min}, {"Epoch", s.Epoch}, {"Period", s.Period}} {
-			if !sameAtPrecision(r[c.col], c.v) {
+			switch {
+			case sameAtPrecision(r[c.col], c.v):
+			case (c.col == "RAJ2000" || c.col == "DEJ2000") && sameAtPrecision(r[c.col], float64(float32(c.v))):
+				d.addF32(c.col)
+			default:
 				d.add(c.col, sid, r[c.col], c.v)
 			}
 		}
