@@ -450,6 +450,9 @@ type Result struct {
 	// MoverNull is the linking null test; a track needs more detections
 	// than any of its tracks had.
 	MoverNull MoverNull
+	// ChangeNull is the change null test; a new variable must be stronger
+	// than any change it found.
+	ChangeNull ChangeNull
 }
 
 type prep struct {
@@ -682,6 +685,9 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	}
 	local := in.localResiduals(ref, D, edge, res)
 	res.Candidates = in.cut(cands, ref, D, local, res)
+	if res.ChangeNull, err = in.nullChanges(ctx, stacks, edge, bmask, res, threads); err != nil {
+		return nil, err
+	}
 
 	in.stage("linking moving objects")
 	links, transient := linkMovers(times, dets, res.PixelScale, validArea(edge))

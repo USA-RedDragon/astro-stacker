@@ -223,6 +223,9 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		}
 		l.Matches = append(l.Matches, placeMatches(c, k)...)
 		l.Class = classOf(l)
+		if l.Class == ClassNewVariable && c.SNR <= res.ChangeNull.MaxSNR {
+			l.Class = ClassLowConfidence
+		}
 		annotateTNS(&l, res)
 		out[i] = l
 	}
