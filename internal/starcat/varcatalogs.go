@@ -167,9 +167,10 @@ func (c *VarCatalog) parse(line []byte, n int64) (VarStar, error) {
 // stored version: the file is read once, its gzip checksum and length,
 // record length and record count checked against the ReadMe, its rows
 // split by HEALPix pixel into a new version's pieces and verified, the
-// manifest switched to it, and older versions deleted. A record that does
-// not read fails the mirror, unless the download broke right after it,
-// which is tried again.
+// manifest switched to it, and older versions deleted. A broken download
+// resumes from the byte it stopped at. A record that does not read fails
+// the mirror, unless the download broke right after it, which is tried
+// again.
 func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 	o.client()
 	readme, err := o.fetchSmall(ctx, o.BaseURL+"ReadMe")
@@ -206,7 +207,7 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 		rows, size = 0, 0
 		sum.Reset()
 		n.Store(0)
-		return o.download(ctx, src, &n, &total, func(r io.Reader, resp *http.Response) error {
+		return o.downloadResuming(ctx, src, &n, &total, func(r io.Reader, resp *http.Response) error {
 			tee := io.TeeReader(r, sum)
 			zr, err := gzip.NewReader(tee)
 			if err != nil {

@@ -111,6 +111,9 @@ type MirrorOptions struct {
 	Limit int
 	// Verify re-reads every stored piece before the manifest is written.
 	Verify bool
+	// ResumeWait is the pause before asking for the rest of a broken
+	// download, longer after each failure in a row; 0 is 10 seconds.
+	ResumeWait time.Duration
 }
 
 func (o *MirrorOptions) client() *http.Client {
