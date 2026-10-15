@@ -1134,17 +1134,18 @@ func (r *Runner) prior(ctx context.Context, j Job) ([]PriorChange, error) {
 	var rows []struct {
 		RA, Dec float64
 		Sign    int
+		SNR     float64
 		Night   time.Time
 		Group   string `gorm:"column:filter_group"`
 	}
-	if err := r.db.WithContext(ctx).Model(&app.DiscoveryCandidate{}).Select("ra, dec, sign, night, filter_group").
+	if err := r.db.WithContext(ctx).Model(&app.DiscoveryCandidate{}).Select("ra, dec, sign, snr, night, filter_group").
 		Where("object = ? AND kind = ? AND (night < ? OR night >= ? OR filter_group <> ?)", j.Object, app.DiscoveryKindChange, j.Night, j.Night.AddDate(0, 0, 1), j.Group).
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load the target's other changes: %w", err)
 	}
 	out := make([]PriorChange, len(rows))
 	for i, row := range rows {
-		out[i] = PriorChange{RA: row.RA, Dec: row.Dec, Sign: row.Sign, Night: dateOnly(row.Night), Group: row.Group}
+		out[i] = PriorChange{RA: row.RA, Dec: row.Dec, Sign: row.Sign, SNR: row.SNR, Night: dateOnly(row.Night), Group: row.Group}
 	}
 	return out, nil
 }
