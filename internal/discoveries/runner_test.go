@@ -267,6 +267,18 @@ func TestRunnerComparesSettledNight(t *testing.T) {
 		t.Errorf("a night compared by method 3, before the hot pixel, proper motion, SIMBAD and nova fixes, is not due again: %v %v", jobs, err)
 	}
 	fx.db.Model(&app.DiscoveryRun{}).Where("1 = 1").Update("method", Method)
+	fx.db.Model(&app.DiscoveryRun{}).Where("1 = 1").Update("method", 3)
+	stale, err := fx.r.due(ctx)
+	if err != nil || len(stale) != 1 {
+		t.Fatalf("due %v %v", stale, err)
+	}
+	fx.r.now = func() time.Time { return time.Date(2026, 3, 5, 12, 5, 0, 0, time.UTC) }
+	fx.db.Model(&app.DiscoveryRun{}).Where("1 = 1").Updates(map[string]any{"method": Method, "finished_at": fx.r.now()})
+	fx.r.runOne(ctx, stale[0])
+	if len(fx.finished) != 1 {
+		t.Errorf("a night another runner finished since the pass began was compared again")
+	}
+	fx.r.now = func() time.Time { return time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC) }
 	fx.r.Request(synthObject, fx.f.Nights[len(fx.f.Nights)-1], "")
 	if err := fx.r.Pass(ctx); err != nil {
 		t.Fatal(err)
