@@ -207,7 +207,7 @@ discover:
   survey-max-order: 8
   # Memory for decoded survey tiles, in MB
   survey-cache-mb: 100
-  # Read Gaia DR3 and AAVSO VSX stars from their mirrors in the survey bucket, falling back to VizieR while a mirror or one of its files is missing
+  # Read Gaia DR3, AAVSO VSX and the survey variable star catalogs from their mirrors in the survey bucket, falling back to VizieR while a mirror or one of its files is missing
   catalog-mirror: true
   # Path of the Gaia DR3 mirror inside the survey bucket
   gaia-prefix: "catalogs/gaia-dr3/v1"
