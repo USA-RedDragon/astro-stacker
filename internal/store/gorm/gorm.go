@@ -126,11 +126,27 @@ func NewGormStore(storageType types.StorageType, dsn string) (*Gorm, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
+	if storageType == types.StorageTypePostgres {
+		sqlDB, err := db.DB()
+		if err != nil {
+			return nil, err
+		}
+		sqlDB.SetMaxOpenConns(maxOpenConns)
+		sqlDB.SetMaxIdleConns(maxIdleConns)
+	}
 
 	return &Gorm{
 		db: db,
 	}, nil
 }
+
+// maxOpenConns caps one process's PostgreSQL connections so a burst of
+// requests, such as a page loading hundreds of cutouts at once, waits for a
+// connection instead of using up the server's shared slots.
+const (
+	maxOpenConns = 30
+	maxIdleConns = 10
+)
 
 func (g *Gorm) WithContext(ctx context.Context) *Gorm {
 	return &Gorm{
