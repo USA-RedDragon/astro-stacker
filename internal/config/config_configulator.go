@@ -195,18 +195,21 @@ type bodiesShadow struct {
 }
 
 type discoveriesShadow struct {
-	Enabled         *bool   `json:"enabled"           toml:"enabled"           yaml:"enabled"`
-	IntervalMinutes *int    `json:"interval-minutes"  toml:"interval-minutes"  yaml:"interval-minutes"`
-	Threads         *int    `json:"threads"           toml:"threads"           yaml:"threads"`
-	RefSubs         *int    `json:"reference-subs"    toml:"reference-subs"    yaml:"reference-subs"`
-	BackfillDays    *int    `json:"backfill-days"     toml:"backfill-days"     yaml:"backfill-days"`
-	TNSKey          *string `json:"tns-key"           toml:"tns-key"           yaml:"tns-key"`
-	TNSBotID        *string `json:"tns-bot-id"        toml:"tns-bot-id"        yaml:"tns-bot-id"`
-	TNSBotName      *string `json:"tns-bot-name"      toml:"tns-bot-name"      yaml:"tns-bot-name"`
-	TNSReporter     *string `json:"tns-reporter"      toml:"tns-reporter"      yaml:"tns-reporter"`
-	TNSGroupID      *string `json:"tns-group-id"      toml:"tns-group-id"      yaml:"tns-group-id"`
-	TNSInstrumentID *string `json:"tns-instrument-id" toml:"tns-instrument-id" yaml:"tns-instrument-id"`
-	MPCCode         *string `json:"mpc-code"          toml:"mpc-code"          yaml:"mpc-code"`
+	Enabled         *bool     `json:"enabled"           toml:"enabled"           yaml:"enabled"`
+	IntervalMinutes *int      `json:"interval-minutes"  toml:"interval-minutes"  yaml:"interval-minutes"`
+	Threads         *int      `json:"threads"           toml:"threads"           yaml:"threads"`
+	RefSubs         *int      `json:"reference-subs"    toml:"reference-subs"    yaml:"reference-subs"`
+	BackfillDays    *int      `json:"backfill-days"     toml:"backfill-days"     yaml:"backfill-days"`
+	TNSKey          *string   `json:"tns-key"           toml:"tns-key"           yaml:"tns-key"`
+	TNSBotID        *string   `json:"tns-bot-id"        toml:"tns-bot-id"        yaml:"tns-bot-id"`
+	TNSBotName      *string   `json:"tns-bot-name"      toml:"tns-bot-name"      yaml:"tns-bot-name"`
+	TNSReporter     *string   `json:"tns-reporter"      toml:"tns-reporter"      yaml:"tns-reporter"`
+	TNSGroupID      *string   `json:"tns-group-id"      toml:"tns-group-id"      yaml:"tns-group-id"`
+	TNSInstrumentID *string   `json:"tns-instrument-id" toml:"tns-instrument-id" yaml:"tns-instrument-id"`
+	MPCCode         *string   `json:"mpc-code"          toml:"mpc-code"          yaml:"mpc-code"`
+	SmallBodiesURL  *string   `json:"small-bodies-url"  toml:"small-bodies-url"  yaml:"small-bodies-url"`
+	Topocentric     *bool     `json:"topocentric"       toml:"topocentric"       yaml:"topocentric"`
+	CrossCheck      *[]string `json:"cross-check"       toml:"cross-check"       yaml:"cross-check"`
 }
 
 type schedulingShadow struct {
@@ -1038,6 +1041,18 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Discoveries.MPCCode != nil {
 			cfg.Discoveries.MPCCode = *s.Discoveries.MPCCode
 			set("discoveries.mpc-code", configulator.LayerFile, file)
+		}
+		if s.Discoveries.SmallBodiesURL != nil {
+			cfg.Discoveries.SmallBodiesURL = *s.Discoveries.SmallBodiesURL
+			set("discoveries.small-bodies-url", configulator.LayerFile, file)
+		}
+		if s.Discoveries.Topocentric != nil {
+			cfg.Discoveries.Topocentric = *s.Discoveries.Topocentric
+			set("discoveries.topocentric", configulator.LayerFile, file)
+		}
+		if s.Discoveries.CrossCheck != nil {
+			cfg.Discoveries.CrossCheck = *s.Discoveries.CrossCheck
+			set("discoveries.cross-check", configulator.LayerFile, file)
 		}
 	}
 	if s.Scheduling != nil {
@@ -2332,6 +2347,28 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Discoveries.MPCCode = v
 		set("discoveries.mpc-code", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "small-bodies-url"); ok {
+		cfg.Discoveries.SmallBodiesURL = v
+		set("discoveries.small-bodies-url", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "topocentric"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.topocentric",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discoveries.Topocentric = p
+		set("discoveries.topocentric", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "cross-check"); ok {
+		lst := impl.SplitList(v, ec.ArraySeparator)
+		cfg.Discoveries.CrossCheck = lst
+		set("discoveries.cross-check", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduling", "auto"); ok {
 		cfg.Scheduling.Auto = v
 		set("scheduling.auto", configulator.LayerEnv, n)
@@ -2581,6 +2618,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"discoveries" + o.Separator + "tns-group-id",
 		"discoveries" + o.Separator + "tns-instrument-id",
 		"discoveries" + o.Separator + "mpc-code",
+		"discoveries" + o.Separator + "small-bodies-url",
+		"discoveries" + o.Separator + "topocentric",
+		"discoveries" + o.Separator + "cross-check",
 		"scheduling" + o.Separator + "auto",
 		"scheduling" + o.Separator + "interval-hours",
 		"morning-report" + o.Separator + "enabled",
@@ -2742,21 +2782,24 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[128], "", "TNS reporting group id of your reports; empty keeps Send off")
 	fs.String(names[129], "", "TNS instrument id of your telescope and camera; empty keeps Send off")
 	fs.String(names[130], "", "Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set")
-	fs.String(names[131], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
-	fs.Var(impl.NewInt(1), names[132], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
-	fs.Bool(names[133], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
-	fs.String(names[134], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
-	fs.String(names[135], "America/Chicago", "IANA time zone of the send time and of the times in the report")
-	fs.String(names[136], "CT", "Label after every time in the report")
-	fs.String(names[137], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
-	fs.String(names[138], "", "Telegram bot token")
-	fs.String(names[139], "", "Telegram chat the report goes to")
-	fs.String(names[140], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
-	fs.Bool(names[141], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty")
-	fs.String(names[142], "", "Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off")
-	fs.String(names[143], "", "Telegram chat the alerts go to; empty turns the alerts off")
-	fs.Bool(names[144], false, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default")
-	fs.Var(impl.NewInt(5), names[145], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
+	fs.String(names[131], "", "Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT")
+	fs.Bool(names[132], false, "Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service")
+	fs.StringSlice(names[133], nil, "Public services also asked for each night's known asteroids and comets, from the geocentre, logging how they differ from the local service: skybot, sbident")
+	fs.String(names[134], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
+	fs.Var(impl.NewInt(1), names[135], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
+	fs.Bool(names[136], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
+	fs.String(names[137], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
+	fs.String(names[138], "America/Chicago", "IANA time zone of the send time and of the times in the report")
+	fs.String(names[139], "CT", "Label after every time in the report")
+	fs.String(names[140], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
+	fs.String(names[141], "", "Telegram bot token")
+	fs.String(names[142], "", "Telegram chat the report goes to")
+	fs.String(names[143], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
+	fs.Bool(names[144], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty")
+	fs.String(names[145], "", "Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off")
+	fs.String(names[146], "", "Telegram chat the alerts go to; empty turns the alerts off")
+	fs.Bool(names[147], false, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default")
+	fs.Var(impl.NewInt(5), names[148], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
 	return nil
 }
 
@@ -4333,6 +4376,42 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Discoveries.MPCCode = v
 		set("discoveries.mpc-code", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "small-bodies-url"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.small-bodies-url",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.SmallBodiesURL = v
+		set("discoveries.small-bodies-url", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "topocentric"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.topocentric",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.Topocentric = v
+		set("discoveries.topocentric", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "cross-check"; fs.Changed(n) {
+		v, err := fs.GetStringSlice(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.cross-check",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.CrossCheck = v
+		set("discoveries.cross-check", configulator.LayerCLI, "--"+n)
 	}
 	if n := "scheduling" + o.Separator + "auto"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -7514,6 +7593,62 @@ func (s *discoveriesShadow) decodeJSON(dec *jsontext.Decoder, path string) error
 			default:
 				return configJSONError(path+".mpc-code", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
+		case "small-bodies-url":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.SmallBodiesURL = &str
+			default:
+				return configJSONError(path+".small-bodies-url", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "topocentric":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Topocentric = &b
+			default:
+				return configJSONError(path+".topocentric", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "cross-check":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginArray {
+					return configJSONError(path+".cross-check", open, fmt.Errorf("expected an array, got %v", open.Kind()))
+				}
+				out := []string{}
+				for dec.PeekKind() != jsontext.KindEndArray {
+					v, err := dec.ReadToken()
+					if err != nil {
+						return err
+					}
+					if v.Kind() != jsontext.KindString {
+						return configJSONError(path+".cross-check"+"["+strconv.Itoa(len(out))+"]", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+					}
+					el := v.String()
+					out = append(out, el)
+				}
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+				s.CrossCheck = &out
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -7970,6 +8105,9 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "discoveries.tns-group-id = %v\n", c.Discoveries.TNSGroupID)
 	fmt.Fprintf(&b, "discoveries.tns-instrument-id = %v\n", c.Discoveries.TNSInstrumentID)
 	fmt.Fprintf(&b, "discoveries.mpc-code = %v\n", c.Discoveries.MPCCode)
+	fmt.Fprintf(&b, "discoveries.small-bodies-url = %v\n", c.Discoveries.SmallBodiesURL)
+	fmt.Fprintf(&b, "discoveries.topocentric = %v\n", c.Discoveries.Topocentric)
+	fmt.Fprintf(&b, "discoveries.cross-check = %v\n", c.Discoveries.CrossCheck)
 	fmt.Fprintf(&b, "scheduling.auto = %v\n", c.Scheduling.Auto)
 	fmt.Fprintf(&b, "scheduling.interval-hours = %v\n", c.Scheduling.IntervalHours)
 	fmt.Fprintf(&b, "morning-report.enabled = %v\n", c.MorningReport.Enabled)

@@ -1081,7 +1081,7 @@ func (r *Runner) known(ctx context.Context, object string, res *Result) (Known, 
 		k.Variables = append(k.Variables, sv...)
 		k.Checked = append(k.Checked, catalogSIMBAD)
 	}
-	bs, err := r.cat.SkyBoT(ctx, res.FieldRA, res.FieldDec, radius, res.MidTime)
+	bs, err := r.cat.KnownBodies(ctx, res.FieldRA, res.FieldDec, radius, res.MidTime)
 	if err != nil {
 		return k, fmt.Errorf("known asteroids: %w", err)
 	}

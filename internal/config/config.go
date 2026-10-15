@@ -273,11 +273,20 @@ type Discoveries struct {
 	TNSGroupID      string `name:"tns-group-id" description:"TNS reporting group id of your reports; empty keeps Send off"`
 	TNSInstrumentID string `name:"tns-instrument-id" description:"TNS instrument id of your telescope and camera; empty keeps Send off"`
 	MPCCode         string `name:"mpc-code" description:"Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set"`
+
+	SmallBodiesURL string   `name:"small-bodies-url" description:"Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT"`
+	Topocentric    bool     `name:"topocentric" description:"Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service"`
+	CrossCheck     []string `name:"cross-check" description:"Public services also asked for each night's known asteroids and comets, from the geocentre, logging how they differ from the local service: skybot, sbident"`
 }
 
 func (d Discoveries) validate() error {
 	if d.Enabled && (d.IntervalMinutes <= 0 || d.Threads <= 0 || d.RefSubs < 2 || d.BackfillDays < 1) {
 		return ErrInvalidDiscoveries
+	}
+	for _, c := range d.CrossCheck {
+		if c != "skybot" && c != "sbident" {
+			return ErrInvalidCrossCheck
+		}
 	}
 	return nil
 }
@@ -414,6 +423,7 @@ var (
 	ErrInvalidRejectOffTempSince    = errors.New("stacking.reject-off-temp-since must be a date, YYYY-MM-DD")
 	ErrInvalidGoalsPublish          = errors.New("goals.publish must be off, dry-run or on")
 	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
+	ErrInvalidCrossCheck            = errors.New("discoveries.cross-check takes skybot and sbident")
 	ErrInvalidDiscoveries           = errors.New("discoveries needs positive interval-minutes and threads, reference-subs of 2 or more and backfill-days of 1 or more")
 	ErrInvalidGoalsDepthSwitch      = errors.New("goals.depth-switch must be off, dry-run or on")
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
