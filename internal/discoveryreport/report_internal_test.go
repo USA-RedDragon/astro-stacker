@@ -95,6 +95,11 @@ func TestBuildFillsOnlyMeasuredValues(t *testing.T) {
 	if src := fieldOf(r, "mag").Source; !strings.Contains(src, "Light added since the reference") || !strings.Contains(src, "18.06, 18.49 before") {
 		t.Errorf("the discovery magnitude is the new light, with the spot's totals as context: %q", src)
 	}
+	for _, f := range append(r.Facts, fieldOf(r, "host")) {
+		if strings.Contains(f.Value+f.Source, "centre") || strings.Contains(f.Value+f.Source, "catalogue") {
+			t.Errorf("US spelling: %+v", f)
+		}
+	}
 	if f := fieldOf(r, "reporter"); !f.Missing || f.Value != "Not set" {
 		t.Errorf("reporter %+v", f)
 	}
