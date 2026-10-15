@@ -566,3 +566,18 @@ func numberWord(n int) string {
 	}
 	return fmt.Sprint(n)
 }
+
+// Prefetch pulls the survey data of each target's field once.
+func (s *Service) Prefetch(ctx context.Context, objects []string) error {
+	for _, obj := range objects {
+		f, _, err := s.field(ctx, obj)
+		if err != nil {
+			return err
+		}
+		if err := s.Surveys.Prefetch(ctx, f); err != nil {
+			return fmt.Errorf("%s: %w", obj, err)
+		}
+		slog.Info("Field survey data pulled", "object", obj)
+	}
+	return nil
+}
