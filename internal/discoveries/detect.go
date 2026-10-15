@@ -310,10 +310,16 @@ const (
 // 3.5 times the robust spread of its 25 nearest neighbours above their
 // median: on Caldwell 14's 2026-10-09 night 867 changes on stars were within
 // that (their median excess 0.015 against a spread of 0.021), while IC 3393's
-// faintest known variable stood 3.75 spreads out.
+// faintest known variable stood 3.75 spreads out. The neighbours are
+// those about as bright as the star or brighter where there are enough of
+// them: a faint neighbour's change is mostly its own noise, and on North
+// America Nebula Panel 2's five-sub night of 2025-12-17 the G 13 to 18
+// neighbours' spread of 0.062 hid the 0.15 eclipse of 2MASS
+// J21043883+4319143.
 type localFrac struct {
 	grid *Grid
 	vals []float64
+	refs []float64
 }
 
 // localResiduals measures the fractional change of isolated Gaia stars of
@@ -332,7 +338,7 @@ func (in *Input) localResiduals(ref, diff *Plane, edge []bool, res *Result) loca
 	}
 	near := NewGrid(all, localIsolated)
 	var pts [][2]float64
-	var vals []float64
+	var vals, refs []float64
 	for i, p := range all {
 		if gs[i] < localMinG || gs[i] > localMaxG || len(pts) >= localMaxStars {
 			continue
@@ -347,22 +353,45 @@ func (in *Input) localResiduals(ref, diff *Plane, edge []bool, res *Result) loca
 		}
 		pts = append(pts, p)
 		vals = append(vals, Aperture(diff, p[0], p[1], residualR)/r)
+		refs = append(refs, r)
 	}
-	return localFrac{grid: NewGrid(pts, 64), vals: vals}
+	return localFrac{grid: NewGrid(pts, 64), vals: vals, refs: refs}
 }
 
+const (
+	// localMatchedFrac is the faintest a neighbour may be, as a share of
+	// the star's reference flux, to count as about as bright: 1.5 mag.
+	localMatchedFrac = 0.25
+	// localMatchedPx is the farthest a neighbour about as bright may be.
+	localMatchedPx = 800.0
+)
+
 // around is the median and robust spread of the fractional change of the
-// 25 stars nearest (x, y), leaving out the star at (x, y) itself.
-func (l localFrac) around(x, y float64) (median, spread float64, ok bool) {
+// 25 stars nearest (x, y), leaving out the star at (x, y) itself: the
+// nearest within 800 px about as bright as its reference flux ref or
+// brighter, or else the nearest of any brightness.
+func (l localFrac) around(x, y, ref float64) (median, spread float64, ok bool) {
 	if l.grid == nil {
 		return 0, 0, false
 	}
+	if ref > 0 {
+		if m, s, ok := l.nearest(x, y, localMatchedFrac*ref, localMatchedPx); ok {
+			return m, s, true
+		}
+	}
+	return l.nearest(x, y, 0, 1600)
+}
+
+func (l localFrac) nearest(x, y, minRef, maxR float64) (median, spread float64, ok bool) {
 	for _, r := range []float64{100, 200, 400, 800, 1600} {
+		if r > maxR {
+			break
+		}
 		type nb struct{ d, v float64 }
 		var ns []nb
 		for _, i := range l.grid.Within(x, y, r) {
 			p := l.grid.pts[i]
-			if d := math.Hypot(p[0]-x, p[1]-y); d > 3 {
+			if d := math.Hypot(p[0]-x, p[1]-y); d > 3 && l.refs[i] >= minRef {
 				ns = append(ns, nb{d, l.vals[i]})
 			}
 		}
@@ -1156,7 +1185,7 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 					reject("star residual")
 					continue
 				}
-				if m, spread, ok := local.around(c.X, c.Y); ok {
+				if m, spread, ok := local.around(c.X, c.Y, Aperture(ref, c.X, c.Y, residualR)); ok {
 					excess := float64(c.Sign) * (c.DiffFlux/c.RefFlux - m)
 					if excess < math.Max(minResidualFrac, localSigma*spread) {
 						reject(fmt.Sprintf("like its neighbours: %+.3f against their %+.3f ± %.3f", c.DiffFlux/c.RefFlux, m, spread))
