@@ -291,6 +291,14 @@ discoveries:
   # tns-bot-id: ""
   # Transient Name Server bot name
   # tns-bot-name: ""
+  # Reporter line of TNS discovery reports, e.g. 'J. Smith (Home Observatory)'; empty shows Not set and keeps Send off
+  # tns-reporter: ""
+  # TNS reporting group id of your reports; empty keeps Send off
+  # tns-group-id: ""
+  # TNS instrument id of your telescope and camera; empty keeps Send off
+  # tns-instrument-id: ""
+  # Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set
+  # mpc-code: ""
 # One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor and its minimum altitude at the hard limit
 scheduling:
   # Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on
