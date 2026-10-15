@@ -69,6 +69,7 @@ func newCatalogMirrorCommand() *cobra.Command {
 	}
 	add("gaia", "Mirror ESA's Gaia DR3 gaia_source files", "catalogs/gaia-dr3/v1", gaiaSourceURL, starcat.MirrorGaia)
 	add("vsx", "Mirror CDS's copy of VSX (B/vsx) when it has a new version", "catalogs/vsx", vsxSourceURL, starcat.MirrorVSX)
+	addVariableMirrors(add)
 	return c
 }
 
