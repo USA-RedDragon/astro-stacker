@@ -383,7 +383,11 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	change := changeOf(sum)
 	var pr *period.Result
 	if sum.Source.Kind != kindMover && len(series) > 0 {
-		pr, err = period.Analyze(append(series, ownSeries...), period.Options{})
+		opts := period.Options{ChangeMag: change.Mag}
+		if !change.Fainter {
+			opts.ChangeMag = -change.Mag
+		}
+		pr, err = period.Analyze(append(series, ownSeries...), opts)
 		if err != nil && !errors.Is(err, period.ErrNoPeriod) {
 			slog.Warn("Period search failed", "source", sum.Source.ID, "error", err)
 		}
