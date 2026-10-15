@@ -177,3 +177,24 @@ func TestFinkAskedAtItsZTFHost(t *testing.T) {
 		t.Errorf("Fink's ZTF API moved to api.ztf.fink-portal.org; api.fink-portal.org no longer answers: %s", finkURL)
 	}
 }
+
+// TestClippedMeanDropsTwoUnequalOutliers is the Garlic Nebula's O-III
+// reference for its 2026-10-08 night at pixel (548, 727), in units of a
+// sub's noise: a hot pixel in two of its 37 subs (564 and 1529) survived a
+// single clip, as the larger widened the spread the smaller was judged by,
+// and the reference's spike read as a fading star (candidate 13956).
+func TestClippedMeanDropsTwoUnequalOutliers(t *testing.T) {
+	t.Parallel()
+	vals := []float32{0.3, -0.1, 1.1, 0.2, 1.1, -0.6, 0.8, 0.8, 0.3, 0.3, -0.1, -1.3, 1.5, 1.5, -1.8, -0.4, 1.3, 0.7, -0.7, 0.3,
+		0.1, 0.4, 0.8, 0.2, 0.4, 1.7, 0.4, 0.1, 564.1, 1528.8, 2.1, 0.5, -2.7, 1.3, 3.0, -0.5, -0.2}
+	load := func(_ context.Context, i int) (*Plane, float64, error) {
+		return &Plane{W: 1, H: 1, Data: []float32{vals[i]}}, 1, nil
+	}
+	p, err := ClippedMean(context.Background(), 1, 1, len(vals), load, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := p.Data[0]; !(math.Abs(float64(v)) < 1) {
+		t.Errorf("stacked %.2f: the hot pixel was kept", v)
+	}
+}
