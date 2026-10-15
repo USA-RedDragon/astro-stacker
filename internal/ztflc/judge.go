@@ -52,6 +52,17 @@ const (
 	VariableDeviantShare = 0.02
 	// VariableDeviantMin is the fewest straying epochs that make a star variable.
 	VariableDeviantMin = 5
+	// EclipseDeviantShare is the share of epochs (at least
+	// VariableDeviantMin) straying fainter by half the claimed amplitude,
+	// with at most EclipseBrightShare as many straying brighter, that makes
+	// a star an eclipsing variable. A detached binary spends under 2% of
+	// its period in eclipse: the three vetted in October 2026 had 1.2% to
+	// 5.2% of their ZTF epochs in their dips, all fainter, where constant
+	// stars had at most 0.5% straying either way.
+	EclipseDeviantShare = 0.01
+	// EclipseBrightShare is the largest share of the fainter strays that
+	// may stray brighter in an eclipsing variable.
+	EclipseBrightShare = 0.25
 	// FaintMag is the median ZTF magnitude beyond which ZTF is too noisy to judge.
 	FaintMag = 20.5
 	// SaturatedMag is the median ZTF magnitude brighter than which ZTF saturates.
@@ -92,6 +103,8 @@ type BandStat struct {
 	MedianErr float64 `json:"median_err"`
 	// MedianMag is the median magnitude.
 	MedianMag float64 `json:"median_mag"`
+	// Fainter is the number of deviant epochs fainter than the median.
+	Fainter int `json:"fainter"`
 	// Deviant is the number of epochs that stray from the median by more
 	// than half the claimed amplitude and by more than five of their errors.
 	Deviant int `json:"deviant"`
@@ -138,7 +151,7 @@ func Stats(points []Point, ourAmplitude float64) []BandStat {
 	out := make([]BandStat, 0, len(bands))
 	for _, b := range bands {
 		var res, errs, mags []float64
-		deviant := 0
+		deviant, fainter := 0, 0
 		for _, ps := range byBand[b] {
 			if len(ps) < MinOIDEpochs {
 				continue
@@ -155,6 +168,9 @@ func Stats(points []Point, ourAmplitude float64) []BandStat {
 				mags = append(mags, p.Mag)
 				if math.Abs(r) > ourAmplitude/2 && math.Abs(r) > 5*p.MagErr {
 					deviant++
+					if r > 0 {
+						fainter++
+					}
 				}
 			}
 		}
@@ -175,6 +191,7 @@ func Stats(points []Point, ourAmplitude float64) []BandStat {
 			MedianErr: median(errs),
 			MedianMag: median(mags),
 			Deviant:   deviant,
+			Fainter:   fainter,
 		})
 	}
 	return out
@@ -210,7 +227,7 @@ func Judge(points []Point, ourAmplitude float64) Verdict {
 	}
 	var best, lesser *BandStat
 	for i, s := range usable {
-		dips := float64(s.Deviant) >= math.Max(VariableDeviantMin, VariableDeviantShare*float64(s.Epochs))
+		dips := float64(s.Deviant) >= math.Max(VariableDeviantMin, VariableDeviantShare*float64(s.Epochs)) || eclipses(s)
 		if s.Epochs < MinVariableEpochs || (s.Amplitude < VariableNoise*s.MedianErr && !dips) {
 			continue
 		}
@@ -245,6 +262,11 @@ func Judge(points []Point, ourAmplitude float64) Verdict {
 	}
 	v.Reason = "too few good ZTF epochs or too noisy for the claimed amplitude"
 	return v
+}
+
+func eclipses(s BandStat) bool {
+	brighter := s.Deviant - s.Fainter
+	return float64(s.Fainter) >= math.Max(VariableDeviantMin, EclipseDeviantShare*float64(s.Epochs)) && float64(brighter) <= EclipseBrightShare*float64(s.Fainter)
 }
 
 func median(xs []float64) float64 {
