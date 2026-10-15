@@ -170,8 +170,25 @@ func TestDiscoveryRunsAndRequests(t *testing.T) {
 	if w := a.do(http.MethodPut, "/api/v1/discoveries/candidates/"+strconv.Itoa(a.id)+"/vetting", map[string]string{vetState: app.VetReal}); w.Code != http.StatusOK {
 		t.Fatalf("vetting %d", w.Code)
 	}
+	night := time.Date(2025, 2, 28, 0, 0, 0, 0, time.UTC)
+	var run app.DiscoveryRun
+	if err := a.db.First(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	held := []app.DiscoveryCandidate{
+		{RunID: run.ID, Object: run.Object, Night: night, Group: run.Group, Kind: app.DiscoveryKindChange, Class: discoveries.ClassLowConfidence, SNR: 9, RA: 189.5, Dec: 14.5,
+			Matches: `[{"catalog":"many","name":"night had 1650 new sources","sep_arcsec":0}]`},
+		{RunID: run.ID, Object: run.Object, Night: night, Group: run.Group, Kind: app.DiscoveryKindChange, Class: discoveries.ClassLowConfidence, SNR: 29, RA: 189.6, Dec: 14.5,
+			Matches: `[{"catalog":"defect","name":"sharp in its subs","sep_arcsec":0}]`},
+	}
+	if err := a.db.Create(&held).Error; err != nil {
+		t.Fatal(err)
+	}
 	var runs []DiscoveryRun
 	a.get("/api/v1/discoveries/runs?night=2025-02-28", &runs)
+	if len(runs) != 1 || runs[0].HeldMany != 1 || runs[0].HeldDefects != 1 {
+		t.Errorf("held %+v", runs)
+	}
 	if len(runs) != 1 || runs[0].Vetted != 1 || runs[0].Classes[discoveries.ClassNewVariable] != 1 ||
 		runs[0].MoverNull != (MoverNull{Tracks: 0.33, MaxHits: 6}) || runs[0].ChangeNull != (ChangeNull{Subs: 51, Found: 2, MaxSNR: 8.5}) {
 		t.Errorf("runs %+v", runs)

@@ -76,9 +76,14 @@ type DiscoveryRun struct {
 	Classes       map[string]int                `json:"classes"`
 	Vetted        int                           `json:"vetted"`
 	Look          int                           `json:"needs_look"`
-	MidTime       *time.Time                    `json:"mid_time"`
-	FinishedAt    *time.Time                    `json:"finished_at"`
-	Seconds       float64                       `json:"seconds"`
+	// HeldMany are the new sources held because the night held too many,
+	// and HeldDefects those held as defect pixels: a night with either is
+	// unreliable for new sources.
+	HeldMany    int        `json:"held_many"`
+	HeldDefects int        `json:"held_defects"`
+	MidTime     *time.Time `json:"mid_time"`
+	FinishedAt  *time.Time `json:"finished_at"`
+	Seconds     float64    `json:"seconds"`
 	// MoverNull and ChangeNull are the night's null tests.
 	MoverNull  MoverNull  `json:"mover_null"`
 	ChangeNull ChangeNull `json:"change_null"`
@@ -156,7 +161,7 @@ func runOf(r app.DiscoveryRun, n runCount) DiscoveryRun {
 		Error: r.Error, NightSubs: r.NightSubs, RefSubs: r.RefSubs, RefNights: r.RefNights, Depth: r.Depth, SubDepth: r.SubDepth, ZeroPoint: r.ZeroPoint,
 		AstroRMS: r.AstroRMS, AstroStars: r.AstroStars, HFRNight: r.HFRNight, HFRRef: r.HFRRef, PixelScale: r.PixelScale, FieldRA: r.FieldRA, FieldDec: r.FieldDec,
 		Candidates: r.Candidates, New: r.NewCandidates, Tracks: r.Tracks, KnownTracks: r.KnownTracks, BodiesInField: r.BodiesInField,
-		Checked: splitList(r.Checked), Failed: splitList(r.Failed), Classes: n.classes, Vetted: n.vetted, Look: n.look, MidTime: r.MidTime, FinishedAt: r.FinishedAt, Seconds: r.Seconds,
+		Checked: splitList(r.Checked), Failed: splitList(r.Failed), Classes: n.classes, Vetted: n.vetted, Look: n.look, HeldMany: n.heldMany, HeldDefects: n.heldDefects, MidTime: r.MidTime, FinishedAt: r.FinishedAt, Seconds: r.Seconds,
 		MoverNull:  MoverNull{Tracks: r.MoverNullTracks, MaxHits: r.MoverNullHits},
 		ChangeNull: ChangeNull{Subs: r.ChangeNullSubs, Found: r.ChangeNullFound, MaxSNR: r.ChangeNullSNR}}
 	if out.Classes == nil {
@@ -527,9 +532,11 @@ func candidateByID(c *gin.Context, db *gorm.DB) (app.DiscoveryCandidate, bool) {
 }
 
 type runCount struct {
-	classes map[string]int
-	vetted  int
-	look    int
+	classes     map[string]int
+	vetted      int
+	look        int
+	heldMany    int
+	heldDefects int
 }
 
 // runCounts counts each run's candidates by class, those vetted, and those
@@ -566,6 +573,20 @@ func runCounts(db *gorm.DB, runs []app.DiscoveryRun) (map[int]runCount, error) {
 			n.look += r.N
 		}
 		out[r.RunID] = n
+	}
+	var held []struct {
+		RunID   int
+		Many    int
+		Defects int
+	}
+	if err := db.Model(&app.DiscoveryCandidate{}).Select(`run_id, SUM(CASE WHEN matches LIKE '%"catalog":"many"%' THEN 1 ELSE 0 END) AS many, SUM(CASE WHEN matches LIKE '%"catalog":"defect"%' THEN 1 ELSE 0 END) AS defects`).
+		Where("run_id IN ? AND class = ?", ids, discoveries.ClassLowConfidence).Group("run_id").Scan(&held).Error; err != nil {
+		return nil, err
+	}
+	for _, h := range held {
+		n := out[h.RunID]
+		n.heldMany, n.heldDefects = h.Many, h.Defects
+		out[h.RunID] = n
 	}
 	return out, nil
 }
