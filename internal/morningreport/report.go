@@ -58,6 +58,8 @@ type Report struct {
 	// Novae count, by target, the new candidates that are possible novae:
 	// new stars in a Local Group galaxy such as M 31.
 	Novae map[string]int
+	// Known are the night's changes TNS already has.
+	Known []KnownFind
 
 	Images []Image
 

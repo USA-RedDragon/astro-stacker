@@ -112,7 +112,7 @@ func (f Formatter) Text(r Report) string {
 	if r.Subs != nil && r.Subs.Count == 0 {
 		return f.idle(r)
 	}
-	head := []string{f.title(r), f.summary(r), f.dust(r), f.discoveries(r)}
+	head := []string{f.title(r), f.summary(r), f.dust(r), f.discoveries(r), f.known(r)}
 	tail := []string{f.unsafe(r), f.dew(r), f.autofocus(r), f.guiding(r), f.guiderErrors(r), f.camera(r)}
 	subs := f.subs(r)
 	for drop := 0; ; drop++ {
