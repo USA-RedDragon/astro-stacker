@@ -268,6 +268,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		Cutouts:    newCutouts(cfg, appStore.DB()),
 		Conditions: conditions.New(conditions.Options{MetricsURL: cfg.Scheduler.MetricsURL, UPS: cfg.Scheduler.UPS}, schedulerDBStore.DB())}
 	extras.Discoveries = nights.source
+	extras.Reports = newReports(indexCtx, cfg, appStore, nights)
 	extras.Framing = &server.BodyFraming{Tracker: &bodies.Tracker{Horizons: hz, Site: bodies.SiteFunc(siteFunc(cfg, appStore))},
 		Sched: schedulerDBStore.DB(), Frame: skyEvents.MeasuredFrame}
 	if obs.Configured() {
