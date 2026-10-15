@@ -270,12 +270,18 @@ func checks(in Input) []Check {
 	default:
 		out = append(out, Check{Key: keyAsteroid, State: CheckOK, Title: titleAsteroid, Detail: "Checked against SkyBoT at the night's middle; nothing close"})
 	}
-	varCats := []string{"VSX", "SIMBAD"}
-	var varChecked []string
+	varCats := []string{"VSX", "SIMBAD", "Gaia DR3 variability", "ATLAS variables", "ZTF variables", "ASAS-SN variables"}
+	var varChecked, varDown []string
 	for _, v := range varCats {
-		if done[v] {
+		if failed[v] {
+			varDown = append(varDown, v)
+		} else if done[v] {
 			varChecked = append(varChecked, v)
 		}
+	}
+	within := "nothing within 5″"
+	if len(varChecked) > 1 {
+		within += " in VSX or 2″ in the others"
 	}
 	switch {
 	case !done["VSX"] || failed["VSX"]:
@@ -283,8 +289,11 @@ func checks(in Input) []Check {
 	case len(has(ms, varCats...)) > 0:
 		m := has(ms, varCats...)[0]
 		out = append(out, Check{Key: keyVariable, State: CheckBad, Title: titleVariable, Detail: fmt.Sprintf("Matches %s %s, %.1f″ away", m.Catalog, m.Name, m.SepArcsec)})
+	case len(varDown) > 0:
+		out = append(out, Check{Key: keyVariable, State: CheckTodo, Title: titleVariable,
+			Detail: "Checked " + andList(varChecked) + "; " + within + "; " + andList(varDown) + " could not be reached for this night"})
 	default:
-		out = append(out, Check{Key: keyVariable, State: CheckOK, Title: titleVariable, Detail: "Checked " + strings.Join(varChecked, " and ") + "; nothing within 5″"})
+		out = append(out, Check{Key: keyVariable, State: CheckOK, Title: titleVariable, Detail: "Checked " + andList(varChecked) + "; " + within})
 	}
 	brokers := []string{"ALeRCE", "Fink"}
 	var asked, down []string
@@ -729,4 +738,12 @@ func Build(in Input) Report {
 		}
 	}
 	return r
+}
+
+// andList joins names as "a, b and c".
+func andList(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
