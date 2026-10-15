@@ -210,3 +210,22 @@ func TestSmallOrWeakChangesOnStarsStayHeld(t *testing.T) {
 		}
 	}
 }
+
+func TestANightOfManyNewSourcesHoldsThem(t *testing.T) {
+	t.Parallel()
+	mk := func(n int) *Result {
+		res := &Result{}
+		for i := range n {
+			res.Candidates = append(res.Candidates, Candidate{RA: 313 + float64(i)/100, Dec: 46.5, Sign: 1, SNR: 20, PresentIn: 7, SubsTested: 7})
+		}
+		return res
+	}
+	ctx := context.Background()
+	if ls := classifyChanges(ctx, t, mk(maxNewSources), Known{}); ls[0].Class != ClassNewVariable {
+		t.Errorf("%d new sources: %s", maxNewSources, ls[0].Class)
+	}
+	ls := classifyChanges(ctx, t, mk(maxNewSources+1), Known{})
+	if ls[0].Class != ClassLowConfidence || ls[0].Matches[len(ls[0].Matches)-1].Catalog != catalogMany {
+		t.Errorf("%d new sources: %s %+v", maxNewSources+1, ls[0].Class, ls[0].Matches)
+	}
+}

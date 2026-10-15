@@ -349,7 +349,41 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		annotateTNS(&l, res)
 		out[i] = l
 	}
+	holdMany(out)
 	return out, tracks, checked, failed
+}
+
+// maxNewSources is the most new sources (where no star was) one night may
+// hold before they are taken for a pattern of the night rather than finds:
+// the archive's known transients came at most 4 a night (M 31's novae on
+// 2025-11-21), while defect pixels and artifacts gave 100 to 1,650 on the
+// nights of the Cosmic Bat Nebula of 2026-06-10, Abell 85 and the Crab
+// Nebula of 2026-09-13 and Pelican Nebula Panel 2 of 2026-09-14.
+const maxNewSources = 10
+
+// catalogMany is the match of a new source held because its night held too
+// many.
+const catalogMany = "many"
+
+// holdMany holds a night's new sources at low confidence when there are
+// more than maxNewSources of them.
+func holdMany(ls []Labelled) {
+	n := 0
+	for _, l := range ls {
+		if l.GaiaG == nil && (l.Class == ClassNewVariable || l.Class == ClassNova || l.Class == ClassSupernova) {
+			n++
+		}
+	}
+	if n <= maxNewSources {
+		return
+	}
+	for i := range ls {
+		l := &ls[i]
+		if l.GaiaG == nil && (l.Class == ClassNewVariable || l.Class == ClassNova || l.Class == ClassSupernova) {
+			l.Class = ClassLowConfidence
+			l.Matches = append(l.Matches, Match{Catalog: catalogMany, Name: fmt.Sprintf("%d new sources this night", n), Note: "too many for finds; a pattern of the night"})
+		}
+	}
 }
 
 // placeMatches are the galaxies a change lies in and the same changes at
