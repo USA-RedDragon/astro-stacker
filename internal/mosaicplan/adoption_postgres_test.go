@@ -11,32 +11,13 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaics"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicstore"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
-	pgdriver "gorm.io/driver/postgres"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func postgresDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	testcontainers.SkipIfProviderIsNotHealthy(t)
-	ctx := context.Background()
-	c, err := postgres.Run(ctx, "postgres:17-alpine", postgres.WithDatabase("stacker"), postgres.WithUsername("stacker"), postgres.WithPassword("stacker"),
-		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(2*time.Minute)))
-	testcontainers.CleanupContainer(t, c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := gorm.Open(pgdriver.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.Postgres(t, "stacker", "stacker")
 	return db
 }
 
