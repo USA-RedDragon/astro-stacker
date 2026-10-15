@@ -9,6 +9,7 @@ const (
 	ztfI         = "ZTF i"
 	magFainter   = "Mag fainter"
 	styleDot     = "dot"
+	unitDMag     = "dmag"
 	colUpdatedAt = "updated_at"
 	aVariable    = "a variable star"
 )

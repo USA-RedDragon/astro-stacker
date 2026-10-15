@@ -145,10 +145,10 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 }
 
 func shortPeriod(p float64) string {
-	if p >= 10 {
-		return trimZeros(fmt.Sprintf("%.3f", p))
+	if p < 1 {
+		return trimZeros(fmt.Sprintf("%.4f", p))
 	}
-	return trimZeros(fmt.Sprintf("%.4f", p))
+	return trimZeros(fmt.Sprintf("%.3f", p))
 }
 
 func dipCaught(e *period.Ephemeris, sum discoverysource.Summary, timing *period.Timing, curve *ownimage.Curve) string {
