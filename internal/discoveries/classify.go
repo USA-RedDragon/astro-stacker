@@ -94,11 +94,31 @@ type Known struct {
 	Bodies    []Body
 	Epoch     time.Time
 	Galaxies  []Galaxy
+	// Prior are the changes found on the target's other nights, and in its
+	// other filter groups on this night.
+	Prior []PriorChange
 	// Checked names the catalogues consulted and Failed those that could not
 	// be reached.
 	Checked []string
 	Failed  []string
 }
+
+// PriorChange is a change found at a spot on another night, or in another
+// filter group on the same night, of the same target.
+type PriorChange struct {
+	RA, Dec float64
+	Sign    int
+	Night   time.Time
+	Group   string
+}
+
+// confirmArcsec is how near a change on another night or in another filter
+// group must be to confirm one, about 2 px.
+const confirmArcsec = 4.0
+
+// catalogNight is the match of a change confirmed by the same change on
+// another night or in another filter group.
+const catalogNight = "night"
 
 // Labelled is a candidate with its class and matches.
 type Labelled struct {
@@ -201,20 +221,34 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 				l.Matches = append(l.Matches, Match{Catalog: a.Source, Name: a.ID, Type: a.Class, SepArcsec: a.SepArc, TNS: a.TNS})
 			}
 		}
-		for _, g := range k.Galaxies {
-			if in, sep := g.Inside(c.RA, c.Dec, galaxyMatchFactor); in {
-				m := Match{Catalog: "galaxy", Name: g.Name, SepArcsec: sep}
-				if g.LocalGroup {
-					m.Type = localGroupType
-				}
-				l.Matches = append(l.Matches, m)
-			}
-		}
+		l.Matches = append(l.Matches, placeMatches(c, k)...)
 		l.Class = classOf(l)
 		annotateTNS(&l, res)
 		out[i] = l
 	}
 	return out, tracks, checked, failed
+}
+
+// placeMatches are the galaxies a change lies in and the same changes at
+// its spot on the target's other nights or in its other filter groups.
+func placeMatches(c Candidate, k Known) []Match {
+	var out []Match
+	for _, g := range k.Galaxies {
+		if in, sep := g.Inside(c.RA, c.Dec, galaxyMatchFactor); in {
+			m := Match{Catalog: "galaxy", Name: g.Name, SepArcsec: sep}
+			if g.LocalGroup {
+				m.Type = localGroupType
+			}
+			out = append(out, m)
+		}
+	}
+	for _, p := range k.Prior {
+		if sep := Separation(c.RA, c.Dec, p.RA, p.Dec) * 3600; p.Sign == c.Sign && sep <= confirmArcsec {
+			out = append(out, Match{Catalog: catalogNight, Name: p.Night.Format(time.DateOnly) + " " + p.Group, SepArcsec: sep,
+				Note: "changed the same way there"})
+		}
+	}
+	return out
 }
 
 const trackPathPx = 3.0
@@ -256,7 +290,15 @@ func bodyName(b Body) string {
 
 // classOf picks a candidate's class. A source gone since the reference with
 // no catalogued star there had nothing to fade, so it is most often a
-// reflection or trail in the reference, and is held at low confidence.
+// reflection or trail in the reference, and is held at low confidence. A
+// change that matches nothing known is new only when it is confirmed: the
+// same change on another night or in another filter group. The filters of
+// one group are not independent: a change of the sky's color between the
+// night and the reference moves a star alike in L, R, G and B. One night's
+// change alone is held at low confidence, as the backfill of October 2026
+// found over a hundred such changes on stars and none held up. A source
+// where no star was before is not held: it may be a transient, and
+// follow-up imaging is asked for on it.
 func classOf(l Labelled) string {
 	has := func(cat ...string) bool {
 		for _, m := range l.Matches {
@@ -281,6 +323,8 @@ func classOf(l Labelled) string {
 		return ClassNova
 	case l.Sign > 0 && l.GaiaG == nil && has("galaxy"):
 		return ClassSupernova
+	case l.GaiaG != nil && !has(catalogNight):
+		return ClassLowConfidence
 	}
 	return ClassNewVariable
 }
