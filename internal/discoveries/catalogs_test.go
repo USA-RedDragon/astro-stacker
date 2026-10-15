@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -196,5 +197,56 @@ func TestClippedMeanDropsTwoUnequalOutliers(t *testing.T) {
 	}
 	if v := p.Data[0]; !(math.Abs(float64(v)) < 1) {
 		t.Errorf("stacked %.2f: the hot pixel was kept", v)
+	}
+}
+
+// TestClippedMeanDropsGradedOutliers: four subs of one target's reference
+// with a defect pixel at the same spot, at 0.07 to 0.55 against a background
+// of 0.0006 (Cygnis Loop Panel 2's S-II reference under candidates 15111,
+// 15045, 14520 and 14082), and the same low for a cold pixel.
+func TestClippedMeanDropsGradedOutliers(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(1, 2))
+	for _, sign := range []float32{1, -1} {
+		vals := make([]float32, 48)
+		for i := range vals {
+			vals[i] = 0.0006 + float32(rng.NormFloat64()*0.0002)
+		}
+		vals[3], vals[9], vals[20], vals[31] = sign*0.07, sign*0.12, sign*0.3, sign*0.55
+		load := func(_ context.Context, i int) (*Plane, float64, error) {
+			return &Plane{W: 1, H: 1, Data: []float32{vals[i]}}, 1 / (0.0002 * 0.0002), nil
+		}
+		p, err := ClippedMean(context.Background(), 1, 1, len(vals), load, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v := p.Data[0]; math.Abs(float64(v)-0.0006) > 0.0002 {
+			t.Errorf("sign %v: stacked %.5f, want the background 0.0006", sign, v)
+		}
+	}
+}
+
+// TestClippedMeanKeepsAStarsSeeing: a star core whose value changes by 20%
+// from sub to sub with the seeing keeps all its subs.
+func TestClippedMeanKeepsAStarsSeeing(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(3, 4))
+	for _, n := range []int{4, 7, 30} {
+		vals := make([]float32, n)
+		var mean float64
+		for i := range vals {
+			vals[i] = 0.1 * float32(1+0.2*rng.NormFloat64())
+			mean += float64(vals[i]) / float64(n)
+		}
+		load := func(_ context.Context, i int) (*Plane, float64, error) {
+			return &Plane{W: 1, H: 1, Data: []float32{vals[i]}}, 1 / (0.0002 * 0.0002), nil
+		}
+		p, err := ClippedMean(context.Background(), 1, 1, n, load, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if math.Abs(float64(p.Data[0])-mean) > 1e-6 {
+			t.Errorf("%d subs: stacked %.5f, their mean %.5f: a sub was left out", n, p.Data[0], mean)
+		}
 	}
 }

@@ -9,6 +9,8 @@ import (
 const (
 	clipSigma   = 3.0
 	clipMinSubs = 3
+	clipTrim    = 4
+	clipSignal  = 0.3
 )
 
 // Loader returns sub i ready to stack (background subtracted, scaled to
@@ -17,59 +19,62 @@ const (
 type Loader func(ctx context.Context, i int) (*Plane, float64, error)
 
 // ClippedMean stacks n subs into a weighted mean, leaving out each pixel's
-// values more than 3 sigma from the weighted mean and standard deviation of
-// the other subs at that pixel. Leaving the tested value out of its own
-// statistics lets one outlier be found among as few as 3 subs. The clip is
-// done twice: the second time against the values the first kept, as two
-// outliers at one pixel widen each other's spread enough for the smaller to
-// pass a single clip (a hot pixel in two of the Garlic Nebula's O-III
-// subs, 2440 and 564 times the noise, left a spike in the reference that
-// read as a fading star). It reads every sub three times and holds only a
-// few planes, so it works on any number of subs. Pixels covered by fewer
-// than half the subs used (and at least 2) are NaN.
+// values more than 3 sigma from a robust center and spread of all the
+// subs' values there: their mean and standard deviation with the 4 highest
+// and 4 lowest left out (fewer when there are fewer than 9 subs), the
+// spread corrected for the trimming and floored at the subs' sky noise and
+// 30% of the center. A defect pixel is often high, or low, in a few subs of
+// one night at the same spot, as the guiding holds still between dithers:
+// four such subs in the Cygnis Loop Panel 2 reference, 0.07 to 0.55 against
+// a background of 0.0006, widened a plain clip's spread enough to stay in
+// (candidates 15111, 15045, 14520 and 14082, a "fading star" ZTF shows
+// flat), and two in the Garlic Nebula's O-III reference (candidate 13956).
+// It reads every sub twice and holds a few planes, so it works on any number
+// of subs. Pixels covered by fewer than half the subs used (and at least 2)
+// are NaN.
 func ClippedMean(ctx context.Context, w, h, n int, load Loader, threads int) (*Plane, error) {
 	size := w * h
 	norm := make([]float32, n)
 	var first float64
-	used := 0
-	all, kept := newMoments(size), newMoments(size)
+	var noise []float64
+	sum1 := make([]float32, size)
+	sumSq := make([]float64, size)
+	cnt := make([]uint16, size)
+	hi, lo := make([][]float32, clipTrim), make([][]float32, clipTrim)
+	for k := range clipTrim {
+		hi[k], lo[k] = make([]float32, size), make([]float32, size)
+		for j := range size {
+			hi[k][j], lo[k][j] = float32(math.Inf(-1)), float32(math.Inf(1))
+		}
+	}
 	err := stream(ctx, n, load, func(i int, p *Plane, weight float64) {
 		if p == nil || !(weight > 0) {
 			return
 		}
-		used++
 		if first == 0 {
 			first = weight
 		}
 		norm[i] = float32(weight / first)
-		wi := norm[i]
+		noise = append(noise, 1/math.Sqrt(weight))
 		parallelRows(h, threads, func(y0, y1 int) {
 			for j := y0 * w; j < y1*w; j++ {
-				if v := p.Data[j]; !isNaN32(v) {
-					all.add(j, v, wi)
+				v := p.Data[j]
+				if isNaN32(v) {
+					continue
 				}
+				sum1[j] += v
+				sumSq[j] += float64(v) * float64(v)
+				cnt[j]++
+				insertExtreme(hi, j, v, func(a, b float32) bool { return a > b })
+				insertExtreme(lo, j, v, func(a, b float32) bool { return a < b })
 			}
 		})
 	})
 	if err != nil {
 		return nil, err
 	}
-	err = stream(ctx, n, load, func(i int, p *Plane, _ float64) {
-		if p == nil || norm[i] == 0 {
-			return
-		}
-		wi := norm[i]
-		parallelRows(h, threads, func(y0, y1 int) {
-			for j := y0 * w; j < y1*w; j++ {
-				if v := p.Data[j]; !isNaN32(v) && !all.rejects(j, v, wi, true) {
-					kept.add(j, v, wi)
-				}
-			}
-		})
-	})
-	if err != nil {
-		return nil, err
-	}
+	used := len(noise)
+	sky := median64(noise)
 	sum := make([]float32, size)
 	wkept := make([]float32, size)
 	cov := make([]uint16, size)
@@ -84,13 +89,12 @@ func ClippedMean(ctx context.Context, w, h, n int, load Loader, threads int) (*P
 				if isNaN32(v) {
 					continue
 				}
-				first := all.rejects(j, v, wi, true)
-				if kept.cnt[j] >= clipMinSubs {
-					if kept.rejects(j, v, wi, !first) {
+				if c := int(cnt[j]); c >= clipMinSubs {
+					m, sd := trimmed(sum1[j], sumSq[j], c, hi, lo, j)
+					sd = math.Max(sd, math.Hypot(sky, clipSignal*m))
+					if math.Abs(float64(v)-m) > clipSigma*sd {
 						continue
 					}
-				} else if first {
-					continue
 				}
 				sum[j] += wi * v
 				wkept[j] += wi
@@ -115,55 +119,55 @@ func ClippedMean(ctx context.Context, w, h, n int, load Loader, threads int) (*P
 	return out, nil
 }
 
-// moments are each pixel's weighted mean, sum of squared deviations,
-// weight and count, built one value at a time.
-type moments struct {
-	mean, m2, wsum []float32
-	cnt            []uint16
+// insertExtreme keeps ext[0..] at pixel j the most extreme values seen,
+// most extreme first, by before.
+func insertExtreme(ext [][]float32, j int, v float32, before func(a, b float32) bool) {
+	k := len(ext) - 1
+	if !before(v, ext[k][j]) {
+		return
+	}
+	for k > 0 && before(v, ext[k-1][j]) {
+		ext[k][j] = ext[k-1][j]
+		k--
+	}
+	ext[k][j] = v
 }
 
-func newMoments(size int) *moments {
-	return &moments{mean: make([]float32, size), m2: make([]float32, size), wsum: make([]float32, size), cnt: make([]uint16, size)}
+// trimmed is the mean and standard deviation of a pixel's c values with
+// the most extreme k of each side left out, k up to clipTrim and at most
+// (c-1)/2, the deviation corrected for what trimming a normal sample takes
+// off it.
+func trimmed(s float32, ss float64, c int, hi, lo [][]float32, j int) (mean, sd float64) {
+	k := min(len(hi), (c-1)/2)
+	sum, sq := float64(s), ss
+	for e := range k {
+		a, b := float64(hi[e][j]), float64(lo[e][j])
+		sum -= a + b
+		sq -= a*a + b*b
+	}
+	m := float64(c - 2*k)
+	mean = sum / m
+	v := sq/m - mean*mean
+	if !(v > 0) || m < 2 {
+		return mean, 0
+	}
+	return mean, math.Sqrt(v) * trimCorrection(float64(k)/float64(c))
 }
 
-func (m *moments) add(j int, v, wi float32) {
-	ws := m.wsum[j] + wi
-	d := v - m.mean[j]
-	m.mean[j] += wi / ws * d
-	m.m2[j] += wi * d * (v - m.mean[j])
-	m.wsum[j] = ws
-	m.cnt[j]++
-}
-
-// rejects says whether v, of weight wi, is an outlier against pixel j's
-// other values; in says v is one of the values the moments hold.
-func (m *moments) rejects(j int, v, wi float32, in bool) bool {
-	if m.cnt[j] < clipMinSubs {
-		return false
+// trimCorrection is the factor that brings the standard deviation of a
+// normal sample with a share p cut from each side back to the whole
+// sample's.
+func trimCorrection(p float64) float64 {
+	if p <= 0 {
+		return 1
 	}
-	wv := 0.0
-	if in {
-		wv = float64(wi)
+	z := math.Sqrt2 * math.Erfinv(1-2*p)
+	phi := math.Exp(-z*z/2) / math.Sqrt(2*math.Pi)
+	f := 1 - 2*z*phi/(1-2*p)
+	if !(f > 0) {
+		return 1
 	}
-	return outlier(float64(v), wv, float64(m.mean[j]), float64(m.m2[j]), float64(m.wsum[j]))
-}
-
-// outlier says whether v, of weight wv, is more than clipSigma standard
-// deviations from the weighted mean of the other values, given the
-// weighted mean, sum of squared deviations and weight of all of them.
-func outlier(v, wv, mean, m2, wsum float64) bool {
-	w := wsum - wv
-	if w <= 0 {
-		return false
-	}
-	s1 := wsum*mean - wv*v
-	s2 := m2 + wsum*mean*mean - wv*v*v
-	m := s1 / w
-	variance := s2/w - m*m
-	if !(variance > 0) {
-		return false
-	}
-	return math.Abs(v-m) > clipSigma*math.Sqrt(variance)
+	return 1 / math.Sqrt(f)
 }
 
 // stream loads subs one ahead of use and hands each to use in order.
