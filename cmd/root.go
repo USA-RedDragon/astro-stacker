@@ -65,7 +65,7 @@ func NewCommand(version, commit string) *cobra.Command {
 		SilenceErrors:     true,
 		DisableAutoGenTag: true,
 	}
-	cmd.AddCommand(newStackCommand(), newMorningReportCommand(), newDustCheckCommand(), newDiscoveriesCommand())
+	cmd.AddCommand(newStackCommand(), newMorningReportCommand(), newDiscoveryAlertCommand(), newDustCheckCommand(), newDiscoveriesCommand())
 	return cmd
 }
 
@@ -280,6 +280,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 
 	startMorningReport(indexCtx, cfg, appStore, schedulerDBStore)
+	startDiscoveryAlerts(indexCtx, cfg, appStore, schedulerDBStore, broker, commands, backfill)
 
 	kick.goalSwitch = startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)
 	extras.Scheduling = startScheduling(indexCtx, cfg, appStore, schedulerDBStore, commands, bodyNights, horizon)
