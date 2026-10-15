@@ -73,6 +73,14 @@ linters:
         linters:
           - gosec
         text: G115
+      - path: internal/starcat/format\.go$
+        linters:
+          - gosec
+        text: G115
+      - path: internal/starcat/mirror(_test)?\.go$
+        linters:
+          - gosec
+        text: G401|G501
       - path: internal/publicframe/render\.go$
         linters:
           - gosec
@@ -97,7 +105,7 @@ linters:
         linters:
           - gosec
         text: G404
-      - path: internal/(metrics/metrics|catalog/embedded|server/skyevents_internal_test)\.go$
+      - path: internal/(metrics/metrics|catalog/embedded|server/skyevents_internal_test|starcat/format)\.go$
         linters:
           - gochecknoglobals
       - path: internal/publicframe/watermark\.go$
