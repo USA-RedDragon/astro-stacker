@@ -54,7 +54,7 @@ type DiscoveryAlerts struct {
 	Enabled         bool   `name:"enabled" description:"Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty" default:"true"`
 	TelegramToken   string `name:"telegram-token" description:"Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off" secret:"true"`
 	TelegramChatID  string `name:"telegram-chat-id" description:"Telegram chat the alerts go to; empty turns the alerts off"`
-	Followup        bool   `name:"followup" description:"For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled" default:"true"`
+	Followup        bool   `name:"followup" description:"For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default"`
 	IntervalMinutes int    `name:"interval-minutes" description:"Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later" default:"5"`
 }
 
