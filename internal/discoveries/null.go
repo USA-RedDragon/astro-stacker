@@ -22,9 +22,13 @@ type ChangeNull struct {
 }
 
 // NullChange is one change the null test found, its SNR in the full
-// comparison's noise.
+// comparison's noise. A change on a Gaia star carries its magnitude change;
+// one held at low confidence is kept for threshold studies but not counted.
 type NullChange struct {
 	RA, Dec, SNR float64
+	DeltaMag     *float64 `json:",omitempty"`
+	Star         bool     `json:",omitempty"`
+	LowConf      bool     `json:",omitempty"`
 }
 
 // DropKnown leaves out of the null test the changes on known variable
@@ -34,6 +38,9 @@ type NullChange struct {
 func (n *ChangeNull) DropKnown(vars []Variable) {
 	n.Found, n.MaxSNR = 0, 0
 	for _, c := range n.Changes {
+		if c.LowConf {
+			continue
+		}
 		known := false
 		for _, v := range vars {
 			lim := vsxMatchArcsec
@@ -142,11 +149,11 @@ func (in *Input) nullChanges(ctx context.Context, stacks []*filterStacks, edge, 
 	}
 	local := in.localResiduals(refB, D, edge, r0)
 	for _, c := range in.cut(cands, refB, D, local, r0) {
+		snr := c.SNR * r0.ApSigma / res.ApSigma
+		out.Changes = append(out.Changes, NullChange{RA: c.RA, Dec: c.Dec, SNR: snr, DeltaMag: c.DeltaMag, Star: c.GaiaG != nil, LowConf: c.LowConf})
 		if c.LowConf {
 			continue
 		}
-		snr := c.SNR * r0.ApSigma / res.ApSigma
-		out.Changes = append(out.Changes, NullChange{RA: c.RA, Dec: c.Dec, SNR: snr})
 		out.Found++
 		out.MaxSNR = math.Max(out.MaxSNR, snr)
 	}
