@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 	"time"
 
@@ -321,5 +322,59 @@ func TestCompareNeedsSameSize(t *testing.T) {
 	}
 	if _, err := dustcheck.Crop(a.Map.Map, b.Map.Map, 100, 100, 100); err == nil {
 		t.Error("cropped maps of different sizes")
+	}
+}
+
+func TestMedianFilterMatchesBruteForce(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(5, 6))
+	m := dustcheck.NewMap(31, 17)
+	for i := range m.Pix {
+		switch {
+		case i%31 < 4 && i/31 < 5, rng.IntN(8) == 0:
+			m.Pix[i] = float32(math.NaN())
+		case rng.IntN(5) == 0:
+			m.Pix[i] = float32(rng.IntN(3))
+		default:
+			m.Pix[i] = float32(rng.NormFloat64())
+		}
+	}
+	reflect := func(i, n int) int {
+		for i < 0 || i >= n {
+			if i < 0 {
+				i = -1 - i
+			} else {
+				i = 2*n - 1 - i
+			}
+		}
+		return i
+	}
+	for _, size := range []int{1, 3, 4, 9, 21, 41} {
+		got := dustcheck.MedianFilter(m, size)
+		r := size / 2
+		for y := range m.H {
+			for x := range m.W {
+				var w []float64
+				for dy := -r; dy <= r; dy++ {
+					for dx := -r; dx <= r; dx++ {
+						if v := m.At(reflect(x+dx, m.W), reflect(y+dy, m.H)); !math.IsNaN(float64(v)) {
+							w = append(w, float64(v))
+						}
+					}
+				}
+				want := math.NaN()
+				if n := len(w); n > 0 {
+					slices.Sort(w)
+					want = w[n/2]
+					if n%2 == 0 {
+						want = (w[n/2-1] + w[n/2]) / 2
+					}
+				}
+				g := float64(got.At(x, y))
+				if math.IsNaN(want) != math.IsNaN(g) || !math.IsNaN(want) && float32(want) != float32(g) {
+					t.Fatalf("size %d at %d,%d: got %v, want %v", size, x, y, g, want)
+				}
+			}
+		}
 	}
 }
