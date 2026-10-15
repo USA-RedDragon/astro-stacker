@@ -70,7 +70,7 @@ func TestMirrorGaiaResumesAndWritesAManifest(t *testing.T) {
 		_, _ = w.Write(b)
 	}))
 	defer srv.Close()
-	b := &memBucket{}
+	b := &starcat.MemBucket{}
 	o := starcat.MirrorOptions{Bucket: b, Prefix: "gaia", BaseURL: srv.URL + "/", Workers: 2, Limit: 1, Verify: true}
 	if err := starcat.MirrorGaia(ctx, o); err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestMirrorGaiaRejectsABadChecksum(t *testing.T) {
 	body := ecsv(randomStars(10, rand.New(rand.NewPCG(9, 9)), 10, 10, 1))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
 	defer srv.Close()
-	b := &memBucket{}
+	b := &starcat.MemBucket{}
 	o := starcat.MirrorOptions{Bucket: b, Prefix: "gaia", BaseURL: srv.URL + "/"}
 	err := starcat.StoreGaiaFile(context.Background(), o, "GaiaSource_000000-003111.csv.gz", "00000000000000000000000000000000")
 	if err == nil || !strings.Contains(err.Error(), "MD5") {

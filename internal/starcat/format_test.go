@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
@@ -181,57 +180,13 @@ func TestParseMD5Sums(t *testing.T) {
 	}
 }
 
-type memBucket struct {
-	mu   sync.Mutex
-	objs map[string][]byte
-}
-
-func (m *memBucket) Get(_ context.Context, key string) ([]byte, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	b, ok := m.objs[key]
-	if !ok {
-		return nil, starcat.ErrNotFound
-	}
-	return b, nil
-}
-
-func (m *memBucket) Put(_ context.Context, key string, data []byte) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.objs == nil {
-		m.objs = map[string][]byte{}
-	}
-	m.objs[key] = append([]byte(nil), data...)
-	return nil
-}
-
-func (m *memBucket) List(_ context.Context, prefix string) ([]string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var out []string
-	for k := range m.objs {
-		if strings.HasPrefix(k, prefix) {
-			out = append(out, k)
-		}
-	}
-	return out, nil
-}
-
-func (m *memBucket) Delete(_ context.Context, key string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.objs, key)
-	return nil
-}
-
 func TestGaiaConeAndBoxMatchABruteForceSearch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rng := rand.New(rand.NewPCG(5, 6))
 	stars := append(randomStars(60000, rng, 359.5, 30, 3), randomStars(20000, rng, 120, 88.5, 1.5)...)
-	b := &memBucket{}
-	if err := starcat.WriteGaiaMirror(ctx, b, "gaia", stars); err != nil {
+	b := &starcat.MemBucket{}
+	if err := starcat.WriteGaia(ctx, b, "gaia", stars); err != nil {
 		t.Fatal(err)
 	}
 	g := starcat.NewGaia(b, "gaia")
@@ -270,15 +225,18 @@ func TestGaiaConeAndBoxMatchABruteForceSearch(t *testing.T) {
 	if len(got) != n || n == 0 {
 		t.Fatalf("box: %d stars, brute force %d", len(got), n)
 	}
-	for k := range b.objs {
+	keys, _ := b.List(ctx, "gaia/")
+	for _, k := range keys {
 		if strings.HasSuffix(k, ".scat") {
-			b.objs[k][len(b.objs[k])/2] ^= 1
+			data, _ := b.Get(ctx, k)
+			data[len(data)/2] ^= 1
+			_ = b.Put(ctx, k, data)
 		}
 	}
 	if _, err := starcat.NewGaia(b, "gaia").Cone(ctx, 359.5, 30, 3, nil); err == nil {
 		t.Fatal("a damaged piece was read")
 	}
-	if _, err := starcat.NewGaia(&memBucket{}, "gaia").Cone(ctx, 1, 1, 1, nil); err == nil {
+	if _, err := starcat.NewGaia(&starcat.MemBucket{}, "gaia").Cone(ctx, 1, 1, 1, nil); err == nil {
 		t.Fatal("an empty bucket answered")
 	}
 }
