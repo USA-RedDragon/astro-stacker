@@ -204,6 +204,8 @@ func (f *field) catalogs(t *testing.T) *discoveries.Catalogs {
 			}
 		case "B/vsx/vsx":
 			fmt.Fprint(w, "Name\tType\tmax\tmin\tn_max\tPeriod\tRAJ2000\tDEJ2000\n----\t----\t---\t---\t---\t---\t---\t---\n")
+		case "I/358/vclassre", "J/AJ/156/241/table4", "J/ApJS/249/18/table2", "II/366/catv2021":
+			fmt.Fprint(w, "RAJ2000\tDEJ2000\n----\t----\n")
 		default:
 			http.Error(w, "unknown", http.StatusBadRequest)
 		}
