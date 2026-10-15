@@ -178,9 +178,19 @@ func (t *table[T]) manifest(ctx context.Context) (*Manifest, map[int64][]Piece, 
 	return m, by, nil
 }
 
+// forget drops the cached manifest, so the next read loads the current one.
+func (t *table[T]) forget() {
+	t.mu.Lock()
+	t.man = nil
+	t.mu.Unlock()
+}
+
 // cone returns the rows within radius degrees of (ra, dec) that keep
 // accepts (nil keeps all), in no particular order.
 func (t *table[T]) cone(ctx context.Context, ra, dec, radius float64, keep func(*T) bool) ([]T, error) {
+	if !(ra >= -360 && ra <= 720 && dec >= -90 && dec <= 90 && radius >= 0 && radius <= 180) {
+		return nil, fmt.Errorf("starcat: cone (%v, %v) radius %v", ra, dec, radius)
+	}
 	m, by, err := t.manifest(ctx)
 	if err != nil {
 		return nil, err
@@ -199,6 +209,9 @@ func (t *table[T]) cone(ctx context.Context, ra, dec, radius float64, keep func(
 		g.Go(func() error {
 			b, err := t.bucket.Get(gctx, p.Key)
 			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					t.forget()
+				}
 				return fmt.Errorf("%w: %w", ErrUnavailable, err)
 			}
 			if h := sha256.Sum256(b); hex.EncodeToString(h[:]) != p.SHA256 {

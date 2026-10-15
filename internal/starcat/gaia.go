@@ -266,6 +266,9 @@ func gaiaRow(f [][]byte, idx *[17]int) (GaiaStar, error) {
 	s := GaiaStar{SourceID: id, RA: f64(2, false), RAError: f32(3), Dec: f64(4, false), DecError: f32(5),
 		Parallax: f64(6, true), ParallaxError: f32(7), PMRA: f64(8, true), PMRAError: f32(9),
 		PMDec: f64(10, true), PMDecError: f32(11), RUWE: f32(12), G: f32(13), BP: f32(14), RP: f32(15)}
+	if !(s.RA >= 0 && s.RA <= 360 && s.Dec >= -90 && s.Dec <= 90) {
+		return GaiaStar{}, fmt.Errorf("source %d: position (%v, %v)", id, s.RA, s.Dec)
+	}
 	switch string(unquote(f[idx[16]])) {
 	case "NOT_AVAILABLE":
 		s.Variable = VariableNotAvailable

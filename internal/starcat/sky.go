@@ -6,6 +6,7 @@ package starcat
 import (
 	"math"
 	"sort"
+	"strconv"
 
 	healpix "github.com/hebl/gohealpix"
 )
@@ -34,6 +35,15 @@ func Angle(a, b [3]float64) float64 {
 // Separation returns the angle between two positions in degrees.
 func Separation(ra1, dec1, ra2, dec2 float64) float64 {
 	return Angle(Vec(ra1, dec1), Vec(ra2, dec2)) / deg
+}
+
+// Round returns v as VizieR reads it when printed with decimals digits.
+func Round(v float64, decimals int) float64 {
+	r, err := strconv.ParseFloat(strconv.FormatFloat(v, 'f', decimals, 64), 64)
+	if err != nil {
+		return v
+	}
+	return r
 }
 
 // Pixel returns the nested HEALPix pixel of a position at an order.

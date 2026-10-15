@@ -57,8 +57,12 @@ func writeAll[T any](ctx context.Context, b Bucket, prefix, catalog string, orde
 			m.Bytes += pc.Bytes
 		}
 	}
-	if err := verifyPieces(ctx, b, s, order, m.Pieces); err != nil {
+	bad, err := verifyPieces(ctx, b, s, order, m.Pieces)
+	if err != nil {
 		return err
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("starcat: %d pieces fail verification", len(bad))
 	}
 	m.Verified = time.Now().UTC()
 	data, err := encodeManifest(m)
