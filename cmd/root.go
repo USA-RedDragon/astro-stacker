@@ -281,6 +281,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 
 	startMorningReport(indexCtx, cfg, appStore, schedulerDBStore)
+	startDiscoverySources(indexCtx, appStore, broker)
 	startDiscoveryAlerts(indexCtx, cfg, appStore, schedulerDBStore, broker, commands, backfill)
 
 	kick.goalSwitch = startDepthSwitch(indexCtx, cfg, appStore, schedulerDBStore, commands, disc)

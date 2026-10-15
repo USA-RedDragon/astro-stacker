@@ -42,6 +42,10 @@ type Service struct {
 	// Interval is the backstop between looks for new finds.
 	Interval  time.Duration
 	Followups Followups
+	// Prepare, when set, runs before each look, as to gather new
+	// candidates into their sources so a vetted source's vetting reaches
+	// them first.
+	Prepare func(ctx context.Context) error
 
 	kick *trigger.Debouncer
 }
@@ -92,6 +96,11 @@ func (s *Service) Tick(ctx context.Context) error {
 		return err
 	}
 	var errs []error
+	if s.Prepare != nil {
+		if err := s.Prepare(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if err := s.retry(ctx); err != nil {
 		errs = append(errs, err)
 	}
