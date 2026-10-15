@@ -1,0 +1,326 @@
+package vetting
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
+	"github.com/USA-RedDragon/astro-stacker/internal/tnsmirror"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+)
+
+// listedArcsec is how close a catalog entry must be to name the spot's
+// star; nearArcsec how close a different entry is still worth naming.
+const (
+	listedArcsec = 3.0
+	nearArcsec   = 30.0
+	simbadArcsec = 5.0
+)
+
+// Mirrors are the local catalog copies, read first.
+type Mirrors struct {
+	VSX *starcat.VSX
+	// Variables are the survey variable star lists by name: gaia-dr3-vari,
+	// atlas-var, ztf-var and asassn-var.
+	Variables map[string]*starcat.Variables
+	TNS       func() *tnsmirror.Index
+}
+
+// SimbadObject is one SIMBAD entry near the spot.
+type SimbadObject struct {
+	MainID string   `json:"main_id"`
+	RA     float64  `json:"ra"`
+	Dec    float64  `json:"dec"`
+	OType  string   `json:"otype"`
+	IDs    []string `json:"ids,omitempty"`
+}
+
+// Simbad looks up SIMBAD within radius degrees.
+type Simbad func(ctx context.Context, ra, dec, radius float64) ([]SimbadObject, error)
+
+// Known is what the catalogs say about the spot.
+type Known struct {
+	Checks []check.Check
+	// Listed names the catalog entry that already knows the star as
+	// variable or transient, empty when none does.
+	Listed string
+	// Name is the star's best known designation, when SIMBAD has one.
+	Name string
+}
+
+func arcsec(ra1, dec1, ra2, dec2 float64) float64 {
+	return starcat.Separation(ra1, dec1, ra2, dec2) * 3600
+}
+
+func catalogChecks(ctx context.Context, m Mirrors, sb Simbad, ra, dec float64, gaiaID int64) Known {
+	var k Known
+	k.Checks = append(k.Checks, vsxCheck(ctx, m, ra, dec, &k))
+	k.Checks = append(k.Checks, gaiaVariCheck(ctx, m, ra, dec, gaiaID, &k))
+	k.Checks = append(k.Checks, surveyVarCheck(ctx, m, ra, dec, &k))
+	k.Checks = append(k.Checks, tnsCheck(m, ra, dec, &k))
+	k.Checks = append(k.Checks, simbadCheck(ctx, sb, ra, dec, &k))
+	return k
+}
+
+func vsxCheck(ctx context.Context, m Mirrors, ra, dec float64, k *Known) check.Check {
+	if m.VSX == nil {
+		return check.Skipped(check.VSX, "Not run: the local copy of VSX is off.")
+	}
+	stars, err := m.VSX.Cone(ctx, ra, dec, nearArcsec/3600, nil)
+	if err != nil {
+		return check.Skipped(check.VSX, "Not run: the local copy of VSX could not be read.")
+	}
+	sort.Slice(stars, func(i, j int) bool {
+		return arcsec(ra, dec, stars[i].RA, stars[i].Dec) < arcsec(ra, dec, stars[j].RA, stars[j].Dec)
+	})
+	if len(stars) == 0 {
+		return check.New(check.VSX, check.Pass, "Not listed.")
+	}
+	s := stars[0]
+	sep := arcsec(ra, dec, s.RA, s.Dec)
+	if sep <= listedArcsec {
+		k.Listed = cmpOr(k.Listed, "VSX lists it as "+s.Name)
+		ev := fmt.Sprintf("Listed as %s, %s, %.1f arcsec away.", s.Name, typeWords(s.Type), sep)
+		if s.Period > 0 {
+			ev = fmt.Sprintf("Listed as %s, %s repeating every %s days, %.1f arcsec away.", s.Name, typeWords(s.Type), periodText(s.Period), sep)
+		}
+		return check.New(check.VSX, check.Fail, ev)
+	}
+	return check.New(check.VSX, check.Pass, fmt.Sprintf("Not listed. The nearest entry, %.1f arcsec away, is a different star.", sep))
+}
+
+func gaiaVariCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int64, k *Known) check.Check {
+	v := m.Variables["gaia-dr3-vari"]
+	if v == nil {
+		return check.Skipped(check.GaiaVari, "Not run: the local copy of Gaia's variable star list is off.")
+	}
+	stars, err := v.Cone(ctx, ra, dec, 10.0/3600, nil)
+	if err != nil {
+		return check.Skipped(check.GaiaVari, "Not run: the local copy of Gaia's variable star list could not be read.")
+	}
+	for _, s := range stars {
+		if (gaiaID != 0 && s.ID == gaiaID) || (gaiaID == 0 && arcsec(ra, dec, s.RA, s.Dec) <= listedArcsec/3) {
+			k.Listed = cmpOr(k.Listed, "Gaia lists it as variable")
+			return check.New(check.GaiaVari, check.Fail, fmt.Sprintf("Listed as %s.", typeWords(s.Type)))
+		}
+	}
+	return check.New(check.GaiaVari, check.Pass, "Not listed.")
+}
+
+func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, k *Known) check.Check {
+	names := []struct{ key, word string }{{"atlas-var", "ATLAS"}, {"ztf-var", "ZTF"}, {"asassn-var", "ASAS-SN"}}
+	var listed, failed []string
+	for _, n := range names {
+		v := m.Variables[n.key]
+		if v == nil {
+			failed = append(failed, n.word)
+			continue
+		}
+		stars, err := v.Cone(ctx, ra, dec, listedArcsec/3600, nil)
+		if err != nil {
+			failed = append(failed, n.word)
+			continue
+		}
+		for _, s := range stars {
+			if arcsec(ra, dec, s.RA, s.Dec) > listedArcsec {
+				continue
+			}
+			l := fmt.Sprintf("%s lists it as %s", n.word, typeWords(s.Type))
+			if s.Period > 0 {
+				l += fmt.Sprintf(" repeating every %s days", periodText(s.Period))
+			}
+			listed = append(listed, l)
+			break
+		}
+	}
+	switch {
+	case len(listed) > 0:
+		k.Listed = cmpOr(k.Listed, listed[0])
+		return check.New(check.SurveyVar, check.Fail, sentence(strings.Join(listed, "; ")))
+	case len(failed) == len(names):
+		return check.Skipped(check.SurveyVar, "Not run: the local copies could not be read.")
+	case len(failed) > 0:
+		return check.New(check.SurveyVar, check.Pass, fmt.Sprintf("Not listed. The %s list could not be read.", joinWords(failed)))
+	}
+	return check.New(check.SurveyVar, check.Pass, "Not listed.")
+}
+
+func tnsCheck(m Mirrors, ra, dec float64, k *Known) check.Check {
+	if m.TNS == nil || m.TNS() == nil {
+		return check.Skipped(check.TNS, "Not run: the local copy of the transient reports is off.")
+	}
+	hits := m.TNS().Near(ra, dec, listedArcsec)
+	if len(hits) == 0 {
+		return check.New(check.TNS, check.Pass, "No match.")
+	}
+	h := hits[0]
+	name := strings.TrimSpace(h.Prefix + " " + h.Name)
+	k.Listed = cmpOr(k.Listed, "reported to TNS as "+name)
+	return check.New(check.TNS, check.Fail, fmt.Sprintf("Reported as %s on %s, %.1f arcsec away.", name, h.Discovered.Format("2006-01-02"), h.SepArcsec))
+}
+
+func simbadCheck(ctx context.Context, sb Simbad, ra, dec float64, k *Known) check.Check {
+	if sb == nil {
+		return check.Skipped(check.SIMBAD, "Not run.")
+	}
+	objs, err := sb(ctx, ra, dec, simbadArcsec/3600)
+	if err != nil {
+		return check.Skipped(check.SIMBAD, "Not run: SIMBAD could not be reached.")
+	}
+	sort.Slice(objs, func(i, j int) bool {
+		return arcsec(ra, dec, objs[i].RA, objs[i].Dec) < arcsec(ra, dec, objs[j].RA, objs[j].Dec)
+	})
+	if len(objs) == 0 {
+		return check.New(check.SIMBAD, check.Pass, "Nothing listed within 5 arcsec.")
+	}
+	o := objs[0]
+	sep := arcsec(ra, dec, o.RA, o.Dec)
+	if sep <= listedArcsec {
+		k.Name = bestName(o)
+	}
+	for _, x := range objs {
+		if variableOType(x.OType) && arcsec(ra, dec, x.RA, x.Dec) <= listedArcsec {
+			k.Listed = cmpOr(k.Listed, "SIMBAD lists it as "+x.MainID)
+			return check.New(check.SIMBAD, check.Fail, fmt.Sprintf("Listed as %s, %s.", x.MainID, otypeWords(x.OType)))
+		}
+	}
+	if sep <= listedArcsec {
+		return check.New(check.SIMBAD, check.Pass, "Not listed as variable.")
+	}
+	return check.New(check.SIMBAD, check.Pass, fmt.Sprintf("Not listed as variable. The nearest object, %.1f arcsec away, is a different star.", sep))
+}
+
+func bestName(o SimbadObject) string {
+	for _, id := range o.IDs {
+		if strings.HasPrefix(id, "2MASS J") {
+			return id
+		}
+	}
+	if strings.HasPrefix(o.MainID, "Gaia DR3 ") || strings.HasPrefix(o.MainID, "TIC ") {
+		for _, id := range o.IDs {
+			if strings.HasPrefix(id, "Gaia DR3 ") {
+				return id
+			}
+		}
+	}
+	return o.MainID
+}
+
+func variableOType(t string) bool {
+	t = strings.TrimSpace(t)
+	if strings.HasSuffix(t, "..") {
+		return true
+	}
+	if b, ok := strings.CutSuffix(t, "?"); ok {
+		t = b + "*"
+	}
+	switch t {
+	case "V*", "EB*", "Ce*", "cC*", "RR*", "LP*", "Mi*", "CV*", "No*", "SN*", "Ro*", "Er*", "BY*", "RS*", "Pu*", "dS*", "gD*", "El*", "Ir*", "Or*",
+		"Fl*", "XB*", "LX*", "HX*", "LXB", "HXB", "TT*", "Ae*", "WV*", "RV*", "bC*", "ZZ*", "sr*", "Sy*":
+		return true
+	}
+	return false
+}
+
+func otypeWords(t string) string {
+	switch strings.TrimSpace(t) {
+	case "EB*":
+		return "an eclipsing binary"
+	case "RR*":
+		return "an RR Lyrae star"
+	case "Mi*":
+		return "a Mira variable"
+	case "LP*":
+		return "a long period variable"
+	case "CV*":
+		return "a cataclysmic variable"
+	case "No*":
+		return "a nova"
+	case "SN*":
+		return "a supernova"
+	case "Ce*", "cC*":
+		return "a Cepheid"
+	case "Ro*":
+		return "a rotating variable"
+	case "YO*", "TT*", "Or*":
+		return "a young variable star"
+	}
+	return aVariable
+}
+
+func typeWords(t string) string {
+	u := strings.ToUpper(strings.TrimSpace(t))
+	switch {
+	case u == "":
+		return aVariable
+	case strings.HasPrefix(u, "EA"), strings.HasPrefix(u, "EB"), strings.HasPrefix(u, "EW"), strings.HasPrefix(u, "ECL"), u == "E", strings.HasPrefix(u, "E|"), strings.HasPrefix(u, "E:"):
+		return "an eclipsing binary"
+	case strings.HasPrefix(u, "RR"):
+		return "an RR Lyrae star"
+	case strings.HasPrefix(u, "DCEP"), strings.HasPrefix(u, "CEP"), strings.HasPrefix(u, "CW"):
+		return "a Cepheid"
+	case strings.HasPrefix(u, "M"), strings.HasPrefix(u, "LPV"), strings.HasPrefix(u, "SR"), strings.HasPrefix(u, "L"):
+		return "a long period variable"
+	case strings.HasPrefix(u, "DSCT"), strings.HasPrefix(u, "GDOR"), strings.HasPrefix(u, "HADS"):
+		return "a pulsating star"
+	case strings.HasPrefix(u, "ROT"), strings.HasPrefix(u, "BY"), strings.HasPrefix(u, "RS"), strings.HasPrefix(u, "SOLAR_LIKE"):
+		return "a spotted, rotating star"
+	case strings.HasPrefix(u, "YSO"), strings.HasPrefix(u, "INS"), strings.HasPrefix(u, "IN"), strings.HasPrefix(u, "UX"):
+		return "a young variable star"
+	case strings.HasPrefix(u, "CV"), strings.HasPrefix(u, "UG"), strings.HasPrefix(u, "N"):
+		return "a cataclysmic variable"
+	}
+	return aVariable
+}
+
+func periodText(p float64) string {
+	switch {
+	case p >= 100:
+		return fmt.Sprintf("%.0f", p)
+	case p >= 10:
+		return trimZeros(fmt.Sprintf("%.5f", p))
+	}
+	return trimZeros(fmt.Sprintf("%.6f", p))
+}
+
+func trimZeros(s string) string {
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimSuffix(s, ".")
+	}
+	return s
+}
+
+func sentence(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:] + "."
+}
+
+func joinWords(w []string) string {
+	switch len(w) {
+	case 0:
+		return ""
+	case 1:
+		return w[0]
+	case 2:
+		return w[0] + " and " + w[1]
+	}
+	return strings.Join(w[:len(w)-1], ", ") + " and " + w[len(w)-1]
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func round(v float64, d int) float64 {
+	p := math.Pow(10, float64(d))
+	return math.Round(v*p) / p
+}
