@@ -85,6 +85,7 @@ func applySourceRoutes(g *gin.RouterGroup) {
 	g.GET("/discoveries/sources", discoverySources)
 	g.GET("/discoveries/sources/:id", discoverySourceDetail)
 	g.PUT("/discoveries/sources/:id/vetting", vetDiscoverySource)
+	applyVettingRoutes(g)
 }
 
 func sourceFilter(c *gin.Context, now time.Time) (discoverysource.Filter, string, bool) {

@@ -242,6 +242,12 @@ type discoveryAlertsShadow struct {
 	IntervalMinutes *int    `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
 }
 
+type vettingShadow struct {
+	ATLASToken  *string `json:"atlas-token"  toml:"atlas-token"  yaml:"atlas-token"`
+	Threads     *int    `json:"threads"      toml:"threads"      yaml:"threads"`
+	CachePrefix *string `json:"cache-prefix" toml:"cache-prefix" yaml:"cache-prefix"`
+}
+
 type configShadow struct {
 	LogLevel        *string                `json:"log-level"        toml:"log-level"        yaml:"log-level"`
 	HTTP            *hTTPShadow            `json:"http"             toml:"http"             yaml:"http"`
@@ -265,6 +271,7 @@ type configShadow struct {
 	Scheduling      *schedulingShadow      `json:"scheduling"       toml:"scheduling"       yaml:"scheduling"`
 	MorningReport   *morningReportShadow   `json:"morning-report"   toml:"morning-report"   yaml:"morning-report"`
 	DiscoveryAlerts *discoveryAlertsShadow `json:"discovery-alerts" toml:"discovery-alerts" yaml:"discovery-alerts"`
+	Vetting         *vettingShadow         `json:"vetting"          toml:"vetting"          yaml:"vetting"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -483,6 +490,10 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("discovery-alerts.enabled", configulator.LayerDefault, "default tag")
 	cfg.DiscoveryAlerts.IntervalMinutes = 5
 	set("discovery-alerts.interval-minutes", configulator.LayerDefault, "default tag")
+	cfg.Vetting.Threads = 4
+	set("vetting.threads", configulator.LayerDefault, "default tag")
+	cfg.Vetting.CachePrefix = "vetting/cache/"
+	set("vetting.cache-prefix", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -1161,6 +1172,20 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.DiscoveryAlerts.IntervalMinutes != nil {
 			cfg.DiscoveryAlerts.IntervalMinutes = *s.DiscoveryAlerts.IntervalMinutes
 			set("discovery-alerts.interval-minutes", configulator.LayerFile, file)
+		}
+	}
+	if s.Vetting != nil {
+		if s.Vetting.ATLASToken != nil {
+			cfg.Vetting.ATLASToken = *s.Vetting.ATLASToken
+			set("vetting.atlas-token", configulator.LayerFile, file)
+		}
+		if s.Vetting.Threads != nil {
+			cfg.Vetting.Threads = *s.Vetting.Threads
+			set("vetting.threads", configulator.LayerFile, file)
+		}
+		if s.Vetting.CachePrefix != nil {
+			cfg.Vetting.CachePrefix = *s.Vetting.CachePrefix
+			set("vetting.cache-prefix", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -2558,6 +2583,27 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.DiscoveryAlerts.IntervalMinutes = int(p)
 		set("discovery-alerts.interval-minutes", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "vetting", "atlas-token"); ok {
+		cfg.Vetting.ATLASToken = v
+		set("vetting.atlas-token", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "vetting", "threads"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "vetting.threads",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Vetting.Threads = int(p)
+		set("vetting.threads", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "vetting", "cache-prefix"); ok {
+		cfg.Vetting.CachePrefix = v
+		set("vetting.cache-prefix", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -2726,6 +2772,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"discovery-alerts" + o.Separator + "telegram-chat-id",
 		"discovery-alerts" + o.Separator + "followup",
 		"discovery-alerts" + o.Separator + "interval-minutes",
+		"vetting" + o.Separator + "atlas-token",
+		"vetting" + o.Separator + "threads",
+		"vetting" + o.Separator + "cache-prefix",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -2896,6 +2945,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[152], "", "Telegram chat the alerts go to; empty turns the alerts off")
 	fs.Bool(names[153], false, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default")
 	fs.Var(impl.NewInt(5), names[154], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
+	fs.String(names[155], "", "ATLAS forced photometry API token; empty skips ATLAS")
+	fs.Var(impl.NewInt(4), names[156], "Cores the vetting job uses to read subs and fit light curves")
+	fs.String(names[157], "vetting/cache/", "Path in the processed bucket where survey data pulled per target field is kept, zstd compressed")
 	return nil
 }
 
@@ -4761,6 +4813,42 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.DiscoveryAlerts.IntervalMinutes = v
 		set("discovery-alerts.interval-minutes", configulator.LayerCLI, "--"+n)
 	}
+	if n := "vetting" + o.Separator + "atlas-token"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "vetting.atlas-token",
+				Source: "--" + n,
+			}
+		}
+		cfg.Vetting.ATLASToken = v
+		set("vetting.atlas-token", configulator.LayerCLI, "--"+n)
+	}
+	if n := "vetting" + o.Separator + "threads"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "vetting.threads",
+				Source: "--" + n,
+			}
+		}
+		cfg.Vetting.Threads = v
+		set("vetting.threads", configulator.LayerCLI, "--"+n)
+	}
+	if n := "vetting" + o.Separator + "cache-prefix"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "vetting.cache-prefix",
+				Source: "--" + n,
+			}
+		}
+		cfg.Vetting.CachePrefix = v
+		set("vetting.cache-prefix", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -5192,6 +5280,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.DiscoveryAlerts = &sub
+			}
+		case "vetting":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("vetting", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub vettingShadow
+				if err := sub.decodeJSON(dec, "vetting"); err != nil {
+					return err
+				}
+				s.Vetting = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -8205,6 +8312,84 @@ func (s *discoveryAlertsShadow) decodeJSON(dec *jsontext.Decoder, path string) e
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *vettingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "atlas-token":
+			if err := func() error {
+				v, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				switch v.Kind() {
+				case jsontext.KindNull:
+				case jsontext.KindString:
+					str := v.String()
+					s.ATLASToken = &str
+				default:
+					return configJSONError(path+".atlas-token", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+				}
+				return nil
+			}(); err != nil {
+				return &configulator.ParseError{
+					Err:   errors.New("invalid value"),
+					Path:  path + ".atlas-token",
+					Value: "(redacted)",
+				}
+			}
+		case "threads":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".threads", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".threads", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.Threads = &num
+			default:
+				return configJSONError(path+".threads", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		case "cache-prefix":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.CachePrefix = &str
+			default:
+				return configJSONError(path+".cache-prefix", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -8378,6 +8563,9 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "discovery-alerts.telegram-chat-id = %v\n", c.DiscoveryAlerts.TelegramChatID)
 	fmt.Fprintf(&b, "discovery-alerts.followup = %v\n", c.DiscoveryAlerts.Followup)
 	fmt.Fprintf(&b, "discovery-alerts.interval-minutes = %v\n", c.DiscoveryAlerts.IntervalMinutes)
+	b.WriteString("vetting.atlas-token = (redacted)\n")
+	fmt.Fprintf(&b, "vetting.threads = %v\n", c.Vetting.Threads)
+	fmt.Fprintf(&b, "vetting.cache-prefix = %v\n", c.Vetting.CachePrefix)
 	return b.String()
 }
 

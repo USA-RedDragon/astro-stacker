@@ -47,6 +47,15 @@ type Config struct {
 	MorningReport MorningReport `name:"morning-report" description:"A daily Telegram report on the night that just ended: safe and imaged hours, subs kept and rejected, unsafe events and how fast the flap closed, dew, autofocus, guiding and camera, with each imaged target's current stack"`
 	// DiscoveryAlerts is the fast path for a new find.
 	DiscoveryAlerts DiscoveryAlerts `name:"discovery-alerts" description:"A Telegram alert, through a bot of its own, as soon as a night comparison stores a high-confidence new find whose catalogue checks all succeeded, and a second look at its field"`
+	// Vetting is the automatic vetting of new discoveries.
+	Vetting Vetting `name:"vetting" description:"Automatic checks of every new discovery: image checks, its own light curve, ZTF, ATLAS, TESS and NEOWISE history with a period search, catalogs and known moving objects, with a suggested verdict"`
+}
+
+// Vetting configures the vetting job.
+type Vetting struct {
+	ATLASToken  string `name:"atlas-token" description:"ATLAS forced photometry API token; empty skips ATLAS" secret:"true"`
+	Threads     int    `name:"threads" description:"Cores the vetting job uses to read subs and fit light curves" default:"4"`
+	CachePrefix string `name:"cache-prefix" description:"Path in the processed bucket where survey data pulled per target field is kept, zstd compressed" default:"vetting/cache/"`
 }
 
 // DiscoveryAlerts are the alerts on new discovery candidates and their
