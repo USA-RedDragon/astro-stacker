@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -58,6 +59,8 @@ type surveyCatalog struct {
 	// before VizieR's alone.
 	prefix, vizPrefix string
 	band              string
+	// skip are the catalogue's classes that are not variable stars.
+	skip []string
 }
 
 // SurveyVariables reads the survey catalogues of variable stars: Gaia
@@ -69,8 +72,10 @@ type SurveyVariables struct{ cats []surveyCatalog }
 // answer; a nil bucket reads VizieR only.
 func NewSurveyVariables(b starcat.Bucket) *SurveyVariables {
 	cats := []surveyCatalog{
-		{name: catalogGaiaVari, cat: starcat.GaiaVariability(), cols: [7]string{"Source", "RA_ICRS", "DE_ICRS", "Class"}, prefix: "Gaia DR3 "},
-		{name: catalogATLAS, cat: starcat.ATLASVariables(), cols: [7]string{"ATOID", colRAJ2000, colDEJ2000, "Class", "", "vf-o-med"}, prefix: "ATO ", band: "o"},
+		{name: catalogGaiaVari, cat: starcat.GaiaVariability(), cols: [7]string{"Source", "RA_ICRS", "DE_ICRS", "Class"}, prefix: "Gaia DR3 ",
+			skip: []string{"AGN", "SN", "MICROLENSING"}},
+		{name: catalogATLAS, cat: starcat.ATLASVariables(), cols: [7]string{"ATOID", colRAJ2000, colDEJ2000, "Class", "", "vf-o-med"}, prefix: "ATO ", band: "o",
+			skip: []string{atlasDubious}},
 		{name: catalogZTFVar, cat: starcat.ZTFVariables(), cols: [7]string{"ID", colRAJ2000, colDEJ2000, "Type", "Per", "rmag", "rAmp"}, band: "r"},
 		{name: catalogASASSN, cat: starcat.ASASSNVariables(), cols: [7]string{"ASASSN-V", colRAJ2000, colDEJ2000, "Type", "Per", "Vmag", "Amp"}, vizPrefix: "ASASSN-V ", band: "V"},
 	}
@@ -85,7 +90,9 @@ func NewSurveyVariables(b starcat.Bucket) *SurveyVariables {
 // surveyVariables adds the survey catalogues' variable stars in the field
 // to k, each catalogue listed as checked, or as failed when neither its
 // mirror nor VizieR, nor an older VizieR answer for the field, answers.
-// ATLAS's dubious candidates, which may not vary, are left out.
+// ATLAS's dubious candidates, which may not vary, and Gaia's active
+// galactic nuclei, supernovae and microlensing events, which are not
+// variable stars, are left out.
 func (r *Runner) surveyVariables(ctx context.Context, object string, ra, dec, radius float64, k *Known) {
 	s := r.opts.SurveyVariables
 	if s == nil {
@@ -114,7 +121,7 @@ func (r *Runner) surveyVariables(ctx context.Context, object string, ra, dec, ra
 // SIMBAD's answers, an older cache standing in while VizieR is down.
 func (r *Runner) surveyCone(ctx context.Context, c surveyCatalog, object string, ra, dec, radius float64) ([]Variable, error) {
 	if c.mirror != nil {
-		got, err := c.mirror.Cone(ctx, ra, dec, radius, func(s *starcat.VarStar) bool { return s.Type != atlasDubious })
+		got, err := c.mirror.Cone(ctx, ra, dec, radius, func(s *starcat.VarStar) bool { return !slices.Contains(c.skip, s.Type) })
 		if err == nil {
 			out := make([]Variable, len(got))
 			for i, s := range got {
@@ -202,7 +209,7 @@ func (c surveyCatalog) vizier(ctx context.Context, cat *Catalogs, ra, dec, radiu
 	for _, row := range rows {
 		a, ok1 := num(row[c.cols[1]])
 		d, ok2 := num(row[c.cols[2]])
-		if !ok1 || !ok2 || row[c.cols[0]] == "" || row[c.cols[3]] == atlasDubious {
+		if !ok1 || !ok2 || row[c.cols[0]] == "" || slices.Contains(c.skip, row[c.cols[3]]) {
 			continue
 		}
 		f := func(col string) float64 {
