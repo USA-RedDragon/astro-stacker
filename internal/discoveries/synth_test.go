@@ -30,10 +30,16 @@ type field struct {
 	AstY     float64
 	AstVX    float64
 	AstVY    float64
-	start    time.Time
-	sky      float64
-	noise    float64
-	zp       float64
+	// hot puts a defect pixel on the last night's subs, spread over 2x2
+	// pixels and moved by up to a pixel and a half between them, as
+	// registration spreads and moves one.
+	hot   bool
+	HotX  float64
+	HotY  float64
+	start time.Time
+	sky   float64
+	noise float64
+	zp    float64
 }
 
 type synthStar struct{ X, Y, Flux float64 }
@@ -148,7 +154,8 @@ func addGauss(d []float32, w, h int, x, y, flux, sigma float64) {
 	}
 }
 
-// render draws sub i of night n, or the noiseless master with n < 0.
+// render draws sub i of night n, or the noiseless master with n < 0. Each
+// sub's border moves with its dither, as a registered sub's does.
 func (f *field) render(n, i int) []float32 {
 	rng := rand.New(rand.NewChaCha8(sha256.Sum256(fmt.Appendf(nil, "%d/%d", n, i))))
 	d := make([]float32, f.W*f.H)
@@ -165,6 +172,14 @@ func (f *field) render(n, i int) []float32 {
 		}
 		addGauss(d, f.W, f.H, s.X, s.Y, fl*scale, sigma)
 	}
+	if last && f.hot {
+		ox, oy := []float64{0.2, 1.1, 0.6, 1.4, 0.9, 0.3}[i%6], []float64{0.7, 0.1, 1.3, 0.8, 0.4, 1.2}[i%6]
+		x0, y0 := int(f.HotX+ox), int(f.HotY+oy)
+		fx, fy := f.HotX+ox-float64(x0), f.HotY+oy-float64(y0)
+		for _, q := range [][3]float64{{0, 0, (1 - fx) * (1 - fy)}, {1, 0, fx * (1 - fy)}, {0, 1, (1 - fx) * fy}, {1, 1, fx * fy}} {
+			d[(y0+int(q[1]))*f.W+x0+int(q[0])] += float32(0.6 * q[2])
+		}
+	}
 	if last {
 		addGauss(d, f.W, f.H, f.NewX, f.NewY, 0.6*scale, sigma)
 		dt := f.subTime(n, i).Add(synthSubSeconds * time.Second / 2).Sub(f.subTime(n, 0)).Minutes()
@@ -178,9 +193,10 @@ func (f *field) render(n, i int) []float32 {
 		d[k] = float32(v)
 	}
 	if n >= 0 {
+		dx, dy := (n*5+i*3)%9-4, (n*3+i*7)%9-4
 		for y := range f.H {
 			for x := range f.W {
-				if x < synthBorder || y < synthBorder || x >= f.W-synthBorder || y >= f.H-synthBorder {
+				if x < synthBorder+dx || y < synthBorder+dy || x >= f.W-synthBorder+dx || y >= f.H-synthBorder+dy {
 					d[y*f.W+x] = 0
 				}
 			}
@@ -364,5 +380,37 @@ func TestRunComparesANightOfOneSubPerFilter(t *testing.T) {
 	}
 	if _, err := Run(context.Background(), in); !errors.Is(err, ErrTooLittle) {
 		t.Errorf("a night of one R, G and B sub has no filter to stack: %v", err)
+	}
+}
+
+// TestRunHoldsADefectPixel replays Pelican Nebula Panel 2's night of
+// 2026-09-14: a defect pixel moved by a pixel between subs by their
+// registration is less sharp in the stack than in each sub, where it is
+// one pixel, and is held at low confidence as a new source.
+func TestRunHoldsADefectPixel(t *testing.T) {
+	t.Parallel()
+	f := newField(t)
+	f.hot = true
+	f.HotX, f.HotY = f.emptySpot(t, 1400, 900)
+	res, err := Run(context.Background(), f.input(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := false
+	for _, c := range res.Candidates {
+		if math.Hypot(c.X-f.HotX-1.2, c.Y-f.HotY-1.2) < 2 {
+			held = c.LowConf
+		}
+		if math.Hypot(c.X-f.NewX, c.Y-f.NewY) < 1.5 && c.LowConf {
+			t.Errorf("the new star was held: %+v", c)
+		}
+	}
+	if !held {
+		for _, r := range res.Rejected {
+			if math.Hypot(r.X-f.HotX, r.Y-f.HotY) < 3 {
+				t.Logf("rejected %+v", r)
+			}
+		}
+		t.Error("the defect pixel was not found and held")
 	}
 }
