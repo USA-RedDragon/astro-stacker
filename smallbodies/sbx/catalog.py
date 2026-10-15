@@ -107,6 +107,8 @@ def parse_sbdb(doc: dict, kind: int) -> tuple[Orbits, np.ndarray]:
             name = pdes if m else (f"{prefix}/{pdes}" if prefix else pdes)
         else:
             h, g = _num(r[f["H"]]), _num(r[f["G"]], 0.15)
+            if h >= 99:
+                h = np.nan
             number = pdes if pdes.isdigit() else ""
             name = pdes
         names.append(name)
