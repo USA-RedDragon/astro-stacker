@@ -930,10 +930,13 @@ func (r *Runner) anchorsOf(ctx context.Context, st app.Stack) ([]Anchor, error) 
 	return a, nil
 }
 
+// gaiaCache holds each star as RA, Dec, G, pmRA and pmDE; PM says the
+// proper motions were fetched, as older caches lack them.
 type gaiaCache struct {
 	RA, Dec, Radius float64
 	Fetched         time.Time
-	Stars           [][3]float64
+	PM              bool
+	Stars           [][5]float64
 }
 
 func objectSlug(object string) string {
@@ -943,10 +946,10 @@ func objectSlug(object string) string {
 func (r *Runner) gaia(ctx context.Context, object string, ra, dec, radius float64) ([]Star, error) {
 	key := keyPrefix + "cache/" + objectSlug(object) + "/gaia.json.zst"
 	var c gaiaCache
-	if err := r.getJSON(ctx, key, &c); err == nil && Separation(ra, dec, c.RA, c.Dec)+radius <= c.Radius+1e-9 {
+	if err := r.getJSON(ctx, key, &c); err == nil && c.PM && Separation(ra, dec, c.RA, c.Dec)+radius <= c.Radius+1e-9 {
 		out := make([]Star, len(c.Stars))
 		for i, s := range c.Stars {
-			out[i] = Star{s[0], s[1], s[2]}
+			out[i] = Star{RA: s[0], Dec: s[1], G: s[2], PMRA: s[3], PMDec: s[4]}
 		}
 		return out, nil
 	}
@@ -954,9 +957,9 @@ func (r *Runner) gaia(ctx context.Context, object string, ra, dec, radius float6
 	if err != nil {
 		return nil, err
 	}
-	c = gaiaCache{RA: ra, Dec: dec, Radius: radius, Fetched: r.now(), Stars: make([][3]float64, len(stars))}
+	c = gaiaCache{RA: ra, Dec: dec, Radius: radius, Fetched: r.now(), PM: true, Stars: make([][5]float64, len(stars))}
 	for i, s := range stars {
-		c.Stars[i] = [3]float64{s.RA, s.Dec, s.G}
+		c.Stars[i] = [5]float64{s.RA, s.Dec, s.G, s.PMRA, s.PMDec}
 	}
 	if err := r.putJSON(ctx, key, c); err != nil {
 		slog.Warn("Could not cache Gaia stars", "object", object, "error", err)

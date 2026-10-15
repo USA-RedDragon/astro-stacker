@@ -132,7 +132,7 @@ func num(s string) (float64, bool) {
 }
 
 // Gaia returns Gaia DR3 stars within radius degrees, brightest first, at
-// most 400000: to G 21.5, or in a Milky Way field VizieR can't sort that
+// their 2016.0 positions with their proper motions, at most 400000: to G 21.5, or in a Milky Way field VizieR can't sort that
 // deep in time, to G 19.5 or 18.
 func (c *Catalogs) Gaia(ctx context.Context, ra, dec, radius float64) ([]Star, error) {
 	var err error
@@ -155,7 +155,7 @@ func (c *Catalogs) gaia(ctx context.Context, ra, dec, radius, faint float64) ([]
 	q.Set("-source", "I/355/gaiadr3")
 	q.Set("-c", fmt.Sprintf("%.6f %+.6f", ra, dec))
 	q.Set("-c.rd", fmt.Sprintf("%.4f", radius))
-	q.Set("-out", "RA_ICRS,DE_ICRS,Gmag")
+	q.Set("-out", "RA_ICRS,DE_ICRS,Gmag,pmRA,pmDE")
 	q.Set("Gmag", fmt.Sprintf("<%g", faint))
 	q.Set("-out.max", strconv.Itoa(gaiaMaxRows))
 	q.Set("-sort", "Gmag")
@@ -173,7 +173,10 @@ func (c *Catalogs) gaia(ctx context.Context, ra, dec, radius, faint float64) ([]
 		d, ok2 := num(r["DE_ICRS"])
 		g, ok3 := num(r["Gmag"])
 		if ok1 && ok2 && ok3 {
-			out = append(out, Star{a, d, g})
+			st := Star{RA: a, Dec: d, G: g}
+			st.PMRA, _ = num(r["pmRA"])
+			st.PMDec, _ = num(r["pmDE"])
+			out = append(out, st)
 		}
 	}
 	return out, nil

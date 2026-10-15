@@ -13,39 +13,83 @@ import (
 
 // Tunables of the method, from its trial on IC 3393 Panel 1.
 const (
-	DetectSigma     = 5.0
-	PromoteSigma    = 7.0
-	apertureR       = 1.5
-	residualR       = 3.0
-	edgePixels      = 64
-	minAxisRatio    = 0.45
-	minPixels       = 5
-	maxDipole       = 0.6
-	minResidualFrac = 0.05
-	residualRefSNR  = 20.0
-	presenceSigma   = 1.0
-	presenceShare   = 0.5
-	meanAgreeSigma  = 2.0
-	medianShare     = 0.4
-	minPromoteSubs  = 6
-	maxSingleShare  = 0.5
-	gaiaMatchPx     = 1.5
-	anchorRadius    = 5.0
-	anchorThresh    = 20.0
-	anchorIsolated  = 25.0
-	anchorCount     = 400
-	emptyApertures  = 20000
-	emptyMargin     = 200
-	zpMinG          = 12.0
-	zpMaxG          = 17.0
-	astroMaxG       = 18.0
-	astroMatchPx    = 3.0
-	hfrToSigma      = 1.1774
+	DetectSigma  = 5.0
+	PromoteSigma = 7.0
+	apertureR    = 1.5
+	residualR    = 3.0
+	edgePixels   = 64
+	minAxisRatio = 0.45
+	minPixels    = 5
+	maxDipole    = 0.6
+	// A catalogued star that moved minStarMotionPx or more between the
+	// reference and the night leaves a dipole in the difference: Gaia DR3
+	// 381120971054786304 (G 16.2, 168 mas/yr) on Andromeda's 2026-10-11
+	// night left one of 0.52, read as a new source.
+	minStarMotionPx  = 0.05
+	movingStarDipole = 0.3
+	minResidualFrac  = 0.05
+	residualRefSNR   = 20.0
+	presenceSigma    = 1.0
+	presenceShare    = 0.5
+	meanAgreeSigma   = 2.0
+	medianShare      = 0.4
+	minPromoteSubs   = 6
+	maxSingleShare   = 0.5
+	gaiaMatchPx      = 1.5
+	anchorRadius     = 5.0
+	anchorThresh     = 20.0
+	anchorIsolated   = 25.0
+	anchorCount      = 400
+	emptyApertures   = 20000
+	emptyMargin      = 200
+	zpMinG           = 12.0
+	zpMaxG           = 17.0
+	astroMaxG        = 18.0
+	astroMatchPx     = 3.0
+	hfrToSigma       = 1.1774
 )
 
-// Star is a catalogue star.
+// Star is a catalogue star: its Gaia DR3 position at epoch 2016.0 and its
+// proper motion in mas/yr, PMRA along the sky (µα cos δ).
 type Star struct {
-	RA, Dec, G float64
+	RA, Dec, G  float64
+	PMRA, PMDec float64
+}
+
+// gaiaEpoch is Gaia DR3's reference epoch, J2016.0.
+func gaiaEpoch() time.Time { return time.Date(2016, 1, 1, 12, 0, 0, 0, time.UTC) }
+
+// At is the star's position at t, moved by its proper motion.
+func (s Star) At(t time.Time) (ra, dec float64) {
+	if s.PMRA == 0 && s.PMDec == 0 {
+		return s.RA, s.Dec
+	}
+	yr := t.Sub(gaiaEpoch()).Hours() / 24 / 365.25
+	dec = s.Dec + s.PMDec*yr/3.6e6
+	ra = s.RA + s.PMRA*yr/3.6e6/math.Cos(s.Dec*deg)
+	return math.Mod(ra+360, 360), dec
+}
+
+// starsAt moves every star to its position at t.
+func starsAt(stars []Star, t time.Time) []Star {
+	out := make([]Star, len(stars))
+	for i, s := range stars {
+		out[i] = s
+		out[i].RA, out[i].Dec = s.At(t)
+	}
+	return out
+}
+
+// meanMid is the mean mid-exposure time of subs.
+func meanMid(subs []Sub) time.Time {
+	if len(subs) == 0 {
+		return time.Time{}
+	}
+	var sum float64
+	for _, s := range subs {
+		sum += float64(s.Mid().UnixNano())
+	}
+	return time.Unix(0, int64(sum/float64(len(subs)))).UTC()
 }
 
 // Anchor is a bright isolated star of a filter's master, which every sub of
@@ -85,6 +129,9 @@ type Input struct {
 	Filters []FilterInput
 	Gaia    []Star
 	Threads int
+	// gaiaRef and gaiaNight are Gaia moved to the reference's and the
+	// night's mean epochs.
+	gaiaRef, gaiaNight []Star
 	// Load returns a registered sub's pixels, NaN where it has no data.
 	Load func(ctx context.Context, s Sub) (*Plane, error)
 	// Progress, if set, hears each stage as it starts.
@@ -120,26 +167,29 @@ type LightPoint struct {
 
 // Candidate is a source that changed between the night and the reference.
 type Candidate struct {
-	X, Y       float64
-	RA, Dec    float64
-	Sign       int
-	SNR        float64
-	DiffFlux   float64
-	RefFlux    float64
-	Frac       float64
-	Dipole     float64
-	DeltaMag   *float64
-	NightMag   *float64
-	RefMag     *float64
-	GaiaG      *float64
-	GaiaSepPx  float64
-	A, B       float64
-	NPix       int
-	PresentIn  int
-	SubsTested int
-	TopShare   float64
-	LowConf    bool
-	Light      []LightPoint
+	X, Y      float64
+	RA, Dec   float64
+	Sign      int
+	SNR       float64
+	DiffFlux  float64
+	RefFlux   float64
+	Frac      float64
+	Dipole    float64
+	DeltaMag  *float64
+	NightMag  *float64
+	RefMag    *float64
+	GaiaG     *float64
+	GaiaSepPx float64
+	// GaiaMotionPx is how far the matched star moved between the
+	// reference's and the night's epochs.
+	GaiaMotionPx float64
+	A, B         float64
+	NPix         int
+	PresentIn    int
+	SubsTested   int
+	TopShare     float64
+	LowConf      bool
+	Light        []LightPoint
 }
 
 // TrackPoint is one detection of a moving object.
@@ -268,7 +318,7 @@ type localFrac struct {
 func (in *Input) localResiduals(ref, diff *Plane, edge []bool, res *Result) localFrac {
 	var all [][2]float64
 	var gs []float64
-	for _, s := range in.Gaia {
+	for _, s := range in.gaiaRef {
 		if s.G > localMaxG+3 {
 			continue
 		}
@@ -562,6 +612,12 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	if len(stacks) == 0 || res.NightSubs < 3 {
 		return nil, ErrTooLittle
 	}
+	var refSubs, nightSubs []Sub
+	for _, fs := range stacks {
+		refSubs = append(refSubs, fs.f.Ref...)
+		nightSubs = append(nightSubs, fs.f.Night...)
+	}
+	in.gaiaRef, in.gaiaNight = starsAt(in.Gaia, meanMid(refSubs)), starsAt(in.Gaia, meanMid(nightSubs))
 	W, H := in.W, in.H
 	for _, fs := range stacks {
 		var err error
@@ -581,7 +637,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	res.FieldRadius = math.Hypot(float64(W), float64(H)) / 2 * res.PixelScale / 3600
 
 	in.stage("tying the plate solution to Gaia")
-	fitAstrometry(in.WCS, ref, in.Gaia, res)
+	fitAstrometry(in.WCS, ref, in.gaiaRef, res)
 
 	in.stage("matching star profiles")
 	D, err := difference(night, ref, valid, stacks[0].f.Anchors, threads, res)
@@ -596,20 +652,20 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	if !(res.ApSigma > 0) || !(res.NightApSigma > 0) {
 		return nil, errors.New("could not measure the noise: too little sky away from the edges")
 	}
-	if zp, ok := zeroPoint(ref, in.WCS, in.Gaia, edge, apertureR); ok {
+	if zp, ok := zeroPoint(ref, in.WCS, in.gaiaRef, edge, apertureR); ok {
 		res.ZeroPoint = &zp
 		d := zp - 2.5*math.Log10(DetectSigma*res.NightApSigma)
 		res.Depth = &d
 	}
 	for _, fs := range stacks {
-		if zp, ok := zeroPoint(fs.ref, in.WCS, in.Gaia, edge, apertureR); ok {
+		if zp, ok := zeroPoint(fs.ref, in.WCS, in.gaiaRef, edge, apertureR); ok {
 			fs.zp = &zp
 		}
-		if zp, ok := zeroPoint(fs.ref, in.WCS, in.Gaia, edge, residualR); ok {
+		if zp, ok := zeroPoint(fs.ref, in.WCS, in.gaiaRef, edge, residualR); ok {
 			fs.zpWide = &zp
 		}
 	}
-	bmask := brightMask(in.Gaia, in.WCS, W, H)
+	bmask := brightMask(in.gaiaNight, in.WCS, W, H)
 
 	in.stage("finding changes")
 	cands := in.findChanges(D, dmesh.RMSPlane(), ref, edge, bmask, res)
@@ -808,15 +864,7 @@ func difference(night, ref *Plane, valid []bool, anchors []Anchor, threads int, 
 // applies the cuts that need only the stacks.
 func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmask []bool, res *Result) []cand {
 	W, H := diff.W, diff.H
-	var gaiaPts [][2]float64
-	var gaiaIdx []int
-	for i, s := range in.Gaia {
-		if x, y, ok := in.WCS.PixelOf(s.RA, s.Dec); ok && x > -10 && y > -10 && x < float64(W)+10 && y < float64(H)+10 {
-			gaiaPts = append(gaiaPts, [2]float64{x, y})
-			gaiaIdx = append(gaiaIdx, i)
-		}
-	}
-	gaiaGrid := NewGrid(gaiaPts, 8)
+	gaia := in.newGaiaIndex(W, H)
 	sigmaNight := res.HFRNight / hfrToSigma
 	var cands []cand
 	for _, sign := range []int{1, -1} {
@@ -854,15 +902,76 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 			c.Frac = math.Abs(c.DiffFlux) / math.Max(c.RefFlux, 1e-12)
 			c.Dipole = dipole(sd, o.X, o.Y)
 			c.wide = c.RefFlux > residualRefSNR*res.ApSigma*math.Sqrt(float64(res.NightSubs))
-			if gi, d := gaiaGrid.Nearest(o.X, o.Y, gaiaMatchPx); gi >= 0 {
-				g := in.Gaia[gaiaIdx[gi]].G
-				c.GaiaG, c.GaiaSepPx = &g, d
+			if gi, d, moved := gaia.match(o.X, o.Y); gi >= 0 {
+				g := in.Gaia[gi].G
+				c.GaiaG, c.GaiaSepPx, c.GaiaMotionPx = &g, d, moved
 			}
 			cands = append(cands, c)
 		}
 		res.Funnel[name] = fn
 	}
 	return cands
+}
+
+// gaiaIndex finds the catalogued star at a pixel of the difference.
+type gaiaIndex struct {
+	grid    *Grid
+	from    [][2]float64
+	idx     []int
+	maxMove float64
+}
+
+// newGaiaIndex places each Gaia star at its night position, with where it
+// was at the reference's epoch.
+func (in *Input) newGaiaIndex(w, h int) gaiaIndex {
+	var g gaiaIndex
+	var pts [][2]float64
+	for i, s := range in.gaiaNight {
+		x, y, ok := in.WCS.PixelOf(s.RA, s.Dec)
+		if !ok || x <= -10 || y <= -10 || x >= float64(w)+10 || y >= float64(h)+10 {
+			continue
+		}
+		rx, ry, ok := in.WCS.PixelOf(in.gaiaRef[i].RA, in.gaiaRef[i].Dec)
+		if !ok {
+			rx, ry = x, y
+		}
+		pts = append(pts, [2]float64{x, y})
+		g.from = append(g.from, [2]float64{rx, ry})
+		g.idx = append(g.idx, i)
+		g.maxMove = math.Max(g.maxMove, math.Hypot(rx-x, ry-y))
+	}
+	g.grid = NewGrid(pts, 8)
+	return g
+}
+
+// match returns the Gaia star whose path from the reference's epoch to the
+// night's passes nearest (x, y), within gaiaMatchPx, how far from it, and
+// how far the star moved; -1 when there is none.
+func (g gaiaIndex) match(x, y float64) (star int, sep, moved float64) {
+	best, bestD := -1, math.Inf(1)
+	for _, i := range g.grid.Within(x, y, gaiaMatchPx+g.maxMove) {
+		p, q := g.grid.pts[i], g.from[i]
+		if d := segmentDistance(x, y, p[0], p[1], q[0], q[1]); d <= gaiaMatchPx && d < bestD {
+			best, bestD = i, d
+		}
+	}
+	if best < 0 {
+		return -1, 0, 0
+	}
+	p, q := g.grid.pts[best], g.from[best]
+	return g.idx[best], bestD, math.Hypot(p[0]-q[0], p[1]-q[1])
+}
+
+// movingStar says whether a change is the dipole a catalogued star leaves
+// in the difference by moving between the reference and the night: the
+// star moved, the difference has a dipole, and the residual the motion
+// leaves, about 0.6 of the star's flux times its motion over the star
+// profile's sigma, could make the change.
+func (c Candidate) movingStar(sigma float64) bool {
+	if c.GaiaG == nil || c.GaiaMotionPx < minStarMotionPx || c.Dipole < movingStarDipole || !(sigma > 0) {
+		return false
+	}
+	return 0.6*c.RefFlux*c.GaiaMotionPx/sigma >= 0.5*math.Abs(c.DiffFlux)
 }
 
 func signName(sign int) string {
@@ -938,6 +1047,10 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			fn.PerSub++
 			if c.Dipole > maxDipole {
 				reject("dipole")
+				continue
+			}
+			if c.movingStar(math.Max(res.HFRNight, res.HFRRef) / hfrToSigma) {
+				reject(fmt.Sprintf("moving star: moved %.2f px since the reference, dipole %.2f", c.GaiaMotionPx, c.Dipole))
 				continue
 			}
 			fn.NotDipole++

@@ -21,8 +21,8 @@ import (
 // The trial found 13 VSX variables among the changes and linked all 17
 // known asteroids brighter than V 19.5. The data (1.4 GB of registered
 // subs) is not in the repository: set DISCOVERIES_KAT_DIR to a directory
-// with L/*.xisf, master_L.fit, subs.tsv, wcs.json, gaia.tsv, vsx.tsv and
-// skybot.txt.
+// with L/*.xisf, master_L.fit, subs.tsv, wcs.json, gaia.tsv (RA, Dec, G and
+// optionally pmRA, pmDE), vsx.tsv and skybot.txt.
 func TestKnownAnswerIC3393(t *testing.T) {
 	t.Parallel()
 	dir := os.Getenv("DISCOVERIES_KAT_DIR")
@@ -365,13 +365,18 @@ func readGaia(t *testing.T, path string) []discoveries.Star {
 	var out []discoveries.Star
 	for line := range strings.SplitSeq(string(b), "\n") {
 		f := strings.Fields(line)
-		if len(f) != 3 {
+		if len(f) != 3 && len(f) != 5 {
 			continue
 		}
 		ra, _ := strconv.ParseFloat(f[0], 64)
 		dec, _ := strconv.ParseFloat(f[1], 64)
 		g, _ := strconv.ParseFloat(f[2], 64)
-		out = append(out, discoveries.Star{RA: ra, Dec: dec, G: g})
+		st := discoveries.Star{RA: ra, Dec: dec, G: g}
+		if len(f) == 5 {
+			st.PMRA, _ = strconv.ParseFloat(f[3], 64)
+			st.PMDec, _ = strconv.ParseFloat(f[4], 64)
+		}
+		out = append(out, st)
 	}
 	return out
 }
