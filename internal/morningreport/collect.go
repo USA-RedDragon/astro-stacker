@@ -108,6 +108,7 @@ func (c Collector) Collect(ctx context.Context, night time.Time) (Report, error)
 	c.guiderErrors(ctx, &r, nina)
 	c.cooler(ctx, &r, spans)
 	c.discoveries(ctx, &r)
+	c.known(ctx, &r)
 	if r.Subs.Count > 0 {
 		r.Images = c.images(ctx, r.Subs, night)
 	}
