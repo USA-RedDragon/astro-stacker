@@ -2,5 +2,5 @@ assist==1.2.3
 minio==7.2.20
 numpy==2.5.3
 pyerfa==2.0.1.5
-rebound==4.6.0
+rebound==5.2.2
 zstandard==0.25.0
