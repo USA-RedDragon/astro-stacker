@@ -51,6 +51,10 @@ type Catalogs struct {
 	TNSKey, TNSBotID, TNSBotName string
 	// Local is the local known-bodies service; unset asks SkyBoT.
 	Local SmallBodies
+	// TNSLocal answers TNS from the local copy instead of the search API
+	// once it is loaded, within TNSMatchArcsec when that is set.
+	TNSLocal       TNSLocal
+	TNSMatchArcsec float64
 }
 
 func (c *Catalogs) client() *http.Client {
@@ -418,6 +422,8 @@ type Alert struct {
 	RA     float64 `json:"ra"`
 	Dec    float64 `json:"dec"`
 	SepArc float64 `json:"sep_arcsec"`
+	// TNS holds the local TNS copy's details of the object.
+	TNS *TNSEntry `json:"tns,omitempty"`
 }
 
 // Alerce returns ZTF objects ALeRCE knows within radius arcseconds.
