@@ -184,9 +184,25 @@ const minHeldSubs = minFilterSubs
 // the star in eclipse makes on the star's other nights, and ZTF cannot tell
 // when the star was faint.
 func mayBeHeld(c Candidate) bool {
-	return c.Sign < 0 && c.GaiaG != nil && c.SNR >= PromoteSigma && c.SubsTested >= minHeldSubs &&
-		float64(c.PresentIn) >= minHeldPresent*float64(c.SubsTested)
+	return c.Sign < 0 && c.GaiaG != nil && c.SNR >= heldSigma && c.DeltaMag != nil && *c.DeltaMag >= minNewStarMag &&
+		c.SubsTested >= minHeldSubs && float64(c.PresentIn) >= minHeldPresent*float64(c.SubsTested)
 }
+
+const (
+	// minNewStarMag is the least change, in magnitudes, of an uncatalogued
+	// star that is new. Under it a night's colour and flat differences from
+	// the reference move stars alike: on Caldwell 14's 2026-10-09 seven
+	// stars brightened by 0.068 to 0.084 mag together, and its other filter
+	// group the same night confirmed them.
+	minNewStarMag = 0.1
+	// heldSigma is the least strength of a change held for a confirmation
+	// that ZTF may promote: one night alone, with nothing of ours to back
+	// it, must be strong. The three eclipses vetted in October 2026 stood at
+	// 64 to 113 sigma; the method-8 backfill's first nights had 22 held
+	// fadings ZTF called variable under 20 sigma, in nebulae and crowded
+	// fields.
+	heldSigma = 20.0
+)
 
 // minHeldPresent is the least share of its subs a held change must be seen
 // in for a confirmation to promote it. The three eclipses vetted in October
@@ -403,9 +419,13 @@ func bodyName(b Body) string {
 // night and the reference moves a star alike in L, R, G and B. One night's
 // change alone is held at low confidence, as the backfill of October 2026
 // found over a hundred such changes on stars and none held up; the star's
-// ZTF light curve can confirm one instead (see ztfCheck). A source where no
-// star was before is not held: it may be a transient, and follow-up imaging
-// is asked for on it. An alert broker's ZTF object at a catalogued star is
+// ZTF light curve can confirm one instead (see ztfCheck). A change of an
+// uncatalogued star under minNewStarMag is held however confirmed. A source
+// where no star was before is not held: it may be a transient, and
+// follow-up imaging is asked for on it. A brightening outside a galaxy of
+// light the reference already held, where Gaia lists no star, is held like
+// a star's: Orion's H-a night of 2026-10-05 brightened 17 nebular knots by
+// 5 to 22%. An alert broker's ZTF object at a catalogued star is
 // that star's own variability in ZTF's differences, not a transient: only a
 // TNS entry makes a change on a star a known transient.
 func classOf(l Labelled) string {
@@ -432,7 +452,11 @@ func classOf(l Labelled) string {
 		return ClassNova
 	case l.Sign > 0 && l.GaiaG == nil && has("galaxy"):
 		return ClassSupernova
+	case l.GaiaG != nil && l.DeltaMag != nil && math.Abs(*l.DeltaMag) < minNewStarMag:
+		return ClassLowConfidence
 	case l.GaiaG != nil && !has(catalogNight):
+		return ClassLowConfidence
+	case l.Sign > 0 && l.DeltaMag != nil && !has(catalogNight):
 		return ClassLowConfidence
 	}
 	return ClassNewVariable

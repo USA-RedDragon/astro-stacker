@@ -141,7 +141,7 @@ func TestHeldChangesAreFadingsAskedOfTheBrokers(t *testing.T) {
 		}
 	}
 	asked := 0
-	brighter := Candidate{RA: 323.27678, Dec: 58.63426, Sign: 1, SNR: 17.3, PresentIn: 5, SubsTested: 5, LowConf: true, GaiaG: &g, DeltaMag: &up}
+	brighter := Candidate{RA: 323.27678, Dec: 58.63426, Sign: 1, SNR: 64.1, PresentIn: 5, SubsTested: 5, LowConf: true, GaiaG: &g, DeltaMag: &up}
 	if ls := classifyChanges(ctx, t, &Result{Candidates: []Candidate{brighter}}, Known{ZTF: variable(&asked)}); ls[0].Class != ClassLowConfidence || asked != 0 {
 		t.Errorf("a one-night brightening: %s, ZTF asked %d times", ls[0].Class, asked)
 	}
@@ -176,5 +176,37 @@ func TestZTFAlwaysJudgesAConfirmedNewVariable(t *testing.T) {
 	ls := classifyChanges(context.Background(), t, res, k)
 	if c := ls[len(ls)-1]; c.RA != 12 || c.Class != ClassLowConfidence {
 		t.Errorf("a confirmed change ZTF shows flat, after %d held ones: %s", maxZTFCandidates, c.Class)
+	}
+}
+
+func TestSmallOrWeakChangesOnStarsStayHeld(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	g := 14.1
+	other := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	variable := func(context.Context, float64, float64, float64) (ztflc.Verdict, error) {
+		return ztflc.Verdict{Kind: ztflc.Variable, Amplitude: 0.3, Band: "r"}, nil
+	}
+	mag := func(v float64) *float64 { return &v }
+	for _, tc := range []struct {
+		name  string
+		c     Candidate
+		prior []PriorChange
+		want  string
+	}{
+		{"Caldwell 14's 0.08 brightening confirmed the same night", Candidate{Sign: 1, SNR: 62.5, DeltaMag: mag(-0.084), GaiaG: &g}, []PriorChange{{Sign: 1, SNR: 30, Night: other, Group: testNarrowband}}, ClassLowConfidence},
+		{"a 0.2 brightening confirmed the same night", Candidate{Sign: 1, SNR: 62.5, DeltaMag: mag(-0.2), GaiaG: &g}, []PriorChange{{Sign: 1, SNR: 30, Night: other, Group: testNarrowband}}, ClassNewVariable},
+		{"a 13 sigma fading ZTF calls variable", Candidate{Sign: -1, SNR: 13.5, DeltaMag: mag(0.15), GaiaG: &g}, nil, ClassLowConfidence},
+		{"a 0.07 fading at 50 sigma ZTF calls variable", Candidate{Sign: -1, SNR: 50, DeltaMag: mag(0.07), GaiaG: &g}, nil, ClassLowConfidence},
+		{"Orion's brightened nebular knot", Candidate{Sign: 1, SNR: 14.7, DeltaMag: mag(-0.189)}, nil, ClassLowConfidence},
+		{"a source where nothing was", Candidate{Sign: 1, SNR: 14.7}, nil, ClassNewVariable},
+	} {
+		tc.c.RA, tc.c.Dec, tc.c.PresentIn, tc.c.SubsTested = 35.2, 57.1, 28, 28
+		for i := range tc.prior {
+			tc.prior[i].RA, tc.prior[i].Dec = 35.2, 57.1
+		}
+		if ls := classifyChanges(ctx, t, &Result{Candidates: []Candidate{tc.c}}, Known{Prior: tc.prior, ZTF: variable}); ls[0].Class != tc.want {
+			t.Errorf("%s: %s, want %s", tc.name, ls[0].Class, tc.want)
+		}
 	}
 }
