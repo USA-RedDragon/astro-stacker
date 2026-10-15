@@ -172,6 +172,9 @@ type Job struct {
 	Group     string
 	Night     time.Time
 	Requested bool
+	// Since is when the pass found the job due; a run another runner
+	// finished after that by this method is not redone.
+	Since time.Time
 }
 
 func (j Job) key() string {
@@ -572,7 +575,7 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 				if night.Before(since) || !settled[object+"\x00"+night.Format(time.DateOnly)] {
 					continue
 				}
-				j := Job{Object: object, Group: g, Night: night}
+				j := Job{Object: object, Group: g, Night: night, Since: now}
 				if run, ok := have[j.key()]; ok {
 					want := subsHash(subs)
 					if run.State == app.DiscoverySkipped {
@@ -616,6 +619,10 @@ func (r *Runner) runOne(ctx context.Context, j Job) {
 	run, err := r.startRun(ctx, j)
 	if errors.Is(err, errClaimed) {
 		slog.Info("Discovery run is running elsewhere", "object", j.Object, "night", j.Night.Format(time.DateOnly), "group", j.Group)
+		return
+	}
+	if errors.Is(err, errDoneElsewhere) {
+		slog.Info("Discovery run was done elsewhere since this pass began", "object", j.Object, "night", j.Night.Format(time.DateOnly), "group", j.Group)
 		return
 	}
 	if err != nil {
@@ -685,6 +692,12 @@ func settledRun(run app.DiscoveryRun, now time.Time) bool {
 // claimFor is taken to have died.
 var errClaimed = errors.New("running elsewhere")
 
+// errDoneElsewhere is a run another runner finished by this method since
+// the pass that found it due began: the server's runner and a backfill job
+// each list the due nights at their pass's start, and without it each
+// redid every night the other had done meanwhile.
+var errDoneElsewhere = errors.New("done elsewhere")
+
 const claimFor = 10 * time.Minute
 
 var errNotEligible = errors.New("fewer than 3 nights with accepted subs in this filter group")
@@ -700,6 +713,9 @@ func (r *Runner) startRun(ctx context.Context, j Job) (*app.DiscoveryRun, error)
 		run = found[0]
 		if run.State == app.DiscoveryRunning && time.Since(run.UpdatedAt) < claimFor {
 			return nil, errClaimed
+		}
+		if !j.Requested && !j.Since.IsZero() && run.Method == Method && settledRun(run, r.now()) && run.FinishedAt != nil && run.FinishedAt.After(j.Since) {
+			return nil, errDoneElsewhere
 		}
 	}
 	now := r.now()
