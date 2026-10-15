@@ -170,3 +170,10 @@ func TestSmallHelpers(t *testing.T) {
 		t.Error("a new source on a galaxy is a supernova candidate")
 	}
 }
+
+func TestFinkAskedAtItsZTFHost(t *testing.T) {
+	t.Parallel()
+	if !strings.HasPrefix(finkURL, "https://api.ztf.fink-portal.org/") {
+		t.Errorf("Fink's ZTF API moved to api.ztf.fink-portal.org; api.fink-portal.org no longer answers: %s", finkURL)
+	}
+}
