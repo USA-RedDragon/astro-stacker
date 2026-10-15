@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const eros = "Eros"
+
 const localJSON = `{"epoch_jd_utc":2460735.844356,"observer":"geocentre","orbits":"2026-10-14","grid":"2026-10-14","count":3,"bodies":[
 {"number":"433","name":"Eros","class":"NEA>Amor","kind":"asteroid","ra":188.1,"dec":14.2,"v":17.25,"dra":-20.5,"ddec":10.25,"sep_arcsec":12},
 {"number":"","name":"C/2023 A3 (Tsuchinshan-ATLAS)","class":"Comet","kind":"comet","ra":188.2,"dec":14.3,"v":null,"dra":1,"ddec":2,"sep_arcsec":20},
@@ -28,7 +30,7 @@ func TestParseSmallBodies(t *testing.T) {
 	if err != nil || len(bs) != 2 {
 		t.Fatalf("%+v %v", bs, err)
 	}
-	if bs[0].Number != "433" || bs[0].Name != "Eros" || bs[0].V != 17.25 || bs[0].DRA != -20.5 || bs[0].DDec != 10.25 || bs[0].Class != "NEA>Amor" {
+	if bs[0].Number != "433" || bs[0].Name != eros || bs[0].V != 17.25 || bs[0].DRA != -20.5 || bs[0].DDec != 10.25 || bs[0].Class != "NEA>Amor" {
 		t.Errorf("eros %+v", bs[0])
 	}
 	if bs[1].V != 0 || bs[1].Number != "" {
@@ -129,23 +131,23 @@ func TestParseSBIdent(t *testing.T) {
 	if bs[1].Number != "" || bs[1].Name != "C/2023 A3 (Tsuchinshan-ATLAS)" || bs[1].Dec != -5.5 || bs[1].RA != 2.5 {
 		t.Errorf("%+v", bs[1])
 	}
-	if n, name := splitSBIdentName("433 Eros (A898 PA)"); n != "433" || name != "Eros" {
+	if n, name := splitSBIdentName("433 Eros (A898 PA)"); n != "433" || name != eros {
 		t.Errorf("%q %q", n, name)
 	}
-	if sexaDMS(-5.5) != "M05-30-00.00" || sexaHMS(12.5, "-") != "12-30-00.00" || sexaHMS(1+59.0/60+59.9999/3600, "-") != "02-00-00.00" {
-		t.Errorf("%s %s %s", sexaDMS(-5.5), sexaHMS(12.5, "-"), sexaHMS(1+59.0/60+59.9999/3600, "-"))
+	if sexaDMS(-5.5) != "M05-30-00.00" || sexaHMS(12.5) != "12-30-00.00" || sexaHMS(1+59.0/60+59.9999/3600) != "02-00-00.00" {
+		t.Errorf("%s %s %s", sexaDMS(-5.5), sexaHMS(12.5), sexaHMS(1+59.0/60+59.9999/3600))
 	}
 }
 
 func TestCompareBodies(t *testing.T) {
 	t.Parallel()
 	local := []Body{
-		{Number: "433", Name: "Eros", RA: 10, Dec: 10},
+		{Number: "433", Name: eros, RA: 10, Dec: 10},
 		{Name: "2015 XX1", RA: 11, Dec: 10},
 		{Name: "2020 AB", RA: 12, Dec: 10},
 	}
 	other := []Body{
-		{Number: "433", Name: "Eros", RA: 10, Dec: 10 + 0.5/3600},
+		{Number: "433", Name: eros, RA: 10, Dec: 10 + 0.5/3600},
 		{Name: "2015 xx1", RA: 11, Dec: 10},
 		{Name: "renamed", RA: 12, Dec: 10 + 2.0/3600},
 		{Number: "9", Name: "Metis", RA: 13, Dec: 10, V: 9.5},
