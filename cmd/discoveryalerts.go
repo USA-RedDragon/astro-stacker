@@ -86,12 +86,11 @@ func startDiscoveryAlerts(ctx context.Context, cfg *config.Config, appStore, sch
 	if !a.Enabled {
 		return
 	}
-	m := cfg.MorningReport
-	if m.TelegramToken == "" || m.TelegramChatID == "" {
-		slog.Warn("Discovery alerts are on but the morning report's Telegram token or chat is not set; no alerts are sent")
+	if a.TelegramToken == "" || a.TelegramChatID == "" {
+		slog.Info("Discovery alerts are off: no Telegram token or chat of their own is set")
 		return
 	}
-	svc := &discoveryalert.Service{DB: appStore.DB(), Sender: morningreport.Telegram{Token: m.TelegramToken, ChatID: m.TelegramChatID},
+	svc := &discoveryalert.Service{DB: appStore.DB(), Sender: morningreport.Telegram{Token: a.TelegramToken, ChatID: a.TelegramChatID},
 		Cutouts: newCutoutStore(cfg), WebURL: cfg.HTTP.WebURL, Loc: alertLoc(cfg), RetryAfter: 5 * time.Minute, MaxAttempts: 8,
 		Interval: time.Duration(a.IntervalMinutes) * time.Minute}
 	var follow *discoveryfollowup.Service

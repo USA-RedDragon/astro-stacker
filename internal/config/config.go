@@ -45,15 +45,17 @@ type Config struct {
 	// MorningReport is the daily Telegram report on the night that ended.
 	MorningReport MorningReport `name:"morning-report" description:"A daily Telegram report on the night that just ended: safe and imaged hours, subs kept and rejected, unsafe events and how fast the flap closed, dew, autofocus, guiding and camera, with each imaged target's current stack"`
 	// DiscoveryAlerts is the fast path for a new find.
-	DiscoveryAlerts DiscoveryAlerts `name:"discovery-alerts" description:"A Telegram alert, through the morning report's bot and chat, as soon as a night comparison stores a high-confidence new find whose catalogue checks all succeeded, and a second look at its field"`
+	DiscoveryAlerts DiscoveryAlerts `name:"discovery-alerts" description:"A Telegram alert, through a bot of its own, as soon as a night comparison stores a high-confidence new find whose catalogue checks all succeeded, and a second look at its field"`
 }
 
 // DiscoveryAlerts are the alerts on new discovery candidates and their
 // follow-up imaging.
 type DiscoveryAlerts struct {
-	Enabled         bool `name:"enabled" description:"Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; needs the morning report's Telegram token and chat" default:"true"`
-	Followup        bool `name:"followup" description:"For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled" default:"true"`
-	IntervalMinutes int  `name:"interval-minutes" description:"Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later" default:"5"`
+	Enabled         bool   `name:"enabled" description:"Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty" default:"true"`
+	TelegramToken   string `name:"telegram-token" description:"Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off" secret:"true"`
+	TelegramChatID  string `name:"telegram-chat-id" description:"Telegram chat the alerts go to; empty turns the alerts off"`
+	Followup        bool   `name:"followup" description:"For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled" default:"true"`
+	IntervalMinutes int    `name:"interval-minutes" description:"Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later" default:"5"`
 }
 
 type MorningReport struct {

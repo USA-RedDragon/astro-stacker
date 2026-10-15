@@ -226,9 +226,11 @@ type morningReportShadow struct {
 }
 
 type discoveryAlertsShadow struct {
-	Enabled         *bool `json:"enabled"          toml:"enabled"          yaml:"enabled"`
-	Followup        *bool `json:"followup"         toml:"followup"         yaml:"followup"`
-	IntervalMinutes *int  `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
+	Enabled         *bool   `json:"enabled"          toml:"enabled"          yaml:"enabled"`
+	TelegramToken   *string `json:"telegram-token"   toml:"telegram-token"   yaml:"telegram-token"`
+	TelegramChatID  *string `json:"telegram-chat-id" toml:"telegram-chat-id" yaml:"telegram-chat-id"`
+	Followup        *bool   `json:"followup"         toml:"followup"         yaml:"followup"`
+	IntervalMinutes *int    `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
 }
 
 type configShadow struct {
@@ -1088,6 +1090,14 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.DiscoveryAlerts.Enabled != nil {
 			cfg.DiscoveryAlerts.Enabled = *s.DiscoveryAlerts.Enabled
 			set("discovery-alerts.enabled", configulator.LayerFile, file)
+		}
+		if s.DiscoveryAlerts.TelegramToken != nil {
+			cfg.DiscoveryAlerts.TelegramToken = *s.DiscoveryAlerts.TelegramToken
+			set("discovery-alerts.telegram-token", configulator.LayerFile, file)
+		}
+		if s.DiscoveryAlerts.TelegramChatID != nil {
+			cfg.DiscoveryAlerts.TelegramChatID = *s.DiscoveryAlerts.TelegramChatID
+			set("discovery-alerts.telegram-chat-id", configulator.LayerFile, file)
 		}
 		if s.DiscoveryAlerts.Followup != nil {
 			cfg.DiscoveryAlerts.Followup = *s.DiscoveryAlerts.Followup
@@ -2395,6 +2405,14 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.DiscoveryAlerts.Enabled = p
 		set("discovery-alerts.enabled", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discovery-alerts", "telegram-token"); ok {
+		cfg.DiscoveryAlerts.TelegramToken = v
+		set("discovery-alerts.telegram-token", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discovery-alerts", "telegram-chat-id"); ok {
+		cfg.DiscoveryAlerts.TelegramChatID = v
+		set("discovery-alerts.telegram-chat-id", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discovery-alerts", "followup"); ok {
 		p, err := strconv.ParseBool(v)
 		if err != nil {
@@ -2576,6 +2594,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"morning-report" + o.Separator + "telegram-chat-id",
 		"morning-report" + o.Separator + "first-night",
 		"discovery-alerts" + o.Separator + "enabled",
+		"discovery-alerts" + o.Separator + "telegram-token",
+		"discovery-alerts" + o.Separator + "telegram-chat-id",
 		"discovery-alerts" + o.Separator + "followup",
 		"discovery-alerts" + o.Separator + "interval-minutes",
 	}
@@ -2734,9 +2754,11 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[138], "", "Telegram bot token")
 	fs.String(names[139], "", "Telegram chat the report goes to")
 	fs.String(names[140], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
-	fs.Bool(names[141], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; needs the morning report's Telegram token and chat")
-	fs.Bool(names[142], true, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled")
-	fs.Var(impl.NewInt(5), names[143], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
+	fs.Bool(names[141], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty")
+	fs.String(names[142], "", "Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off")
+	fs.String(names[143], "", "Telegram chat the alerts go to; empty turns the alerts off")
+	fs.Bool(names[144], true, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled")
+	fs.Var(impl.NewInt(5), names[145], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
 	return nil
 }
 
@@ -4445,6 +4467,30 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.DiscoveryAlerts.Enabled = v
 		set("discovery-alerts.enabled", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discovery-alerts" + o.Separator + "telegram-token"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discovery-alerts.telegram-token",
+				Source: "--" + n,
+			}
+		}
+		cfg.DiscoveryAlerts.TelegramToken = v
+		set("discovery-alerts.telegram-token", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discovery-alerts" + o.Separator + "telegram-chat-id"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discovery-alerts.telegram-chat-id",
+				Source: "--" + n,
+			}
+		}
+		cfg.DiscoveryAlerts.TelegramChatID = v
+		set("discovery-alerts.telegram-chat-id", configulator.LayerCLI, "--"+n)
 	}
 	if n := "discovery-alerts" + o.Separator + "followup"; fs.Changed(n) {
 		v, err := fs.GetBool(n)
@@ -7698,6 +7744,41 @@ func (s *discoveryAlertsShadow) decodeJSON(dec *jsontext.Decoder, path string) e
 			default:
 				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
 			}
+		case "telegram-token":
+			if err := func() error {
+				v, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				switch v.Kind() {
+				case jsontext.KindNull:
+				case jsontext.KindString:
+					str := v.String()
+					s.TelegramToken = &str
+				default:
+					return configJSONError(path+".telegram-token", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+				}
+				return nil
+			}(); err != nil {
+				return &configulator.ParseError{
+					Err:   errors.New("invalid value"),
+					Path:  path + ".telegram-token",
+					Value: "(redacted)",
+				}
+			}
+		case "telegram-chat-id":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.TelegramChatID = &str
+			default:
+				return configJSONError(path+".telegram-chat-id", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
 		case "followup":
 			v, err := dec.ReadToken()
 			if err != nil {
@@ -7902,6 +7983,8 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "morning-report.telegram-chat-id = %v\n", c.MorningReport.TelegramChatID)
 	fmt.Fprintf(&b, "morning-report.first-night = %v\n", c.MorningReport.FirstNight)
 	fmt.Fprintf(&b, "discovery-alerts.enabled = %v\n", c.DiscoveryAlerts.Enabled)
+	b.WriteString("discovery-alerts.telegram-token = (redacted)\n")
+	fmt.Fprintf(&b, "discovery-alerts.telegram-chat-id = %v\n", c.DiscoveryAlerts.TelegramChatID)
 	fmt.Fprintf(&b, "discovery-alerts.followup = %v\n", c.DiscoveryAlerts.Followup)
 	fmt.Fprintf(&b, "discovery-alerts.interval-minutes = %v\n", c.DiscoveryAlerts.IntervalMinutes)
 	return b.String()
