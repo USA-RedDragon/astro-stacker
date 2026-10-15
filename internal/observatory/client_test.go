@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,10 +14,9 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"github.com/coder/websocket"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 const (
@@ -39,11 +37,7 @@ func authorized(w http.ResponseWriter, r *http.Request) bool {
 
 func memDB(t *testing.T, name string) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name()+name, "/", "_"), time.Now().UnixNano())), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return db
+	return testdb.SQLite(t, name)
 }
 
 func TestClientStatusAndAuth(t *testing.T) {

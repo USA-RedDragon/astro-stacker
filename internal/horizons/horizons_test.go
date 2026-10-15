@@ -17,9 +17,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
-	"github.com/glebarez/sqlite"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func fixture(t *testing.T, name string) string {
@@ -236,10 +235,7 @@ func TestEphemerisSendsAsteroidCommands(t *testing.T) {
 
 func cacheDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.SQLite(t, "")
 	if err := db.AutoMigrate(&app.HorizonsCache{}); err != nil {
 		t.Fatal(err)
 	}

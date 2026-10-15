@@ -15,10 +15,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skyevents"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func framingGet(t *testing.T, f *BodyFraming, path string) (int, map[string]any) {
@@ -43,10 +41,7 @@ func TestBodyFramingRoutes(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(fixture) }))
 	defer srv.Close()
-	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.SQLite(t, "")
 	for _, s := range []string{
 		`create table project ("Id" integer primary key, name text, state integer, guid text)`,
 		`create table target ("Id" integer primary key, name text, active integer, projectid integer, guid text)`,

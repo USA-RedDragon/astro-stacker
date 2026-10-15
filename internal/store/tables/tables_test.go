@@ -2,14 +2,12 @@ package tables_test
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
-	"github.com/glebarez/sqlite"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -65,11 +63,7 @@ func check(t *testing.T, db *gorm.DB) {
 
 func TestSQLite(t *testing.T) {
 	t.Parallel()
-	dsn := fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"), time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.SQLite(t, "")
 	check(t, db)
 }
 

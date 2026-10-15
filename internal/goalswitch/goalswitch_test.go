@@ -3,7 +3,6 @@ package goalswitch_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -14,9 +13,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
-	"github.com/glebarez/sqlite"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 const (
@@ -28,11 +26,7 @@ const (
 
 func open(t *testing.T, name string) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s-%s?mode=memory&cache=shared", t.Name(), name)), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return db
+	return testdb.SQLite(t, name)
 }
 
 func fixture(t *testing.T) (sched, appDB *gorm.DB) {

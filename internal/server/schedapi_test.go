@@ -22,12 +22,11 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	configulator "github.com/USA-RedDragon/configulator/v2"
-	"github.com/glebarez/sqlite"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 const (
@@ -46,12 +45,7 @@ func (s dbStore) DB() *gorm.DB                            { return s.db }
 
 func memDB(t *testing.T, name string) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:%s_%s_%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"), name, time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return db
+	return testdb.SQLite(t, name)
 }
 
 func exec(t *testing.T, db *gorm.DB, stmts ...string) {

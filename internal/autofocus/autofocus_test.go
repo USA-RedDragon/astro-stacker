@@ -2,15 +2,13 @@ package autofocus_test
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/autofocus"
-	"github.com/glebarez/sqlite"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 const sqliteSchema = `CREATE TABLE ts_autofocus_run (
@@ -41,12 +39,7 @@ const sqliteSchema = `CREATE TABLE ts_autofocus_run (
 
 func memDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"), time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return db
+	return testdb.SQLite(t, "")
 }
 
 func exec(t *testing.T, db *gorm.DB, stmts ...string) {

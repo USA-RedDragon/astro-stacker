@@ -12,9 +12,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 )
 
 const openID = "d07d82eb861e"
@@ -58,10 +56,7 @@ func (f *fakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func newPoller(t *testing.T, url string, now time.Time) *starfront.Poller {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.SQLite(t, "")
 	if err := db.AutoMigrate(&app.StarfrontCache{}); err != nil {
 		t.Fatal(err)
 	}

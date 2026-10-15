@@ -24,9 +24,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/starfront"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
-	"github.com/glebarez/sqlite"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 const (
@@ -45,16 +44,7 @@ const (
 
 func openDB(t *testing.T, name string) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s_%s?mode=memory&cache=shared", t.Name(), name)), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	return db
+	return testdb.SQLite(t, name)
 }
 
 func wcsCards(t *testing.T, ra, dec, arcsec float64, w, h int) string {

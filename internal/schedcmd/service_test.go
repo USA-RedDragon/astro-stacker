@@ -11,9 +11,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 )
 
 const (
@@ -55,10 +53,7 @@ func (f *fakeTransport) Cancel(_ context.Context, id string) (schedcmd.Result, e
 
 func newService(t *testing.T, transports ...schedcmd.Transport) *schedcmd.Service {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.SQLite(t, "")
 	if err := db.AutoMigrate(&schedcmd.Record{}); err != nil {
 		t.Fatal(err)
 	}
