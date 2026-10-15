@@ -776,6 +776,7 @@ func (r *Runner) compare(ctx context.Context, j Job, run *app.DiscoveryRun) erro
 		return err
 	}
 	labelled, tracks, checked, failed := Classify(ctx, res, known, r.cat.AlertsFrom())
+	r.earlierTNS(ctx, j.Object, labelled)
 	r.setStage("saving")
 	return r.save(ctx, run, saveInput{res: res, wcs: in.WCS, bodies: known.Bodies, labelled: labelled, tracks: tracks,
 		checked: checked, failed: failed, exposure: exposure, start: start})

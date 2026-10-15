@@ -52,6 +52,8 @@ type Match struct {
 	SepArcsec float64  `json:"sep_arcsec"`
 	Mag       *float64 `json:"mag,omitempty"`
 	Note      string   `json:"note,omitempty"`
+	// TNS is set on a match from the local TNS copy.
+	TNS *TNSEntry `json:"tns,omitempty"`
 }
 
 // Galaxy is a catalogued galaxy's ellipse.
@@ -196,7 +198,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 			as, ch, fl := alerts(ctx, c.RA, c.Dec, alertMatchArcsec)
 			checked, failed = union(checked, ch), union(failed, fl)
 			for _, a := range as {
-				l.Matches = append(l.Matches, Match{Catalog: a.Source, Name: a.ID, Type: a.Class, SepArcsec: a.SepArc})
+				l.Matches = append(l.Matches, Match{Catalog: a.Source, Name: a.ID, Type: a.Class, SepArcsec: a.SepArc, TNS: a.TNS})
 			}
 		}
 		for _, g := range k.Galaxies {
@@ -209,6 +211,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 			}
 		}
 		l.Class = classOf(l)
+		annotateTNS(&l, res)
 		out[i] = l
 	}
 	return out, tracks, checked, failed
@@ -348,9 +351,10 @@ func union(a, b []string) []string {
 	return a
 }
 
-// AlertsFrom asks ALeRCE, Fink and (with a key) TNS about one position. A
-// service that fails once is not asked again by the same lookup, so one
-// that is down costs one timeout per run, not one per candidate.
+// AlertsFrom asks ALeRCE, Fink and TNS (its local copy, or with a key its
+// search API) about one position. A service that fails once is not asked
+// again by the same lookup, so one that is down costs one timeout per run,
+// not one per candidate.
 func (c *Catalogs) AlertsFrom() AlertLookup {
 	down := map[string]bool{}
 	return func(ctx context.Context, ra, dec, radius float64) ([]Alert, []string, []string) {
@@ -361,8 +365,8 @@ func (c *Catalogs) AlertsFrom() AlertLookup {
 			fn   func(context.Context, float64, float64, float64) ([]Alert, error)
 		}
 		srcs := []src{{sourceAlerce, c.Alerce}, {sourceFink, c.Fink}}
-		if c.TNSEnabled() {
-			srcs = append(srcs, src{sourceTNS, c.TNS})
+		if c.tnsAvailable() {
+			srcs = append(srcs, src{sourceTNS, c.tnsSearch})
 		}
 		for _, s := range srcs {
 			if down[s.name] {
