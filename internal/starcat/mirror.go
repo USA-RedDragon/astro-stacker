@@ -235,6 +235,12 @@ func MirrorGaia(ctx context.Context, o MirrorOptions) error {
 	if err != nil {
 		return err
 	}
+	if b, err := o.Bucket.Get(ctx, path.Join(o.Prefix, manifestName)); err == nil {
+		if m, err := decodeManifest(b); err == nil && !m.Verified.IsZero() && sameInputs(m.Inputs, files) {
+			slog.Info("Gaia mirror is complete and verified", "rows", m.Rows, "pieces", len(m.Pieces))
+			return nil
+		}
+	}
 	if err := o.Bucket.Put(ctx, path.Join(o.Prefix, "source", "_MD5SUM.txt"), sums); err != nil {
 		return err
 	}
@@ -286,6 +292,18 @@ func MirrorGaia(ctx context.Context, o MirrorOptions) error {
 		return nil
 	}
 	return o.writeManifest(ctx, files, done)
+}
+
+func sameInputs(in []Input, files []gaiaFile) bool {
+	if len(in) != len(files) {
+		return false
+	}
+	for i, f := range files {
+		if in[i].File != f.Name || in[i].MD5 != f.MD5 {
+			return false
+		}
+	}
+	return true
 }
 
 func progress(stop <-chan struct{}, start time.Time, downloaded, finished *atomic.Int64, todo, remaining int) {

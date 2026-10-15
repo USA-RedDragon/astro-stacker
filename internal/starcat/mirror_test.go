@@ -85,6 +85,12 @@ func TestMirrorGaiaResumesAndWritesAManifest(t *testing.T) {
 	if gets.Load() != 3 {
 		t.Fatalf("%d downloads, want 3: a stored file was fetched again", gets.Load())
 	}
+	if err := starcat.MirrorGaia(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	if gets.Load() != 3 {
+		t.Fatalf("%d downloads after the mirror was complete, want 3", gets.Load())
+	}
 	g := starcat.NewGaia(b, "gaia")
 	m, err := g.Manifest(ctx)
 	if err != nil || m.Rows != int64(len(all)) || len(m.Inputs) != 3 || m.Verified.IsZero() {
