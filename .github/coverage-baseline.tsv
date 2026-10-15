@@ -87,7 +87,7 @@ internal/discoveries/masks.go	39	37
 internal/discoveries/mirror.go	32	26
 internal/discoveries/movers.go	254	245
 internal/discoveries/newlight.go	12	11
-internal/discoveries/null.go	83	57
+internal/discoveries/null.go	83	68
 internal/discoveries/runner.go	711	543
 internal/discoveries/sensor.go	72	70
 internal/discoveries/smallbodies.go	171	156
@@ -103,8 +103,8 @@ internal/discoveryfollowup/followup.go	440	333
 internal/discoveryreport/ades.go	42	40
 internal/discoveryreport/bulk.go	24	22
 internal/discoveryreport/known.go	143	133
-internal/discoveryreport/report.go	331	295
-internal/discoveryreport/service.go	310	227
+internal/discoveryreport/report.go	333	297
+internal/discoveryreport/service.go	310	225
 internal/discoveryreport/tns.go	97	81
 internal/discoverysource/list.go	200	181
 internal/discoverysource/match.go	27	24
@@ -125,7 +125,7 @@ internal/frameheader/header.go	115	109
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
 internal/goalmeasure/mirror.go	17	15
-internal/goalmeasure/runner.go	460	391
+internal/goalmeasure/runner.go	460	393
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/body.go	180	173
