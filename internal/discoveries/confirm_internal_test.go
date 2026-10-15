@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/ztflc"
 )
 
 const testNarrowband = "H-a"
@@ -34,5 +36,37 @@ func TestOneNightsChangeOnAStarIsHeldUntilConfirmed(t *testing.T) {
 	res.Candidates[0].GaiaG = nil
 	if ls := classifyChanges(ctx, t, res, Known{}); ls[0].Class != ClassNewVariable {
 		t.Errorf("a source where no star was before is not held for another night: %s", ls[0].Class)
+	}
+}
+
+func TestZTFLightCurveJudgesANewVariable(t *testing.T) {
+	t.Parallel()
+	g, dm := 15.8, -0.25
+	other := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	res := &Result{Candidates: []Candidate{{RA: 189.3, Dec: 14.4, Sign: 1, SNR: 12, GaiaG: &g, DeltaMag: &dm}}}
+	k := Known{Prior: []PriorChange{{RA: 189.3, Dec: 14.4, Sign: 1, Night: other, Group: GroupBroadband}}}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		kind ztflc.Kind
+		err  error
+		want string
+	}{
+		{ztflc.Variable, nil, ClassKnownVariable},
+		{ztflc.Flat, nil, ClassLowConfidence},
+		{ztflc.Unknown, nil, ClassNewVariable},
+		{"", ztflc.ErrDown, ClassNewVariable},
+	} {
+		var asked float64
+		k.ZTF = func(_ context.Context, _, _, amp float64) (ztflc.Verdict, error) {
+			asked = amp
+			return ztflc.Verdict{Kind: tc.kind, Amplitude: 0.06, Band: "r"}, tc.err
+		}
+		ls, _, checked, failed := Classify(ctx, res, k, nil)
+		if ls[0].Class != tc.want || asked != 0.25 {
+			t.Errorf("ZTF %q %v: %s (asked about %.2f mag), want %s", tc.kind, tc.err, ls[0].Class, asked, tc.want)
+		}
+		if (tc.err != nil) != (len(failed) == 1 && failed[0] == catalogZTF) || (tc.err == nil) != (len(checked) == 1) {
+			t.Errorf("ZTF %q %v: checked %v failed %v", tc.kind, tc.err, checked, failed)
+		}
 	}
 }

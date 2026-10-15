@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/ztflc"
 )
 
 // Classes of what changed.
@@ -97,10 +99,45 @@ type Known struct {
 	// Prior are the changes found on the target's other nights, and in its
 	// other filter groups on this night.
 	Prior []PriorChange
+	// ZTF, if set, judges a new variable's change against the star's ZTF
+	// light curve.
+	ZTF ZTFLookup
 	// Checked names the catalogues consulted and Failed those that could not
 	// be reached.
 	Checked []string
 	Failed  []string
+}
+
+// ZTFLookup judges a claimed change of amplitude magnitudes at a position
+// against ZTF's light curve there.
+type ZTFLookup func(ctx context.Context, ra, dec, amplitude float64) (ztflc.Verdict, error)
+
+// catalogZTF names the ZTF light curve check in matches and the checks.
+const catalogZTF = "ZTF"
+
+// ztfCheck asks ZTF about a new variable on a catalogued star: a star ZTF
+// shows varying by the change's size is a known variable, one ZTF shows
+// flat well below it holds no change of ours, and is held at low
+// confidence.
+func ztfCheck(ctx context.Context, l *Labelled, lookup ZTFLookup) (checked, failed bool) {
+	c := l.Candidate
+	if lookup == nil || l.Class != ClassNewVariable || c.GaiaG == nil || c.DeltaMag == nil {
+		return false, false
+	}
+	v, err := lookup(ctx, c.RA, c.Dec, math.Abs(*c.DeltaMag))
+	if err != nil {
+		return false, true
+	}
+	switch v.Kind {
+	case ztflc.Variable:
+		l.Matches = append(l.Matches, Match{Catalog: catalogZTF, Name: "ZTF light curve", Type: "variable", Note: fmt.Sprintf("varies by %.2f mag in ZTF %s", v.Amplitude, v.Band)})
+		l.Class = ClassKnownVariable
+	case ztflc.Flat:
+		l.Matches = append(l.Matches, Match{Catalog: catalogZTF, Name: "ZTF light curve", Type: "flat", Note: fmt.Sprintf("flat to %.2f mag in ZTF %s", v.Amplitude, v.Band)})
+		l.Class = ClassLowConfidence
+	case ztflc.Unknown:
+	}
+	return true, false
 }
 
 // PriorChange is a change found at a spot on another night, or in another
@@ -225,6 +262,11 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		l.Class = classOf(l)
 		if l.Class == ClassNewVariable && c.SNR <= res.ChangeNull.MaxSNR {
 			l.Class = ClassLowConfidence
+		}
+		if ch, fl := ztfCheck(ctx, &l, k.ZTF); ch {
+			checked = union(checked, []string{catalogZTF})
+		} else if fl {
+			failed = union(failed, []string{catalogZTF})
 		}
 		annotateTNS(&l, res)
 		out[i] = l

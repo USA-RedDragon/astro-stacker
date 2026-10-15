@@ -191,7 +191,7 @@ func newRunnerFixture(t *testing.T) *runnerFixture {
 		return Body{Number: "12345", Name: "2000 AA", Class: "MB>Inner", RA: ra, Dec: dec, V: 17.2, DRA: -f.AstVX * 2 * 60, DDec: -f.AstVY * 2 * 60}
 	}
 	srv := catalogServer(t, f, Variable{Name: "V1 Test", Type: "EW", RA: vra, Dec: vdec}, body)
-	cat := &Catalogs{VizierURL: srv.URL + "/vizier", SkyBoTURL: srv.URL + "/skybot", AlerceURL: srv.URL + "/alerce/", FinkURL: srv.URL + "/fink", SIMBADURL: srv.URL + "/simbad"}
+	cat := &Catalogs{VizierURL: srv.URL + "/vizier", SkyBoTURL: srv.URL + "/skybot", AlerceURL: srv.URL + "/alerce/", FinkURL: srv.URL + "/fink", SIMBADURL: srv.URL + "/simbad", ZTFURL: srv.URL + "/ztf"}
 	fx.r = New(fx.db, nil, fx.store, cat, Options{BackfillDays: 1, Threads: 2, OnRun: func(run app.DiscoveryRun) { fx.finished = append(fx.finished, run) }})
 	fx.r.now = func() time.Time { return time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC) }
 	return fx
