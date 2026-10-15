@@ -231,7 +231,7 @@ func linkMovers(times []time.Time, dets [][]moverDet, scale, area float64) ([][]
 						continue
 					}
 					sort.Slice(hs, func(i, j int) bool { return hs[i].sub < hs[j].sub })
-					if math.Hypot(vx, vy)*days(hs[0].sub, hs[len(hs)-1].sub) < 2*moverRepeatPx {
+					if !fastEnough(hs, pts, times, vmin, vmax) {
 						continue
 					}
 					key := hitKey(hs)
@@ -268,6 +268,23 @@ func linkMovers(times []time.Time, dets [][]moverDet, scale, area float64) ([][]
 		}
 	}
 	return out, flags
+}
+
+// fastEnough says whether a track's fitted rate, not only its seed pair's,
+// is within the rates linked, and it moves at least 4 px from its first
+// detection to its last. Noise around a fixed residual, scattered by a
+// couple of pixels, gives seed pairs fast enough and other subs' detections
+// within 2.5 px of their predictions, so a track of them fits a rate below
+// the slowest linked.
+func fastEnough(hs []hit, pts [][][2]float64, times []time.Time, vmin, vmax float64) bool {
+	ts := make([]time.Time, len(hs))
+	xs := make([]float64, len(hs))
+	ys := make([]float64, len(hs))
+	for i, h := range hs {
+		ts[i], xs[i], ys[i] = times[h.sub], pts[h.sub][h.idx][0], pts[h.sub][h.idx][1]
+	}
+	v := math.Hypot(slope(ts, xs), slope(ts, ys))
+	return v >= vmin && v <= vmax && v*ts[len(ts)-1].Sub(ts[0]).Hours()/24 >= 2*moverRepeatPx
 }
 
 // starResidualPx and starResidualG bound the stars a track is taken for a
@@ -314,6 +331,24 @@ func shared(a, b []hit) int {
 		}
 	}
 	return n
+}
+
+// slope is the least-squares rate of vs in time, per day.
+func slope(ts []time.Time, vs []float64) float64 {
+	n := float64(len(ts))
+	var st, stt, sv, stv float64
+	for i, t := range ts {
+		d := t.Sub(ts[0]).Hours() / 24
+		st += d
+		stt += d * d
+		sv += vs[i]
+		stv += d * vs[i]
+	}
+	den := n*stt - st*st
+	if den == 0 {
+		return 0
+	}
+	return (n*stv - st*sv) / den
 }
 
 // fitTrack fits x and y linearly in time to a track's detections.
