@@ -94,6 +94,10 @@ func TestJudgeRecorded(t *testing.T) {
 		{"gaia_dr3_3932584794814722048", 0.3, ztflc.Flat, 0.055, 0.065},
 		{"haro_4-411", 0.3, ztflc.Unknown, 0, 0},
 		{"blank", 0.3, ztflc.Unknown, 0, 0},
+		{"gaia_dr3_2179309875368546432", 0.13, ztflc.Variable, 0.48, 0.49},
+		{"2mass_j21043883+4319143", 0.19, ztflc.Variable, 0.20, 0.21},
+		{"2mass_j21043883+4319143", 0.30, ztflc.Unknown, 0.20, 0.21},
+		{"2mass_j00433343+4139446", 0.24, ztflc.Variable, 0.53, 0.54},
 	}
 	for _, c := range cases {
 		v := ztflc.Judge(load(t, c.file), c.amp)
@@ -125,6 +129,16 @@ func TestJudgeSynthetic(t *testing.T) {
 		eclipsing[i].Mag += 0.6
 	}
 
+	detached := flat(600, 16, 0.02)
+	for i := 0; i < 600; i += 90 {
+		detached[i].Mag += 0.3
+	}
+
+	strays := flat(600, 16, 0.02)
+	for i := 0; i < 600; i += 90 {
+		strays[i].Mag += 0.3 * float64(1-2*(i/90%2))
+	}
+
 	fewDips := flat(200, 16, 0.02)
 	for i := 0; i < 3; i++ {
 		fewDips[i*60].Mag += 0.6
@@ -148,6 +162,8 @@ func TestJudgeSynthetic(t *testing.T) {
 		{"too noisy for the claim", flat(100, 16, 0.08), 0.2, ztflc.Unknown},
 		{"field offsets are not variability", offset, 0.2, ztflc.Flat},
 		{"eclipses the percentiles miss", eclipsing, 0.5, ztflc.Variable},
+		{"one dip in a hundred, all fainter", detached, 0.3, ztflc.Variable},
+		{"one stray in a hundred, either way", strays, 0.3, ztflc.Unknown},
 		{"a few dips keep it from flat", fewDips, 0.5, ztflc.Unknown},
 		{"flagged epochs ignored", flagged, 0.3, ztflc.Flat},
 		{"no points", nil, 0.3, ztflc.Unknown},
