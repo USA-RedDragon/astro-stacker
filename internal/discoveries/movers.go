@@ -37,7 +37,8 @@ type moverDet struct {
 }
 
 // moverDetections finds point sources in one sub minus its reference,
-// leaving out those sharper than sharpLimit: hot pixels.
+// leaving out those sharper than sharpLimit, hot pixels, and those with no
+// light in the aperture, the ring of a star's subtraction residual.
 func moverDetections(d *Plane, rms []float32, edge, bright []bool, apSigma, sharpLimit float64) []moverDet {
 	objs := Extract(d, rms, nil, DetectSigma, 3)
 	var out []moverDet
@@ -48,11 +49,10 @@ func moverDetections(d *Plane, rms []float32, edge, bright []bool, apSigma, shar
 			continue
 		}
 		fl := Aperture(d, o.X, o.Y, apertureR)
-		snr := 0.0
-		if apSigma > 0 {
-			snr = fl / apSigma
+		if !(fl > 0) || !(apSigma > 0) {
+			continue
 		}
-		out = append(out, moverDet{X: o.X, Y: o.Y, Flux: fl, SNR: snr})
+		out = append(out, moverDet{X: o.X, Y: o.Y, Flux: fl, SNR: fl / apSigma})
 	}
 	return out
 }
@@ -268,6 +268,34 @@ func linkMovers(times []time.Time, dets [][]moverDet, scale, area float64) ([][]
 		}
 	}
 	return out, flags
+}
+
+// starResidualPx and starResidualG bound the stars a track is taken for a
+// subtraction residual of: every detection within 3 px of one star of G 17
+// or brighter, where the night's and the reference's star profiles differ
+// most.
+const (
+	starResidualPx = 3.0
+	starResidualG  = 17.0
+)
+
+// onOneStar says whether all of a track's detections lie within 3 px of
+// the same bright catalogued star, at pixel positions stars: the residual
+// of the star's subtraction, its centroid wandering with each sub's seeing,
+// not a mover.
+func onOneStar(tr Track, stars *Grid) bool {
+	if stars == nil || len(tr.Points) == 0 {
+		return false
+	}
+	first := -1
+	for _, p := range tr.Points {
+		i, _ := stars.Nearest(p.X, p.Y, starResidualPx)
+		if i < 0 || (first >= 0 && i != first) {
+			return false
+		}
+		first = i
+	}
+	return true
 }
 
 func hitKey(hs []hit) string {

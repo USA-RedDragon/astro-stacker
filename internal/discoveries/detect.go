@@ -679,8 +679,11 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 
 	in.stage("linking moving objects")
 	links, transient := linkMovers(times, dets, res.PixelScale, validArea(edge))
+	bright := in.brightStars()
 	for _, hs := range links {
-		res.Tracks = append(res.Tracks, in.track(hs, subs, dets, times))
+		if tr := in.track(hs, subs, dets, times); !onOneStar(tr, bright) {
+			res.Tracks = append(res.Tracks, tr)
+		}
 	}
 	for j, ns := range subs {
 		ms := MoverSub{FrameID: ns.sub.FrameID, Filter: ns.sub.Filter, Time: times[j], Detections: len(dets[j])}
@@ -1166,6 +1169,21 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 		res.Funnel[name] = fn
 	}
 	return out
+}
+
+// brightStars indexes the pixel positions, at the night's epoch, of the
+// Gaia stars bright enough to leave subtraction residuals.
+func (in *Input) brightStars() *Grid {
+	var pts [][2]float64
+	for _, s := range in.gaiaNight {
+		if s.G > starResidualG {
+			continue
+		}
+		if x, y, ok := in.WCS.PixelOf(s.RA, s.Dec); ok {
+			pts = append(pts, [2]float64{x, y})
+		}
+	}
+	return NewGrid(pts, 8)
 }
 
 // track turns linked detections into a fitted track with sky positions
