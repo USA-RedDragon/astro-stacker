@@ -221,28 +221,35 @@ type morningReportShadow struct {
 	FirstNight     *string `json:"first-night"      toml:"first-night"      yaml:"first-night"`
 }
 
+type discoveryAlertsShadow struct {
+	Enabled         *bool `json:"enabled"          toml:"enabled"          yaml:"enabled"`
+	Followup        *bool `json:"followup"         toml:"followup"         yaml:"followup"`
+	IntervalMinutes *int  `json:"interval-minutes" toml:"interval-minutes" yaml:"interval-minutes"`
+}
+
 type configShadow struct {
-	LogLevel      *string              `json:"log-level"      toml:"log-level"      yaml:"log-level"`
-	HTTP          *hTTPShadow          `json:"http"           toml:"http"           yaml:"http"`
-	Metrics       *metricsShadow       `json:"metrics"        toml:"metrics"        yaml:"metrics"`
-	PProf         *pProfShadow         `json:"pprof"          toml:"pprof"          yaml:"pprof"`
-	Storage       *storageShadow       `json:"storage"        toml:"storage"        yaml:"storage"`
-	S3            *s3Shadow            `json:"s3"             toml:"s3"             yaml:"s3"`
-	Indexer       *indexerShadow       `json:"indexer"        toml:"indexer"        yaml:"indexer"`
-	Previews      *previewsShadow      `json:"previews"       toml:"previews"       yaml:"previews"`
-	Stacking      *stackingShadow      `json:"stacking"       toml:"stacking"       yaml:"stacking"`
-	PublicFrames  *publicFramesShadow  `json:"public-frames"  toml:"public-frames"  yaml:"public-frames"`
-	Discover      *discoverShadow      `json:"discover"       toml:"discover"       yaml:"discover"`
-	Scheduler     *schedulerShadow     `json:"scheduler"      toml:"scheduler"      yaml:"scheduler"`
-	Goals         *goalsShadow         `json:"goals"          toml:"goals"          yaml:"goals"`
-	Darks         *darksShadow         `json:"darks"          toml:"darks"          yaml:"darks"`
-	SubLength     *subLengthShadow     `json:"sub-length"     toml:"sub-length"     yaml:"sub-length"`
-	Calibration   *calibrationShadow   `json:"calibration"    toml:"calibration"    yaml:"calibration"`
-	MoonKeep      *moonKeepShadow      `json:"moon-keep"      toml:"moon-keep"      yaml:"moon-keep"`
-	Bodies        *bodiesShadow        `json:"bodies"         toml:"bodies"         yaml:"bodies"`
-	Discoveries   *discoveriesShadow   `json:"discoveries"    toml:"discoveries"    yaml:"discoveries"`
-	Scheduling    *schedulingShadow    `json:"scheduling"     toml:"scheduling"     yaml:"scheduling"`
-	MorningReport *morningReportShadow `json:"morning-report" toml:"morning-report" yaml:"morning-report"`
+	LogLevel        *string                `json:"log-level"        toml:"log-level"        yaml:"log-level"`
+	HTTP            *hTTPShadow            `json:"http"             toml:"http"             yaml:"http"`
+	Metrics         *metricsShadow         `json:"metrics"          toml:"metrics"          yaml:"metrics"`
+	PProf           *pProfShadow           `json:"pprof"            toml:"pprof"            yaml:"pprof"`
+	Storage         *storageShadow         `json:"storage"          toml:"storage"          yaml:"storage"`
+	S3              *s3Shadow              `json:"s3"               toml:"s3"               yaml:"s3"`
+	Indexer         *indexerShadow         `json:"indexer"          toml:"indexer"          yaml:"indexer"`
+	Previews        *previewsShadow        `json:"previews"         toml:"previews"         yaml:"previews"`
+	Stacking        *stackingShadow        `json:"stacking"         toml:"stacking"         yaml:"stacking"`
+	PublicFrames    *publicFramesShadow    `json:"public-frames"    toml:"public-frames"    yaml:"public-frames"`
+	Discover        *discoverShadow        `json:"discover"         toml:"discover"         yaml:"discover"`
+	Scheduler       *schedulerShadow       `json:"scheduler"        toml:"scheduler"        yaml:"scheduler"`
+	Goals           *goalsShadow           `json:"goals"            toml:"goals"            yaml:"goals"`
+	Darks           *darksShadow           `json:"darks"            toml:"darks"            yaml:"darks"`
+	SubLength       *subLengthShadow       `json:"sub-length"       toml:"sub-length"       yaml:"sub-length"`
+	Calibration     *calibrationShadow     `json:"calibration"      toml:"calibration"      yaml:"calibration"`
+	MoonKeep        *moonKeepShadow        `json:"moon-keep"        toml:"moon-keep"        yaml:"moon-keep"`
+	Bodies          *bodiesShadow          `json:"bodies"           toml:"bodies"           yaml:"bodies"`
+	Discoveries     *discoveriesShadow     `json:"discoveries"      toml:"discoveries"      yaml:"discoveries"`
+	Scheduling      *schedulingShadow      `json:"scheduling"       toml:"scheduling"       yaml:"scheduling"`
+	MorningReport   *morningReportShadow   `json:"morning-report"   toml:"morning-report"   yaml:"morning-report"`
+	DiscoveryAlerts *discoveryAlertsShadow `json:"discovery-alerts" toml:"discovery-alerts" yaml:"discovery-alerts"`
 }
 
 // ConfigSchema returns the generated schema for Config.
@@ -445,6 +452,12 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("morning-report.timezone", configulator.LayerDefault, "default tag")
 	cfg.MorningReport.ZoneLabel = "CT"
 	set("morning-report.zone-label", configulator.LayerDefault, "default tag")
+	cfg.DiscoveryAlerts.Enabled = true
+	set("discovery-alerts.enabled", configulator.LayerDefault, "default tag")
+	cfg.DiscoveryAlerts.Followup = true
+	set("discovery-alerts.followup", configulator.LayerDefault, "default tag")
+	cfg.DiscoveryAlerts.IntervalMinutes = 5
+	set("discovery-alerts.interval-minutes", configulator.LayerDefault, "default tag")
 	return nil
 }
 
@@ -1049,6 +1062,20 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.MorningReport.FirstNight != nil {
 			cfg.MorningReport.FirstNight = *s.MorningReport.FirstNight
 			set("morning-report.first-night", configulator.LayerFile, file)
+		}
+	}
+	if s.DiscoveryAlerts != nil {
+		if s.DiscoveryAlerts.Enabled != nil {
+			cfg.DiscoveryAlerts.Enabled = *s.DiscoveryAlerts.Enabled
+			set("discovery-alerts.enabled", configulator.LayerFile, file)
+		}
+		if s.DiscoveryAlerts.Followup != nil {
+			cfg.DiscoveryAlerts.Followup = *s.DiscoveryAlerts.Followup
+			set("discovery-alerts.followup", configulator.LayerFile, file)
+		}
+		if s.DiscoveryAlerts.IntervalMinutes != nil {
+			cfg.DiscoveryAlerts.IntervalMinutes = *s.DiscoveryAlerts.IntervalMinutes
+			set("discovery-alerts.interval-minutes", configulator.LayerFile, file)
 		}
 	}
 	return nil
@@ -2319,6 +2346,45 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.MorningReport.FirstNight = v
 		set("morning-report.first-night", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discovery-alerts", "enabled"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discovery-alerts.enabled",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.DiscoveryAlerts.Enabled = p
+		set("discovery-alerts.enabled", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discovery-alerts", "followup"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discovery-alerts.followup",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.DiscoveryAlerts.Followup = p
+		set("discovery-alerts.followup", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discovery-alerts", "interval-minutes"); ok {
+		p, err := strconv.ParseInt(v, 10, strconv.IntSize)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discovery-alerts.interval-minutes",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.DiscoveryAlerts.IntervalMinutes = int(p)
+		set("discovery-alerts.interval-minutes", configulator.LayerEnv, n)
+	}
 	return nil
 }
 
@@ -2469,6 +2535,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"morning-report" + o.Separator + "telegram-token",
 		"morning-report" + o.Separator + "telegram-chat-id",
 		"morning-report" + o.Separator + "first-night",
+		"discovery-alerts" + o.Separator + "enabled",
+		"discovery-alerts" + o.Separator + "followup",
+		"discovery-alerts" + o.Separator + "interval-minutes",
 	}
 	for i, name := range names {
 		if f := fs.Lookup(name); f != nil {
@@ -2621,6 +2690,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[134], "", "Telegram bot token")
 	fs.String(names[135], "", "Telegram chat the report goes to")
 	fs.String(names[136], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
+	fs.Bool(names[137], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; needs the morning report's Telegram token and chat")
+	fs.Bool(names[138], true, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled")
+	fs.Var(impl.NewInt(5), names[139], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
 	return nil
 }
 
@@ -4270,6 +4342,42 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		cfg.MorningReport.FirstNight = v
 		set("morning-report.first-night", configulator.LayerCLI, "--"+n)
 	}
+	if n := "discovery-alerts" + o.Separator + "enabled"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discovery-alerts.enabled",
+				Source: "--" + n,
+			}
+		}
+		cfg.DiscoveryAlerts.Enabled = v
+		set("discovery-alerts.enabled", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discovery-alerts" + o.Separator + "followup"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discovery-alerts.followup",
+				Source: "--" + n,
+			}
+		}
+		cfg.DiscoveryAlerts.Followup = v
+		set("discovery-alerts.followup", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discovery-alerts" + o.Separator + "interval-minutes"; fs.Changed(n) {
+		v, err := fs.GetInt(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discovery-alerts.interval-minutes",
+				Source: "--" + n,
+			}
+		}
+		cfg.DiscoveryAlerts.IntervalMinutes = v
+		set("discovery-alerts.interval-minutes", configulator.LayerCLI, "--"+n)
+	}
 	return nil
 }
 
@@ -4682,6 +4790,25 @@ func (s *configShadow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 					return err
 				}
 				s.MorningReport = &sub
+			}
+		case "discovery-alerts":
+			if dec.PeekKind() == jsontext.KindNull {
+				if _, err := dec.ReadToken(); err != nil {
+					return err
+				}
+			} else {
+				open, err := dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				if open.Kind() != jsontext.KindBeginObject {
+					return configJSONError("discovery-alerts", open, fmt.Errorf("expected an object, got %v", open.Kind()))
+				}
+				var sub discoveryAlertsShadow
+				if err := sub.decodeJSON(dec, "discovery-alerts"); err != nil {
+					return err
+				}
+				s.DiscoveryAlerts = &sub
 			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
@@ -7402,6 +7529,75 @@ func (s *morningReportShadow) decodeJSON(dec *jsontext.Decoder, path string) err
 	}
 }
 
+// decodeJSON decodes the members of an object whose opening brace has
+// been read. path is the object's dotted path.
+func (s *discoveryAlertsShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
+	for {
+		tok, err := dec.ReadToken()
+		if err != nil {
+			return err
+		}
+		if tok.Kind() == jsontext.KindEndObject {
+			return nil
+		}
+		switch key := tok.String(); key {
+		case "enabled":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Enabled = &b
+			default:
+				return configJSONError(path+".enabled", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "followup":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.Followup = &b
+			default:
+				return configJSONError(path+".followup", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "interval-minutes":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				raw, err := v.Int()
+				if err != nil {
+					return configJSONError(path+".interval-minutes", v, err)
+				}
+				if raw < math.MinInt || raw > math.MaxInt {
+					return configJSONError(path+".interval-minutes", v, fmt.Errorf("%d overflows int", raw))
+				}
+				num := int(raw)
+				s.IntervalMinutes = &num
+			default:
+				return configJSONError(path+".interval-minutes", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
+		default:
+			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
+				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
+			}
+			if err := dec.SkipValue(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // configJSONError returns a ParseError for the JSON token v at path.
 func configJSONError(path string, v jsontext.Token, err error) error {
 	return &configulator.ParseError{
@@ -7557,6 +7753,9 @@ func (c Config) PrintConfig() string {
 	b.WriteString("morning-report.telegram-token = (redacted)\n")
 	fmt.Fprintf(&b, "morning-report.telegram-chat-id = %v\n", c.MorningReport.TelegramChatID)
 	fmt.Fprintf(&b, "morning-report.first-night = %v\n", c.MorningReport.FirstNight)
+	fmt.Fprintf(&b, "discovery-alerts.enabled = %v\n", c.DiscoveryAlerts.Enabled)
+	fmt.Fprintf(&b, "discovery-alerts.followup = %v\n", c.DiscoveryAlerts.Followup)
+	fmt.Fprintf(&b, "discovery-alerts.interval-minutes = %v\n", c.DiscoveryAlerts.IntervalMinutes)
 	return b.String()
 }
 
