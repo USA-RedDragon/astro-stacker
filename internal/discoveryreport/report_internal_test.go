@@ -159,6 +159,24 @@ func TestChecksFollowTheCatalogues(t *testing.T) {
 	if x := checkOf(Build(Input{Cand: c, Run: run}), "variable"); x.State != CheckBad || !strings.Contains(x.Detail, "V1 And") {
 		t.Errorf("variable %+v", x)
 	}
+	c.Matches = `[{"catalog":"ZTF variables","name":"ZTFJ004000.00+410000.0","sep_arcsec":1.2}]`
+	if x := checkOf(Build(Input{Cand: c, Run: run}), "variable"); x.State != CheckBad || !strings.Contains(x.Detail, "ZTF variables ZTFJ004000.00+410000.0") {
+		t.Errorf("variable from ZTF %+v", x)
+	}
+	c.Matches = `[{"catalog":"ZTF","name":"ZTF light curve","type":"flat"}]`
+	if x := checkOf(Build(Input{Cand: c, Run: run}), "variable"); x.State == CheckBad {
+		t.Errorf("a flat ZTF light curve is not a known variable %+v", x)
+	}
+	c.Matches = ""
+	run.Checked, run.Failed = "VSX,SIMBAD,Gaia DR3 variability,ATLAS variables,ASAS-SN variables,SkyBoT", "ZTF variables"
+	if x := checkOf(Build(Input{Cand: c, Run: run}), "variable"); x.State != CheckTodo ||
+		x.Detail != "Checked VSX, SIMBAD, Gaia DR3 variability, ATLAS variables and ASAS-SN variables; nothing within 5″ in VSX or 2″ in the others; ZTF variables could not be reached for this night" {
+		t.Errorf("variable checks with ZTF down %+v", x)
+	}
+	run.Checked, run.Failed = "VSX,SkyBoT", ""
+	if x := checkOf(Build(Input{Cand: c, Run: run}), "variable"); x.State != CheckOK || x.Detail != "Checked VSX; nothing within 5″" {
+		t.Errorf("variable checks %+v", x)
+	}
 }
 
 func TestCanSendNeedsEverything(t *testing.T) {
