@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -113,11 +114,11 @@ type MirrorOptions struct {
 }
 
 func (o *MirrorOptions) client() *http.Client {
-	if o.Client != nil {
-		return o.Client
+	if o.Client == nil {
+		o.Client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, ResponseHeaderTimeout: time.Minute,
+			IdleConnTimeout: 90 * time.Second, MaxIdleConnsPerHost: 16, ForceAttemptHTTP2: true}}
 	}
-	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, ResponseHeaderTimeout: time.Minute,
-		IdleConnTimeout: 90 * time.Second, MaxIdleConnsPerHost: 16, ForceAttemptHTTP2: true}}
+	return o.Client
 }
 
 // download streams url through fn, rate limited, cancelling it when no
@@ -227,6 +228,7 @@ func (o *MirrorOptions) fetchSmall(ctx context.Context, url string) ([]byte, err
 // each star's position and stored before the next; a done marker per file
 // makes reruns skip it. Once every file is stored the manifest is written.
 func MirrorGaia(ctx context.Context, o MirrorOptions) error {
+	o.client()
 	sums, err := o.fetchSmall(ctx, o.BaseURL+"_MD5SUM.txt")
 	if err != nil {
 		return err
@@ -244,7 +246,7 @@ func MirrorGaia(ctx context.Context, o MirrorOptions) error {
 	if err := o.Bucket.Put(ctx, path.Join(o.Prefix, "source", "_MD5SUM.txt"), sums); err != nil {
 		return err
 	}
-	done, err := o.doneMarkers(ctx)
+	done, err := o.doneMarkers(ctx, files)
 	if err != nil {
 		return err
 	}
@@ -283,7 +285,7 @@ func MirrorGaia(ctx context.Context, o MirrorOptions) error {
 	el := time.Since(start)
 	slog.Info("Gaia files stored", "files", len(todo), "rows", rows.Load(), "downloaded MB", downloaded.Load()>>20,
 		"took", el.Round(time.Second), "MB/s", fmt.Sprintf("%.1f", float64(downloaded.Load())/1e6/el.Seconds()))
-	done, err = o.doneMarkers(ctx)
+	done, err = o.doneMarkers(ctx, files)
 	if err != nil {
 		return err
 	}
@@ -331,14 +333,21 @@ func progress(stop <-chan struct{}, start time.Time, downloaded, finished *atomi
 	}
 }
 
-func (o *MirrorOptions) doneMarkers(ctx context.Context) (map[string]string, error) {
+// doneMarkers returns the done marker of each listed file stored so far.
+func (o *MirrorOptions) doneMarkers(ctx context.Context, files []gaiaFile) (map[string]string, error) {
 	keys, err := o.Bucket.List(ctx, path.Join(o.Prefix, "done")+"/")
 	if err != nil {
 		return nil, err
 	}
+	listed := make(map[string]bool, len(files))
+	for _, f := range files {
+		listed[f.Name] = true
+	}
 	out := map[string]string{}
 	for _, k := range keys {
-		out[strings.TrimSuffix(path.Base(k), ".json")] = k
+		if name := strings.TrimSuffix(path.Base(k), ".json"); listed[name] {
+			out[name] = k
+		}
 	}
 	return out, nil
 }
@@ -423,7 +432,7 @@ func gaiaPiece(prefix string, p int64, stem string, stars []GaiaStar) (Piece, []
 	c := pixelCenter(GaiaOrder, p)
 	lim := MaxPixelRadius(GaiaOrder) + coverSlack
 	for i := range stars {
-		if Angle(c, Vec(stars[i].RA, stars[i].Dec)) > lim {
+		if !(Angle(c, Vec(stars[i].RA, stars[i].Dec)) <= lim) {
 			return Piece{}, nil, fmt.Errorf("gaia: source %d lies outside pixel %d", stars[i].SourceID, p)
 		}
 	}
@@ -439,6 +448,8 @@ func gaiaPiece(prefix string, p int64, stem string, stars []GaiaStar) (Piece, []
 func (o *MirrorOptions) writeManifest(ctx context.Context, files []gaiaFile, done map[string]string) error {
 	man := &Manifest{Catalog: "gaia-dr3", Schema: gaiaSchema().name, Order: GaiaOrder, Epoch: GaiaEpoch, Version: "DR3",
 		Source: o.BaseURL, Created: time.Now().UTC()}
+	fileOf := map[string]string{}
+	var redo []string
 	for _, f := range files {
 		b, err := o.Bucket.Get(ctx, done[f.Name])
 		if err != nil {
@@ -449,7 +460,9 @@ func (o *MirrorOptions) writeManifest(ctx context.Context, files []gaiaFile, don
 			return fmt.Errorf("%s: %w", done[f.Name], err)
 		}
 		if m.Input.MD5 != f.MD5 {
-			return fmt.Errorf("%s was stored from MD5 %s, ESA now lists %s", f.Name, m.Input.MD5, f.MD5)
+			slog.Warn("A file was stored from another MD5 than ESA lists now; it will be stored again", "file", f.Name, "stored", m.Input.MD5, "listed", f.MD5)
+			redo = append(redo, f.Name)
+			continue
 		}
 		var pr int64
 		for _, p := range m.Pieces {
@@ -457,17 +470,36 @@ func (o *MirrorOptions) writeManifest(ctx context.Context, files []gaiaFile, don
 			man.Bytes += p.Bytes
 		}
 		if pr != m.Input.Rows {
-			return fmt.Errorf("%s: pieces hold %d rows, the file %d", f.Name, pr, m.Input.Rows)
+			slog.Warn("A file's pieces hold other rows than it; it will be stored again", "file", f.Name, "pieces", pr, "rows", m.Input.Rows)
+			redo = append(redo, f.Name)
+			continue
+		}
+		for _, p := range m.Pieces {
+			fileOf[p.Key] = f.Name
 		}
 		man.Rows += m.Input.Rows
 		man.Inputs = append(man.Inputs, m.Input)
 		man.Pieces = append(man.Pieces, m.Pieces...)
 	}
-	if o.Verify {
-		if err := verifyPieces(ctx, o.Bucket, gaiaSchema(), GaiaOrder, man.Pieces); err != nil {
+	if o.Verify && len(redo) == 0 {
+		bad, err := verifyPieces(ctx, o.Bucket, gaiaSchema(), GaiaOrder, man.Pieces)
+		if err != nil {
 			return err
 		}
+		for _, k := range bad {
+			redo = append(redo, fileOf[k])
+		}
 		man.Verified = time.Now().UTC()
+	}
+	if len(redo) > 0 {
+		sort.Strings(redo)
+		redo = slices.Compact(redo)
+		for _, name := range redo {
+			if err := o.Bucket.Delete(ctx, done[name]); err != nil {
+				return err
+			}
+		}
+		return fmt.Errorf("gaia: %d files must be stored again (%s ...); their done markers are removed", len(redo), redo[0])
 	}
 	b, err := encodeManifest(man)
 	if err != nil {
@@ -482,8 +514,17 @@ func (o *MirrorOptions) writeManifest(ctx context.Context, files []gaiaFile, don
 }
 
 // verifyPieces reads every piece back: its checksum, its rows, and that
-// each row lies within its partition.
-func verifyPieces[T any](ctx context.Context, b Bucket, s schema[T], order int, pieces []Piece) error {
+// each row lies within its partition. It returns the keys of the pieces
+// that fail; err is for a failure to read the bucket.
+func verifyPieces[T any](ctx context.Context, b Bucket, s schema[T], order int, pieces []Piece) ([]string, error) {
+	var mu sync.Mutex
+	var bad []string
+	fail := func(key string, why error) {
+		slog.Warn("A stored piece fails verification", "key", key, "error", why)
+		mu.Lock()
+		bad = append(bad, key)
+		mu.Unlock()
+	}
 	var checked, rows atomic.Int64
 	start := time.Now()
 	g, gctx := errgroup.WithContext(ctx)
@@ -491,11 +532,16 @@ func verifyPieces[T any](ctx context.Context, b Bucket, s schema[T], order int, 
 	for _, p := range pieces {
 		g.Go(func() error {
 			data, err := b.Get(gctx, p.Key)
+			if errors.Is(err, ErrNotFound) {
+				fail(p.Key, err)
+				return nil
+			}
 			if err != nil {
 				return err
 			}
 			if h := sha256.Sum256(data); hex.EncodeToString(h[:]) != p.SHA256 || int64(len(data)) != p.Bytes {
-				return fmt.Errorf("%s: checksum or size differs from the marker", p.Key)
+				fail(p.Key, errors.New("checksum or size differs from the marker"))
+				return nil
 			}
 			outside := 0
 			n, err := decodePiece(s, data, [3]float64{}, -1, func(rs []T) {
@@ -505,14 +551,16 @@ func verifyPieces[T any](ctx context.Context, b Bucket, s schema[T], order int, 
 					}
 				}
 			})
-			if err != nil {
-				return fmt.Errorf("%s: %w", p.Key, err)
-			}
-			if outside > 0 {
-				return fmt.Errorf("%s: %d rows lie outside partition %d", p.Key, outside, p.Partition)
-			}
-			if int64(n) != p.Rows {
-				return fmt.Errorf("%s: %d rows, the marker says %d", p.Key, n, p.Rows)
+			switch {
+			case err != nil:
+				fail(p.Key, err)
+				return nil
+			case outside > 0:
+				fail(p.Key, fmt.Errorf("%d rows lie outside partition %d", outside, p.Partition))
+				return nil
+			case int64(n) != p.Rows:
+				fail(p.Key, fmt.Errorf("%d rows, the marker says %d", n, p.Rows))
+				return nil
 			}
 			rows.Add(int64(n))
 			if c := checked.Add(1); c%5000 == 0 {
@@ -522,10 +570,10 @@ func verifyPieces[T any](ctx context.Context, b Bucket, s schema[T], order int, 
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return err
+		return nil, err
 	}
-	slog.Info("Pieces verified", "pieces", len(pieces), "rows", rows.Load(), "took", time.Since(start).Round(time.Second))
-	return nil
+	slog.Info("Pieces verified", "pieces", len(pieces), "failed", len(bad), "rows", rows.Load(), "took", time.Since(start).Round(time.Second))
+	return bad, nil
 }
 
 var vsxReadMe = regexp.MustCompile(`(?m)^vsx\.dat\s+(\d+)\s+(\d+)\s+.*Version (\d{4}-\d{2}-\d{2})`)
@@ -535,6 +583,7 @@ var vsxReadMe = regexp.MustCompile(`(?m)^vsx\.dat\s+(\d+)\s+(\d+)\s+.*Version (\
 // version's pieces, verified, the manifest switched to it, and older
 // versions deleted.
 func MirrorVSX(ctx context.Context, o MirrorOptions) error {
+	o.client()
 	readme, err := o.fetchSmall(ctx, o.BaseURL+"ReadMe")
 	if err != nil {
 		return err
@@ -600,6 +649,33 @@ func MirrorVSX(ctx context.Context, o MirrorOptions) error {
 	}
 	man := &Manifest{Catalog: "vsx", Schema: vsxSchema().name, Order: VSXOrder, Version: version, Source: o.BaseURL + "vsx.dat",
 		Created: time.Now().UTC(), Rows: rows, Inputs: []Input{{File: "vsx.dat", SHA256: hex.EncodeToString(sum.Sum(nil)), Bytes: size, Rows: rows}}}
+	if err := o.storeVSX(ctx, vprefix, parts, man); err != nil {
+		return err
+	}
+	bad, err := verifyPieces(ctx, o.Bucket, vsxSchema(), VSXOrder, man.Pieces)
+	if err != nil {
+		return err
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("vsx: %d pieces fail verification, first %s", len(bad), bad[0])
+	}
+	man.Verified = time.Now().UTC()
+	b, err := encodeManifest(man)
+	if err != nil {
+		return err
+	}
+	if err := o.Bucket.Put(ctx, path.Join(vprefix, manifestName), b); err != nil {
+		return err
+	}
+	if err := o.Bucket.Put(ctx, path.Join(o.Prefix, manifestName), b); err != nil {
+		return err
+	}
+	slog.Info("VSX mirrored", "version", version, "rows", rows, "pieces", len(man.Pieces), "stored MB", fmt.Sprintf("%.1f", float64(man.Bytes)/1e6))
+	return o.pruneVSX(ctx, version)
+}
+
+// storeVSX encodes and stores each partition's lines as one piece.
+func (o *MirrorOptions) storeVSX(ctx context.Context, vprefix string, parts map[int64][]byte, man *Manifest) error {
 	keys := make([]int64, 0, len(parts))
 	for p := range parts {
 		keys = append(keys, p)
@@ -624,21 +700,11 @@ func MirrorVSX(ctx context.Context, o MirrorOptions) error {
 		man.Bytes += pc.Bytes
 		delete(parts, p)
 	}
-	if err := verifyPieces(ctx, o.Bucket, vsxSchema(), VSXOrder, man.Pieces); err != nil {
-		return err
-	}
-	man.Verified = time.Now().UTC()
-	b, err := encodeManifest(man)
-	if err != nil {
-		return err
-	}
-	if err := o.Bucket.Put(ctx, path.Join(vprefix, manifestName), b); err != nil {
-		return err
-	}
-	if err := o.Bucket.Put(ctx, path.Join(o.Prefix, manifestName), b); err != nil {
-		return err
-	}
-	slog.Info("VSX mirrored", "version", version, "rows", rows, "pieces", len(man.Pieces), "stored MB", fmt.Sprintf("%.1f", float64(man.Bytes)/1e6))
+	return nil
+}
+
+// pruneVSX deletes every stored version but the current one.
+func (o *MirrorOptions) pruneVSX(ctx context.Context, version string) error {
 	all, err := o.Bucket.List(ctx, o.Prefix+"/")
 	if err != nil {
 		return err

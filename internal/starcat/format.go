@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"sort"
 	"sync"
 
@@ -238,7 +239,7 @@ var (
 
 func zenc() *zstd.Encoder {
 	encOnce.Do(func() {
-		encoder, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstdLevel), zstd.WithEncoderConcurrency(1))
+		encoder, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstdLevel), zstd.WithEncoderConcurrency(runtime.GOMAXPROCS(0)))
 	})
 	return encoder
 }
@@ -306,7 +307,7 @@ func readFooter(b []byte) (footer, error) {
 	}
 	off := binary.LittleEndian.Uint64(b[t:])
 	l := binary.LittleEndian.Uint32(b[t+8:])
-	if off+uint64(l) != uint64(t) {
+	if off > uint64(t) || off+uint64(l) != uint64(t) {
 		return f, errFormat
 	}
 	fj, err := zdec().DecodeAll(b[off:off+uint64(l)], nil)
@@ -331,6 +332,9 @@ func decodePiece[T any](s schema[T], b []byte, v [3]float64, r float64, fn func(
 	}
 	n := 0
 	for _, bl := range f.Blocks {
+		if bl.Rows < 0 || bl.Rows > blockRows || bl.Len < 0 {
+			return n, errFormat
+		}
 		if r >= 0 && !bl.Cap.reaches(v, r) {
 			continue
 		}
