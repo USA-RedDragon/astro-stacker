@@ -23,10 +23,11 @@ const (
 	KindIrregular  Kind = "irregular"
 )
 
-// Eclipse is one dip of the fitted model: its depth per survey band in
-// magnitudes (keyed "ZTF r", "ATLAS o", ...), its phase (0 for the deeper
-// dip) and its width as a share of the period. Shape is the exponent a
-// of the dip (1 - (dt/W)^2)^a.
+// Eclipse is one dip of the fitted model: the star's own depth per survey
+// band in magnitudes (keyed "ZTF r", "ATLAS o", "TESS", "NEOWISE W1", ...,
+// with any blending taken out), its phase (0 for the deeper dip) and its
+// half width W as a share of the period. Shape is the exponent a of the
+// dip (1 - (dt/W)^2)^a, for |dt| < W with dt in cycles from the minimum.
 type Eclipse struct {
 	Phase float64            `json:"phase"`
 	Width float64            `json:"width"`
@@ -82,15 +83,24 @@ type Result struct {
 	Checks []check.Check `json:"checks"`
 }
 
-// Options bound the search.
+// Options bound the search. MinPeriod and MaxPeriod are in days, 0.2
+// and 60 when zero. ChangeMag is the change the user reported, in
+// magnitudes, positive for a fade; a flat survey light curve is checked
+// against it.
 type Options struct {
 	MinPeriod float64
 	MaxPeriod float64
+	ChangeMag float64
 }
 
 // Analyze searches series for a period and tests it. series holds every
 // survey's light curve of the star; the ones from the user's own images
-// (lc.Own) are only used for the timing check, not the search.
+// (lc.Own) are only used for the timing check, not the search. Each
+// series is put on its own median first. A TESS series names its sector
+// in Band or Note ("S17" or "Sector 17"). When no period stands out the
+// error is ErrNoPeriod and the Result still holds the survey rows; when
+// there were survey points its Ephemeris has Kind flat or irregular and
+// no period.
 func Analyze(series []lc.Series, opts Options) (*Result, error) {
 	return analyze(series, opts)
 }
