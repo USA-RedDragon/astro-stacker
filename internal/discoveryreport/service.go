@@ -16,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveryfollowup"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/tnsmirror"
 	"gorm.io/gorm"
 )
 
@@ -60,10 +61,13 @@ type Searcher func(ctx context.Context, ra, dec, radius float64) ([]string, erro
 
 // Service drafts reports and keeps what they add.
 type Service struct {
-	DB         *gorm.DB
-	Measurer   SpotMeasurer
-	Cutouts    CutoutReader
-	Search     Searcher
+	DB       *gorm.DB
+	Measurer SpotMeasurer
+	Cutouts  CutoutReader
+	Search   Searcher
+	// TNSIndex is the local TNS copy, nil until it loads; while it is
+	// loaded it answers the TNS check instead of Search.
+	TNSIndex   func() *tnsmirror.Index
 	TNS        TNS
 	Settings   Settings
 	Instrument func(ctx context.Context, c app.DiscoveryCandidate) string
@@ -121,13 +125,27 @@ func (s *Service) saved(ctx context.Context, c app.DiscoveryCandidate, create bo
 	return &r, nil
 }
 
-// Report drafts a candidate's report, searching TNS first when a key is
-// set and the last search is old.
+func (s *Service) local(c app.DiscoveryCandidate) *LocalSearch {
+	if s.TNSIndex == nil {
+		return nil
+	}
+	ix := s.TNSIndex()
+	if ix == nil {
+		return nil
+	}
+	hits, _ := discoveries.LocalTNS(func() *tnsmirror.Index { return ix })(c.RA, c.Dec, SearchRadius)
+	return &LocalSearch{AsOf: ix.AsOf, Hits: hits}
+}
+
+// Report drafts a candidate's report: the TNS check from the local TNS
+// copy when it is loaded, else from a TNS search when a key is set and the
+// last search is old.
 func (s *Service) Report(ctx context.Context, id int) (Report, error) {
 	c, run, err := s.load(ctx, id)
 	if err != nil {
 		return Report{}, err
 	}
+	local := s.local(c)
 	saved, err := s.saved(ctx, c, s.Search != nil)
 	if errors.Is(err, errNoReport) {
 		saved, err = nil, nil
@@ -135,10 +153,10 @@ func (s *Service) Report(ctx context.Context, id int) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	if s.Search != nil && saved != nil && c.Kind == app.DiscoveryKindChange && (saved.TNSAt == nil || s.now().Sub(*saved.TNSAt) > tnsSearchAge) {
+	if local == nil && s.Search != nil && saved != nil && c.Kind == app.DiscoveryKindChange && (saved.TNSAt == nil || s.now().Sub(*saved.TNSAt) > tnsSearchAge) {
 		s.search(ctx, c, saved)
 	}
-	in := Input{Cand: c, Run: run, Saved: saved, Settings: s.Settings}
+	in := Input{Cand: c, Run: run, Saved: saved, Settings: s.Settings, Local: local, Exposure: s.nightExposure(ctx, c, run)}
 	in.Settings.TNSKey = s.TNS.Enabled()
 	if f, err := discoveryfollowup.ForCandidate(ctx, s.DB, c); err == nil {
 		in.Followup = f
@@ -356,6 +374,61 @@ func (s *Service) SendTNS(ctx context.Context, id int) (Reply, error) {
 	return reply, err
 }
 
+// SendFollowup sends our photometry of a find TNS already has, when some
+// of it is from before the discovery. It is only ever called on the
+// report page's explicit Send.
+func (s *Service) SendFollowup(ctx context.Context, id int) (Reply, error) {
+	rep, err := s.Report(ctx, id)
+	if err != nil {
+		return Reply{}, err
+	}
+	if !rep.TNSFollowup.CanSend {
+		return Reply{}, fmt.Errorf("%w: %s", ErrInvalid, rep.TNSFollowup.SendReason)
+	}
+	c, run, err := s.load(ctx, id)
+	if err != nil {
+		return Reply{}, err
+	}
+	saved, err := s.saved(ctx, c, true)
+	if err != nil {
+		return Reply{}, err
+	}
+	vals, err := s.TNS.Values(ctx)
+	if err != nil {
+		return Reply{}, err
+	}
+	in := Input{Cand: c, Run: run, Saved: saved, Spot: s.spots(ctx, c), Settings: s.Settings, Local: s.local(c), Exposure: s.nightExposure(ctx, c, run)}
+	in.Settings.TNSKey = s.TNS.Enabled()
+	report, err := FollowupReport(in, vals)
+	if err != nil {
+		return Reply{}, err
+	}
+	body, err := json.Marshal(report)
+	if err != nil {
+		return Reply{}, err
+	}
+	claim := s.DB.WithContext(ctx).Model(&app.DiscoveryReport{}).Where("id = ? AND followup_sent_at IS NULL", saved.ID).
+		Updates(map[string]any{"followup_sent_at": s.now(), "followup_report": string(body)})
+	if claim.Error != nil {
+		return Reply{}, claim.Error
+	}
+	if claim.RowsAffected == 0 {
+		return Reply{}, fmt.Errorf("%w: already sent", ErrInvalid)
+	}
+	reply, err := s.TNS.Send(ctx, report)
+	fields := map[string]any{"followup_reply_id": reply.ReportID, "followup_reply": string(reply.Raw)}
+	if err != nil {
+		fields["followup_reply"] = err.Error()
+		if reply.ReportID == "" && !errors.Is(err, context.DeadlineExceeded) {
+			fields["followup_sent_at"] = nil
+		}
+	}
+	if uerr := s.DB.WithContext(context.WithoutCancel(ctx)).Model(&app.DiscoveryReport{}).Where("id = ?", saved.ID).Updates(fields).Error; uerr != nil {
+		slog.Error("Could not record a TNS photometry report", "error", uerr)
+	}
+	return reply, err
+}
+
 func (s *Service) spots(ctx context.Context, c app.DiscoveryCandidate) []discoveries.SpotNight {
 	saved, err := s.saved(ctx, c, false)
 	if err != nil || saved.Spot == "" {
@@ -382,43 +455,16 @@ func ATReport(c app.DiscoveryCandidate, run app.DiscoveryRun, spot []discoveries
 		return nil, fmt.Errorf("%w: the last non-detection is not measured", ErrInvalid)
 	}
 	_, atName := typeGuess(c)
-	atType, ok := vals.ID(atName, "at_types", "at_type", "objtypes")
-	if !ok {
-		return nil, fmt.Errorf("%w: TNS has no at type %s", ErrInvalid, atName)
+	ids, err := idsFor(vals, atName)
+	if err != nil {
+		return nil, err
 	}
-	clearID, ok := vals.ID("Clear-", "filters", "filter")
-	if !ok {
-		return nil, fmt.Errorf("%w: TNS has no Clear- filter", ErrInvalid)
-	}
-	unit, ok := vals.ID("ABMag", "units", "flux_units", "unit")
-	if !ok {
-		return nil, fmt.Errorf("%w: TNS has no ABMag unit", ErrInvalid)
-	}
-	ndFilter := clearID
 	if discoveries.GroupOf(nd.Filter) != discoveries.GroupBroadband {
 		return nil, fmt.Errorf("%w: the last non-detection is narrowband", ErrInvalid)
 	}
-	e := magErr(c)
-	flux := map[string]any{"obsdate": p.Time.UTC().Format("2006-01-02 15:04:05"), colFlux: fmt.Sprintf("%.2f", *mag), "flux_error": fmt.Sprintf("%.2f", *e),
-		"limiting_flux": "", "flux_unitid": unit, "filterid": clearID, "instrumentid": st.TNSInstrumentID, "exptime": fmt.Sprintf("%.0f", exposure),
-		"observer": st.Reporter, "comments": "Night stack of " + itoa(run.NightSubs) + " subs"}
-	entry := map[string]any{
-		"ra":                  map[string]any{"value": RAText(c.RA), "error": fmt.Sprintf("%.2f", unc), "units": unitArcsec},
-		"dec":                 map[string]any{"value": DecText(c.Dec), "error": fmt.Sprintf("%.2f", unc), "units": unitArcsec},
-		"reporting_groupid":   st.TNSGroupID,
-		"data_source_groupid": st.TNSGroupID,
-		"reporter":            st.Reporter,
-		"discovery_datetime":  p.Time.UTC().Format("2006-01-02 15:04:05"),
-		"at_type":             atType,
-		"remarks":             "",
-		"non_detection": map[string]any{"obsdate": nd.Mid.UTC().Format("2006-01-02 15:04:05"), "limiting_flux": fmt.Sprintf("%.2f", *nd.Limit),
-			"flux_unitid": unit, "filterid": ndFilter, "instrumentid": st.TNSInstrumentID, "exptime": fmt.Sprintf("%.0f", nd.Exposure),
-			"observer": st.Reporter, "comments": "Forced photometry, 3 sigma"},
-		"photometry": map[string]any{"0": flux},
-	}
-	if h, ok := host(c); ok {
-		entry["host_name"] = h.Name
-	}
+	flux := tnsFlux{Obs: p.Time, Mag: mag, Err: magErr(c), Exposure: exposure, Comments: "Night stack of " + itoa(run.NightSubs) + " subs"}
+	ndFlux := tnsFlux{Obs: nd.Mid, Limit: nd.Limit, Exposure: nd.Exposure, Comments: forcedComment}
+	entry := atEntry(c, unc, st, ids, p.Time, "", ndFlux, []tnsFlux{flux})
 	return map[string]any{"at_report": map[string]any{"0": entry}}, nil
 }
 

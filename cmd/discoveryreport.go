@@ -17,6 +17,9 @@ func newReports(ctx context.Context, cfg *config.Config, appStore store.Store, n
 	svc := &discoveryreport.Service{DB: appStore.DB(), Cutouts: newCutoutStore(cfg), Instrument: discoveryreport.InstrumentFromFrames(appStore.DB()),
 		TNS:      discoveryreport.TNS{Key: d.TNSKey, BotID: d.TNSBotID, BotName: d.TNSBotName},
 		Settings: discoveryreport.Settings{Reporter: d.TNSReporter, TNSGroupID: d.TNSGroupID, TNSInstrumentID: d.TNSInstrumentID, MPCCode: d.MPCCode}}
+	if nights.tns != nil {
+		svc.TNSIndex = nights.tns.Index
+	}
 	if m, ok := nights.source.(discoveryreport.SpotMeasurer); ok {
 		svc.Measurer = m
 	}

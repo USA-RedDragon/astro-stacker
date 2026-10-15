@@ -26,6 +26,12 @@ type DiscoveryReport struct {
 	SentReport  string `gorm:"type:text"`
 	SentReply   string `gorm:"type:text"`
 	SentReplyID string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// FollowupSentAt and the rest record the photometry report sent for a
+	// find TNS already has.
+	FollowupSentAt  *time.Time
+	FollowupReport  string `gorm:"type:text"`
+	FollowupReply   string `gorm:"type:text"`
+	FollowupReplyID string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
