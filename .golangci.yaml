@@ -59,7 +59,7 @@ linters:
       - path: internal/(stacking/.*|server/(covers|public|subs|webui|discover|stacks|collabswitch)|publicframe/render(er)?|events/events|indexer/(indexer|runloop|recent)|siril/maincommand)_test\.go$
         linters:
           - testpackage
-      - path: internal/(goals|goalmeasure|planning|astrometry|discoveries)/.*_test\.go$
+      - path: internal/(goals|goalmeasure|planning|astrometry|discoveries|vetting)/.*_test\.go$
         linters:
           - testpackage
       - path: internal/server/(planning|goalmask|objects|darkbacklog|calibration|discoveries)_test\.go$
@@ -105,7 +105,7 @@ linters:
         linters:
           - gosec
         text: G404
-      - path: internal/(metrics/metrics|catalog/embedded|server/skyevents_internal_test|starcat/format)\.go$
+      - path: internal/(metrics/metrics|catalog/embedded|server/skyevents_internal_test|starcat/format|vetting/lc/bjd)\.go$
         linters:
           - gochecknoglobals
       - path: internal/publicframe/watermark\.go$

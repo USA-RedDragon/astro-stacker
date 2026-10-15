@@ -1,0 +1,109 @@
+// Package vetting checks each new discovery automatically: image checks,
+// the spot's own light curve, survey history with a period search,
+// catalogs and known moving objects, and suggests a verdict. The user's
+// own vetting stays the final say.
+package vetting
+
+import (
+	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
+)
+
+// Version is the vetting logic's version; reports from an older one are
+// run again.
+const Version = 1
+
+// Suggestion is the suggested verdict. State is one of the user's vetting
+// states: real, artifact, known or unsure.
+type Suggestion struct {
+	State      string `json:"state"`
+	Say        string `json:"say"`
+	Why        string `json:"why"`
+	Confidence string `json:"confidence"`
+}
+
+// Confidence levels.
+const (
+	High   = "high"
+	Medium = "medium"
+	Low    = "low"
+)
+
+// Group is one heading of checks in the panel.
+type Group struct {
+	ID     string        `json:"id"`
+	Name   string        `json:"name"`
+	Checks []check.Check `json:"checks"`
+}
+
+// ChartPoint is one plotted point; Err is its one sigma error, 0 for none.
+type ChartPoint struct {
+	X   float64 `json:"x"`
+	Y   float64 `json:"y"`
+	Err float64 `json:"err,omitempty"`
+}
+
+// ChartRef is a horizontal line: "base" for the normal level, "fade" for
+// where the reported change would put the star.
+type ChartRef struct {
+	Y     float64 `json:"y"`
+	Style string  `json:"style"`
+}
+
+// LegendItem is one key entry: Style is "dot", "line" or "dash".
+type LegendItem struct {
+	Style string `json:"style"`
+	Label string `json:"label"`
+}
+
+// Chart is one plot the panel draws. Y grows downward on screen (fainter
+// is lower). XUnit is "hours", "phase" or "year" and YUnit "dmag" or
+// "mag", for the hover text.
+type Chart struct {
+	ID     string       `json:"id"`
+	Title  string       `json:"title"`
+	Sub    string       `json:"sub"`
+	XLabel string       `json:"x_label"`
+	YLabel string       `json:"y_label"`
+	XUnit  string       `json:"x_unit"`
+	YUnit  string       `json:"y_unit"`
+	X0     float64      `json:"x0"`
+	X1     float64      `json:"x1"`
+	Y0     float64      `json:"y0"`
+	Y1     float64      `json:"y1"`
+	XTicks []float64    `json:"x_ticks"`
+	YTicks []float64    `json:"y_ticks"`
+	Points []ChartPoint `json:"points"`
+	Line   [][2]float64 `json:"line,omitempty"`
+	Refs   []ChartRef   `json:"refs,omitempty"`
+	VRef   *float64     `json:"vref,omitempty"`
+	Legend []LegendItem `json:"legend,omitempty"`
+	Empty  string       `json:"empty,omitempty"`
+}
+
+// Report is one source's vetting.
+type Report struct {
+	Version  int       `json:"version"`
+	SourceID int       `json:"source_id"`
+	RanAt    time.Time `json:"ran_at"`
+	// Star names the star at the spot, "2MASS J00433343+4139446 · Gaia G
+	// 15.04", or only its magnitude.
+	Star       string            `json:"star"`
+	Suggestion Suggestion        `json:"suggestion"`
+	Groups     []Group           `json:"groups"`
+	Charts     []Chart           `json:"charts"`
+	Ephemeris  *period.Ephemeris `json:"ephemeris,omitempty"`
+	// Pending names surveys whose data is still being fetched; a later
+	// run fills them in.
+	Pending []string `json:"pending,omitempty"`
+}
+
+// State of a source's vetting run.
+const (
+	StateQueued  = "queued"
+	StateRunning = "running"
+	StateDone    = "done"
+	StateFailed  = "failed"
+)
