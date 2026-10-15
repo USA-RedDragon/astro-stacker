@@ -45,6 +45,10 @@ const (
 	alertMatchArcsec   = 3.0
 	galaxyMatchFactor  = 1.2
 	maxAlertCandidates = 60
+	// maxZTFCandidates bounds the ZTF light curve queries of one run about
+	// changes held for want of a confirmation, the strongest first: IRSA
+	// takes 4 to 24 s a query. A new variable is always asked.
+	maxZTFCandidates = 60
 )
 
 // Match is a catalogue entry a candidate or track matched.
@@ -140,6 +144,33 @@ func ztfCheck(ctx context.Context, l *Labelled, lookup ZTFLookup) (checked, fail
 	case ztflc.Unknown:
 	}
 	return true, false
+}
+
+// confirmByZTF holds a new or held change on a star at low confidence when
+// the night's null test found as strong a change, and otherwise asks ZTF
+// about it while the run's queries last.
+func confirmByZTF(ctx context.Context, l *Labelled, res *Result, lookup ZTFLookup, asked *int, checked, failed []string) (outChecked, outFailed []string) {
+	if l.Class != ClassNewVariable && !heldForConfirmation(*l) {
+		return checked, failed
+	}
+	if l.SNR <= res.ChangeNull.MaxSNR {
+		l.Class = ClassLowConfidence
+		return checked, failed
+	}
+	held := l.Class != ClassNewVariable
+	if held && *asked >= maxZTFCandidates {
+		return checked, failed
+	}
+	ch, fl := ztfCheck(ctx, l, lookup)
+	if held && (ch || fl) {
+		*asked++
+	}
+	if ch {
+		checked = union(checked, []string{catalogZTF})
+	} else if fl {
+		failed = union(failed, []string{catalogZTF})
+	}
+	return checked, failed
 }
 
 // minHeldSubs is the fewest subs a change held for few subs must be
@@ -238,7 +269,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		tracks[i] = lt
 	}
 	out := make([]Labelled, len(res.Candidates))
-	looked := 0
+	looked, ztfAsked := 0, 0
 	order := make([]int, len(res.Candidates))
 	for i := range order {
 		order[i] = i
@@ -296,13 +327,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		}
 		l.Matches = append(l.Matches, placeMatches(c, k)...)
 		l.Class = classOf(l)
-		if c.SNR <= res.ChangeNull.MaxSNR && (l.Class == ClassNewVariable || heldForConfirmation(l)) {
-			l.Class = ClassLowConfidence
-		} else if ch, fl := ztfCheck(ctx, &l, k.ZTF); ch {
-			checked = union(checked, []string{catalogZTF})
-		} else if fl {
-			failed = union(failed, []string{catalogZTF})
-		}
+		checked, failed = confirmByZTF(ctx, &l, res, k.ZTF, &ztfAsked, checked, failed)
 		annotateTNS(&l, res)
 		out[i] = l
 	}

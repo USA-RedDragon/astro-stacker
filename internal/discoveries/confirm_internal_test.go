@@ -104,10 +104,28 @@ func TestZTFLightCurveConfirmsAOneNightChangeOnAStar(t *testing.T) {
 			asked = true
 			return ztflc.Verdict{Kind: tc.kind, Amplitude: 0.53, Band: "r"}, nil
 		}}
-		ls, _, _, _ := Classify(ctx, res, k, nil)
+		ls := classifyChanges(ctx, t, res, k)
 		if ls[0].Class != tc.want || asked != tc.asked {
 			t.Errorf("%s: %s, ZTF asked %v, want %s, asked %v", tc.name, ls[0].Class, asked, tc.want, tc.asked)
 		}
+	}
+}
+
+func TestZTFIsAskedAboutTheStrongestChangesOnly(t *testing.T) {
+	t.Parallel()
+	g, dm := 15.0, 0.2
+	res := &Result{}
+	for i := range maxZTFCandidates + 5 {
+		res.Candidates = append(res.Candidates, Candidate{RA: 10 + float64(i)/100, Dec: 41, Sign: -1, SNR: 20 + float64(i), PresentIn: 20, SubsTested: 20, GaiaG: &g, DeltaMag: &dm})
+	}
+	asked := 0
+	k := Known{ZTF: func(context.Context, float64, float64, float64) (ztflc.Verdict, error) {
+		asked++
+		return ztflc.Verdict{Kind: ztflc.Variable, Amplitude: 0.5, Band: "r"}, nil
+	}}
+	ls := classifyChanges(context.Background(), t, res, k)
+	if asked != maxZTFCandidates || ls[0].Class != ClassLowConfidence || ls[len(ls)-1].Class != ClassNewVariable {
+		t.Errorf("asked %d times; weakest %s, strongest %s", asked, ls[0].Class, ls[len(ls)-1].Class)
 	}
 }
 
@@ -134,5 +152,28 @@ func TestHeldChangesAreFadingsAskedOfTheBrokers(t *testing.T) {
 	ls, _, checked, _ := Classify(ctx, &Result{Candidates: []Candidate{fainter}}, Known{ZTF: variable(&asked)}, tns)
 	if ls[0].Class != ClassKnownTransient || len(checked) < 3 {
 		t.Errorf("a held fading TNS lists: %s, checked %v", ls[0].Class, checked)
+	}
+}
+
+func TestZTFAlwaysJudgesAConfirmedNewVariable(t *testing.T) {
+	t.Parallel()
+	g, dm := 15.0, 0.2
+	other := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	res := &Result{}
+	for i := range maxZTFCandidates {
+		res.Candidates = append(res.Candidates, Candidate{RA: 10 + float64(i)/100, Dec: 41, Sign: -1, SNR: 50 + float64(i), PresentIn: 20, SubsTested: 20, GaiaG: &g, DeltaMag: &dm})
+	}
+	confirmed := Candidate{RA: 12, Dec: 41, Sign: -1, SNR: 9, PresentIn: 20, SubsTested: 20, GaiaG: &g, DeltaMag: &dm}
+	res.Candidates = append(res.Candidates, confirmed)
+	k := Known{Prior: []PriorChange{{RA: 12, Dec: 41, Sign: -1, Night: other, Group: GroupBroadband}},
+		ZTF: func(_ context.Context, ra, _, _ float64) (ztflc.Verdict, error) {
+			if ra == 12 {
+				return ztflc.Verdict{Kind: ztflc.Flat, Amplitude: 0.03, Band: "r"}, nil
+			}
+			return ztflc.Verdict{Kind: ztflc.Unknown}, nil
+		}}
+	ls := classifyChanges(context.Background(), t, res, k)
+	if c := ls[len(ls)-1]; c.RA != 12 || c.Class != ClassLowConfidence {
+		t.Errorf("a confirmed change ZTF shows flat, after %d held ones: %s", maxZTFCandidates, c.Class)
 	}
 }
