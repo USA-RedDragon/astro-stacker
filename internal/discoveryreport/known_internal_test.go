@@ -197,8 +197,7 @@ func TestServiceSendsFollowupOnceWithoutSearching(t *testing.T) {
 	if _, err := s.Measure(ctx, id, false); err != nil {
 		t.Fatal(err)
 	}
-	for s.MeasureNext(ctx) {
-	}
+	measured(t, s)
 	r, err := s.Report(ctx, id)
 	if err != nil {
 		t.Fatal(err)
