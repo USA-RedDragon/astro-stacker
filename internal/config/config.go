@@ -261,18 +261,20 @@ type Goals struct {
 }
 
 type Discoveries struct {
-	Enabled         bool   `name:"enabled" description:"Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks"`
-	IntervalMinutes int    `name:"interval-minutes" description:"Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later" default:"10"`
-	Threads         int    `name:"threads" description:"Cores one comparison may use; comparisons run one at a time and wait while the stacker is working" default:"2"`
-	RefSubs         int    `name:"reference-subs" description:"Most subs per filter stacked into a night's reference, taken from the other nights in turn" default:"48"`
-	BackfillDays    int    `name:"backfill-days" description:"Nights from the last this many days are compared on their own; older nights only on request" default:"30"`
-	TNSKey          string `name:"tns-key" description:"Transient Name Server bot API key; empty skips TNS"`
-	TNSBotID        string `name:"tns-bot-id" description:"Transient Name Server bot ID"`
-	TNSBotName      string `name:"tns-bot-name" description:"Transient Name Server bot name"`
-	TNSReporter     string `name:"tns-reporter" description:"Reporter line of TNS discovery reports, e.g. 'J. Smith (Home Observatory)'; empty shows Not set and keeps Send off"`
-	TNSGroupID      string `name:"tns-group-id" description:"TNS reporting group id of your reports; empty keeps Send off"`
-	TNSInstrumentID string `name:"tns-instrument-id" description:"TNS instrument id of your telescope and camera; empty keeps Send off"`
-	MPCCode         string `name:"mpc-code" description:"Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set"`
+	Enabled         bool    `name:"enabled" description:"Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks"`
+	IntervalMinutes int     `name:"interval-minutes" description:"Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later" default:"10"`
+	Threads         int     `name:"threads" description:"Cores one comparison may use; comparisons run one at a time and wait while the stacker is working" default:"2"`
+	RefSubs         int     `name:"reference-subs" description:"Most subs per filter stacked into a night's reference, taken from the other nights in turn" default:"48"`
+	BackfillDays    int     `name:"backfill-days" description:"Nights from the last this many days are compared on their own; older nights only on request" default:"30"`
+	TNSKey          string  `name:"tns-key" description:"Transient Name Server bot API key; empty skips TNS"`
+	TNSBotID        string  `name:"tns-bot-id" description:"Transient Name Server bot ID"`
+	TNSBotName      string  `name:"tns-bot-name" description:"Transient Name Server bot name"`
+	TNSReporter     string  `name:"tns-reporter" description:"Reporter line of TNS discovery reports, e.g. 'J. Smith (Home Observatory)'; empty shows Not set and keeps Send off"`
+	TNSGroupID      string  `name:"tns-group-id" description:"TNS reporting group id of your reports; empty keeps Send off"`
+	TNSInstrumentID string  `name:"tns-instrument-id" description:"TNS instrument id of your telescope and camera; empty keeps Send off"`
+	MPCCode         string  `name:"mpc-code" description:"Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set"`
+	TNSMirrorPrefix string  `name:"tns-mirror-prefix" description:"Path of the TNS public objects mirror in the survey bucket: the daily full list and hourly files, kept 30 days, fetched with the TNS bot and searched locally instead of TNS's search API. Off until tns-key, tns-bot-id and tns-bot-name are set" default:"catalogs/tns"`
+	TNSMatchArcsec  float64 `name:"tns-match-arcsec" description:"Radius in arcseconds within which a change matches a TNS object of the local mirror" default:"3"`
 
 	SmallBodiesURL string   `name:"small-bodies-url" description:"Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT"`
 	Topocentric    bool     `name:"topocentric" description:"Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service"`

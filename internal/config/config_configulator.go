@@ -207,6 +207,8 @@ type discoveriesShadow struct {
 	TNSGroupID      *string   `json:"tns-group-id"      toml:"tns-group-id"      yaml:"tns-group-id"`
 	TNSInstrumentID *string   `json:"tns-instrument-id" toml:"tns-instrument-id" yaml:"tns-instrument-id"`
 	MPCCode         *string   `json:"mpc-code"          toml:"mpc-code"          yaml:"mpc-code"`
+	TNSMirrorPrefix *string   `json:"tns-mirror-prefix" toml:"tns-mirror-prefix" yaml:"tns-mirror-prefix"`
+	TNSMatchArcsec  *float64  `json:"tns-match-arcsec"  toml:"tns-match-arcsec"  yaml:"tns-match-arcsec"`
 	SmallBodiesURL  *string   `json:"small-bodies-url"  toml:"small-bodies-url"  yaml:"small-bodies-url"`
 	Topocentric     *bool     `json:"topocentric"       toml:"topocentric"       yaml:"topocentric"`
 	CrossCheck      *[]string `json:"cross-check"       toml:"cross-check"       yaml:"cross-check"`
@@ -451,6 +453,10 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("discoveries.reference-subs", configulator.LayerDefault, "default tag")
 	cfg.Discoveries.BackfillDays = 30
 	set("discoveries.backfill-days", configulator.LayerDefault, "default tag")
+	cfg.Discoveries.TNSMirrorPrefix = "catalogs/tns"
+	set("discoveries.tns-mirror-prefix", configulator.LayerDefault, "default tag")
+	cfg.Discoveries.TNSMatchArcsec = 3.0
+	set("discoveries.tns-match-arcsec", configulator.LayerDefault, "default tag")
 	cfg.Scheduling.Auto = "off"
 	set("scheduling.auto", configulator.LayerDefault, "default tag")
 	cfg.Scheduling.IntervalHours = 1
@@ -1041,6 +1047,14 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Discoveries.MPCCode != nil {
 			cfg.Discoveries.MPCCode = *s.Discoveries.MPCCode
 			set("discoveries.mpc-code", configulator.LayerFile, file)
+		}
+		if s.Discoveries.TNSMirrorPrefix != nil {
+			cfg.Discoveries.TNSMirrorPrefix = *s.Discoveries.TNSMirrorPrefix
+			set("discoveries.tns-mirror-prefix", configulator.LayerFile, file)
+		}
+		if s.Discoveries.TNSMatchArcsec != nil {
+			cfg.Discoveries.TNSMatchArcsec = *s.Discoveries.TNSMatchArcsec
+			set("discoveries.tns-match-arcsec", configulator.LayerFile, file)
 		}
 		if s.Discoveries.SmallBodiesURL != nil {
 			cfg.Discoveries.SmallBodiesURL = *s.Discoveries.SmallBodiesURL
@@ -2347,6 +2361,23 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Discoveries.MPCCode = v
 		set("discoveries.mpc-code", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "tns-mirror-prefix"); ok {
+		cfg.Discoveries.TNSMirrorPrefix = v
+		set("discoveries.tns-mirror-prefix", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "tns-match-arcsec"); ok {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.tns-match-arcsec",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discoveries.TNSMatchArcsec = p
+		set("discoveries.tns-match-arcsec", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discoveries", "small-bodies-url"); ok {
 		cfg.Discoveries.SmallBodiesURL = v
 		set("discoveries.small-bodies-url", configulator.LayerEnv, n)
@@ -2618,6 +2649,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"discoveries" + o.Separator + "tns-group-id",
 		"discoveries" + o.Separator + "tns-instrument-id",
 		"discoveries" + o.Separator + "mpc-code",
+		"discoveries" + o.Separator + "tns-mirror-prefix",
+		"discoveries" + o.Separator + "tns-match-arcsec",
 		"discoveries" + o.Separator + "small-bodies-url",
 		"discoveries" + o.Separator + "topocentric",
 		"discoveries" + o.Separator + "cross-check",
@@ -2782,24 +2815,26 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[128], "", "TNS reporting group id of your reports; empty keeps Send off")
 	fs.String(names[129], "", "TNS instrument id of your telescope and camera; empty keeps Send off")
 	fs.String(names[130], "", "Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set")
-	fs.String(names[131], "", "Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT")
-	fs.Bool(names[132], false, "Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service")
-	fs.StringSlice(names[133], nil, "Public services also asked for each night's known asteroids and comets, from the geocentre, logging how they differ from the local service: skybot, sbident")
-	fs.String(names[134], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
-	fs.Var(impl.NewInt(1), names[135], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
-	fs.Bool(names[136], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
-	fs.String(names[137], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
-	fs.String(names[138], "America/Chicago", "IANA time zone of the send time and of the times in the report")
-	fs.String(names[139], "CT", "Label after every time in the report")
-	fs.String(names[140], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
-	fs.String(names[141], "", "Telegram bot token")
-	fs.String(names[142], "", "Telegram chat the report goes to")
-	fs.String(names[143], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
-	fs.Bool(names[144], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty")
-	fs.String(names[145], "", "Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off")
-	fs.String(names[146], "", "Telegram chat the alerts go to; empty turns the alerts off")
-	fs.Bool(names[147], false, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default")
-	fs.Var(impl.NewInt(5), names[148], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
+	fs.String(names[131], "catalogs/tns", "Path of the TNS public objects mirror in the survey bucket: the daily full list and hourly files, kept 30 days, fetched with the TNS bot and searched locally instead of TNS's search API. Off until tns-key, tns-bot-id and tns-bot-name are set")
+	fs.Float64(names[132], 3.0, "Radius in arcseconds within which a change matches a TNS object of the local mirror")
+	fs.String(names[133], "", "Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT")
+	fs.Bool(names[134], false, "Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service")
+	fs.StringSlice(names[135], nil, "Public services also asked for each night's known asteroids and comets, from the geocentre, logging how they differ from the local service: skybot, sbident")
+	fs.String(names[136], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
+	fs.Var(impl.NewInt(1), names[137], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
+	fs.Bool(names[138], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
+	fs.String(names[139], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
+	fs.String(names[140], "America/Chicago", "IANA time zone of the send time and of the times in the report")
+	fs.String(names[141], "CT", "Label after every time in the report")
+	fs.String(names[142], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
+	fs.String(names[143], "", "Telegram bot token")
+	fs.String(names[144], "", "Telegram chat the report goes to")
+	fs.String(names[145], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
+	fs.Bool(names[146], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty")
+	fs.String(names[147], "", "Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off")
+	fs.String(names[148], "", "Telegram chat the alerts go to; empty turns the alerts off")
+	fs.Bool(names[149], false, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default")
+	fs.Var(impl.NewInt(5), names[150], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
 	return nil
 }
 
@@ -4376,6 +4411,30 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Discoveries.MPCCode = v
 		set("discoveries.mpc-code", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "tns-mirror-prefix"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.tns-mirror-prefix",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.TNSMirrorPrefix = v
+		set("discoveries.tns-mirror-prefix", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discoveries" + o.Separator + "tns-match-arcsec"; fs.Changed(n) {
+		v, err := fs.GetFloat64(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discoveries.tns-match-arcsec",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discoveries.TNSMatchArcsec = v
+		set("discoveries.tns-match-arcsec", configulator.LayerCLI, "--"+n)
 	}
 	if n := "discoveries" + o.Separator + "small-bodies-url"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -7593,6 +7652,35 @@ func (s *discoveriesShadow) decodeJSON(dec *jsontext.Decoder, path string) error
 			default:
 				return configJSONError(path+".mpc-code", v, fmt.Errorf("expected a string, got %v", v.Kind()))
 			}
+		case "tns-mirror-prefix":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.TNSMirrorPrefix = &str
+			default:
+				return configJSONError(path+".tns-mirror-prefix", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "tns-match-arcsec":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindNumber:
+				num, err := v.Float()
+				if err != nil {
+					return configJSONError(path+".tns-match-arcsec", v, err)
+				}
+				s.TNSMatchArcsec = &num
+			default:
+				return configJSONError(path+".tns-match-arcsec", v, fmt.Errorf("expected a number, got %v", v.Kind()))
+			}
 		case "small-bodies-url":
 			v, err := dec.ReadToken()
 			if err != nil {
@@ -8105,6 +8193,8 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "discoveries.tns-group-id = %v\n", c.Discoveries.TNSGroupID)
 	fmt.Fprintf(&b, "discoveries.tns-instrument-id = %v\n", c.Discoveries.TNSInstrumentID)
 	fmt.Fprintf(&b, "discoveries.mpc-code = %v\n", c.Discoveries.MPCCode)
+	fmt.Fprintf(&b, "discoveries.tns-mirror-prefix = %v\n", c.Discoveries.TNSMirrorPrefix)
+	fmt.Fprintf(&b, "discoveries.tns-match-arcsec = %v\n", c.Discoveries.TNSMatchArcsec)
 	fmt.Fprintf(&b, "discoveries.small-bodies-url = %v\n", c.Discoveries.SmallBodiesURL)
 	fmt.Fprintf(&b, "discoveries.topocentric = %v\n", c.Discoveries.Topocentric)
 	fmt.Fprintf(&b, "discoveries.cross-check = %v\n", c.Discoveries.CrossCheck)
