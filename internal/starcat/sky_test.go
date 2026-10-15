@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
@@ -48,5 +49,18 @@ func TestPropagateMovesByProperMotion(t *testing.T) {
 	}
 	if a, d := starcat.Propagate(10, 20, math.NaN(), math.NaN(), 10); a != 10 || d != 20 {
 		t.Fatalf("no proper motion moved the star to (%v, %v)", a, d)
+	}
+}
+
+func TestDecimalMatchesVizieR(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		v    float32
+		n    int
+		want string
+	}{{17.49252, 6, "17.492520"}, {1.4605, 3, "1.460"}, {17.16435, 4, "17.1643"}, {4.76655, 4, "4.7665"}} {
+		if got := strconv.FormatFloat(starcat.Decimal(c.v), 'f', c.n, 64); got != c.want {
+			t.Errorf("Decimal(%v) to %d places = %s, want %s", c.v, c.n, got, c.want)
+		}
 	}
 }

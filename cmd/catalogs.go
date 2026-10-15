@@ -241,7 +241,7 @@ func (d *diffs) report(out io.Writer) {
 }
 
 func checkGaia(ctx context.Context, out io.Writer, g *starcat.Gaia, ra, dec, radius, faint float64) error {
-	keep := func(s *starcat.GaiaStar) bool { return !math.IsNaN(float64(s.G)) && float64(s.G) < faint }
+	keep := func(s *starcat.GaiaStar) bool { return !math.IsNaN(float64(s.G)) && starcat.Decimal(s.G) < faint }
 	t0 := time.Now()
 	local, err := g.Cone(ctx, ra, dec, radius, keep)
 	if err != nil {
@@ -286,10 +286,10 @@ func checkGaia(ctx context.Context, out io.Writer, g *starcat.Gaia, ra, dec, rad
 		for _, c := range []struct {
 			col string
 			v   float64
-		}{{"RA_ICRS", s.RA}, {"DE_ICRS", s.Dec}, {"e_RA_ICRS", float64(s.RAError)}, {"e_DE_ICRS", float64(s.DecError)},
-			{"Plx", s.Parallax}, {"e_Plx", float64(s.ParallaxError)}, {"pmRA", s.PMRA}, {"e_pmRA", float64(s.PMRAError)},
-			{"pmDE", s.PMDec}, {"e_pmDE", float64(s.PMDecError)}, {"RUWE", float64(s.RUWE)}, {"Gmag", float64(s.G)},
-			{"BPmag", float64(s.BP)}, {"RPmag", float64(s.RP)}} {
+		}{{"RA_ICRS", s.RA}, {"DE_ICRS", s.Dec}, {"e_RA_ICRS", starcat.Decimal(s.RAError)}, {"e_DE_ICRS", starcat.Decimal(s.DecError)},
+			{"Plx", s.Parallax}, {"e_Plx", starcat.Decimal(s.ParallaxError)}, {"pmRA", s.PMRA}, {"e_pmRA", starcat.Decimal(s.PMRAError)},
+			{"pmDE", s.PMDec}, {"e_pmDE", starcat.Decimal(s.PMDecError)}, {"RUWE", starcat.Decimal(s.RUWE)}, {"Gmag", starcat.Decimal(s.G)},
+			{"BPmag", starcat.Decimal(s.BP)}, {"RPmag", starcat.Decimal(s.RP)}} {
 			if !sameAtPrecision(r[c.col], c.v) {
 				d.add(c.col, sid, r[c.col], c.v)
 			}

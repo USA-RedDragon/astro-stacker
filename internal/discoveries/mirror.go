@@ -18,7 +18,7 @@ func (c *Catalogs) gaiaMirror(ctx context.Context, ra, dec, radius float64) (sta
 	if c.GaiaMirror == nil {
 		return nil, false, nil
 	}
-	got, err := c.GaiaMirror.Cone(ctx, starcat.Round(ra, 6), starcat.Round(dec, 6), starcat.Round(radius, 4), func(s *starcat.GaiaStar) bool { return float64(s.G) < gaiaFaintG })
+	got, err := c.GaiaMirror.Cone(ctx, starcat.Round(ra, 6), starcat.Round(dec, 6), starcat.Round(radius, 4), func(s *starcat.GaiaStar) bool { return starcat.Decimal(s.G) < gaiaFaintG })
 	if err != nil {
 		if errors.Is(err, starcat.ErrUnavailable) {
 			slog.Debug("Gaia mirror unavailable; asking VizieR", "error", err)
@@ -32,7 +32,7 @@ func (c *Catalogs) gaiaMirror(ctx context.Context, ra, dec, radius float64) (sta
 	}
 	out := make([]Star, len(got))
 	for i, s := range got {
-		out[i] = Star{RA: s.RA, Dec: s.Dec, G: float64(s.G), PMRA: zeroNaN(s.PMRA), PMDec: zeroNaN(s.PMDec)}
+		out[i] = Star{RA: s.RA, Dec: s.Dec, G: starcat.Decimal(s.G), PMRA: zeroNaN(s.PMRA), PMDec: zeroNaN(s.PMDec)}
 	}
 	return out, true, nil
 }
