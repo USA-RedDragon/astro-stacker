@@ -164,8 +164,8 @@ func TestChecksFollowTheCatalogues(t *testing.T) {
 		t.Errorf("variable from ZTF %+v", x)
 	}
 	c.Matches = `[{"catalog":"ZTF","name":"ZTF light curve","type":"variable"}]`
-	if x := checkOf(Build(Input{Cand: c, Run: run}), "variable"); x.State != CheckBad {
-		t.Errorf("a varying ZTF light curve is a known variable %+v", x)
+	if x := checkOf(Build(Input{Cand: c, Run: run}), "variable"); x.State == CheckBad || !strings.Contains(x.Detail, "ZTF light curve varies") {
+		t.Errorf("a varying ZTF light curve confirms a variable no catalog lists %+v", x)
 	}
 	c.Matches = `[{"catalog":"ZTF","name":"ZTF light curve","type":"flat"}]`
 	if x := checkOf(Build(Input{Cand: c, Run: run}), "variable"); x.State == CheckBad {

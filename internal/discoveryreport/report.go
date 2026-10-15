@@ -256,6 +256,16 @@ func TNSObjectLink(site tnsmirror.Site, name string) string {
 	return site.Page("object/" + url.PathEscape(n))
 }
 
+// ztfVaries notes a star whose ZTF light curve varies as much as the
+// change: no catalog lists it, and ZTF confirms it varies, as with the three
+// eclipsing binaries vetted as new in October 2026.
+func ztfVaries(ms []discoveries.Match) string {
+	if slices.ContainsFunc(has(ms, "ZTF"), func(m discoveries.Match) bool { return m.Type == "variable" }) {
+		return "; its ZTF light curve varies as much, which confirms the change"
+	}
+	return ""
+}
+
 func checks(in Input) []Check {
 	c := in.Cand
 	ms := matches(c)
@@ -289,13 +299,11 @@ func checks(in Input) []Check {
 	case len(has(ms, varCats...)) > 0:
 		m := has(ms, varCats...)[0]
 		out = append(out, Check{Key: keyVariable, State: CheckBad, Title: titleVariable, Detail: fmt.Sprintf("Matches %s %s, %.1f″ away", m.Catalog, m.Name, m.SepArcsec)})
-	case slices.ContainsFunc(has(ms, "ZTF"), func(m discoveries.Match) bool { return m.Type == "variable" }):
-		out = append(out, Check{Key: keyVariable, State: CheckBad, Title: titleVariable, Detail: "The star's ZTF light curve already varies"})
 	case len(varDown) > 0:
 		out = append(out, Check{Key: keyVariable, State: CheckTodo, Title: titleVariable,
-			Detail: "Checked " + andList(varChecked) + "; " + within + "; " + andList(varDown) + " could not be reached for this night"})
+			Detail: "Checked " + andList(varChecked) + "; " + within + "; " + andList(varDown) + " could not be reached for this night" + ztfVaries(ms)})
 	default:
-		out = append(out, Check{Key: keyVariable, State: CheckOK, Title: titleVariable, Detail: "Checked " + andList(varChecked) + "; " + within})
+		out = append(out, Check{Key: keyVariable, State: CheckOK, Title: titleVariable, Detail: "Checked " + andList(varChecked) + "; " + within + ztfVaries(ms)})
 	}
 	brokers := []string{"ALeRCE", "Fink"}
 	var asked, down []string
