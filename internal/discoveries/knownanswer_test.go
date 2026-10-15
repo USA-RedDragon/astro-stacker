@@ -101,6 +101,18 @@ func runNight(t *testing.T, dir string, night time.Time, filters []string, skybo
 	if err != nil {
 		t.Fatal(err)
 	}
+	all := res.ChangeNull
+	res.ChangeNull.DropKnown(vsx)
+	t.Logf("change null test, without known variables: %d of %d changes, strongest %.1f sigma (%.1f with them)", res.ChangeNull.Found, all.Found, res.ChangeNull.MaxSNR, all.MaxSNR)
+	for _, c := range all.Changes {
+		best, name := 1e9, ""
+		for _, v := range vsx {
+			if d := discoveries.Separation(c.RA, c.Dec, v.RA, v.Dec) * 3600; d < best {
+				best, name = d, v.Name+" "+v.Type
+			}
+		}
+		t.Logf("null change %.5f %+.5f snr %.1f, nearest VSX %s %.1f\"", c.RA, c.Dec, c.SNR, name, best)
+	}
 	labelled, tracks, _, _ := discoveries.Classify(ctx, res, discoveries.Known{Variables: vsx, Bodies: bodies, Epoch: epoch}, nil)
 	counts := logCandidates(t, labelled)
 	logRejectedVSX(t, vsx, in, res)
@@ -242,6 +254,7 @@ func knownAsteroids(t *testing.T, bodies []discoveries.Body, tracks []discoverie
 		t.Logf("track %-14s n=%2d rate %.2f\"/min resid %.2f px chi %.2f V %v offset %v", tr.Class, len(tr.Points), tr.RateArcmin, tr.ResidualPx, tr.Chi, deref(tr.BodyV), deref(tr.OffsetArc))
 	}
 	t.Logf("mover null test: %.2f tracks a shuffle, most detections %d", res.MoverNull.Tracks, res.MoverNull.MaxHits)
+	t.Logf("change null test: %d subs split, %d changes found, strongest %.1f sigma", res.ChangeNull.Subs, res.ChangeNull.Found, res.ChangeNull.MaxSNR)
 	for _, b := range bodies {
 		if b.V >= 19.5 {
 			continue

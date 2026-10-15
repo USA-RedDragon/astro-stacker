@@ -775,6 +775,7 @@ func (r *Runner) compare(ctx context.Context, j Job, run *app.DiscoveryRun) erro
 	if err != nil {
 		return err
 	}
+	res.ChangeNull.DropKnown(known.Variables)
 	known.Prior, err = r.prior(ctx, j)
 	if err != nil {
 		return err
