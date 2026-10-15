@@ -45,7 +45,10 @@ func surveyVizier(t *testing.T, down func(table string) bool) (*httptest.Server,
 	return srv, &asked
 }
 
-const asassnName = "ASASSN-V J004000.00+410000.0"
+const (
+	asassnName = "ASASSN-V J004000.00+410000.0"
+	gaiaECL    = "ECL"
+)
 
 func byCatalog(vs []Variable) map[string][]Variable {
 	out := map[string][]Variable{}
@@ -67,7 +70,7 @@ func TestSurveyVariablesFromVizieRWhileTheMirrorsCannotAnswer(t *testing.T) {
 	}
 	by := byCatalog(k.Variables)
 	want := map[string]Variable{
-		catalogGaiaVari: {Catalog: catalogGaiaVari, Name: "Gaia DR3 42", Type: "ECL", RA: 10, Dec: 41},
+		catalogGaiaVari: {Catalog: catalogGaiaVari, Name: "Gaia DR3 42", Type: gaiaECL, RA: 10, Dec: 41},
 		catalogATLAS:    {Catalog: catalogATLAS, Name: "ATO J010.0000+41.0000", Type: "MIRA", RA: 10, Dec: 41, Max: 12.5, Band: "o"},
 		catalogASASSN:   {Catalog: catalogASASSN, Name: asassnName, Type: "SR", RA: 10, Dec: 41, Max: 13.1, Band: "V", Min: 0.6, Amplitude: true},
 	}
@@ -86,7 +89,7 @@ func TestSurveyVariablesFromTheMirrors(t *testing.T) {
 	nan := math.NaN()
 	n32 := float32(nan)
 	rows := map[*starcat.VarCatalog][]starcat.VarStar{
-		starcat.GaiaVariability(): {{ID: 42, RA: 10, Dec: 41, Type: "ECL", Period: nan, Mag: n32, Amp: n32, Score: 0.9}},
+		starcat.GaiaVariability(): {{ID: 42, RA: 10, Dec: 41, Type: gaiaECL, Period: nan, Mag: n32, Amp: n32, Score: 0.9}},
 		starcat.ATLASVariables(): {{ID: 7, Name: "J010.0000+41.0000", RA: 10, Dec: 41, Type: "MIRA", Period: nan, Mag: 12.5, Amp: n32, Score: n32},
 			{ID: 8, Name: "J010.0001+41.0000", RA: 10.0001, Dec: 41, Type: "dubious", Period: nan, Mag: 14, Amp: n32, Score: n32}},
 		starcat.ZTFVariables(): {{ID: 1, Name: "ZTFJ004000.00+410000.0", RA: 10, Dec: 41, Type: "EW", Period: 0.31, Mag: 15.2, Amp: 0.4, Score: n32},
@@ -159,5 +162,35 @@ func TestSurveyVariablesFromVizieRAreCached(t *testing.T) {
 	r.surveyVariables(ctx, "M 33", 23.46, 30.66, 0.5, &k)
 	if len(k.Checked) != 0 || !slices.Equal(k.Failed, surveyCatalogNames()) {
 		t.Errorf("with VizieR down and no older answer: checked %v failed %v", k.Checked, k.Failed)
+	}
+}
+
+func TestGaiaNonStellarClassesAreNotVariableStars(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	srv, _ := surveyVizier(t, func(string) bool { return false })
+	b := &starcat.MemBucket{}
+	nan, n32 := math.NaN(), float32(math.NaN())
+	types := []string{"AGN", "SN", "MICROLENSING", gaiaECL}
+	rows := make([]starcat.VarStar, 0, len(types))
+	for i, typ := range types {
+		rows = append(rows, starcat.VarStar{ID: int64(i + 1), RA: 10, Dec: 41, Type: typ, Period: nan, Mag: n32, Amp: n32, Score: n32})
+	}
+	if err := starcat.WriteVariables(ctx, b, starcat.GaiaVariability().Prefix, starcat.GaiaVariability(), rows); err != nil {
+		t.Fatal(err)
+	}
+	r := New(nil, nil, &memStore{m: map[string][]byte{}}, &Catalogs{VizierURL: srv.URL}, Options{SurveyVariables: NewSurveyVariables(b)})
+	var k Known
+	r.surveyVariables(ctx, "M 31", 10, 41, 0.5, &k)
+	gaia := byCatalog(k.Variables)[catalogGaiaVari]
+	if len(gaia) != 1 || gaia[0].Type != gaiaECL {
+		t.Fatalf("%+v", gaia)
+	}
+}
+
+func TestAFlatZTFLightCurveIsNotAKnownVariable(t *testing.T) {
+	t.Parallel()
+	if c := classOf(Labelled{Candidate: Candidate{Sign: 1}, Matches: []Match{{Catalog: catalogZTF, Name: "ZTF light curve", Type: "flat"}}}); c == ClassKnownVariable {
+		t.Fatalf("class %s", c)
 	}
 }
