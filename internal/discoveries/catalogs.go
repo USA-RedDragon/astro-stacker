@@ -20,7 +20,7 @@ const (
 	vizierURL     = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv"
 	skybotURL     = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
 	alerceURL     = "https://api.alerce.online/ztf/v1/objects/"
-	finkURL       = "https://api.fink-portal.org/api/v1/conesearch"
+	finkURL       = "https://api.ztf.fink-portal.org/api/v1/conesearch"
 	tnsURL        = "https://www.wis-tns.org/api/get/search"
 	userAgent     = "astro-stacker/1 (+https://github.com/USA-RedDragon/astro-stacker)"
 	gaiaFaintG    = 21.5
