@@ -27,6 +27,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
+	"github.com/USA-RedDragon/astro-stacker/internal/ztflc"
 	"github.com/klauspost/compress/zstd"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
@@ -780,6 +781,7 @@ func (r *Runner) compare(ctx context.Context, j Job, run *app.DiscoveryRun) erro
 	if err != nil {
 		return err
 	}
+	known.ZTF = (&ztflc.Checker{Client: &ztflc.Client{BaseURL: r.cat.ZTFURL}, Store: r.store}).Check
 	labelled, tracks, checked, failed := Classify(ctx, res, known, r.cat.AlertsFrom())
 	r.earlierTNS(ctx, j.Object, labelled)
 	r.setStage("saving")
