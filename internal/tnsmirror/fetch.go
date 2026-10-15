@@ -22,7 +22,7 @@ const (
 	// FullFile is the whole list, staged daily around midnight UT.
 	FullFile = "tns_public_objects.csv.zip"
 	maxZip   = 512 << 20
-	maxCSV   = 2 << 30
+	maxCSV   = 1 << 30
 	// minGap spaces requests; TNS counts them over a running 60 s window.
 	minGap = 5 * time.Second
 )
