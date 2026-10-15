@@ -331,7 +331,7 @@ discovery-alerts:
   # telegram-token: "(secret)"
   # Telegram chat the alerts go to; empty turns the alerts off
   # telegram-chat-id: ""
-  # For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled
-  followup: true
+  # For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default
+  followup: false
   # Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later
   interval-minutes: 5
