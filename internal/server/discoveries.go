@@ -215,7 +215,7 @@ func discoveryNights(c *gin.Context) {
 	var rows []row
 	if err := db.Model(&app.DiscoveryRun{}).Select("night, COUNT(*) AS runs, SUM(candidates) AS candidates, SUM(new_candidates) AS new").
 		Where("state = ?", app.DiscoveryDone).Group("night").Order("night DESC").Scan(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		serverError(c, err)
 		return
 	}
 	type night struct {
@@ -253,12 +253,12 @@ func discoveryRuns(c *gin.Context) {
 	}
 	var runs []app.DiscoveryRun
 	if err := q.Order("night DESC, object, filter_group").Limit(2000).Find(&runs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		serverError(c, err)
 		return
 	}
 	classes, vetted, err := runCounts(db, runs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		serverError(c, err)
 		return
 	}
 	out := make([]DiscoveryRun, len(runs))
@@ -294,7 +294,7 @@ func requestDiscoveryRun(src DiscoverySource) gin.HandlerFunc {
 		}
 		var filters []string
 		if err := db.Model(&app.Stack{}).Where("object = ?", body.Object).Distinct("filter").Pluck("filter", &filters).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+			serverError(c, err)
 			return
 		}
 		if len(filters) == 0 {
@@ -372,7 +372,7 @@ func discoveryCandidates(c *gin.Context) {
 	}
 	var rows []app.DiscoveryCandidate
 	if err := q.Omit("light", "track").Order("night DESC, snr DESC").Limit(limit).Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		serverError(c, err)
 		return
 	}
 	out := make([]DiscoveryCandidate, len(rows))
@@ -428,7 +428,7 @@ func vetDiscoveryCandidate(c *gin.Context) {
 		at = &now
 	}
 	if err := db.Model(&cand).Updates(map[string]any{"vetting": body.State, "vet_note": strings.TrimSpace(body.Note), "vetted_at": at}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+		serverError(c, err)
 		return
 	}
 	cand.Vetting, cand.VetNote, cand.VettedAt = body.State, strings.TrimSpace(body.Note), at
@@ -494,7 +494,7 @@ func candidateByID(c *gin.Context, db *gorm.DB) (app.DiscoveryCandidate, bool) {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{errorKey: "no such candidate"})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+			serverError(c, err)
 		}
 		return app.DiscoveryCandidate{}, false
 	}
@@ -532,4 +532,18 @@ func runCounts(db *gorm.DB, runs []app.DiscoveryRun) (map[int]map[string]int, ma
 		}
 	}
 	return classes, vetted, nil
+}
+
+// statusClientClosed is nginx's code for a request the client gave up on.
+const statusClientClosed = 499
+
+// serverError answers 500 with the error, unless the client has gone, as
+// when a page is closed with its images still loading: then the error is
+// only the cancelled request and is answered 499.
+func serverError(c *gin.Context, err error) {
+	if c.Request.Context().Err() != nil {
+		c.AbortWithStatus(statusClientClosed)
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
 }
