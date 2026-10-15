@@ -346,6 +346,9 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		l.Matches = append(l.Matches, placeMatches(c, k)...)
 		l.Class = classOf(l)
 		checked, failed = confirmByZTF(ctx, &l, res, k.ZTF, &ztfAsked, checked, failed)
+		if c.GaiaG == nil && c.Sign > 0 && c.SubSharp > maxSubSharpness {
+			l.Matches = append(l.Matches, Match{Catalog: catalogDefect, Name: "sharp in its subs", Note: fmt.Sprintf("%.1f times a star's sharpness in its subs; held as a likely defect pixel", c.SubSharp)})
+		}
 		annotateTNS(&l, res)
 		out[i] = l
 	}
@@ -361,12 +364,18 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 // Nebula of 2026-09-13 and Pelican Nebula Panel 2 of 2026-09-14.
 const maxNewSources = 10
 
+// catalogDefect is the match of a new source held for being far sharper
+// than a star in its subs.
+const catalogDefect = "defect"
+
 // catalogMany is the match of a new source held because its night held too
 // many.
 const catalogMany = "many"
 
 // holdMany holds a night's new sources at low confidence when there are
-// more than maxNewSources of them.
+// more than maxNewSources of them, all but those that moved with the sky
+// across the night's dithers: a defect pixel moves with the sensor. One
+// that is sharp in its subs is already held.
 func holdMany(ls []Labelled) {
 	n := 0
 	for _, l := range ls {
@@ -379,9 +388,9 @@ func holdMany(ls []Labelled) {
 	}
 	for i := range ls {
 		l := &ls[i]
-		if l.GaiaG == nil && (l.Class == ClassNewVariable || l.Class == ClassNova || l.Class == ClassSupernova) {
+		if l.GaiaG == nil && (l.Class == ClassNewVariable || l.Class == ClassNova || l.Class == ClassSupernova) && !l.SkyFixed {
 			l.Class = ClassLowConfidence
-			l.Matches = append(l.Matches, Match{Catalog: catalogMany, Name: fmt.Sprintf("%d new sources this night", n), Note: "too many for finds; a pattern of the night"})
+			l.Matches = append(l.Matches, Match{Catalog: catalogMany, Name: fmt.Sprintf("night had %d new sources", n), Note: "held as likely defects"})
 		}
 	}
 }

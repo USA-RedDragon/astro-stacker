@@ -189,7 +189,13 @@ type Candidate struct {
 	SubsTested   int
 	TopShare     float64
 	LowConf      bool
-	Light        []LightPoint
+	// SubSharp is how many times sharper than a star the candidate is in
+	// the median of the night subs it is in.
+	SubSharp float64
+	// SkyFixed says the subs it is in put it on sensor pixels more than
+	// skyFixedPx apart: its light moves with the sky across the dithers.
+	SkyFixed bool
+	Light    []LightPoint
 }
 
 // TrackPoint is one detection of a moving object.
@@ -637,9 +643,11 @@ type nightSub struct {
 type cand struct {
 	Candidate
 	fluxes, errs []float64
-	// sharp is the candidate's sharpness in each night sub, in the order of
-	// fluxes.
-	sharp []float64
+	// sharp is the candidate's sharpness in each night sub, and sensor the
+	// sensor pixel under it there (NaN where the sub's footprint was not
+	// measured), in the order of fluxes.
+	sharp  []float64
+	sensor [][2]float64
 	// wide measures the subs with the wider aperture: on a bright source
 	// the narrow one mostly sees each sub's seeing.
 	wide bool
@@ -807,6 +815,11 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 				lightPoint(c, p, ns, apertureR, sig, ns.fs.zp)
 			}
 			c.sharp = append(c.sharp, signedSharpness(p, c.X, c.Y, c.Sign))
+			sx, sy := math.NaN(), math.NaN()
+			if sm.measured {
+				sx, sy = sm.at(c.X, c.Y)
+			}
+			c.sensor = append(c.sensor, [2]float64{sx, sy})
 		}
 		if ns.fs.zp != nil && sig > 0 {
 			d := *ns.fs.zp - 2.5*math.Log10(DetectSigma*sig)
@@ -1004,16 +1017,38 @@ const maxSharpness = 4.0
 // in the stack; stars there stood at 0.6 to 1.3 times.
 const maxSubSharpness = 3.0
 
-// sharpInSubs says whether a candidate is sharper than limit in the median
-// of the night subs it is present in.
-func (c *cand) sharpInSubs(limit float64) bool {
+// skyFixedPx is how far apart, in sensor pixels, two subs holding a
+// source must put it for it to move with the sky rather than the sensor.
+const skyFixedPx = 3.0
+
+// inSubs measures, over the night subs a candidate is present in, its
+// median sharpness against a star's, star, and whether it moved with the
+// sky across them.
+func (c *cand) inSubs(star float64) (sharp float64, skyFixed bool) {
 	var s []float64
+	var at [][2]float64
 	for k, f := range c.fluxes {
-		if k < len(c.sharp) && f > presenceSigma*c.errs[k] {
+		if !(f > presenceSigma*c.errs[k]) {
+			continue
+		}
+		if k < len(c.sharp) {
 			s = append(s, c.sharp[k])
 		}
+		if k < len(c.sensor) && !math.IsNaN(c.sensor[k][0]) {
+			at = append(at, c.sensor[k])
+		}
 	}
-	return len(s) >= 2 && median64(s) > limit
+	if len(s) >= 2 && star > 0 {
+		sharp = median64(s) / star
+	}
+	for i := range at {
+		for j := range i {
+			if math.Hypot(at[i][0]-at[j][0], at[i][1]-at[j][1]) > skyFixedPx {
+				return sharp, true
+			}
+		}
+	}
+	return sharp, false
 }
 
 // signedSharpness is sharpness on the plane times sign, so a fading is
@@ -1174,7 +1209,7 @@ func lightPoint(c *cand, d *Plane, ns nightSub, r, sig float64, zp *float64) {
 // cut applies the per-sub, dipole and star residual cuts and grades what
 // is left.
 func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Result) []Candidate {
-	subSharpLimit := maxSubSharpness * psfSharpness(res.HFRNight/hfrToSigma)
+	star := psfSharpness(res.HFRNight / hfrToSigma)
 	var out []Candidate
 	for _, sign := range []int{1, -1} {
 		name := signName(sign)
@@ -1238,7 +1273,8 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			}
 			fn.NotResidual++
 			cc := c.Candidate
-			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && c.sharpInSubs(subSharpLimit))
+			cc.SubSharp, cc.SkyFixed = c.inSubs(star)
+			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && cc.SubSharp > maxSubSharpness)
 			if cc.LowConf {
 				fn.LowConfident++
 			} else {

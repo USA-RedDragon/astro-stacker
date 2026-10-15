@@ -228,4 +228,33 @@ func TestANightOfManyNewSourcesHoldsThem(t *testing.T) {
 	if ls[0].Class != ClassLowConfidence || ls[0].Matches[len(ls[0].Matches)-1].Catalog != catalogMany {
 		t.Errorf("%d new sources: %s %+v", maxNewSources+1, ls[0].Class, ls[0].Matches)
 	}
+	night := mk(3300)
+	for i := range night.Candidates {
+		night.Candidates[i].SubSharp = 4.4
+		night.Candidates[i].LowConf = true
+	}
+	for i := range 30 {
+		night.Candidates[i].SubSharp, night.Candidates[i].LowConf = 2.5, false
+	}
+	nova := Candidate{RA: 312.9, Dec: 45.1, Sign: 1, SNR: 15, PresentIn: 7, SubsTested: 7, SubSharp: 1.2, SkyFixed: true}
+	night.Candidates = append(night.Candidates, nova)
+	ls = classifyChanges(ctx, t, night, Known{})
+	held, defects := 0, 0
+	for _, l := range ls {
+		switch {
+		case l.RA == nova.RA:
+			if l.Class != ClassNewVariable {
+				t.Errorf("the real transient on a night of 3,300 defects: %s %+v", l.Class, l.Matches)
+			}
+		case l.Class != ClassLowConfidence:
+			t.Errorf("a defect stayed %s", l.Class)
+		case l.Matches[len(l.Matches)-1].Catalog == catalogMany:
+			held++
+		case l.Matches[len(l.Matches)-1].Catalog == catalogDefect:
+			defects++
+		}
+	}
+	if held != 30 || defects != 3270 {
+		t.Errorf("%d held for the night, %d as defect pixels", held, defects)
+	}
 }
