@@ -14,6 +14,7 @@ func applyReportRoutes(g *gin.RouterGroup, svc *discoveryreport.Service) {
 	g.POST("/discoveries/candidates/:id/report/measure", withReport(svc, reportMeasure))
 	g.PUT("/discoveries/candidates/:id/report/tns-name", withReport(svc, reportName))
 	g.POST("/discoveries/candidates/:id/report/tns-send", withReport(svc, reportSend))
+	g.POST("/discoveries/candidates/:id/report/tns-followup-send", withReport(svc, reportFollowupSend))
 	g.GET("/discoveries/candidates/:id/report/bundle.zip", withReport(svc, reportBundle))
 }
 
@@ -80,6 +81,15 @@ func reportName(c *gin.Context, svc *discoveryreport.Service, id int) {
 
 func reportSend(c *gin.Context, svc *discoveryreport.Service, id int) {
 	reply, err := svc.SendTNS(c.Request.Context(), id)
+	if err != nil {
+		reportError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, reply)
+}
+
+func reportFollowupSend(c *gin.Context, svc *discoveryreport.Service, id int) {
+	reply, err := svc.SendFollowup(c.Request.Context(), id)
 	if err != nil {
 		reportError(c, err)
 		return

@@ -117,19 +117,21 @@ type Spot struct {
 
 // Report is everything the report page shows.
 type Report struct {
-	CandidateID int      `json:"candidate_id"`
-	Object      string   `json:"object"`
-	Night       string   `json:"night"`
-	Class       string   `json:"class"`
-	Kind        string   `json:"kind"`
-	RA          string   `json:"ra"`
-	Dec         string   `json:"dec"`
-	Facts       []Field  `json:"facts"`
-	Checks      []Check  `json:"checks"`
-	TNS         TNSDraft `json:"tns"`
-	MPC         MPCDraft `json:"mpc"`
-	VSX         VSXDraft `json:"vsx"`
-	Spot        Spot     `json:"spot"`
+	CandidateID int           `json:"candidate_id"`
+	Object      string        `json:"object"`
+	Night       string        `json:"night"`
+	Class       string        `json:"class"`
+	Kind        string        `json:"kind"`
+	RA          string        `json:"ra"`
+	Dec         string        `json:"dec"`
+	Facts       []Field       `json:"facts"`
+	Checks      []Check       `json:"checks"`
+	TNS         TNSDraft      `json:"tns"`
+	Known       *Known        `json:"known,omitempty"`
+	TNSFollowup FollowupDraft `json:"tns_followup"`
+	MPC         MPCDraft      `json:"mpc"`
+	VSX         VSXDraft      `json:"vsx"`
+	Spot        Spot          `json:"spot"`
 }
 
 // Settings are the reporter's own values.
@@ -155,6 +157,11 @@ type Input struct {
 	// search ran; nil when it did not.
 	TNSFound []string
 	TNSError string
+	// Local is the search of the local TNS copy, nil when it is not
+	// loaded.
+	Local *LocalSearch
+	// Exposure is the night's total exposure in the find's filters.
+	Exposure float64
 }
 
 // SearchRadius is the TNS position search radius in arcseconds.
@@ -297,7 +304,10 @@ func checks(in Input) []Check {
 		out = append(out, Check{Key: keyAlerts, State: CheckOK, Title: titleAlerts, Detail: "ZTF alert brokers " + strings.Join(asked, " and ") + "; nothing within 3″"})
 	}
 	tns := Check{Key: "tns", Title: "Search TNS by position", Link: TNSSearchLink(c.RA, c.Dec), LinkText: "Open the TNS search for this spot"}
+	local, isLocal := localCheck(in)
 	switch {
+	case isLocal:
+		tns = local
 	case in.TNSError != "":
 		tns.State, tns.Detail = CheckTodo, "The TNS search failed: "+in.TNSError
 	case in.TNSFound == nil && !in.Settings.TNSKey:
@@ -539,7 +549,10 @@ func tnsDraft(in Input) TNSDraft {
 func canSend(in Input, d TNSDraft) (bool, string) {
 	s := in.Settings
 	_, at := typeGuess(in.Cand)
+	t, isKnown := knownEntry(in)
 	switch {
+	case isKnown:
+		return false, "Already in TNS as " + t.Name + "; send your measurements as photometry instead"
 	case !d.Applies || at == "":
 		return false, "TNS takes supernovae and novae; this is not one"
 	case !s.TNSKey:
@@ -701,6 +714,8 @@ func Build(in Input) Report {
 	}
 	r.Checks = checks(in)
 	r.TNS = tnsDraft(in)
+	r.Known = known(in)
+	r.TNSFollowup = followupDraft(in, r.Known)
 	r.MPC = mpcDraft(in)
 	r.VSX = vsxDraft(in)
 	r.Spot = Spot{State: SpotNone}
