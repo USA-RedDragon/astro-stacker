@@ -25,7 +25,7 @@ func withReport(svc *discoveryreport.Service, h func(*gin.Context, *discoveryrep
 		}
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{errorKey: "id must be a number"})
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: errIDNumber})
 			return
 		}
 		h(c, svc, id)

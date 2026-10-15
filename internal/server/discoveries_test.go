@@ -16,6 +16,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type fakeDiscoveries struct {
@@ -44,6 +45,7 @@ const (
 	filterOIII = "O-III"
 	reqObject  = "object"
 	reqNight   = "night"
+	nameIICom  = "II Com"
 )
 
 type discoveryAPI struct {
@@ -51,6 +53,7 @@ type discoveryAPI struct {
 	r   *gin.Engine
 	src *fakeDiscoveries
 	id  int
+	db  *gorm.DB
 }
 
 func (a *discoveryAPI) do(method, path string, body map[string]string) *httptest.ResponseRecorder {
@@ -83,7 +86,7 @@ func newDiscoveryAPI(t *testing.T) *discoveryAPI {
 	t.Helper()
 	appStore := memStore(t)
 	db := appStore.DB()
-	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.Stack{}); err != nil {
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.Stack{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&[]app.Stack{{Object: objM33, Filter: "Luminance"}, {Object: objM33, Filter: "H-a"}}).Error; err != nil {
@@ -98,10 +101,10 @@ func newDiscoveryAPI(t *testing.T) *discoveryAPI {
 	}
 	g := 15.9
 	cands := []app.DiscoveryCandidate{
-		{RunID: run.ID, Object: run.Object, Night: night, Group: run.Group, Kind: app.DiscoveryKindChange, Class: discoveries.ClassKnownVariable, SNR: 50.5, GaiaG: &g,
-			Matches: `[{"catalog":"VSX","name":"II Com","sep_arcsec":0.4}]`, CutoutKey: "discoveries/x/c000/",
+		{RunID: run.ID, Object: run.Object, Night: night, Group: run.Group, Kind: app.DiscoveryKindChange, Class: discoveries.ClassKnownVariable, SNR: 50.5, GaiaG: &g, RA: 189.30875, Dec: 14.44222,
+			Matches: `[{"catalog":"VSX","name":"` + nameIICom + `","sep_arcsec":0.4}]`, CutoutKey: "discoveries/x/c000/",
 			Light: `[{"frame_id":1,"filter":"Luminance","time":"2025-03-01T06:00:00Z","flux":0.1,"flux_err":0.01}]`},
-		{RunID: run.ID, Object: run.Object, Night: night, Group: run.Group, Kind: app.DiscoveryKindChange, Class: discoveries.ClassNewVariable, SNR: 8, Matches: `[]`},
+		{RunID: run.ID, Object: run.Object, Night: night, Group: run.Group, Kind: app.DiscoveryKindChange, Class: discoveries.ClassNewVariable, SNR: 8, RA: 189.4, Dec: 14.5, Matches: `[]`},
 	}
 	if err := db.Create(&cands).Error; err != nil {
 		t.Fatal(err)
@@ -110,7 +113,7 @@ func newDiscoveryAPI(t *testing.T) *discoveryAPI {
 	r := gin.New()
 	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{}, AppStore: appStore, SchedulerDBStore: memStore(t)}))
 	applyDiscoveryRoutes(r.Group("/api/v1"), src)
-	return &discoveryAPI{t: t, r: r, src: src, id: cands[0].ID}
+	return &discoveryAPI{t: t, r: r, src: src, id: cands[0].ID, db: db}
 }
 
 func TestDiscoveryCandidateList(t *testing.T) {
@@ -125,7 +128,7 @@ func TestDiscoveryCandidateList(t *testing.T) {
 		t.Errorf("unknown class: %d", code)
 	}
 	a.get("/api/v1/discoveries/candidates?min_snr=10", &list)
-	if len(list) != 1 || list[0].Matches[0].Name != "II Com" || list[0].Cutouts == nil {
+	if len(list) != 1 || list[0].Matches[0].Name != nameIICom || list[0].Cutouts == nil {
 		t.Errorf("min_snr %+v", list)
 	}
 }
@@ -142,8 +145,8 @@ func TestDiscoveryCandidateDetailAndVetting(t *testing.T) {
 	if w := a.do(http.MethodPut, base+"/vetting", map[string]string{vetState: "maybe"}); w.Code != http.StatusBadRequest {
 		t.Errorf("bad vetting state: %d", w.Code)
 	}
-	w := a.do(http.MethodPut, base+"/vetting", map[string]string{vetState: app.VetKnown, "note": " II Com "})
-	if err := json.Unmarshal(w.Body.Bytes(), &one); err != nil || one.Vetting != app.VetKnown || one.VetNote != "II Com" || one.VettedAt == nil {
+	w := a.do(http.MethodPut, base+"/vetting", map[string]string{vetState: app.VetKnown, "note": " " + nameIICom + " "})
+	if err := json.Unmarshal(w.Body.Bytes(), &one); err != nil || one.Vetting != app.VetKnown || one.VetNote != nameIICom || one.VettedAt == nil {
 		t.Fatalf("vetting: %s", w.Body)
 	}
 	var list []DiscoveryCandidate
