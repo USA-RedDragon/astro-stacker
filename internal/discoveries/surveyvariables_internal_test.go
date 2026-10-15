@@ -165,6 +165,76 @@ func TestSurveyVariablesFromVizieRAreCached(t *testing.T) {
 	}
 }
 
+// vettedBinary is an eclipsing binary vetted as new, with the catalogued
+// variables nearest it: real entries, and a neighbor's entries in every
+// survey catalogue standing for a neighbor whose light holds ours.
+type vettedBinary struct {
+	name       string
+	ra, dec    float64
+	neighbors  map[string][]starcat.VarStar
+	neighborAt [2]float64
+}
+
+func vettedBinaries() []vettedBinary {
+	nan, n32 := math.NaN(), float32(math.NaN())
+	near := func(id int64, name string, ra, dec float64, typ string) []starcat.VarStar {
+		return []starcat.VarStar{{ID: id, Name: name, RA: ra, Dec: dec, Type: typ, Period: nan, Mag: 14.6, Amp: 0.1, Score: n32}}
+	}
+	every := func(ra, dec float64, gaia int64) map[string][]starcat.VarStar {
+		return map[string][]starcat.VarStar{
+			starcat.GaiaVariability().Name: near(gaia, "", ra, dec, gaiaECL),
+			starcat.ATLASVariables().Name:  near(gaia%1e6, "J000.0000+00.0000", ra, dec, "CBF"),
+			starcat.ZTFVariables().Name:    near(gaia%1e6, "ZTFJ213306.06+583802.1", ra, dec, "EW"),
+			starcat.ASASSNVariables().Name: near(gaia%1e6, "J213306.06+583802.1", ra, dec, "EA"),
+		}
+	}
+	m31 := every(10.88479954309, 41.66528427516, 381299946636131072)
+	m31[starcat.GaiaVariability().Name][0].Type = "LPV"
+	return []vettedBinary{
+		{name: "2MASS J00433343+4139446", ra: 10.889321, dec: 41.662433, neighbors: m31, neighborAt: [2]float64{10.88479954309, 41.66528427516}},
+		{name: "Gaia DR3 2179309875368546432", ra: 323.276996, dec: 58.634289, neighbors: every(323.27525, 58.63392, 2179309875368546304),
+			neighborAt: [2]float64{323.27525, 58.63392}},
+		{name: "2MASS J21043883+4319143", ra: 316.161804, dec: 43.320664, neighbors: every(316.161804+4.0/3600/math.Cos(43.320664*math.Pi/180), 43.320664, 1),
+			neighborAt: [2]float64{316.161804 + 4.0/3600/math.Cos(43.320664*math.Pi/180), 43.320664}},
+	}
+}
+
+func TestVettedNewEclipsingBinariesAreNotKnownVariables(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	for _, vb := range vettedBinaries() {
+		t.Run(vb.name, func(t *testing.T) {
+			t.Parallel()
+			srv, asked := surveyVizier(t, func(string) bool { return false })
+			b := &starcat.MemBucket{}
+			for _, c := range starcat.VarCatalogs() {
+				if err := starcat.WriteVariables(ctx, b, c.Prefix, c, vb.neighbors[c.Name]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := New(nil, nil, &memStore{m: map[string][]byte{}}, &Catalogs{VizierURL: srv.URL}, Options{SurveyVariables: NewSurveyVariables(b)})
+			var k Known
+			r.surveyVariables(ctx, "field", vb.ra, vb.dec, 0.5, &k)
+			if !slices.Equal(k.Checked, surveyCatalogNames()) || len(k.Variables) != 4 || asked.Load() != 0 {
+				t.Fatalf("checked %v, %d variables, VizieR asked %d times", k.Checked, len(k.Variables), asked.Load())
+			}
+			for _, off := range []float64{0, 0.5, 1.0} {
+				dra := off / 3600 / math.Cos(vb.dec*math.Pi/180)
+				ra := vb.ra + dra*math.Copysign(1, vb.neighborAt[0]-vb.ra)
+				res := &Result{Candidates: []Candidate{{RA: ra, Dec: vb.dec, Sign: 1, SNR: 20}}}
+				ls := classifyChanges(ctx, t, res, k)
+				if ls[0].Class == ClassKnownVariable || len(ls[0].Matches) != 0 {
+					t.Errorf("%.1f arcsec toward the neighbor: %s %+v", off, ls[0].Class, ls[0].Matches)
+				}
+			}
+			res := &Result{Candidates: []Candidate{{RA: vb.neighborAt[0], Dec: vb.neighborAt[1], Sign: 1, SNR: 20}}}
+			if ls := classifyChanges(ctx, t, res, k); ls[0].Class != ClassKnownVariable {
+				t.Errorf("the neighbor itself: %s %+v", ls[0].Class, ls[0].Matches)
+			}
+		})
+	}
+}
+
 func TestGaiaNonStellarClassesAreNotVariableStars(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
