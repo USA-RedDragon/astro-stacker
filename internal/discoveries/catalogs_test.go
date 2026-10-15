@@ -36,7 +36,7 @@ func TestBrokersAndTNS(t *testing.T) {
 	}
 	c.TNSKey, c.TNSBotID, c.TNSBotName = "k", "42", "bot"
 	as, checked, _ = c.AlertsFrom()(context.Background(), 10, 41, 3)
-	if len(as) != 3 || as[2].ID != "SN 2026abc" || len(checked) != 3 || tnsKey != "k" || !strings.Contains(tnsAgent, `"tns_id":"42"`) {
+	if len(as) != 3 || as[2].ID != "SN 2026abc" || len(checked) != 3 || tnsKey != "k" || tnsAgent != `tns_marker{"tns_id":42,"type":"bot","name":"bot"}` {
 		t.Errorf("tns %+v %v %q %q", as, checked, tnsKey, tnsAgent)
 	}
 	c.FinkURL = srv.URL + "/missing"

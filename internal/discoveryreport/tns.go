@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/tnsmirror"
 )
 
 // TNS sends AT reports through the Transient Name Server bulk report API
@@ -51,11 +53,7 @@ func (t TNS) post(ctx context.Context, path string, form url.Values) (json.RawMe
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	marker, err := json.Marshal(map[string]string{"tns_id": t.BotID, "type": "bot", "name": t.BotName})
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "tns_marker"+string(marker))
+	req.Header.Set("User-Agent", tnsmirror.Bot{ID: t.BotID, Name: t.BotName}.Marker())
 	resp, err := t.client().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w %s: %s", ErrTNS, path, strings.ReplaceAll(err.Error(), t.Key, "<key>"))

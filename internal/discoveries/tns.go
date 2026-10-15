@@ -90,6 +90,9 @@ func (c *Catalogs) tnsSearch(ctx context.Context, ra, dec, radius float64) ([]Al
 	return c.TNS(ctx, ra, dec, radius)
 }
 
+// tnsMarker is the User-Agent TNS asks a bot to send.
+func tnsMarker(id, name string) string { return tnsmirror.Bot{ID: id, Name: name}.Marker() }
+
 func (c *Catalogs) tnsAvailable() bool { return c.TNSLocal != nil || c.TNSEnabled() }
 
 // KindWords names a class the way a known object's label does, such as

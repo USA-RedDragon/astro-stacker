@@ -530,11 +530,7 @@ func (c *Catalogs) TNS(ctx context.Context, ra, dec, radius float64) ([]Alert, e
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	marker, err := json.Marshal(map[string]string{"tns_id": c.TNSBotID, "type": "bot", "name": c.TNSBotName})
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "tns_marker"+string(marker))
+	req.Header.Set("User-Agent", tnsMarker(c.TNSBotID, c.TNSBotName))
 	b, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("tns: %w", err)
