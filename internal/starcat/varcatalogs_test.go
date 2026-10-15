@@ -249,3 +249,77 @@ func TestVarCatalogMirrorRetriesADownloadCutMidRecord(t *testing.T) {
 		t.Fatalf("a download cut mid-record gave %v after %d fetches, want a retry", err, fetches.Load())
 	}
 }
+
+// cutSource serves the ATLAS test file, cutting the whole download off
+// half way; a Range request is answered with etag's file.
+func cutSource(t *testing.T, etag string) (c *starcat.VarCatalog, lines []string, body []byte, whole, ranged *atomic.Int64, url string) {
+	t.Helper()
+	c = starcat.ATLASVariables()
+	lines = readLines(t, c.File)
+	var z bytes.Buffer
+	w := gzip.NewWriter(&z)
+	_, _ = w.Write([]byte(strings.Join(lines, "\n") + "\n"))
+	_ = w.Close()
+	body = z.Bytes()
+	whole, ranged = &atomic.Int64{}, &atomic.Int64{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch strings.TrimPrefix(r.URL.Path, "/") {
+		case readMe:
+			fmt.Fprintf(w, "%s  1911  %d  ATLAS\n", c.File, len(lines))
+		case c.File + ".gz":
+			w.Header().Set("ETag", `"v1"`)
+			if r.Header.Get("Range") != "" {
+				ranged.Add(1)
+				w.Header().Set("ETag", etag)
+				http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(body))
+				return
+			}
+			whole.Add(1)
+			w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(body[:len(body)/2])
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, buf, err := hj.Hijack(); err == nil {
+					_ = buf.Flush()
+					_ = conn.Close()
+				}
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return c, lines, body, whole, ranged, srv.URL + "/"
+}
+
+func TestVarCatalogMirrorResumesABrokenDownload(t *testing.T) {
+	t.Parallel()
+	c, lines, body, whole, ranged, url := cutSource(t, `"v1"`)
+	b := &starcat.MemBucket{}
+	if err := c.Mirror(context.Background(), starcat.MirrorOptions{Bucket: b, Prefix: c.Prefix, BaseURL: url, ResumeWait: time.Millisecond}); err != nil {
+		t.Fatal(err)
+	}
+	if whole.Load() != 1 || ranged.Load() != 1 {
+		t.Fatalf("%d whole downloads and %d resumed, want 1 and 1", whole.Load(), ranged.Load())
+	}
+	m, err := starcat.NewVariables(b, c.Prefix).Manifest(context.Background())
+	if err != nil || m.Rows != int64(len(lines)) || m.Inputs[0].Bytes != int64(len(body)) {
+		t.Fatalf("manifest %+v, %v", m, err)
+	}
+}
+
+func TestVarCatalogMirrorDoesNotResumeAChangedFile(t *testing.T) {
+	t.Parallel()
+	c, _, _, whole, ranged, url := cutSource(t, `"v2"`)
+	b := &starcat.MemBucket{}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := c.Mirror(ctx, starcat.MirrorOptions{Bucket: b, Prefix: c.Prefix, BaseURL: url, ResumeWait: time.Millisecond})
+	if err == nil || whole.Load() != 1 || ranged.Load() == 0 {
+		t.Fatalf("a changed file gave %v after %d whole downloads and %d resumed", err, whole.Load(), ranged.Load())
+	}
+	if _, err := starcat.NewVariables(b, c.Prefix).Manifest(context.Background()); err == nil {
+		t.Fatal("a mirror was written from a changed file")
+	}
+}
