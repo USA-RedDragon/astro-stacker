@@ -125,11 +125,11 @@ internal/frameheader/header.go	115	109
 internal/frameheader/wcs.go	67	58
 internal/goalmeasure/gaia.go	82	51
 internal/goalmeasure/mirror.go	17	15
-internal/goalmeasure/runner.go	460	393
+internal/goalmeasure/runner.go	460	391
 internal/goalmeasure/xp.go	95	61
 internal/goals/backfill.go	32	25
 internal/goals/body.go	180	173
-internal/goals/bodyprogress.go	127	114
+internal/goals/bodyprogress.go	127	112
 internal/goals/fit.go	92	87
 internal/goals/image.go	124	120
 internal/goals/mask.go	42	35
@@ -139,7 +139,7 @@ internal/goals/progress.go	104	93
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	353	322
+internal/goals/tsgoals.go	353	319
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	106	84
 internal/halpha/halpha.go	177	154
@@ -153,7 +153,7 @@ internal/horizonsurvey/nina.go	101	81
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
-internal/horizonsurvey/runner.go	451	351
+internal/horizonsurvey/runner.go	451	350
 internal/horizonsurvey/segment.go	96	94
 internal/horizonsurvey/sim/sim.go	267	240
 internal/horizonsurvey/skyline.go	119	113
@@ -364,7 +364,7 @@ internal/stacking/tsverdicts.go	261	221
 internal/starcat/format.go	180	150
 internal/starcat/gaia.go	164	145
 internal/starcat/mirror.go	425	327
-internal/starcat/sky.go	69	66
+internal/starcat/sky.go	75	72
 internal/starcat/store.go	146	108
 internal/starcat/varcatalogs.go	143	121
 internal/starcat/variables.go	38	37
