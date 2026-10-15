@@ -1,0 +1,5 @@
+"2026-10-14 00:00:00"
+"objid","name_prefix","name","ra","declination","redshift","typeid","type","reporting_groupid","reporting_group","source_groupid","source_group","discoverydate","discoverymag","discmagfilter","filter","reporters","time_received","internal_names","Discovery_ADS_bibcode","Class_ADS_bibcodes","creationdate","lastmodified"
+"190001","AT","2026acsi","10.557991667","41.276797222","","","","74","XOSS","74","XOSS","2026-09-22 15:50:24.000","17.4","1","Clear-","X. Observer","2026-09-22 18:01:12","XOSS26abc","","","2026-09-22 18:01:12","2026-09-23 02:10:44"
+"190002","SN","2026xyz","202.4750","47.1990","0.0016","1","SN Ia","48","ZTF","48","ZTF","2026-10-01 07:12:00.000","18.9","110","g-ZTF","A. Reporter, B. Reporter","2026-10-01 09:00:00","ZTF26aaaaaaa","2026TNSAN.200....1A","2026TNSCR.300....1A","2026-10-01 09:00:00","2026-10-05 12:00:00"
+"190003","AT","2026qq","05:34:31.94","+22:00:52.2","","","","","","","","2026-08-01 03:00:00","19.1","","","C. Someone","2026-08-01 05:00:00","","","","2026-08-01 05:00:00","2026-08-01 05:00:00"
