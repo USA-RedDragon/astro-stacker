@@ -250,6 +250,9 @@ type Discover struct {
 	SurveyPrefix     string   `name:"survey-prefix" description:"Path of the DSS2 colour HiPS inside the survey bucket" default:"hips/CDS_P_DSS2_color"`
 	SurveyMaxOrder   int      `name:"survey-max-order" description:"Deepest HiPS order in the survey mirror" default:"8"`
 	SurveyCacheMB    int      `name:"survey-cache-mb" description:"Memory for decoded survey tiles, in MB" default:"100"`
+	CatalogMirror    bool     `name:"catalog-mirror" description:"Read Gaia DR3 and AAVSO VSX stars from their mirrors in the survey bucket, falling back to VizieR while a mirror or one of its files is missing" default:"true"`
+	GaiaPrefix       string   `name:"gaia-prefix" description:"Path of the Gaia DR3 mirror inside the survey bucket" default:"catalogs/gaia-dr3/v1"`
+	VSXPrefix        string   `name:"vsx-prefix" description:"Path of the VSX mirror inside the survey bucket" default:"catalogs/vsx"`
 }
 
 type Goals struct {

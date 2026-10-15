@@ -145,6 +145,9 @@ type discoverShadow struct {
 	SurveyPrefix     *string   `json:"survey-prefix"      toml:"survey-prefix"      yaml:"survey-prefix"`
 	SurveyMaxOrder   *int      `json:"survey-max-order"   toml:"survey-max-order"   yaml:"survey-max-order"`
 	SurveyCacheMB    *int      `json:"survey-cache-mb"    toml:"survey-cache-mb"    yaml:"survey-cache-mb"`
+	CatalogMirror    *bool     `json:"catalog-mirror"     toml:"catalog-mirror"     yaml:"catalog-mirror"`
+	GaiaPrefix       *string   `json:"gaia-prefix"        toml:"gaia-prefix"        yaml:"gaia-prefix"`
+	VSXPrefix        *string   `json:"vsx-prefix"         toml:"vsx-prefix"         yaml:"vsx-prefix"`
 }
 
 type schedulerShadow struct {
@@ -406,6 +409,12 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("discover.survey-max-order", configulator.LayerDefault, "default tag")
 	cfg.Discover.SurveyCacheMB = 100
 	set("discover.survey-cache-mb", configulator.LayerDefault, "default tag")
+	cfg.Discover.CatalogMirror = true
+	set("discover.catalog-mirror", configulator.LayerDefault, "default tag")
+	cfg.Discover.GaiaPrefix = "catalogs/gaia-dr3/v1"
+	set("discover.gaia-prefix", configulator.LayerDefault, "default tag")
+	cfg.Discover.VSXPrefix = "catalogs/vsx"
+	set("discover.vsx-prefix", configulator.LayerDefault, "default tag")
 	cfg.Scheduler.Queue = true
 	set("scheduler.queue", configulator.LayerDefault, "default tag")
 	cfg.Scheduler.UPS = "observatory"
@@ -882,6 +891,18 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Discover.SurveyCacheMB != nil {
 			cfg.Discover.SurveyCacheMB = *s.Discover.SurveyCacheMB
 			set("discover.survey-cache-mb", configulator.LayerFile, file)
+		}
+		if s.Discover.CatalogMirror != nil {
+			cfg.Discover.CatalogMirror = *s.Discover.CatalogMirror
+			set("discover.catalog-mirror", configulator.LayerFile, file)
+		}
+		if s.Discover.GaiaPrefix != nil {
+			cfg.Discover.GaiaPrefix = *s.Discover.GaiaPrefix
+			set("discover.gaia-prefix", configulator.LayerFile, file)
+		}
+		if s.Discover.VSXPrefix != nil {
+			cfg.Discover.VSXPrefix = *s.Discover.VSXPrefix
+			set("discover.vsx-prefix", configulator.LayerFile, file)
 		}
 	}
 	if s.Scheduler != nil {
@@ -2081,6 +2102,27 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Discover.SurveyCacheMB = int(p)
 		set("discover.survey-cache-mb", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "catalog-mirror"); ok {
+		p, err := strconv.ParseBool(v)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.catalog-mirror",
+				Source: n,
+				Value:  v,
+			}
+		}
+		cfg.Discover.CatalogMirror = p
+		set("discover.catalog-mirror", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "gaia-prefix"); ok {
+		cfg.Discover.GaiaPrefix = v
+		set("discover.gaia-prefix", configulator.LayerEnv, n)
+	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "discover", "vsx-prefix"); ok {
+		cfg.Discover.VSXPrefix = v
+		set("discover.vsx-prefix", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "scheduler", "url"); ok {
 		cfg.Scheduler.URL = v
 		set("scheduler.url", configulator.LayerEnv, n)
@@ -2622,6 +2664,9 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"discover" + o.Separator + "survey-prefix",
 		"discover" + o.Separator + "survey-max-order",
 		"discover" + o.Separator + "survey-cache-mb",
+		"discover" + o.Separator + "catalog-mirror",
+		"discover" + o.Separator + "gaia-prefix",
+		"discover" + o.Separator + "vsx-prefix",
 		"scheduler" + o.Separator + "url",
 		"scheduler" + o.Separator + "token",
 		"scheduler" + o.Separator + "queue",
@@ -2789,65 +2834,68 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[90], "hips/CDS_P_DSS2_color", "Path of the DSS2 colour HiPS inside the survey bucket")
 	fs.Var(impl.NewInt(8), names[91], "Deepest HiPS order in the survey mirror")
 	fs.Var(impl.NewInt(100), names[92], "Memory for decoded survey tiles, in MB")
-	fs.String(names[93], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
-	fs.String(names[94], "", "Bearer token for the plugin's API")
-	fs.Bool(names[95], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
-	fs.String(names[96], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
-	fs.String(names[97], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
-	fs.String(names[98], "", "Base URL of NINA's Advanced API on the observatory PC, e.g. http://observatory:1888/v2/api, for the collab switch on the Collabs page; empty leaves the switch unconfigured")
-	fs.Bool(names[99], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
-	fs.Var(impl.NewInt(30), names[100], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
-	fs.Var(impl.NewInt(200), names[101], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
-	fs.Var(impl.NewInt(3), names[102], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
-	fs.String(names[103], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
-	fs.String(names[104], "on", "About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
-	fs.String(names[105], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
-	fs.String(names[106], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[107], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
-	fs.Bool(names[108], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
-	fs.Var(impl.NewInt(60), names[109], "Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving")
-	fs.Float64(names[110], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
-	fs.String(names[111], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
-	fs.String(names[112], "on", "Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it")
-	fs.Var(impl.NewInt(24), names[113], "Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving")
-	fs.String(names[114], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
-	fs.Var(impl.NewInt(60), names[115], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
-	fs.String(names[116], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
-	fs.String(names[117], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
-	fs.String(names[118], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
-	fs.Bool(names[119], false, "Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks")
-	fs.Var(impl.NewInt(10), names[120], "Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later")
-	fs.Var(impl.NewInt(2), names[121], "Cores one comparison may use; comparisons run one at a time and wait while the stacker is working")
-	fs.Var(impl.NewInt(48), names[122], "Most subs per filter stacked into a night's reference, taken from the other nights in turn")
-	fs.Var(impl.NewInt(30), names[123], "Nights from the last this many days are compared on their own; older nights only on request")
-	fs.String(names[124], "", "Transient Name Server bot API key; empty skips TNS")
-	fs.String(names[125], "", "Transient Name Server bot ID")
-	fs.String(names[126], "", "Transient Name Server bot name")
-	fs.String(names[127], "", "Reporter line of TNS discovery reports, e.g. 'J. Smith (Home Observatory)'; empty shows Not set and keeps Send off")
-	fs.String(names[128], "", "TNS reporting group id of your reports; empty keeps Send off")
-	fs.String(names[129], "", "TNS instrument id of your telescope and camera; empty keeps Send off")
-	fs.String(names[130], "", "Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set")
-	fs.String(names[131], "catalogs/tns", "Path of the TNS public objects mirror in the survey bucket: the daily full list and hourly files, kept 30 days, fetched with the TNS bot and searched locally instead of TNS's search API. Off until tns-key, tns-bot-id and tns-bot-name are set")
-	fs.String(names[132], "https://www.wis-tns.org", "Base URL of the Transient Name Server for the mirror downloads, searches, reports and links: https://www.wis-tns.org, or https://sandbox.wis-tns.org for test reports")
-	fs.Float64(names[133], 3.0, "Radius in arcseconds within which a change matches a TNS object of the local mirror")
-	fs.String(names[134], "", "Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT")
-	fs.Bool(names[135], false, "Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service")
-	fs.StringSlice(names[136], nil, "Public services also asked for each night's known asteroids and comets, from the geocentre, logging how they differ from the local service: skybot, sbident")
-	fs.String(names[137], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
-	fs.Var(impl.NewInt(1), names[138], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
-	fs.Bool(names[139], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
-	fs.String(names[140], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
-	fs.String(names[141], "America/Chicago", "IANA time zone of the send time and of the times in the report")
-	fs.String(names[142], "CT", "Label after every time in the report")
-	fs.String(names[143], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
-	fs.String(names[144], "", "Telegram bot token")
-	fs.String(names[145], "", "Telegram chat the report goes to")
-	fs.String(names[146], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
-	fs.Bool(names[147], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty")
-	fs.String(names[148], "", "Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off")
-	fs.String(names[149], "", "Telegram chat the alerts go to; empty turns the alerts off")
-	fs.Bool(names[150], false, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default")
-	fs.Var(impl.NewInt(5), names[151], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
+	fs.Bool(names[93], true, "Read Gaia DR3 and AAVSO VSX stars from their mirrors in the survey bucket, falling back to VizieR while a mirror or one of its files is missing")
+	fs.String(names[94], "catalogs/gaia-dr3/v1", "Path of the Gaia DR3 mirror inside the survey bucket")
+	fs.String(names[95], "catalogs/vsx", "Path of the VSX mirror inside the survey bucket")
+	fs.String(names[96], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
+	fs.String(names[97], "", "Bearer token for the plugin's API")
+	fs.Bool(names[98], true, "Also write commands to the scheduler database's ts_command table, which SymmetricDS carries to the observatory")
+	fs.String(names[99], "", "Prometheus or Thanos query URL holding the observatory's weather, safety monitor, mount and UPS metrics, e.g. http://thanos-querier-app.monitoring:9090; empty shows those cards with no data source")
+	fs.String(names[100], "observatory", "The ups label of the observatory UPS in the NUT exporter's metrics")
+	fs.String(names[101], "", "Base URL of NINA's Advanced API on the observatory PC, e.g. http://observatory:1888/v2/api, for the collab switch on the Collabs page; empty leaves the switch unconfigured")
+	fs.Bool(names[102], false, "Measure each master's faint-signal SNR, noise curve and depth into goal_measurements, again when it grows 20% in effective hours")
+	fs.Var(impl.NewInt(30), names[103], "Minutes between backstop checks for masters to measure; a master is measured about a minute after it is updated or its goal changes, and again as soon as it has subs for another noise draw level while its noise floor can't be measured yet (18 subs give the 3 levels the floor needs)")
+	fs.Var(impl.NewInt(200), names[104], "Most registered subs read per measurement; a master with more uses a fixed random subset of this many")
+	fs.Var(impl.NewInt(3), names[105], "Masters measured at once, each using about one core; measurement waits while the stacker is working")
+	fs.String(names[106], "off", "Write goal progress into ts_goal_progress in the scheduler database: off, dry-run (log what would be written) or on")
+	fs.String(names[107], "on", "About a minute after a master is measured or goals change (and hourly as a backstop), move a broadband filter's goal from SNR to depth once its master has a Gaia zero point, on active galaxy, cluster and dust projects, through a goal.edit command sent once per filter: off, dry-run (log the edits) or on")
+	fs.String(names[108], "2026-10-10", "Leave out darks taken on or after this date (YYYY-MM-DD, UTC) that the ingest check finds lit or off their setpoint; older darks only get the verdict recorded; empty records every verdict only")
+	fs.String(names[109], "off", "Write the dark backlog into ts_dark_need in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[110], "off", "Write the picked lengths into ts_sub_length in the scheduler database, which the plugin uses at exposure selection: off, dry-run (log what would be written) or on; on needs stacking.score-per-second")
+	fs.Bool(names[111], false, "Put a dark set for each length the data proposes (one that would gain 5% SNR per hour or more but has no full dark set) on the dark backlog in ts_dark_need; off only shows the proposals")
+	fs.Var(impl.NewInt(60), names[112], "Minutes between backstop recomputes; the lengths are worked out again about two minutes after subs are measured or triaged or the exposure plans change, and at most every ten minutes while subs keep arriving")
+	fs.Float64(names[113], 2.0, "The shortest length allowed is picked if its SNR per hour is within this percent of the best allowed length; shorter subs lose less to a bad moment and saturate fewer stars")
+	fs.String(names[114], "off", "Write the bias backlog into ts_bias_need and open flat requests into ts_flat_request in the scheduler database after each index scan: off, dry-run (log what would be written) or on")
+	fs.String(names[115], "on", "Write the fitted kept rates into ts_moon_keep and ts_alt_keep in the scheduler database, which the plugin uses to weigh and skip exposures by the Moon and by the target's altitude: off, dry-run (log what would be written) or on; nothing is written to a table until the scheduler has it")
+	fs.Var(impl.NewInt(24), names[116], "Hours between backstop refits; the kept rates are refitted about two minutes after the stacker's verdicts or the exposure plans change, and at most every ten minutes while subs keep arriving")
+	fs.String(names[117], "on", "Write each moving target's nightly position table into ts_body_position, which the plugin uses for visibility, centering and sub length, and its season table (one position and magnitude per night for a year) into ts_body_night, which the plugin counts its season from, in the scheduler database: off (no Horizons requests), dry-run (log what would be written) or on; nothing is fetched until the scheduler has the ts_target_body table")
+	fs.Var(impl.NewInt(60), names[118], "Minutes between rebuilding the position tables; tables already fetched for a night come from the cache")
+	fs.String(names[119], "https://ssd.jpl.nasa.gov/api/horizons.api", "JPL Horizons API")
+	fs.String(names[120], "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt", "Minor Planet Center comet elements, for the list of comets observable tonight")
+	fs.String(names[121], "https://ssd-api.jpl.nasa.gov/sbdb_query.api?fields=pdes,full_name,M1,K1&sb-kind=c", "JPL SBDB query of every comet's M1 and K1, for the JPL magnitude estimate in the comet list")
+	fs.Bool(names[122], false, "Compare each settled night of every target with 3 or more accepted nights (per filter group: L, R, G and B together, each narrowband filter alone) against its other nights, check what changed against VSX, SkyBoT, ALeRCE and Fink, and store the candidates, cutouts and moving-object tracks")
+	fs.Var(impl.NewInt(10), names[123], "Minutes between backstop checks for nights to compare; a master update starts a check about two minutes later")
+	fs.Var(impl.NewInt(2), names[124], "Cores one comparison may use; comparisons run one at a time and wait while the stacker is working")
+	fs.Var(impl.NewInt(48), names[125], "Most subs per filter stacked into a night's reference, taken from the other nights in turn")
+	fs.Var(impl.NewInt(30), names[126], "Nights from the last this many days are compared on their own; older nights only on request")
+	fs.String(names[127], "", "Transient Name Server bot API key; empty skips TNS")
+	fs.String(names[128], "", "Transient Name Server bot ID")
+	fs.String(names[129], "", "Transient Name Server bot name")
+	fs.String(names[130], "", "Reporter line of TNS discovery reports, e.g. 'J. Smith (Home Observatory)'; empty shows Not set and keeps Send off")
+	fs.String(names[131], "", "TNS reporting group id of your reports; empty keeps Send off")
+	fs.String(names[132], "", "TNS instrument id of your telescope and camera; empty keeps Send off")
+	fs.String(names[133], "", "Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set")
+	fs.String(names[134], "catalogs/tns", "Path of the TNS public objects mirror in the survey bucket: the daily full list and hourly files, kept 30 days, fetched with the TNS bot and searched locally instead of TNS's search API. Off until tns-key, tns-bot-id and tns-bot-name are set")
+	fs.String(names[135], "https://www.wis-tns.org", "Base URL of the Transient Name Server for the mirror downloads, searches, reports and links: https://www.wis-tns.org, or https://sandbox.wis-tns.org for test reports")
+	fs.Float64(names[136], 3.0, "Radius in arcseconds within which a change matches a TNS object of the local mirror")
+	fs.String(names[137], "", "Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT")
+	fs.Bool(names[138], false, "Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service")
+	fs.StringSlice(names[139], nil, "Public services also asked for each night's known asteroids and comets, from the geocentre, logging how they differ from the local service: skybot, sbident")
+	fs.String(names[140], "off", "Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on")
+	fs.Var(impl.NewInt(1), names[141], "Hours between backstop runs; the values are worked out again about a minute after projects, targets, exposure plans or the global settings change (at most every five minutes), and when a manual edit's hold ends")
+	fs.Bool(names[142], false, "Send the report once a day; a report missed while the stacker was down is sent when it comes back the same day")
+	fs.String(names[143], "11:00", "Local time of day, HH:MM, the report is sent; each report covers the day before up to this time")
+	fs.String(names[144], "America/Chicago", "IANA time zone of the send time and of the times in the report")
+	fs.String(names[145], "CT", "Label after every time in the report")
+	fs.String(names[146], "", "Loki holding the observatory's NINA logs, for the flap, unsafe events and guider errors, e.g. http://loki.monitoring:3100; empty leaves those not measured")
+	fs.String(names[147], "", "Telegram bot token")
+	fs.String(names[148], "", "Telegram chat the report goes to")
+	fs.String(names[149], "", "First night, as its evening date YYYY-MM-DD, whose report is sent; earlier nights never are, so turning the report on after the send time does not send that day's report; empty sends every night")
+	fs.Bool(names[150], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty")
+	fs.String(names[151], "", "Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off")
+	fs.String(names[152], "", "Telegram chat the alerts go to; empty turns the alerts off")
+	fs.Bool(names[153], false, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default")
+	fs.Var(impl.NewInt(5), names[154], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
 	return nil
 }
 
@@ -3968,6 +4016,42 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Discover.SurveyCacheMB = v
 		set("discover.survey-cache-mb", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "catalog-mirror"; fs.Changed(n) {
+		v, err := fs.GetBool(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.catalog-mirror",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.CatalogMirror = v
+		set("discover.catalog-mirror", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "gaia-prefix"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.gaia-prefix",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.GaiaPrefix = v
+		set("discover.gaia-prefix", configulator.LayerCLI, "--"+n)
+	}
+	if n := "discover" + o.Separator + "vsx-prefix"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "discover.vsx-prefix",
+				Source: "--" + n,
+			}
+		}
+		cfg.Discover.VSXPrefix = v
+		set("discover.vsx-prefix", configulator.LayerCLI, "--"+n)
 	}
 	if n := "scheduler" + o.Separator + "url"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -6926,6 +7010,45 @@ func (s *discoverShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".survey-cache-mb", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "catalog-mirror":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindTrue, jsontext.KindFalse:
+				b := v.Bool()
+				s.CatalogMirror = &b
+			default:
+				return configJSONError(path+".catalog-mirror", v, fmt.Errorf("expected a bool, got %v", v.Kind()))
+			}
+		case "gaia-prefix":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.GaiaPrefix = &str
+			default:
+				return configJSONError(path+".gaia-prefix", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
+		case "vsx-prefix":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.VSXPrefix = &str
+			default:
+				return configJSONError(path+".vsx-prefix", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
 		default:
 			if reject, _ := json.GetOption(dec.Options(), json.RejectUnknownMembers); reject {
 				return &configulator.UnknownKeyError{Path: path + "." + configQuoteKey(key)}
@@ -8193,6 +8316,9 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "discover.survey-prefix = %v\n", c.Discover.SurveyPrefix)
 	fmt.Fprintf(&b, "discover.survey-max-order = %v\n", c.Discover.SurveyMaxOrder)
 	fmt.Fprintf(&b, "discover.survey-cache-mb = %v\n", c.Discover.SurveyCacheMB)
+	fmt.Fprintf(&b, "discover.catalog-mirror = %v\n", c.Discover.CatalogMirror)
+	fmt.Fprintf(&b, "discover.gaia-prefix = %v\n", c.Discover.GaiaPrefix)
+	fmt.Fprintf(&b, "discover.vsx-prefix = %v\n", c.Discover.VSXPrefix)
 	fmt.Fprintf(&b, "scheduler.url = %v\n", c.Scheduler.URL)
 	fmt.Fprintf(&b, "scheduler.token = %v\n", c.Scheduler.Token)
 	fmt.Fprintf(&b, "scheduler.queue = %v\n", c.Scheduler.Queue)

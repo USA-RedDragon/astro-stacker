@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/minio/minio-go/v7"
 	miniocreds "github.com/minio/minio-go/v7/pkg/credentials"
@@ -69,6 +70,17 @@ func newCatalogMirrorCommand() *cobra.Command {
 	add("gaia", "Mirror ESA's Gaia DR3 gaia_source files", "catalogs/gaia-dr3/v1", gaiaSourceURL, starcat.MirrorGaia)
 	add("vsx", "Mirror CDS's copy of VSX (B/vsx) when it has a new version", "catalogs/vsx", vsxSourceURL, starcat.MirrorVSX)
 	return c
+}
+
+// catalogMirrors returns the Gaia DR3 and VSX mirror readers, or nils
+// when they are off.
+func catalogMirrors(cfg *config.Config, s3 *minio.Client) (*starcat.Gaia, *starcat.VSX) {
+	d := cfg.Discover
+	if !d.CatalogMirror || s3 == nil {
+		return nil, nil
+	}
+	b := starcat.MinioBucket{Client: s3, Name: d.SurveyBucket}
+	return starcat.NewGaia(b, d.GaiaPrefix), starcat.NewVSX(b, d.VSXPrefix)
 }
 
 func envBucket(endpoint string, ssl bool, bucket, keyEnv, secretEnv string) (starcat.MinioBucket, error) {
