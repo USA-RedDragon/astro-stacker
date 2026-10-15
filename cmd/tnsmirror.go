@@ -31,6 +31,26 @@ func startTNSMirror(cfg *config.Config, s3 *minio.Client) *tnsmirror.Mirror {
 	return m
 }
 
+// loadTNSMirror reads the TNS mirror the server keeps in the survey bucket,
+// without downloading from TNS, so a one-off discoveries runner matches its
+// changes against the local copy instead of the TNS search API; nil when
+// there is no copy to read.
+func loadTNSMirror(ctx context.Context, cfg *config.Config, s3 *minio.Client) *tnsmirror.Mirror {
+	if s3 == nil {
+		return nil
+	}
+	m := &tnsmirror.Mirror{Bucket: starcat.MinioBucket{Client: s3, Name: cfg.Discover.SurveyBucket}, Prefix: cfg.Discoveries.TNSMirrorPrefix}
+	if err := m.Load(ctx); err != nil {
+		slog.Warn("Could not read the TNS mirror", "error", err)
+		return nil
+	}
+	if m.Index() == nil {
+		return nil
+	}
+	slog.Info("TNS mirror read", "objects", m.Index().Len())
+	return m
+}
+
 func tnsSite(d config.Discoveries) tnsmirror.Site { return tnsmirror.Site(d.TNSBaseURL) }
 
 func tnsMirrorClient(d config.Discoveries) *tnsmirror.Client {

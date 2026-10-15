@@ -47,6 +47,9 @@ func newDiscoveriesCommand() *cobra.Command {
 			}
 			d := cfg.Discoveries
 			cat := tnsCatalogs(d)
+			if m := loadTNSMirror(cmd.Context(), cfg, s3); m != nil {
+				cat.TNSLocal, cat.TNSMatchArcsec = discoveries.LocalTNS(m.Index), d.TNSMatchArcsec
+			}
 			cat.Local = smallBodies(cfg, appStore)
 			cat.GaiaMirror, cat.VSXMirror = catalogMirrors(cfg, s3)
 			r := discoveries.New(appStore.DB(), schedStore.DB(), discoveries.MinioStore{Client: s3, Bucket: cfg.S3.ProcessedBucket}, cat,
