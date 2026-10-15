@@ -37,7 +37,7 @@ func (n *ChangeNull) DropKnown(vars []Variable) {
 		known := false
 		for _, v := range vars {
 			lim := vsxMatchArcsec
-			if v.Catalog == catalogSIMBAD {
+			if tightMatch(v.Catalog) {
 				lim = simbadMatchArcsec
 			}
 			if Separation(c.RA, c.Dec, v.RA, v.Dec)*3600 <= lim {
