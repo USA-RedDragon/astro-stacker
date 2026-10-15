@@ -6,8 +6,10 @@ package surveys
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/ephem"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 )
 
@@ -84,6 +86,17 @@ type Fetcher struct {
 	HTTP       *http.Client
 	ATLASToken string
 	Now        func() time.Time
+	// IRSAURL overrides https://irsa.ipac.caltech.edu, for tests.
+	IRSAURL string
+	// WorkDir holds the ZTF field files while Prefetch reads them; empty
+	// is the system temporary directory.
+	WorkDir string
+	// ZTFRelease names the ZTF data release to pull, "dr24"; empty takes
+	// the newest one IRSA lists.
+	ZTFRelease string
+
+	mu  sync.Mutex
+	eph *ephem.Ephemeris
 }
 
 // ZTF is the star's ZTF light curves, from the field's ZTF files.

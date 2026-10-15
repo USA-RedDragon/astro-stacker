@@ -77,6 +77,10 @@ linters:
         linters:
           - gosec
         text: G115
+      - path: internal/vetting/surveys/ztftile\.go$
+        linters:
+          - gosec
+        text: G115
       - path: internal/starcat/mirror(_test)?\.go$
         linters:
           - gosec
