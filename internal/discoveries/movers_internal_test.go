@@ -107,6 +107,54 @@ func TestLinkMoversIgnoresChanceAlignmentsInACrowdedField(t *testing.T) {
 	}
 }
 
+// TestLinkMoversChecksTheFittedRate: residuals that stay put, scattered by
+// 2 px of noise, give seed pairs above the slowest rate linked and other
+// subs' detections within 2.5 px of the predictions, so tracks of them fit
+// rates under 0.15"/min (51 such tracks over 100 random 10-sub nights); an
+// asteroid at 0.2"/min still links.
+func TestLinkMoversChecksTheFittedRate(t *testing.T) {
+	t.Parallel()
+	const scale, n = 1.923, 10
+	vmin := moverMinArcMin / scale * 1440
+	start := time.Date(2026, 10, 8, 3, 0, 0, 0, time.UTC)
+	slow, linked := 0, 0
+	for seed := uint64(1); seed <= 40; seed++ {
+		rng := rand.New(rand.NewPCG(seed, 3))
+		times := make([]time.Time, n)
+		dets := make([][]moverDet, n)
+		rate := 0.2 / scale
+		for j := range n {
+			times[j] = start.Add(time.Duration(j) * 6 * time.Minute)
+			for k := range 30 {
+				dets[j] = append(dets[j], moverDet{X: 500 + float64(k%6)*300 + rng.NormFloat64()*2, Y: 500 + float64(k/6)*300 + rng.NormFloat64()*2, SNR: 5})
+			}
+			dets[j] = append(dets[j], moverDet{X: 2300 + rate*float64(j*6), Y: 2300 + rate*float64(j*6), SNR: 9})
+		}
+		links, _ := linkMovers(times, dets, scale, 2500*2500)
+		for _, hs := range links {
+			var ts []time.Time
+			var xs, ys []float64
+			for _, h := range hs {
+				ts = append(ts, times[h.sub])
+				xs = append(xs, dets[h.sub][h.idx].X)
+				ys = append(ys, dets[h.sub][h.idx].Y)
+			}
+			if _, _, _, vx, vy, _ := fitTrack(ts, xs, ys); math.Hypot(vx, vy) < vmin {
+				slow++
+			}
+			if hs[0].idx == 30 {
+				linked++
+			}
+		}
+	}
+	if slow > 0 {
+		t.Errorf("%d tracks fitted a rate under 0.15\"/min", slow)
+	}
+	if linked != 40 {
+		t.Errorf("the 0.2\"/min asteroid linked on %d of 40 nights", linked)
+	}
+}
+
 // TestStarResidualIsNotAMover: the alert tests' synthetic field linked a
 // "mover" of 5 detections at 0.28"/min on a G 14.8 star, every detection
 // within 3 px of it, one with a negative flux: the star's subtraction
