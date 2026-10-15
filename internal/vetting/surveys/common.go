@@ -16,12 +16,17 @@ import (
 const (
 	// DefaultIRSAURL is IRSA, home of the ZTF and WISE archives.
 	DefaultIRSAURL = "https://irsa.ipac.caltech.edu"
+	// DefaultATLASURL is the ATLAS forced photometry server.
+	DefaultATLASURL = "https://fallingstar-data.com/forcedphot"
 	// DefaultPrefix is where the caches live.
 	DefaultPrefix = "vetting/cache/"
-	userAgent     = "astro-stacker/1 (+https://github.com/USA-RedDragon/astro-stacker)"
-	gaiaEpoch     = 2016.0
-	httpTries     = 4
-	maxRetryWait  = 2 * time.Minute
+	// DefaultATLASMaxQueued is how many of our tasks may wait in the
+	// ATLAS queue at once.
+	DefaultATLASMaxQueued = 5
+	userAgent             = "astro-stacker/1 (+https://github.com/USA-RedDragon/astro-stacker)"
+	gaiaEpoch             = 2016.0
+	httpTries             = 4
+	maxRetryWait          = 2 * time.Minute
 )
 
 func (f *Fetcher) now() time.Time {
