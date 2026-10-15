@@ -207,6 +207,12 @@ discover:
   survey-max-order: 8
   # Memory for decoded survey tiles, in MB
   survey-cache-mb: 100
+  # Read Gaia DR3 and AAVSO VSX stars from their mirrors in the survey bucket, falling back to VizieR while a mirror or one of its files is missing
+  catalog-mirror: true
+  # Path of the Gaia DR3 mirror inside the survey bucket
+  gaia-prefix: "catalogs/gaia-dr3/v1"
+  # Path of the VSX mirror inside the survey bucket
+  vsx-prefix: "catalogs/vsx"
 # The observatory-scheduler plugin's API and the durable command queue
 scheduler:
   # Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued
