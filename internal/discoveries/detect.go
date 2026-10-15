@@ -637,6 +637,9 @@ type nightSub struct {
 type cand struct {
 	Candidate
 	fluxes, errs []float64
+	// sharp is the candidate's sharpness in each night sub, in the order of
+	// fluxes.
+	sharp []float64
 	// wide measures the subs with the wider aperture: on a bright source
 	// the narrow one mostly sees each sub's seeing.
 	wide bool
@@ -797,11 +800,13 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 		sig := emptyApertureSigma(p, edge, apertureR, 4000)
 		sigWide := emptyApertureSigma(p, edge, residualR, 4000)
 		for ci := range cands {
-			if cands[ci].wide {
-				lightPoint(&cands[ci], p, ns, residualR, sigWide, ns.fs.zpWide)
+			c := &cands[ci]
+			if c.wide {
+				lightPoint(c, p, ns, residualR, sigWide, ns.fs.zpWide)
 			} else {
-				lightPoint(&cands[ci], p, ns, apertureR, sig, ns.fs.zp)
+				lightPoint(c, p, ns, apertureR, sig, ns.fs.zp)
 			}
+			c.sharp = append(c.sharp, signedSharpness(p, c.X, c.Y, c.Sign))
 		}
 		if ns.fs.zp != nil && sig > 0 {
 			d := *ns.fs.zp - 2.5*math.Log10(DetectSigma*sig)
@@ -990,6 +995,43 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 // (99% under 3.0), and the M 31 nova 1.5.
 const maxSharpness = 4.0
 
+// maxSubSharpness is how many times sharper than a star a new source may be
+// in the night's subs, at the median of the subs it is in. A defect pixel
+// sits sharp in each sub even where registration spreads it in the stack:
+// on Pelican Nebula Panel 2's night of 2026-09-14, among 1,650 "new
+// sources" that were such pixels, the 12 strongest stood at a median of 3.5
+// to 5.3 times a star in their subs (11 over 3), and only 2.8 to 4.0 times
+// in the stack; stars there stood at 0.6 to 1.3 times.
+const maxSubSharpness = 3.0
+
+// sharpInSubs says whether a candidate is sharper than limit in the median
+// of the night subs it is present in.
+func (c *cand) sharpInSubs(limit float64) bool {
+	var s []float64
+	for k, f := range c.fluxes {
+		if k < len(c.sharp) && f > presenceSigma*c.errs[k] {
+			s = append(s, c.sharp[k])
+		}
+	}
+	return len(s) >= 2 && median64(s) > limit
+}
+
+// signedSharpness is sharpness on the plane times sign, so a fading is
+// measured as the light it lost.
+func signedSharpness(p *Plane, x, y float64, sign int) float64 {
+	if sign > 0 {
+		return sharpness(p, x, y)
+	}
+	xi, yi := int(math.Round(x)), int(math.Round(y))
+	q := NewPlane(5, 5)
+	for yy := range 5 {
+		for xx := range 5 {
+			q.Data[yy*5+xx] = -p.At(xi-2+xx, yi-2+yy)
+		}
+	}
+	return sharpness(q, 2, 2)
+}
+
 // sharpness is the brightest pixel within 1 px of (x, y) over the sum of
 // the positive pixels within 2 px.
 func sharpness(p *Plane, x, y float64) float64 {
@@ -1132,6 +1174,7 @@ func lightPoint(c *cand, d *Plane, ns nightSub, r, sig float64, zp *float64) {
 // cut applies the per-sub, dipole and star residual cuts and grades what
 // is left.
 func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Result) []Candidate {
+	subSharpLimit := maxSubSharpness * psfSharpness(res.HFRNight/hfrToSigma)
 	var out []Candidate
 	for _, sign := range []int{1, -1} {
 		name := signName(sign)
@@ -1195,7 +1238,7 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			}
 			fn.NotResidual++
 			cc := c.Candidate
-			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs
+			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && c.sharpInSubs(subSharpLimit))
 			if cc.LowConf {
 				fn.LowConfident++
 			} else {
