@@ -242,3 +242,23 @@ func TestSurveyMirror(t *testing.T) {
 		}
 	}
 }
+
+func TestTNSBaseURL(t *testing.T) {
+	t.Parallel()
+
+	defConfig, err := configulator.New(config.ConfigSchema()).Default()
+	if err != nil {
+		t.Fatalf("failed to create default config: %v", err)
+	}
+	if defConfig.Discoveries.TNSBaseURL != "https://www.wis-tns.org" {
+		t.Errorf("tns-base-url defaults to %q", defConfig.Discoveries.TNSBaseURL)
+	}
+	for u, want := range map[string]error{"https://sandbox.wis-tns.org": nil, "http://127.0.0.1:8080/tns/": nil, "": nil,
+		"ftp://sandbox.wis-tns.org": config.ErrInvalidTNSBaseURL, "sandbox.wis-tns.org": config.ErrInvalidTNSBaseURL, "https://": config.ErrInvalidTNSBaseURL} {
+		cfg := defConfig
+		cfg.Discoveries.TNSBaseURL = u
+		if err := cfg.Validate(); !errors.Is(err, want) {
+			t.Errorf("%q: Validate() = %v, want %v", u, err, want)
+		}
+	}
+}

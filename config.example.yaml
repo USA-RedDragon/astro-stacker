@@ -301,6 +301,8 @@ discoveries:
   # mpc-code: ""
   # Path of the TNS public objects mirror in the survey bucket: the daily full list and hourly files, kept 30 days, fetched with the TNS bot and searched locally instead of TNS's search API. Off until tns-key, tns-bot-id and tns-bot-name are set
   tns-mirror-prefix: "catalogs/tns"
+  # Base URL of the Transient Name Server for the mirror downloads, searches, reports and links: https://www.wis-tns.org, or https://sandbox.wis-tns.org for test reports
+  tns-base-url: "https://www.wis-tns.org"
   # Radius in arcseconds within which a change matches a TNS object of the local mirror
   tns-match-arcsec: 3
   # Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT

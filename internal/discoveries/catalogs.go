@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/tnsmirror"
 )
 
 const (
@@ -21,7 +23,7 @@ const (
 	skybotURL     = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
 	alerceURL     = "https://api.alerce.online/ztf/v1/objects/"
 	finkURL       = "https://api.ztf.fink-portal.org/api/v1/conesearch"
-	tnsURL        = "https://www.wis-tns.org/api/get/search"
+	tnsURL        = tnsmirror.DefaultSite + "/api/get/search"
 	simbadURL     = "https://simbad.cds.unistra.fr/simbad/sim-tap/sync"
 	simbadMaxRows = 200000
 	userAgent     = "astro-stacker/1 (+https://github.com/USA-RedDragon/astro-stacker)"

@@ -5,6 +5,7 @@ package config
 import (
 	"cmp"
 	"errors"
+	"net/url"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/utils"
@@ -274,6 +275,7 @@ type Discoveries struct {
 	TNSInstrumentID string  `name:"tns-instrument-id" description:"TNS instrument id of your telescope and camera; empty keeps Send off"`
 	MPCCode         string  `name:"mpc-code" description:"Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set"`
 	TNSMirrorPrefix string  `name:"tns-mirror-prefix" description:"Path of the TNS public objects mirror in the survey bucket: the daily full list and hourly files, kept 30 days, fetched with the TNS bot and searched locally instead of TNS's search API. Off until tns-key, tns-bot-id and tns-bot-name are set" default:"catalogs/tns"`
+	TNSBaseURL      string  `name:"tns-base-url" description:"Base URL of the Transient Name Server for the mirror downloads, searches, reports and links: https://www.wis-tns.org, or https://sandbox.wis-tns.org for test reports" default:"https://www.wis-tns.org"`
 	TNSMatchArcsec  float64 `name:"tns-match-arcsec" description:"Radius in arcseconds within which a change matches a TNS object of the local mirror" default:"3"`
 
 	SmallBodiesURL string   `name:"small-bodies-url" description:"Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT"`
@@ -288,6 +290,12 @@ func (d Discoveries) validate() error {
 	for _, c := range d.CrossCheck {
 		if c != "skybot" && c != "sbident" {
 			return ErrInvalidCrossCheck
+		}
+	}
+	if d.TNSBaseURL != "" {
+		u, err := url.Parse(d.TNSBaseURL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return ErrInvalidTNSBaseURL
 		}
 	}
 	return nil
@@ -426,6 +434,7 @@ var (
 	ErrInvalidGoalsPublish          = errors.New("goals.publish must be off, dry-run or on")
 	ErrInvalidGoalsInterval         = errors.New("goals.interval-minutes must be positive")
 	ErrInvalidCrossCheck            = errors.New("discoveries.cross-check takes skybot and sbident")
+	ErrInvalidTNSBaseURL            = errors.New("discoveries.tns-base-url must be an http or https URL")
 	ErrInvalidDiscoveries           = errors.New("discoveries needs positive interval-minutes and threads, reference-subs of 2 or more and backfill-days of 1 or more")
 	ErrInvalidGoalsDepthSwitch      = errors.New("goals.depth-switch must be off, dry-run or on")
 	ErrInvalidDarksPublish          = errors.New("darks.publish must be off, dry-run or on")
