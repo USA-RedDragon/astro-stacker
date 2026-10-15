@@ -289,6 +289,8 @@ func checks(in Input) []Check {
 	case len(has(ms, varCats...)) > 0:
 		m := has(ms, varCats...)[0]
 		out = append(out, Check{Key: keyVariable, State: CheckBad, Title: titleVariable, Detail: fmt.Sprintf("Matches %s %s, %.1f″ away", m.Catalog, m.Name, m.SepArcsec)})
+	case slices.ContainsFunc(has(ms, "ZTF"), func(m discoveries.Match) bool { return m.Type == "variable" }):
+		out = append(out, Check{Key: keyVariable, State: CheckBad, Title: titleVariable, Detail: "The star's ZTF light curve already varies"})
 	case len(varDown) > 0:
 		out = append(out, Check{Key: keyVariable, State: CheckTodo, Title: titleVariable,
 			Detail: "Checked " + andList(varChecked) + "; " + within + "; " + andList(varDown) + " could not be reached for this night"})
