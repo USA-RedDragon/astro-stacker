@@ -264,3 +264,14 @@ func TestAFlatZTFLightCurveIsNotAKnownVariable(t *testing.T) {
 		t.Fatalf("class %s", c)
 	}
 }
+
+func TestNullTestDropsChangesOnSurveyVariablesWithin2Arcsec(t *testing.T) {
+	t.Parallel()
+	for _, c := range surveyCatalogNames() {
+		n := &ChangeNull{Changes: []NullChange{{RA: 10, Dec: 41, SNR: 9}, {RA: 20, Dec: 41 + 3.0/3600, SNR: 7}}}
+		n.DropKnown([]Variable{{Catalog: c, RA: 10, Dec: 41 + 1.5/3600}, {Catalog: c, RA: 20, Dec: 41}})
+		if n.Found != 1 || n.MaxSNR != 7 {
+			t.Errorf("%s: found %d, max SNR %.0f", c, n.Found, n.MaxSNR)
+		}
+	}
+}
