@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	healpix "github.com/hebl/gohealpix"
 )
@@ -47,11 +48,20 @@ func Round(v float64, decimals int) float64 {
 }
 
 // Decimal returns a float32 column value as the float64 of its shortest
-// decimal, the number Gaia's files print and VizieR holds.
+// decimal, the number Gaia's files print and VizieR holds. A value exactly
+// halfway between two shortest decimals takes the one away from zero, as
+// Gaia prints it.
 func Decimal(v float32) float64 {
-	r, err := strconv.ParseFloat(strconv.FormatFloat(float64(v), 'g', -1, 32), 64)
+	x := float64(v)
+	if x == 0 || math.IsNaN(x) || math.IsInf(x, 0) {
+		return x
+	}
+	s := strconv.FormatFloat(x, 'e', -1, 32)
+	m := strings.TrimPrefix(s[:strings.IndexByte(s, 'e')], "-")
+	digits := len(strings.Replace(m, ".", "", 1))
+	r, err := strconv.ParseFloat(strconv.FormatFloat(math.Nextafter(x, math.Copysign(math.Inf(1), x)), 'e', digits-1, 64), 64)
 	if err != nil {
-		return float64(v)
+		return x
 	}
 	return r
 }
