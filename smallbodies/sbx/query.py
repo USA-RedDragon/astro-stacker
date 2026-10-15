@@ -16,7 +16,9 @@ from .orbits import KIND_COMET, Orbits
 
 EARTH_RADIUS_AU = core.EARTH_RADIUS_KM / core.AU_KM
 BASE_MARGIN_DEG = 0.25
-CLOSE_AU = 0.05
+FLYBY_ERROR_AU = 5e-4
+"""Bound on the grid interpolation's position error during an Earth flyby;
+as an angle it widens the margin for objects near the Earth."""
 NEAR_SUN_AU = 0.35
 """Objects this close to the Sun move too fast for the 4-day grid's
 interpolation, so they always get an exact position."""
@@ -134,10 +136,11 @@ def coarse(gen: Generation, engine: Engine, t_tdb: float, center: np.ndarray, ra
     with np.errstate(invalid="ignore", divide="ignore"):
         cosang = (rho @ center) / dist
         parallax = np.degrees(np.arcsin(np.clip(1.2 * EARTH_RADIUS_AU / dist, 0, 1)))
-    limit = np.radians(np.minimum(radius_deg + BASE_MARGIN_DEG + parallax, 180))
+        flyby = np.degrees(np.arcsin(np.clip(FLYBY_ERROR_AU / dist, 0, 1)))
+    limit = np.radians(np.minimum(radius_deg + BASE_MARGIN_DEG + parallax + flyby, 180))
     sun, _ = core.body_state(engine.ephem, "Sun", t_tdb)
     near_sun = np.linalg.norm(pos - sun, axis=1) < NEAR_SUN_AU
-    keep = (cosang >= np.cos(limit)) | (dist < CLOSE_AU) | near_sun | ~np.isfinite(cosang)
+    keep = (cosang >= np.cos(limit)) | near_sun | ~np.isfinite(cosang)
     return np.nonzero(keep)[0]
 
 
