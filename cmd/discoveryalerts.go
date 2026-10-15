@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveryalert"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveryfollowup"
+	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/morningreport"
@@ -92,7 +93,8 @@ func startDiscoveryAlerts(ctx context.Context, cfg *config.Config, appStore, sch
 	}
 	svc := &discoveryalert.Service{DB: appStore.DB(), Sender: morningreport.Telegram{Token: a.TelegramToken, ChatID: a.TelegramChatID},
 		Cutouts: newCutoutStore(cfg), WebURL: cfg.HTTP.WebURL, Loc: alertLoc(cfg), RetryAfter: 5 * time.Minute, MaxAttempts: 8,
-		Interval: time.Duration(a.IntervalMinutes) * time.Minute}
+		Interval: time.Duration(a.IntervalMinutes) * time.Minute,
+		Prepare:  func(ctx context.Context) error { return discoverysource.Sync(ctx, appStore.DB()) }}
 	var follow *discoveryfollowup.Service
 	if a.Followup {
 		follow = newFollowups(cfg, appStore, schedStore, commands, backfill)
