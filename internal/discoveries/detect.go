@@ -618,7 +618,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	threads := max(1, in.Threads)
 	res := &Result{Funnel: map[string]Funnel{}, PixelScale: in.WCS.PixelScale(), SubDepthPerFilter: map[string]float64{}}
 	stacks := in.usable(res)
-	if len(stacks) == 0 || res.NightSubs < 3 {
+	if !slices.ContainsFunc(stacks, func(fs *filterStacks) bool { return len(fs.f.Night) >= 2 }) || res.NightSubs < 3 {
 		return nil, ErrTooLittle
 	}
 	var refSubs, nightSubs []Sub
@@ -801,13 +801,17 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 	return subs, dets, times, nil
 }
 
-// usable keeps the filters with enough subs on the night and in the
-// reference.
+// usable keeps the filters with a sub on the night and two in the
+// reference. A filter with one sub on the night adds it to the per-sub test,
+// though not to the night's stack, which needs two to reject what one sub
+// alone holds (with it in, Barnard's E's 2026-10-13 lost 15 of 139 known
+// variables): a night of one L pair and an R, G and B sub held an eclipse
+// of 2MASS J21043883+4319143 in all five.
 func (in *Input) usable(res *Result) []*filterStacks {
 	var stacks []*filterStacks
 	nightNights, refNights := map[time.Time]bool{}, map[time.Time]bool{}
 	for _, f := range in.Filters {
-		if len(f.Night) < 2 || len(f.Ref) < 2 || len(f.Anchors) < 10 {
+		if len(f.Night) < 1 || len(f.Ref) < 2 || len(f.Anchors) < 10 {
 			continue
 		}
 		cache := &prepCache{m: map[int]prep{}}
