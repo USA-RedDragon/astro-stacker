@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/autofocus"
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
@@ -131,6 +132,25 @@ func (c Collector) discoveries(ctx context.Context, r *Report) {
 	}
 	for _, row := range rows {
 		r.Discoveries = append(r.Discoveries, Count{Label: row.Object, N: row.N})
+	}
+	if len(rows) == 0 {
+		return
+	}
+	var novae []struct {
+		Object string
+		N      int
+	}
+	if err := c.App.WithContext(ctx).Model(&app.DiscoveryCandidate{}).Select("object, COUNT(*) AS n").
+		Where("night >= ? AND night < ? AND class = ? AND vetting NOT IN ?", r.Night, r.Night.AddDate(0, 0, 1), discoveries.ClassNova, []string{app.VetArtifact, app.VetKnown}).
+		Group("object").Scan(&novae).Error; err != nil {
+		slog.Warn("Morning report: could not count possible novae", "error", err)
+		return
+	}
+	for _, row := range novae {
+		if r.Novae == nil {
+			r.Novae = map[string]int{}
+		}
+		r.Novae[row.Object] = row.N
 	}
 }
 

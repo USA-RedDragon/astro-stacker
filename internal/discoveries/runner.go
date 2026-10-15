@@ -128,7 +128,7 @@ type Options struct {
 	// busy for MaxWait, while Headroom says there is memory to spare.
 	MaxWait  time.Duration
 	Headroom func() bool
-	// Catalog finds galaxies for supernova candidates.
+	// Catalog finds galaxies for nova and supernova candidates.
 	Catalog func() (*catalog.Index, error)
 	// OnRun, if set, hears of each finished run.
 	OnRun func(app.DiscoveryRun)
@@ -1074,23 +1074,30 @@ func (r *Runner) known(ctx context.Context, object string, res *Result) (Known, 
 	if r.opts.Catalog != nil {
 		if ix, err := r.opts.Catalog(); err == nil {
 			objs, _ := ix.Cone(ctx, res.FieldRA, res.FieldDec, radius)
-			for _, o := range objs {
-				if o.Type != catalog.TypeGalaxy || o.MajorArcmin <= 0 {
-					continue
-				}
-				g := Galaxy{Name: o.Name, RA: o.RA, Dec: o.Dec, Major: o.MajorArcmin, Minor: o.Minor()}
-				if g.Name == "" {
-					g.Name = o.Designation
-				}
-				if o.PA != nil && !math.IsNaN(*o.PA) {
-					g.PA, g.HasOrientation = *o.PA, true
-				}
-				k.Galaxies = append(k.Galaxies, g)
-			}
+			k.Galaxies = galaxiesOf(objs)
 			k.Checked = append(k.Checked, "galaxies")
 		}
 	}
 	return k, nil
+}
+
+// galaxiesOf takes the galaxies with a size from the catalogue's objects.
+func galaxiesOf(objs []catalog.Object) []Galaxy {
+	var out []Galaxy
+	for _, o := range objs {
+		if o.Type != catalog.TypeGalaxy || o.MajorArcmin <= 0 {
+			continue
+		}
+		g := Galaxy{Name: o.Name, RA: o.RA, Dec: o.Dec, Major: o.MajorArcmin, Minor: o.Minor(), LocalGroup: isLocalGroup(o.Designation, o.Aliases)}
+		if g.Name == "" {
+			g.Name = o.Designation
+		}
+		if o.PA != nil && !math.IsNaN(*o.PA) {
+			g.PA, g.HasOrientation = *o.PA, true
+		}
+		out = append(out, g)
+	}
+	return out
 }
 
 func jsonString(v any) string {
@@ -1165,7 +1172,7 @@ func counted(c app.DiscoveryCandidate) bool {
 	if c.Kind == app.DiscoveryKindMover {
 		return c.Class == ClassUnknownMover
 	}
-	return c.Class == ClassSupernova || c.Class == ClassNewVariable
+	return c.Class == ClassNova || c.Class == ClassSupernova || c.Class == ClassNewVariable
 }
 
 // trackCandidate stores a moving object as a candidate, with its detections

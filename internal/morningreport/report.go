@@ -55,6 +55,9 @@ type Report struct {
 	// Discoveries are the targets whose night comparison found something
 	// that passed every check and matched nothing known.
 	Discoveries []Count
+	// Novae count, by target, the new candidates that are possible novae:
+	// new stars in a Local Group galaxy such as M 31.
+	Novae map[string]int
 
 	Images []Image
 
