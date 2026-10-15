@@ -210,3 +210,34 @@ func TestStarResidualIsNotAMover(t *testing.T) {
 		t.Errorf("the star-like source was not kept: %+v", dets)
 	}
 }
+
+func TestMoverNullTestLeavesTheLinkedTracksOut(t *testing.T) {
+	t.Parallel()
+	const scale, n = 1.923, 20
+	start := time.Date(2025, 3, 1, 6, 0, 0, 0, time.UTC)
+	times := make([]time.Time, n)
+	dets := make([][]moverDet, n)
+	for j := range n {
+		times[j] = start.Add(time.Duration(j) * 5 * time.Minute)
+		dets[j] = []moverDet{{X: 1500 + 0.26*float64(j*5), Y: 900 + 0.1*float64(j*5), Flux: 1, SNR: 9}}
+	}
+	links, _ := linkMovers(times, dets, scale, 3000*2000)
+	if len(links) != 1 {
+		t.Fatalf("the asteroid did not link: %d tracks", len(links))
+	}
+	if null := nullMovers(times, dets, links, scale, 3000*2000); null.Tracks != 0 || null.MaxHits != 0 {
+		t.Errorf("the null test counted the linked asteroid: %+v", null)
+	}
+	tr := Track{T0: start, X0: 1500, Y0: 900, VX: 0.26 * 1440, VY: 0.1 * 1440}
+	for j := range n {
+		x, y := tr.Position(times[j])
+		tr.Points = append(tr.Points, TrackPoint{Time: times[j], X: x + 0.1*float64(j%3-1), Y: y, SNR: 9})
+	}
+	if chi := trackChi(tr, 1.4, 0.1); chi > 1 {
+		t.Errorf("chi %.2f for detections 0.1 px off", chi)
+	}
+	tr.Points[5].X += 4
+	if chi := trackChi(tr, 1.4, 0.1); chi <= maxTrackChi {
+		t.Errorf("chi %.2f with a detection 4 px off a 9 sigma track", chi)
+	}
+}

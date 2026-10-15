@@ -239,8 +239,9 @@ func knownAsteroids(t *testing.T, bodies []discoveries.Body, tracks []discoverie
 		if tr.Match != nil {
 			matched[tr.Match.Name] = true
 		}
-		t.Logf("track %-14s n=%2d rate %.2f\"/min resid %.2f px V %v offset %v", tr.Class, len(tr.Points), tr.RateArcmin, tr.ResidualPx, deref(tr.BodyV), deref(tr.OffsetArc))
+		t.Logf("track %-14s n=%2d rate %.2f\"/min resid %.2f px chi %.2f V %v offset %v", tr.Class, len(tr.Points), tr.RateArcmin, tr.ResidualPx, tr.Chi, deref(tr.BodyV), deref(tr.OffsetArc))
 	}
+	t.Logf("mover null test: %.2f tracks a shuffle, most detections %d", res.MoverNull.Tracks, res.MoverNull.MaxHits)
 	for _, b := range bodies {
 		if b.V >= 19.5 {
 			continue

@@ -315,6 +315,100 @@ func onOneStar(tr Track, stars *Grid) bool {
 	return true
 }
 
+// moverNullShuffles is how many times the null test shuffles the subs.
+const moverNullShuffles = 3
+
+// MoverNull is the night's linking null test: its detections, less those
+// of the tracks linked, linked again with the subs shuffled in time, so that
+// no object moving at a constant rate can link and every track left is
+// chance or a defect. Tracks is the
+// mean of the shuffles' track counts, MaxHits the most detections one of
+// their tracks had.
+type MoverNull struct {
+	Tracks  float64
+	MaxHits int
+}
+
+// nullMovers links the night's detections, less those of the tracks
+// linked, with the subs shuffled in time.
+func nullMovers(times []time.Time, dets [][]moverDet, linked [][]hit, scale, area float64) MoverNull {
+	n := len(times)
+	var out MoverNull
+	if n < MoverMinHits {
+		return out
+	}
+	used := map[hit]bool{}
+	for _, hs := range linked {
+		for _, h := range hs {
+			used[h] = true
+		}
+	}
+	rest := make([][]moverDet, n)
+	for j, ds := range dets {
+		for k, d := range ds {
+			if !used[hit{j, k}] {
+				rest[j] = append(rest[j], d)
+			}
+		}
+	}
+	dets = rest
+	total := 0
+	for k := range moverNullShuffles {
+		perm := shuffle(n, uint64(k)+1)
+		shuffled := make([][]moverDet, n)
+		for j := range n {
+			shuffled[j] = dets[perm[j]]
+		}
+		links, _ := linkMovers(times, shuffled, scale, area)
+		total += len(links)
+		for _, hs := range links {
+			out.MaxHits = max(out.MaxHits, len(hs))
+		}
+	}
+	out.Tracks = float64(total) / moverNullShuffles
+	return out
+}
+
+// shuffle is a permutation of n, the same for the same seed: a
+// Fisher-Yates shuffle driven by xorshift64*.
+func shuffle(n int, seed uint64) []int {
+	perm := make([]int, n)
+	for i := range perm {
+		perm[i] = i
+	}
+	x := seed*0x9E3779B97F4A7C15 | 1
+	for i := n - 1; i > 0; i-- {
+		x ^= x >> 12
+		x ^= x << 25
+		x ^= x >> 27
+		j := int((x*0x2545F4914F6CDD1D)>>34) % (i + 1)
+		perm[i], perm[j] = perm[j], perm[i]
+	}
+	return perm
+}
+
+// trackChi is the rms of a track's residuals from its fitted motion in
+// units of each detection's expected position error: its centroid error,
+// 1.5 times the star profile's sigma over its SNR, and the plate solution's
+// error astroPx.
+func trackChi(tr Track, sigmaPx, astroPx float64) float64 {
+	if len(tr.Points) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, p := range tr.Points {
+		x, y := tr.Position(p.Time)
+		e := math.Hypot(1.5*sigmaPx/math.Max(p.SNR, 1), astroPx)
+		r := math.Hypot(p.X-x, p.Y-y) / math.Max(e, 0.05)
+		sum += r * r
+	}
+	return math.Sqrt(sum / float64(len(tr.Points)))
+}
+
+// maxTrackChi is the most a mover's residuals may exceed its detections'
+// position errors.
+const maxTrackChi = 3.0
+
 func hitKey(hs []hit) string {
 	var b strings.Builder
 	for _, h := range hs {
