@@ -59,37 +59,39 @@ class State:
 
     def refresh(self) -> None:
         meta = self.store.get_json("grid/latest.json")
-        if self.gen is not None and self.gen.date == meta["date"]:
+        build = meta.get("build", meta["date"])
+        if self.gen is not None and self.gen.build == build:
             return
         gen = self._load(meta)
         with self.lock:
             self.gen = gen
             self.older.clear()
-        self._prune_cache(meta["date"])
-        log.info("serving grid %s: %d objects, %d epochs", meta["date"], meta["objects"], len(meta["times_tdb"]))
+        self._prune_cache(build)
+        log.info("serving grid %s: %d objects, %d epochs", build, meta["objects"], len(meta["times_tdb"]))
 
     def _load(self, meta: dict) -> query.Generation:
         date = meta["date"]
-        cat = self._catalog(date)
+        build = meta.get("build", date)
+        cat = self._catalog(build, meta["catalog"])
         times = np.asarray(meta["times_tdb"])
-        directory = os.path.join(self.cache_dir, date)
+        directory = os.path.join(self.cache_dir, build)
         os.makedirs(directory, exist_ok=True)
 
         def fetch(t: float) -> bytes:
             path = os.path.join(directory, grid.epoch_name(t) + ".zst")
             if not os.path.exists(path):
-                self._download(f"grid/{date}/{grid.epoch_name(t)}.zst", path)
+                self._download(f"grid/{build}/{grid.epoch_name(t)}.zst", path)
             with open(path, "rb") as fh:
                 return fh.read()
 
         if len(cat) != meta["objects"]:
-            raise RuntimeError(f"catalogue {date} has {len(cat)} orbits, its grid {meta['objects']}")
-        return query.Generation(date, cat, times, fetch)
+            raise RuntimeError(f"catalogue {meta['catalog']} has {len(cat)} orbits, its grid {meta['objects']}")
+        return query.Generation(date, cat, times, fetch, build=build)
 
-    def _catalog(self, date: str) -> Orbits:
-        path = os.path.join(self.cache_dir, f"catalog-{date}.npz.zst")
+    def _catalog(self, name: str, key: str) -> Orbits:
+        path = os.path.join(self.cache_dir, f"catalog-{name}.npz.zst")
         if not os.path.exists(path):
-            self._download(f"catalog/{date}/catalog.npz.zst", path)
+            self._download(key, path)
         return Orbits.load(path)
 
     def _download(self, key: str, path: str) -> None:
@@ -110,7 +112,7 @@ class State:
             g = self.older.get(date)
         if g is not None:
             return g
-        cat = self._catalog(date)
+        cat = self._catalog(date, f"catalog/{date}/catalog.npz.zst")
         g = query.Generation(date, cat, np.array([]), lambda t: b"")
         with self.lock:
             if len(self.older) >= 2:
@@ -189,7 +191,7 @@ def handle_cone(state: State, params: dict) -> tuple[dict, list]:
         "observer": "topocentric" if site is not None else "geocentre",
         "frame": "ICRF, apparent direction" if aberration else "ICRF, astrometric",
         "orbits": (orbits or gen).date,
-        "grid": gen.date,
+        "grid": gen.build,
         "count": len(rows),
     }
     return meta, rows
@@ -276,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200 if ok else 503, b"ok\n" if ok else b"loading\n", "text/plain")
             if u.path == "/v1/status":
                 g = self.state.gen
-                doc = {"grid": g.date if g else None, "objects": len(g.cat) if g else 0}
+                doc = {"grid": g.build if g else None, "orbits": g.date if g else None, "objects": len(g.cat) if g else 0}
                 if g is not None:
                     doc["range_jd_utc"] = [core.tdb_to_utc(g.times[0]), core.tdb_to_utc(g.times[-1])]
                 return self._send(200, json.dumps(doc).encode(), "application/json")

@@ -88,8 +88,9 @@ def _tangent_basis(c: np.ndarray):
 class Generation:
     """One day's catalogue and the grid integrated from it."""
 
-    def __init__(self, date: str, cat: Orbits, times: np.ndarray, fetch: Callable[[float], bytes], keep: int = 6):
+    def __init__(self, date: str, cat: Orbits, times: np.ndarray, fetch: Callable[[float], bytes], keep: int = 6, build: str | None = None):
         self.date = date
+        self.build = build or date
         self.cat = cat
         self.source = cat.source
         self.times = times
