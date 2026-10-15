@@ -31,7 +31,11 @@ func IsNew(class string) bool {
 }
 
 const (
-	vsxMatchArcsec     = 5.0
+	vsxMatchArcsec = 5.0
+	// simbadMatchArcsec is tighter: SIMBAD lists thousands of survey
+	// variables in M 31's and M 33's discs, one within 5" of a twentieth of
+	// their area.
+	simbadMatchArcsec  = 2.0
 	bodyMatchArcsec    = 20.0
 	staticBodyArcsec   = 10.0
 	alertMatchArcsec   = 3.0
@@ -156,8 +160,8 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 			continue
 		}
 		for _, v := range k.Variables {
-			if sep := Separation(c.RA, c.Dec, v.RA, v.Dec) * 3600; sep <= vsxMatchArcsec {
-				m := Match{Catalog: "VSX", Name: v.Name, Type: v.Type, SepArcsec: sep}
+			if sep := Separation(c.RA, c.Dec, v.RA, v.Dec) * 3600; sep <= vsxMatchArcsec && (v.Catalog != catalogSIMBAD || sep <= simbadMatchArcsec) {
+				m := Match{Catalog: or(v.Catalog, catalogVSX), Name: v.Name, Type: v.Type, SepArcsec: sep}
 				if v.Max != 0 {
 					mx := v.Max
 					m.Mag = &mx
@@ -180,7 +184,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 				l.Matches = append(l.Matches, Match{Catalog: "SkyBoT", Name: bodyName(b), Type: b.Class, SepArcsec: sep, Mag: &v})
 			}
 		}
-		if alerts != nil && looked < maxAlertCandidates && len(l.Matches) == 0 && !c.LowConf {
+		if alerts != nil && looked < maxAlertCandidates && !explained(l.Matches) && !c.LowConf {
 			looked++
 			as, ch, fl := alerts(ctx, c.RA, c.Dec, alertMatchArcsec)
 			checked, failed = union(checked, ch), union(failed, fl)
@@ -251,7 +255,7 @@ func classOf(l Labelled) string {
 		return false
 	}
 	switch {
-	case has("VSX"):
+	case has(catalogVSX), knownSIMBAD(l.Matches):
 		return ClassKnownVariable
 	case has("SkyBoT"):
 		return ClassKnownAsteroid
@@ -263,6 +267,32 @@ func classOf(l Labelled) string {
 		return ClassSupernova
 	}
 	return ClassNewVariable
+}
+
+// knownSIMBAD says whether a SIMBAD variable matched. A past nova does not
+// make a brightening known: it may be erupting again.
+func knownSIMBAD(ms []Match) bool {
+	for _, m := range ms {
+		if m.Catalog == catalogSIMBAD && !pastNova(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func pastNova(m Match) bool {
+	return m.Catalog == catalogSIMBAD && (m.Type == "No*" || m.Type == "No?")
+}
+
+// explained says whether a match other than a past nova already tells what
+// a change is, so the alert brokers need not be asked.
+func explained(ms []Match) bool {
+	for _, m := range ms {
+		if !pastNova(m) {
+			return true
+		}
+	}
+	return false
 }
 
 func union(a, b []string) []string {

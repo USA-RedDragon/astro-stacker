@@ -90,6 +90,9 @@ func catalogServer(t *testing.T, f *field, variable Variable, body func() Body) 
 		fmt.Fprint(w, "# Flag: 1\n# Ticket: 1\n# Num | Name | RA(h) | DE(deg) | Class | Mv | Err(arcsec) | d(arcsec) | dRA(arcsec/h) | dDEC(arcsec/h)\n")
 		fmt.Fprintf(w, "%s | %s | %s | %s | %s | %.1f | 0.1 | 10 | %.4f | %.4f\n", b.Number, b.Name, hms(b.RA/15), dms(b.Dec), b.Class, b.V, b.DRA, b.DDec)
 	})
+	mux.HandleFunc("/simbad", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "main_id\tra\tdec\totype\n\"V* NN Tst\"\t1.0\t-80.0\t\"Or*\"\n")
+	})
 	mux.HandleFunc("/alerce/", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{"items":[]}`) })
 	mux.HandleFunc("/fink", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `[]`) })
 	srv := httptest.NewServer(mux)
@@ -183,7 +186,7 @@ func newRunnerFixture(t *testing.T) *runnerFixture {
 		return Body{Number: "12345", Name: "2000 AA", Class: "MB>Inner", RA: ra, Dec: dec, V: 17.2, DRA: -f.AstVX * 2 * 60, DDec: -f.AstVY * 2 * 60}
 	}
 	srv := catalogServer(t, f, Variable{Name: "V1 Test", Type: "EW", RA: vra, Dec: vdec}, body)
-	cat := &Catalogs{VizierURL: srv.URL + "/vizier", SkyBoTURL: srv.URL + "/skybot", AlerceURL: srv.URL + "/alerce/", FinkURL: srv.URL + "/fink"}
+	cat := &Catalogs{VizierURL: srv.URL + "/vizier", SkyBoTURL: srv.URL + "/skybot", AlerceURL: srv.URL + "/alerce/", FinkURL: srv.URL + "/fink", SIMBADURL: srv.URL + "/simbad"}
 	fx.r = New(fx.db, nil, fx.store, cat, Options{BackfillDays: 1, Threads: 2, OnRun: func(run app.DiscoveryRun) { fx.finished = append(fx.finished, run) }})
 	fx.r.now = func() time.Time { return time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC) }
 	return fx
@@ -197,7 +200,7 @@ func (fx *runnerFixture) checkRun(t *testing.T) {
 		t.Fatalf("runs %+v", runs)
 	}
 	run := runs[0]
-	if run.NightSubs != 6 || run.RefSubs != 18 || run.RefNights != 3 || run.Depth == nil || run.Checked != "VSX,SkyBoT,ALeRCE,Fink" {
+	if run.NightSubs != 6 || run.RefSubs != 18 || run.RefNights != 3 || run.Depth == nil || run.Checked != "VSX,SIMBAD,SkyBoT,ALeRCE,Fink" {
 		t.Errorf("run %+v", run)
 	}
 	if run.NewCandidates != 1 || run.KnownTracks != 1 || run.Tracks != 1 || run.BodiesInField != 1 {
@@ -277,8 +280,8 @@ func TestRunnerComparesSettledNight(t *testing.T) {
 			n++
 		}
 	}
-	if n != 2 {
-		t.Errorf("want the Gaia and VSX caches, have %d cache objects", n)
+	if n != 3 {
+		t.Errorf("want the Gaia, VSX and SIMBAD caches, have %d cache objects", n)
 	}
 }
 
