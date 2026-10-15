@@ -49,6 +49,8 @@ type Catalogs struct {
 	SIMBADURL string
 	// TNS needs a bot: with no key it is skipped.
 	TNSKey, TNSBotID, TNSBotName string
+	// Local is the local known-bodies service; unset asks SkyBoT.
+	Local SmallBodies
 }
 
 func (c *Catalogs) client() *http.Client {

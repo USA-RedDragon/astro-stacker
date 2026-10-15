@@ -36,7 +36,7 @@ func startDiscoveries(cfg *config.Config, s3 *minio.Client, appStore, schedStore
 	if !d.Enabled {
 		return discoveryHandle{drain: func() {}}
 	}
-	cat := &discoveries.Catalogs{TNSKey: d.TNSKey, TNSBotID: d.TNSBotID, TNSBotName: d.TNSBotName}
+	cat := &discoveries.Catalogs{TNSKey: d.TNSKey, TNSBotID: d.TNSBotID, TNSBotName: d.TNSBotName, Local: smallBodies(cfg, appStore)}
 	r := discoveries.New(appStore.DB(), schedStore.DB(), discoveries.MinioStore{Client: s3, Bucket: cfg.S3.ProcessedBucket}, cat, discoveries.Options{
 		Interval:     time.Duration(d.IntervalMinutes) * time.Minute,
 		Threads:      d.Threads,

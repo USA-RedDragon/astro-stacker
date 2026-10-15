@@ -47,7 +47,7 @@ func newDiscoveriesCommand() *cobra.Command {
 			}
 			d := cfg.Discoveries
 			r := discoveries.New(appStore.DB(), schedStore.DB(), discoveries.MinioStore{Client: s3, Bucket: cfg.S3.ProcessedBucket},
-				&discoveries.Catalogs{TNSKey: d.TNSKey, TNSBotID: d.TNSBotID, TNSBotName: d.TNSBotName},
+				&discoveries.Catalogs{TNSKey: d.TNSKey, TNSBotID: d.TNSBotID, TNSBotName: d.TNSBotName, Local: smallBodies(cfg, appStore)},
 				discoveries.Options{Threads: d.Threads, RefSubs: d.RefSubs, BackfillDays: d.BackfillDays, Catalog: sync.OnceValues(catalog.LoadEmbedded)})
 			if object != "" {
 				t, err := time.Parse(time.DateOnly, night)
