@@ -183,6 +183,11 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int
 	if err != nil {
 		return fail(err)
 	}
+	if s.Surveys != nil {
+		if err := s.Surveys.Prefetch(ctx, f); err != nil {
+			slog.Warn("Could not pull the field's survey data; reading per star", "object", object, "error", err)
+		}
+	}
 	var cands []app.DiscoveryCandidate
 	if err := s.App.WithContext(ctx).Where("source_id IN ?", ids).Find(&cands).Error; err != nil {
 		return fail(err)
