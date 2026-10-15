@@ -3,8 +3,20 @@ package cmd
 import (
 	"context"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
+	"github.com/minio/minio-go/v7"
 )
+
+// surveyVariables reads the survey catalogues of variable stars from their
+// mirrors in the survey bucket, and from VizieR while a mirror cannot.
+func surveyVariables(cfg *config.Config, s3 *minio.Client) *discoveries.SurveyVariables {
+	if s3 == nil || cfg.Discover.SurveyBucket == "" {
+		return discoveries.NewSurveyVariables(nil)
+	}
+	return discoveries.NewSurveyVariables(starcat.MinioBucket{Client: s3, Name: cfg.Discover.SurveyBucket})
+}
 
 // addVariableMirrors adds a catalog-mirror command for each survey
 // catalogue of variable stars, mirrored from CDS when its ReadMe changes.

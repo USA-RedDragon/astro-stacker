@@ -1,6 +1,10 @@
 package cmd
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/config"
+)
 
 func TestCatalogMirrorHasTheVariableStarCatalogs(t *testing.T) {
 	t.Parallel()
@@ -16,5 +20,12 @@ func TestCatalogMirrorHasTheVariableStarCatalogs(t *testing.T) {
 		if u := sc.Flags().Lookup("base-url").DefValue; u == "" || u[len(u)-1] != '/' {
 			t.Errorf("%s: base URL %q", use, u)
 		}
+	}
+}
+
+func TestSurveyVariablesWithoutS3ReadVizieR(t *testing.T) {
+	t.Parallel()
+	if surveyVariables(&config.Config{}, nil) == nil {
+		t.Fatal("no survey catalogs without S3")
 	}
 }

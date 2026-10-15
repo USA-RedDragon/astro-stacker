@@ -54,6 +54,7 @@ func startDiscoveries(cfg *config.Config, s3 *minio.Client, appStore, schedStore
 		OnRun: func(run app.DiscoveryRun) {
 			broker.Publish(events.Event{Type: events.TypeDiscovery, Object: run.Object, Filter: run.Group, Key: run.Night.Format(time.DateOnly)})
 		},
+		SurveyVariables: surveyVariables(cfg, s3),
 	})
 	tns := startTNSMirror(cfg, s3)
 	if tns != nil {
