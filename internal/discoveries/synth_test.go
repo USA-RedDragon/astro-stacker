@@ -89,9 +89,12 @@ func newField(t *testing.T) *field {
 
 const testFilter = "Luminance"
 
-func synthWCS() map[string]string {
-	return map[string]string{"CTYPE1": "RA---TAN", "CTYPE2": "DEC--TAN", "CRPIX1": "900.5", "CRPIX2": "640.5", "CRVAL1": "150", "CRVAL2": "20",
-		"CD1_1": fmt.Sprint(-2.0 / 3600), "CD1_2": "0", "CD2_1": "0", "CD2_2": fmt.Sprint(2.0 / 3600)}
+func synthWCS() map[string]string { return tanWCS(150, 20, 2, 900.5, 640.5) }
+
+// tanWCS is a north-up plate solution of scale arcseconds a pixel.
+func tanWCS(ra, dec, scale, crpix1, crpix2 float64) map[string]string {
+	return map[string]string{"CTYPE1": "RA---TAN", "CTYPE2": "DEC--TAN", "CRPIX1": fmt.Sprint(crpix1), "CRPIX2": fmt.Sprint(crpix2),
+		"CRVAL1": fmt.Sprint(ra), "CRVAL2": fmt.Sprint(dec), "CD1_1": fmt.Sprint(-scale / 3600), "CD1_2": "0", "CD2_1": "0", "CD2_2": fmt.Sprint(scale / 3600)}
 }
 
 func (f *field) emptySpot(t *testing.T, x0, y0 float64) (float64, float64) {
@@ -123,7 +126,7 @@ func (f *field) gaia() []Star {
 	out := make([]Star, len(f.Stars))
 	for i, s := range f.Stars {
 		ra, dec := f.WCS.SkyOf(s.X, s.Y)
-		out[i] = Star{ra, dec, f.zp - 2.5*math.Log10(s.Flux*1000)}
+		out[i] = Star{RA: ra, Dec: dec, G: f.zp - 2.5*math.Log10(s.Flux*1000)}
 	}
 	return out
 }
