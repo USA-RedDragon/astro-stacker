@@ -15,6 +15,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveryreport"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
@@ -37,6 +38,7 @@ type unconfiguredStatus struct{}
 func (unconfiguredStatus) Status() any { return gin.H{"reachable": "unconfigured"} }
 
 type Extras struct {
+	Reports      *discoveryreport.Service
 	Commands     *schedcmd.Service
 	Scheduler    SchedulerStatusSource
 	Mosaics      *mosaicplan.Service

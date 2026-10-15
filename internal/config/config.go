@@ -267,6 +267,10 @@ type Discoveries struct {
 	TNSKey          string `name:"tns-key" description:"Transient Name Server bot API key; empty skips TNS"`
 	TNSBotID        string `name:"tns-bot-id" description:"Transient Name Server bot ID"`
 	TNSBotName      string `name:"tns-bot-name" description:"Transient Name Server bot name"`
+	TNSReporter     string `name:"tns-reporter" description:"Reporter line of TNS discovery reports, e.g. 'J. Smith (Home Observatory)'; empty shows Not set and keeps Send off"`
+	TNSGroupID      string `name:"tns-group-id" description:"TNS reporting group id of your reports; empty keeps Send off"`
+	TNSInstrumentID string `name:"tns-instrument-id" description:"TNS instrument id of your telescope and camera; empty keeps Send off"`
+	MPCCode         string `name:"mpc-code" description:"Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set"`
 }
 
 func (d Discoveries) validate() error {
