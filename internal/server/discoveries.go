@@ -29,6 +29,7 @@ const (
 	discoveryMaxLimit  = 5000
 	cutoutCache        = "private, max-age=86400"
 	errNightFormat     = "night must be YYYY-MM-DD"
+	errIDNumber        = "id must be a number"
 )
 
 func cutoutType(name string) (string, bool) {
@@ -74,6 +75,7 @@ type DiscoveryRun struct {
 	Funnel        map[string]discoveries.Funnel `json:"funnel,omitempty"`
 	Classes       map[string]int                `json:"classes"`
 	Vetted        int                           `json:"vetted"`
+	Look          int                           `json:"needs_look"`
 	MidTime       *time.Time                    `json:"mid_time"`
 	FinishedAt    *time.Time                    `json:"finished_at"`
 	Seconds       float64                       `json:"seconds"`
@@ -106,6 +108,7 @@ type DiscoveryCandidate struct {
 	Vetting    string                   `json:"vetting"`
 	VetNote    string                   `json:"vet_note"`
 	VettedAt   *time.Time               `json:"vetted_at"`
+	SourceID   *int                     `json:"source_id"`
 	Cutouts    *DiscoveryCutouts        `json:"cutouts"`
 	Light      []discoveries.LightPoint `json:"light,omitempty"`
 	Track      *discoveries.TrackRecord `json:"track,omitempty"`
@@ -129,12 +132,12 @@ func splitList(s string) []string {
 	return strings.Split(s, ",")
 }
 
-func runOf(r app.DiscoveryRun, classes map[string]int, vetted int) DiscoveryRun {
+func runOf(r app.DiscoveryRun, n runCount) DiscoveryRun {
 	out := DiscoveryRun{ID: r.ID, Object: r.Object, Night: r.Night.Format(time.DateOnly), Group: r.Group, Filters: splitList(r.Filters), State: r.State, Stage: r.Stage,
 		Error: r.Error, NightSubs: r.NightSubs, RefSubs: r.RefSubs, RefNights: r.RefNights, Depth: r.Depth, SubDepth: r.SubDepth, ZeroPoint: r.ZeroPoint,
 		AstroRMS: r.AstroRMS, AstroStars: r.AstroStars, HFRNight: r.HFRNight, HFRRef: r.HFRRef, PixelScale: r.PixelScale, FieldRA: r.FieldRA, FieldDec: r.FieldDec,
 		Candidates: r.Candidates, New: r.NewCandidates, Tracks: r.Tracks, KnownTracks: r.KnownTracks, BodiesInField: r.BodiesInField,
-		Checked: splitList(r.Checked), Failed: splitList(r.Failed), Classes: classes, Vetted: vetted, MidTime: r.MidTime, FinishedAt: r.FinishedAt, Seconds: r.Seconds}
+		Checked: splitList(r.Checked), Failed: splitList(r.Failed), Classes: n.classes, Vetted: n.vetted, Look: n.look, MidTime: r.MidTime, FinishedAt: r.FinishedAt, Seconds: r.Seconds}
 	if out.Classes == nil {
 		out.Classes = map[string]int{}
 	}
@@ -148,7 +151,7 @@ func candidateOf(c app.DiscoveryCandidate, detail bool) DiscoveryCandidate {
 	out := DiscoveryCandidate{ID: c.ID, RunID: c.RunID, Object: c.Object, Night: c.Night.Format(time.DateOnly), Group: c.Group, Kind: c.Kind, Class: c.Class,
 		X: c.X, Y: c.Y, RA: c.RA, Dec: c.Dec, Sign: c.Sign, SNR: c.SNR, DeltaMag: c.DeltaMag, NightMag: c.NightMag, RefMag: c.RefMag, GaiaG: c.GaiaG,
 		PresentIn: c.PresentIn, SubsTested: c.SubsTested, RateArcmin: c.RateArcmin, OffsetArc: c.OffsetArc, Vetting: c.Vetting, VetNote: c.VetNote, VettedAt: c.VettedAt,
-		Matches: []discoveries.Match{}}
+		SourceID: c.SourceID, Matches: []discoveries.Match{}}
 	if c.Matches != "" {
 		_ = json.Unmarshal([]byte(c.Matches), &out.Matches)
 	}
@@ -189,6 +192,7 @@ func applyDiscoveryRoutes(g *gin.RouterGroup, src DiscoverySource) {
 	g.GET("/discoveries/candidates/:id", discoveryCandidate)
 	g.PUT("/discoveries/candidates/:id/vetting", vetDiscoveryCandidate)
 	g.GET("/discoveries/candidates/:id/cutout/:name", discoveryCutout(src))
+	applySourceRoutes(g)
 }
 
 func discoveryStatus(src DiscoverySource) gin.HandlerFunc {
@@ -245,25 +249,39 @@ func discoveryRuns(c *gin.Context) {
 		}
 		q = q.Where("night >= ? AND night < ?", t, t.AddDate(0, 0, 1))
 	}
+	if s := c.Query("since"); s != "" {
+		t, ok := parseNight(s)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "since must be YYYY-MM-DD"})
+			return
+		}
+		q = q.Where("night >= ?", t)
+	}
 	if o := c.Query("object"); o != "" {
 		q = q.Where("object = ?", o)
 	}
 	if s := c.Query("state"); s != "" {
 		q = q.Where("state IN ?", strings.Split(s, ","))
 	}
+	limit := 2000
+	if s := c.Query("limit"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			limit = min(v, limit)
+		}
+	}
 	var runs []app.DiscoveryRun
-	if err := q.Order("night DESC, object, filter_group").Limit(2000).Find(&runs).Error; err != nil {
+	if err := q.Order("night DESC, object, filter_group").Limit(limit).Find(&runs).Error; err != nil {
 		serverError(c, err)
 		return
 	}
-	classes, vetted, err := runCounts(db, runs)
+	counts, err := runCounts(db, runs)
 	if err != nil {
 		serverError(c, err)
 		return
 	}
 	out := make([]DiscoveryRun, len(runs))
 	for i, r := range runs {
-		out[i] = runOf(r, classes[r.ID], vetted[r.ID])
+		out[i] = runOf(r, counts[r.ID])
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -394,8 +412,8 @@ func discoveryCandidate(c *gin.Context) {
 	out := candidateOf(cand, true)
 	var run app.DiscoveryRun
 	if err := db.First(&run, cand.RunID).Error; err == nil {
-		classes, vetted, _ := runCounts(db, []app.DiscoveryRun{run})
-		r := runOf(run, classes[run.ID], vetted[run.ID])
+		counts, _ := runCounts(db, []app.DiscoveryRun{run})
+		r := runOf(run, counts[run.ID])
 		out.Run = &r
 	}
 	c.JSON(http.StatusOK, out)
@@ -410,28 +428,14 @@ func vetDiscoveryCandidate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var body struct {
-		State string `json:"state"`
-		Note  string `json:"note"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+	body, at, ok := readVetting(c)
+	if !ok {
 		return
 	}
-	if body.State != "" && !validVetting(body.State) {
-		c.JSON(http.StatusBadRequest, gin.H{errorKey: "state must be real, artifact, known, unsure or empty"})
-		return
-	}
-	var at *time.Time
-	if body.State != "" {
-		now := time.Now().UTC()
-		at = &now
-	}
-	if err := db.Model(&cand).Updates(map[string]any{"vetting": body.State, "vet_note": strings.TrimSpace(body.Note), "vetted_at": at}).Error; err != nil {
+	if err := vetCandidate(c, db, &cand, body, at); err != nil {
 		serverError(c, err)
 		return
 	}
-	cand.Vetting, cand.VetNote, cand.VettedAt = body.State, strings.TrimSpace(body.Note), at
 	c.JSON(http.StatusOK, candidateOf(cand, false))
 }
 
@@ -486,7 +490,7 @@ func appDB(c *gin.Context) (*gorm.DB, bool) {
 func candidateByID(c *gin.Context, db *gorm.DB) (app.DiscoveryCandidate, bool) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{errorKey: "id must be a number"})
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: errIDNumber})
 		return app.DiscoveryCandidate{}, false
 	}
 	var cand app.DiscoveryCandidate
@@ -501,15 +505,22 @@ func candidateByID(c *gin.Context, db *gorm.DB) (app.DiscoveryCandidate, bool) {
 	return cand, true
 }
 
-// runCounts counts each run's candidates by class, and those vetted.
-func runCounts(db *gorm.DB, runs []app.DiscoveryRun) (map[int]map[string]int, map[int]int, error) {
+type runCount struct {
+	classes map[string]int
+	vetted  int
+	look    int
+}
+
+// runCounts counts each run's candidates by class, those vetted, and those
+// new and not vetted.
+func runCounts(db *gorm.DB, runs []app.DiscoveryRun) (map[int]runCount, error) {
 	ids := make([]int, len(runs))
 	for i, r := range runs {
 		ids[i] = r.ID
 	}
-	classes, vetted := map[int]map[string]int{}, map[int]int{}
+	out := map[int]runCount{}
 	if len(ids) == 0 {
-		return classes, vetted, nil
+		return out, nil
 	}
 	type row struct {
 		RunID  int
@@ -520,18 +531,22 @@ func runCounts(db *gorm.DB, runs []app.DiscoveryRun) (map[int]map[string]int, ma
 	var rows []row
 	if err := db.Model(&app.DiscoveryCandidate{}).Select("run_id, class, vetting <> '' AS vetted, COUNT(*) AS n").
 		Where("run_id IN ?", ids).Group("run_id, class, vetting <> ''").Scan(&rows).Error; err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for _, r := range rows {
-		if classes[r.RunID] == nil {
-			classes[r.RunID] = map[string]int{}
+		n := out[r.RunID]
+		if n.classes == nil {
+			n.classes = map[string]int{}
 		}
-		classes[r.RunID][r.Class] += r.N
+		n.classes[r.Class] += r.N
 		if r.Vetted {
-			vetted[r.RunID] += r.N
+			n.vetted += r.N
+		} else if discoveries.IsNew(r.Class) {
+			n.look += r.N
 		}
+		out[r.RunID] = n
 	}
-	return classes, vetted, nil
+	return out, nil
 }
 
 // statusClientClosed is nginx's code for a request the client gave up on.
