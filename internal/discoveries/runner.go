@@ -133,6 +133,9 @@ type Options struct {
 	Catalog func() (*catalog.Index, error)
 	// OnRun, if set, hears of each finished run.
 	OnRun func(app.DiscoveryRun)
+	// SurveyVariables reads the survey catalogues of variable stars; nil
+	// reads them from VizieR.
+	SurveyVariables *SurveyVariables
 }
 
 // Live is what the runner is doing.
@@ -1107,6 +1110,7 @@ func (r *Runner) known(ctx context.Context, object string, res *Result) (Known, 
 		k.Variables = append(k.Variables, sv...)
 		k.Checked = append(k.Checked, catalogSIMBAD)
 	}
+	r.surveyVariables(ctx, object, res.FieldRA, res.FieldDec, radius, &k)
 	bs, err := r.cat.KnownBodies(ctx, res.FieldRA, res.FieldDec, radius, res.MidTime)
 	if err != nil {
 		return k, fmt.Errorf("known asteroids: %w", err)

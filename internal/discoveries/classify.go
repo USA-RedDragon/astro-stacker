@@ -226,7 +226,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 			continue
 		}
 		for _, v := range k.Variables {
-			if sep := Separation(c.RA, c.Dec, v.RA, v.Dec) * 3600; sep <= vsxMatchArcsec && (v.Catalog != catalogSIMBAD || sep <= simbadMatchArcsec) {
+			if sep := Separation(c.RA, c.Dec, v.RA, v.Dec) * 3600; sep <= vsxMatchArcsec && (!tightMatch(v.Catalog) || sep <= simbadMatchArcsec) {
 				m := Match{Catalog: or(v.Catalog, catalogVSX), Name: v.Name, Type: v.Type, SepArcsec: sep}
 				if v.Max != 0 {
 					mx := v.Max
@@ -356,7 +356,7 @@ func classOf(l Labelled) string {
 		return false
 	}
 	switch {
-	case has(catalogVSX), knownSIMBAD(l.Matches):
+	case has(catalogVSX), knownSIMBAD(l.Matches), has(surveyCatalogNames()...):
 		return ClassKnownVariable
 	case has("SkyBoT"):
 		return ClassKnownAsteroid
