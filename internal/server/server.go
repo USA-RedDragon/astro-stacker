@@ -62,6 +62,7 @@ func NewServer(config *config.Config, appStore store.Store, schedulerDBStore sto
 	applyAsteroidRoutes(asteroids, extras.Asteroids)
 	applySkyEventRoutes(r.Group("/api/v1"), extras.SkyEvents, extras.Backfill)
 	applyDiscoveryRoutes(r.Group("/api/v1"), extras.Discoveries)
+	applyFollowupRoutes(r.Group("/api/v1"))
 	applyWebUI(r, config.HTTP.WebURL)
 
 	var metricsServer *http.Server
