@@ -147,7 +147,7 @@ func (f *Fetcher) tessRequest(ctx context.Context, field Field, t Target) error 
 }
 
 func (f *Fetcher) tessSector(ctx context.Context, field Field, t Target, sector int) (lc.Series, error) {
-	ser := lc.Series{Survey: lc.TESS, Band: fmt.Sprintf("s%02d", sector), Relative: true, Dilution: 1, Deblended: true}
+	ser := lc.Series{Survey: lc.TESS, Band: fmt.Sprintf("S%d", sector), Relative: true, Dilution: 1, Deblended: true}
 	raw, err := f.getZ(ctx, fmt.Sprintf("%ss%04d.csv.zst", f.tessDir(field, t), sector))
 	if err != nil {
 		return ser, err

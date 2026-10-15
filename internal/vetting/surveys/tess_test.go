@@ -67,7 +67,7 @@ func TestTESSContract(t *testing.T) {
 		t.Fatalf("partial %+v", fe)
 	}
 	s := fe.Series[0]
-	if s.Band != "s16" || !s.Relative || !s.Deblended || s.Dilution != 1 || len(s.Points) != 3 {
+	if s.Band != "S16" || !s.Relative || !s.Deblended || s.Dilution != 1 || len(s.Points) != 3 {
 		t.Fatalf("series %+v", s)
 	}
 	if d := s.Points[2].Mag - 2.5*math.Log10(1/0.8); math.Abs(d) > 1e-9 {
