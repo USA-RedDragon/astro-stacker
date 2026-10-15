@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/USA-RedDragon/astro-stacker/internal/tnsmirror"
 )
 
@@ -50,6 +51,10 @@ type Catalogs struct {
 	TNSURL    string
 	SIMBADURL string
 	ZTFURL    string
+	// GaiaMirror and VSXMirror answer Gaia and VSX locally when set, and
+	// VizieR does while a mirror cannot.
+	GaiaMirror *starcat.Gaia
+	VSXMirror  *starcat.VSX
 	// TNS needs a bot: with no key it is skipped.
 	TNSKey, TNSBotID, TNSBotName string
 	// Local is the local known-bodies service; unset asks SkyBoT.
@@ -149,9 +154,12 @@ func num(s string) (float64, bool) {
 }
 
 // Gaia returns Gaia DR3 stars within radius degrees, brightest first, at
-// their 2016.0 positions with their proper motions, at most 400000: to G 21.5, or in a Milky Way field VizieR can't sort that
-// deep in time, to G 19.5 or 18.
+// their 2016.0 positions with their proper motions, at most 400000: to G 21.5 from the mirror, or from VizieR to G 21.5,
+// or in a Milky Way field VizieR can't sort that deep in time, to G 19.5 or 18.
 func (c *Catalogs) Gaia(ctx context.Context, ra, dec, radius float64) ([]Star, error) {
+	if stars, ok, err := c.gaiaMirror(ctx, ra, dec, radius); ok || err != nil {
+		return stars, err
+	}
 	var err error
 	for _, faint := range []float64{gaiaFaintG, 19.5, 18} {
 		var stars []Star
@@ -218,6 +226,9 @@ type Variable struct {
 // VSX returns AAVSO's variable stars within radius degrees, from VizieR's
 // copy (B/vsx), as the AAVSO API is behind a browser check.
 func (c *Catalogs) VSX(ctx context.Context, ra, dec, radius float64) ([]Variable, error) {
+	if vars, ok, err := c.vsxMirror(ctx, ra, dec, radius); ok || err != nil {
+		return vars, err
+	}
 	q := url.Values{}
 	q.Set("-source", "B/vsx/vsx")
 	q.Set("-c", fmt.Sprintf("%.6f %+.6f", ra, dec))
