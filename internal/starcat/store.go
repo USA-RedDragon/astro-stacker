@@ -338,3 +338,8 @@ func (v *VSX) Manifest(ctx context.Context) (*Manifest, error) {
 	m, _, err := v.t.manifest(ctx)
 	return m, err
 }
+
+func sha256Hex(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
