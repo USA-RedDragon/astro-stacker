@@ -84,7 +84,7 @@ internal/dustcheck/blobs.go	108	106
 internal/dustcheck/compare.go	108	95
 internal/dustcheck/dustmap.go	80	80
 internal/dustcheck/encode.go	103	93
-internal/dustcheck/filters.go	189	187
+internal/dustcheck/filters.go	224	222
 internal/dustcheck/lights.go	132	126
 internal/ephem/ephem.go	86	74
 internal/ephem/gen/main.go	91	0
@@ -118,11 +118,11 @@ internal/horizonsurvey/camera.go	115	111
 internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
-internal/horizonsurvey/nina.go	101	81
+internal/horizonsurvey/nina.go	101	82
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
-internal/horizonsurvey/runner.go	451	350
+internal/horizonsurvey/runner.go	451	351
 internal/horizonsurvey/segment.go	96	94
 internal/horizonsurvey/sim/sim.go	267	240
 internal/horizonsurvey/skyline.go	119	113
@@ -175,7 +175,7 @@ internal/ninapath/ninapath.go	9	9
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	207	178
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -209,7 +209,7 @@ internal/schedauto/overhead.go	71	69
 internal/schedauto/plan.go	109	100
 internal/schedauto/projection.go	75	67
 internal/schedauto/rules.go	24	24
-internal/schedauto/service.go	242	185
+internal/schedauto/service.go	242	189
 internal/schedauto/windows.go	46	45
 internal/schedcmd/altitude.go	59	52
 internal/schedcmd/before.go	69	41
@@ -228,7 +228,7 @@ internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/schedglobal.go	53	48
-internal/schedcmd/service.go	234	203
+internal/schedcmd/service.go	234	205
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/templates.go	30	28
 internal/schedcmd/window.go	58	53
@@ -242,7 +242,7 @@ internal/server/collabswitch.go	30	21
 internal/server/conditions.go	23	17
 internal/server/darkbacklog.go	20	14
 internal/server/discover.go	148	127
-internal/server/discoveries.go	253	180
+internal/server/discoveries.go	257	187
 internal/server/goalmask.go	84	72
 internal/server/middleware/di.go	8	8
 internal/server/moonkeep.go	30	28
@@ -343,6 +343,8 @@ internal/sublength/publish.go	92	76
 internal/sublength/recommend.go	92	87
 internal/sublength/sensor.go	6	6
 internal/sublength/service.go	385	264
+internal/testdb/postgres.go	17	13
+internal/testdb/testdb.go	11	9
 internal/trigger/trigger.go	81	79
 internal/tslink/tslink.go	179	156
 internal/tsmigration/tsmigration.go	13	11
