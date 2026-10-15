@@ -14,6 +14,7 @@ const (
 	ClassKnownVariable  = "known_variable"
 	ClassKnownAsteroid  = "known_asteroid"
 	ClassKnownTransient = "known_transient"
+	ClassNova           = "nova_candidate"
 	ClassSupernova      = "supernova_candidate"
 	ClassNewVariable    = "new_variable_candidate"
 	ClassUnknownMover   = "unknown_mover"
@@ -22,12 +23,12 @@ const (
 
 // Classes lists every class.
 func Classes() []string {
-	return []string{ClassKnownVariable, ClassKnownAsteroid, ClassKnownTransient, ClassSupernova, ClassNewVariable, ClassUnknownMover, ClassLowConfidence}
+	return []string{ClassKnownVariable, ClassKnownAsteroid, ClassKnownTransient, ClassNova, ClassSupernova, ClassNewVariable, ClassUnknownMover, ClassLowConfidence}
 }
 
 // IsNew says whether a class passed every check and matched nothing known.
 func IsNew(class string) bool {
-	return class == ClassSupernova || class == ClassNewVariable || class == ClassUnknownMover
+	return class == ClassNova || class == ClassSupernova || class == ClassNewVariable || class == ClassUnknownMover
 }
 
 const (
@@ -60,7 +61,13 @@ type Galaxy struct {
 	Major, Minor   float64
 	PA             float64
 	HasOrientation bool
+	// LocalGroup marks a galaxy of the Local Group, such as M 31 or M 33:
+	// a new star in it is far more likely a nova than a supernova.
+	LocalGroup bool
 }
+
+// localGroupType is the type a Local Group galaxy's match carries.
+const localGroupType = "Local Group galaxy"
 
 // Inside reports whether a position is inside the galaxy's ellipse grown by
 // factor, and its distance from the centre in arcseconds.
@@ -194,7 +201,11 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		}
 		for _, g := range k.Galaxies {
 			if in, sep := g.Inside(c.RA, c.Dec, galaxyMatchFactor); in {
-				l.Matches = append(l.Matches, Match{Catalog: "galaxy", Name: g.Name, SepArcsec: sep})
+				m := Match{Catalog: "galaxy", Name: g.Name, SepArcsec: sep}
+				if g.LocalGroup {
+					m.Type = localGroupType
+				}
+				l.Matches = append(l.Matches, m)
 			}
 		}
 		l.Class = classOf(l)
@@ -263,10 +274,36 @@ func classOf(l Labelled) string {
 		return ClassKnownTransient
 	case l.LowConf, l.Sign < 0 && l.GaiaG == nil:
 		return ClassLowConfidence
+	case l.Sign > 0 && l.GaiaG == nil && inLocalGroup(l.Matches):
+		return ClassNova
 	case l.Sign > 0 && l.GaiaG == nil && has("galaxy"):
 		return ClassSupernova
 	}
 	return ClassNewVariable
+}
+
+func inLocalGroup(ms []Match) bool {
+	for _, m := range ms {
+		if m.Catalog == "galaxy" && m.Type == localGroupType {
+			return true
+		}
+	}
+	return false
+}
+
+// isLocalGroup says whether a catalogue galaxy, by its designation or
+// aliases, is one of the Local Group's the built-in catalogue can hold, by
+// PGC number: M 31, M 32, M 110, M 33, NGC 147, NGC 185, NGC 6822, IC 10,
+// IC 1613, WLM, Leo A, Leo I, the Pegasus dwarf and the Magellanic Clouds.
+func isLocalGroup(designation string, aliases []string) bool {
+	for _, n := range append([]string{designation}, aliases...) {
+		switch n {
+		case "PGC 2557", "PGC 2555", "PGC 2429", "PGC 5818", "PGC 2004", "PGC 2329", "PGC 63616", "PGC 1305", "PGC 3844",
+			"PGC 143", "PGC 28868", "PGC 29488", "PGC 71538", "PGC 17223", "PGC 3085":
+			return true
+		}
+	}
+	return false
 }
 
 // knownSIMBAD says whether a SIMBAD variable matched. A past nova does not

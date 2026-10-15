@@ -86,11 +86,14 @@ func (f Formatter) discoveries(r Report) string {
 	}
 	parts := make([]string, 0, len(r.Discoveries))
 	for i, d := range r.Discoveries {
+		part := fmt.Sprintf("%d on %s", d.N, esc(d.Label))
 		if i == 0 {
-			parts = append(parts, plural(d.N, "new candidate", "new candidates")+" on "+esc(d.Label))
-		} else {
-			parts = append(parts, fmt.Sprintf("%d on %s", d.N, esc(d.Label)))
+			part = plural(d.N, "new candidate", "new candidates") + " on " + esc(d.Label)
 		}
+		if n := r.Novae[d.Label]; n > 0 {
+			part += " (" + plural(n, "possible nova", "possible novae") + ")"
+		}
+		parts = append(parts, part)
 	}
 	line := "<b>Discoveries</b> " + strings.Join(parts, ", ")
 	if f.WebURL != "" {
