@@ -460,8 +460,6 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("morning-report.zone-label", configulator.LayerDefault, "default tag")
 	cfg.DiscoveryAlerts.Enabled = true
 	set("discovery-alerts.enabled", configulator.LayerDefault, "default tag")
-	cfg.DiscoveryAlerts.Followup = true
-	set("discovery-alerts.followup", configulator.LayerDefault, "default tag")
 	cfg.DiscoveryAlerts.IntervalMinutes = 5
 	set("discovery-alerts.interval-minutes", configulator.LayerDefault, "default tag")
 	return nil
@@ -2757,7 +2755,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Bool(names[141], true, "Send one Telegram alert per new find (a run's finds together, a run with more than 5 as one summary), once per source across restarts and reruns; candidates already stored when this is first on are never alerted; off while the token or chat is empty")
 	fs.String(names[142], "", "Telegram bot token the alerts are sent with; a bot of their own, empty turns the alerts off")
 	fs.String(names[143], "", "Telegram chat the alerts go to; empty turns the alerts off")
-	fs.Bool(names[144], true, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled")
+	fs.Bool(names[144], false, "For each alerted find, add a Target Scheduler project that images its field again in the same filter group (at least 6 subs or 30 minutes) at high priority from now to the third night, record whether the find was seen again, and close the project once settled; off by default")
 	fs.Var(impl.NewInt(5), names[145], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
 	return nil
 }
