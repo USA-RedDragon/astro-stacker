@@ -87,7 +87,7 @@ internal/discoveries/masks.go	39	37
 internal/discoveries/mirror.go	32	26
 internal/discoveries/movers.go	254	245
 internal/discoveries/newlight.go	12	11
-internal/discoveries/null.go	83	70
+internal/discoveries/null.go	85	71
 internal/discoveries/runner.go	711	543
 internal/discoveries/sensor.go	72	70
 internal/discoveries/smallbodies.go	171	156
@@ -207,7 +207,7 @@ internal/ninapath/ninapath.go	9	9
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	207	178
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -300,7 +300,7 @@ internal/sky/frame.go	40	40
 internal/sky/sky.go	92	91
 internal/sky/sunset.go	20	20
 internal/skybright/skybright.go	114	111
-internal/skycutout/render.go	158	146
+internal/skycutout/render.go	158	147
 internal/skycutout/s3tiles.go	10	0
 internal/skycutout/skycutout.go	207	181
 internal/skyevents/autoplan.go	110	89
