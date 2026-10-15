@@ -352,6 +352,25 @@ func (f *fakeTNS) server(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// measured waits for the measurements Measure queued: it kicks a
+// background measurer that may take a queued spot before the test can.
+func measured(t *testing.T, s *Service) {
+	t.Helper()
+	for s.MeasureNext(context.Background()) {
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+		s.mu.Lock()
+		running := s.running
+		s.mu.Unlock()
+		if !running {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the measurements did not finish")
+		}
+	}
+}
+
 func reportDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := testdb.SQLite(t, "app")
@@ -426,8 +445,7 @@ func TestServiceMeasuresNamesSendsOnceAndBundles(t *testing.T) {
 	if _, err := s.Measure(ctx, id, false); err != nil {
 		t.Fatal(err)
 	}
-	for s.MeasureNext(ctx) {
-	}
+	measured(t, s)
 	if _, err := s.Measure(ctx, id, false); err != nil {
 		t.Fatal(err)
 	}
@@ -480,8 +498,7 @@ func TestSendAfterAnUncertainFailureIsNotRepeated(t *testing.T) {
 	if _, err := s.Measure(ctx, id, false); err != nil {
 		t.Fatal(err)
 	}
-	for s.MeasureNext(ctx) {
-	}
+	measured(t, s)
 	if _, err := s.SendTNS(ctx, id); !errors.Is(err, ErrTNS) {
 		t.Fatalf("values from a dead TNS: %v", err)
 	}
