@@ -299,6 +299,10 @@ discoveries:
   # tns-instrument-id: ""
   # Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set
   # mpc-code: ""
+  # Path of the TNS public objects mirror in the survey bucket: the daily full list and hourly files, kept 30 days, fetched with the TNS bot and searched locally instead of TNS's search API. Off until tns-key, tns-bot-id and tns-bot-name are set
+  tns-mirror-prefix: "catalogs/tns"
+  # Radius in arcseconds within which a change matches a TNS object of the local mirror
+  tns-match-arcsec: 3
   # Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT
   # small-bodies-url: ""
   # Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service
