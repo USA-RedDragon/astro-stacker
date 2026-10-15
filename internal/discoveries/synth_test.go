@@ -293,6 +293,9 @@ func TestRunFindsSyntheticChanges(t *testing.T) {
 		}
 		if math.Hypot(c.X-f.NewX, c.Y-f.NewY) < 1.5 && c.Sign > 0 && c.GaiaG == nil {
 			foundNew = true
+			if !c.SkyFixed || c.SubSharp > 2 || c.SubSharp <= 0 {
+				t.Errorf("the new source moved with the sky %v, %.1f times a star's sharpness in its subs", c.SkyFixed, c.SubSharp)
+			}
 			if c.DeltaMag != nil {
 				t.Errorf("the new source has a magnitude change %.2f against an empty reference", *c.DeltaMag)
 			}

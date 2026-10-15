@@ -14,6 +14,9 @@ import "math"
 type sensorMap struct {
 	theta, u, v float64
 	ok          bool
+	// measured says the map was read off the footprint's edges, not taken
+	// as the identity for a sub with no edge in the frame.
+	measured bool
 }
 
 // at is the sensor pixel under the registered pixel (x, y).
@@ -143,5 +146,5 @@ func footprint(p *Plane) sensorMap {
 			use[i] = res[i] <= clip
 		}
 	}
-	return sensorMap{theta: sol[0], u: sol[1], v: sol[2], ok: true}
+	return sensorMap{theta: sol[0], u: sol[1], v: sol[2], ok: true, measured: true}
 }
