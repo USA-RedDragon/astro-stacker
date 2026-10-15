@@ -962,14 +962,14 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			} else {
 				fn.Promoted++
 			}
-			if c.RefFlux > 0 {
+			ra := Aperture(ref, c.X, c.Y, apertureR)
+			if c.RefFlux > 0 && ra > 3*res.NightApSigma {
 				if tot := c.RefFlux + c.DiffFlux; tot > 0 {
 					dm := -2.5 * math.Log10(tot/c.RefFlux)
 					cc.DeltaMag = &dm
 				}
 			}
 			if res.ZeroPoint != nil {
-				ra := Aperture(ref, c.X, c.Y, apertureR)
 				na := ra + Aperture(diff, c.X, c.Y, apertureR)
 				if ra > 3*res.NightApSigma {
 					m := *res.ZeroPoint - 2.5*math.Log10(ra)

@@ -195,3 +195,16 @@ func TestDiscoveryRunsAndRequests(t *testing.T) {
 		t.Errorf("status %+v", live)
 	}
 }
+
+func TestDiscoveryCutoutForAGoneClient(t *testing.T) {
+	t.Parallel()
+	a := newDiscoveryAPI(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/discoveries/candidates/"+strconv.Itoa(a.id)+"/cutout/night.png", nil)
+	w := httptest.NewRecorder()
+	a.r.ServeHTTP(w, req)
+	if w.Code != statusClientClosed {
+		t.Errorf("a request its client gave up on answered %d, want %d", w.Code, statusClientClosed)
+	}
+}
