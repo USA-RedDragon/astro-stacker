@@ -981,7 +981,10 @@ type gaiaCache struct {
 	RA, Dec, Radius float64
 	Fetched         time.Time
 	PM              bool
-	Stars           [][5]float64
+	// Full marks every star to G 21.5 in the cone, as the mirror reads
+	// them; a cache without it is read again while the mirror is set.
+	Full  bool
+	Stars [][5]float64
 }
 
 func objectSlug(object string) string {
@@ -991,18 +994,18 @@ func objectSlug(object string) string {
 func (r *Runner) gaia(ctx context.Context, object string, ra, dec, radius float64) ([]Star, error) {
 	key := keyPrefix + "cache/" + objectSlug(object) + "/gaia.json.zst"
 	var c gaiaCache
-	if err := r.getJSON(ctx, key, &c); err == nil && c.PM && Separation(ra, dec, c.RA, c.Dec)+radius <= c.Radius+1e-9 {
+	if err := r.getJSON(ctx, key, &c); err == nil && c.PM && (c.Full || r.cat.GaiaMirror == nil) && Separation(ra, dec, c.RA, c.Dec)+radius <= c.Radius+1e-9 {
 		out := make([]Star, len(c.Stars))
 		for i, s := range c.Stars {
 			out[i] = Star{RA: s[0], Dec: s[1], G: s[2], PMRA: s[3], PMDec: s[4]}
 		}
 		return out, nil
 	}
-	stars, err := r.cat.Gaia(ctx, ra, dec, radius)
+	stars, full, err := r.cat.GaiaFull(ctx, ra, dec, radius)
 	if err != nil {
 		return nil, err
 	}
-	c = gaiaCache{RA: ra, Dec: dec, Radius: radius, Fetched: r.now(), PM: true, Stars: make([][5]float64, len(stars))}
+	c = gaiaCache{RA: ra, Dec: dec, Radius: radius, Fetched: r.now(), PM: true, Full: full, Stars: make([][5]float64, len(stars))}
 	for i, s := range stars {
 		c.Stars[i] = [5]float64{s.RA, s.Dec, s.G, s.PMRA, s.PMDec}
 	}

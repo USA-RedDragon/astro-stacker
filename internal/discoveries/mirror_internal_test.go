@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 )
@@ -61,5 +62,36 @@ func TestCatalogsReadTheMirrorsAndFallBackToVizieR(t *testing.T) {
 	}
 	if asked.Load() != 0 {
 		t.Fatalf("VizieR asked %d times with the mirrors in place", asked.Load())
+	}
+}
+
+// TestGaiaFromTheMirrorGoesPastVizieRsCap replays Cygnis Loop Panel 2,
+// whose VizieR read stopped at its 400,000th star, G 18.78: a cache that
+// short is read again from the mirror, which gives every star.
+func TestGaiaFromTheMirrorGoesPastVizieRsCap(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	b := &starcat.MemBucket{}
+	n := gaiaMaxRows + 10
+	stars := make([]starcat.GaiaStar, n)
+	for i := range stars {
+		stars[i] = starcat.GaiaStar{SourceID: int64(i + 1), RA: 312 + float64(i%1000)/1000, Dec: 30 + float64(i/1000)/1000, G: float32(12 + 7*float64(i)/float64(n)), PMRA: 0, PMDec: 0}
+	}
+	if err := starcat.WriteGaia(ctx, b, "gaia", stars); err != nil {
+		t.Fatal(err)
+	}
+	store := &memStore{m: map[string][]byte{}}
+	short := gaiaCache{RA: 312.5, Dec: 30.2, Radius: 2, Fetched: time.Now(), PM: true, Stars: [][5]float64{{312.5, 30.2, 12, 0, 0}}}
+	r := New(nil, nil, store, &Catalogs{VizierURL: "http://127.0.0.1:1", GaiaMirror: starcat.NewGaia(b, "gaia")}, Options{})
+	if err := r.putJSON(ctx, keyPrefix+"cache/Cygnis Loop Panel 2/gaia.json.zst", short); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.gaia(ctx, "Cygnis Loop Panel 2", 312.5, 30.2, 1)
+	if err != nil || len(got) != n {
+		t.Fatalf("%d stars, %v, want all %d", len(got), err, n)
+	}
+	var c gaiaCache
+	if err := r.getJSON(ctx, keyPrefix+"cache/Cygnis Loop Panel 2/gaia.json.zst", &c); err != nil || !c.Full || len(c.Stars) != n {
+		t.Errorf("cache full %v with %d stars, %v", c.Full, len(c.Stars), err)
 	}
 }

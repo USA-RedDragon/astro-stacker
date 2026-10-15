@@ -30,14 +30,17 @@ const (
 	userAgent     = "astro-stacker/1 (+https://github.com/USA-RedDragon/astro-stacker)"
 	gaiaFaintG    = 21.5
 	gaiaMaxRows   = 400000
-	vsxMaxRows    = 100000
-	catalogTimout = 8 * time.Minute
-	gaiaTimeout   = 7 * time.Minute
-	sourceAlerce  = "ALeRCE"
-	sourceFink    = "Fink"
-	sourceTNS     = "TNS"
-	catalogVSX    = "VSX"
-	catalogSIMBAD = "SIMBAD"
+	// gaiaMirrorMaxRows bounds a mirror read: a 2.1° cone in Cygnus holds
+	// about 1.3 million stars to G 21.5.
+	gaiaMirrorMaxRows = 3000000
+	vsxMaxRows        = 100000
+	catalogTimout     = 8 * time.Minute
+	gaiaTimeout       = 7 * time.Minute
+	sourceAlerce      = "ALeRCE"
+	sourceFink        = "Fink"
+	sourceTNS         = "TNS"
+	catalogVSX        = "VSX"
+	catalogSIMBAD     = "SIMBAD"
 )
 
 // Catalogs fetches the catalogues a night's changes are checked against.
@@ -153,9 +156,21 @@ func num(s string) (float64, bool) {
 	return v, err == nil
 }
 
-// Gaia returns Gaia DR3 stars within radius degrees, brightest first, at
-// their 2016.0 positions with their proper motions, at most 400000: to G 21.5 from the mirror, or from VizieR to G 21.5,
-// or in a Milky Way field VizieR can't sort that deep in time, to G 19.5 or 18.
+// GaiaFull returns Gaia DR3 stars within radius degrees, brightest first, at
+// their 2016.0 positions with their proper motions: to G 21.5 from the
+// mirror (at most 3,000,000), or from VizieR to G 21.5 (at most 400,000), or
+// in a Milky Way field VizieR can't sort that deep in time, to G 19.5 or 18.
+// full says the stars are every one to G 21.5 in the cone.
+func (c *Catalogs) GaiaFull(ctx context.Context, ra, dec, radius float64) (stars []Star, full bool, err error) {
+	if stars, ok, err := c.gaiaMirror(ctx, ra, dec, radius); ok || err != nil {
+		return stars, err == nil && len(stars) < gaiaMirrorMaxRows, err
+	}
+	stars, err = c.Gaia(ctx, ra, dec, radius)
+	return stars, false, err
+}
+
+// Gaia returns Gaia DR3 stars within radius degrees as GaiaFull does,
+// without saying whether they are all of them.
 func (c *Catalogs) Gaia(ctx context.Context, ra, dec, radius float64) ([]Star, error) {
 	if stars, ok, err := c.gaiaMirror(ctx, ra, dec, radius); ok || err != nil {
 		return stars, err
