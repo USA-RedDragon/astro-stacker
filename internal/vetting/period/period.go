@@ -1,0 +1,113 @@
+// Package period searches survey light curves for a period, fits an
+// eclipse shape, tests half and double the period and predicts the
+// star's brightness at any time.
+package period
+
+import (
+	"errors"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
+)
+
+// ErrNoPeriod says no period stood out.
+var ErrNoPeriod = errors.New("no period stood out")
+
+// Kind is the shape of the light curve's variation.
+type Kind string
+
+const (
+	KindEclipsing  Kind = "eclipsing"
+	KindSinusoidal Kind = "sinusoidal"
+	KindFlat       Kind = "flat"
+	KindIrregular  Kind = "irregular"
+)
+
+// Eclipse is one dip of the fitted model: its depth per survey band in
+// magnitudes (keyed "ZTF r", "ATLAS o", ...), its phase (0 for the deeper
+// dip) and its width as a share of the period. Shape is the exponent a
+// of the dip (1 - (dt/W)^2)^a.
+type Eclipse struct {
+	Phase float64            `json:"phase"`
+	Width float64            `json:"width"`
+	Shape float64            `json:"shape"`
+	Depth map[string]float64 `json:"depth"`
+}
+
+// Ephemeris is the fitted period and the time of the deeper minimum, in
+// BJD TDB, with their one sigma errors.
+type Ephemeris struct {
+	Period    float64   `json:"period"`
+	PeriodErr float64   `json:"period_err"`
+	T0        float64   `json:"t0"`
+	T0Err     float64   `json:"t0_err"`
+	Kind      Kind      `json:"kind"`
+	Eclipses  []Eclipse `json:"eclipses"`
+	// Amplitude is the full range in magnitudes of a sinusoidal fit, per
+	// survey band.
+	Amplitude map[string]float64 `json:"amplitude,omitempty"`
+}
+
+// Phase is where bjd falls in the cycle, 0 at the deeper minimum, in
+// [-0.25, 0.75).
+func (e *Ephemeris) Phase(bjd float64) float64 { return phaseOf(e, bjd) }
+
+// Predict is the model's magnitudes fainter than normal at bjd, for a
+// survey band key; an unknown band takes the mean depth of the known ones.
+func (e *Ephemeris) Predict(bjd float64, band string) float64 { return predict(e, bjd, band) }
+
+// SurveyFit is how one survey's own data agree with the ephemeris: how
+// many of its points fall in each dip, whether those points are fainter
+// by the model's depth, and for well sampled dips (TESS) their timing.
+type SurveyFit struct {
+	Survey  string  `json:"survey"`
+	Band    string  `json:"band"`
+	Points  int     `json:"points"`
+	InDip1  int     `json:"in_dip1"`
+	InDip2  int     `json:"in_dip2"`
+	Depth1  float64 `json:"depth1"`
+	Depth2  float64 `json:"depth2"`
+	Agrees  bool    `json:"agrees"`
+	Minima  int     `json:"minima"`
+	MaxLagM float64 `json:"max_lag_min"`
+}
+
+// Result is the period analysis of every series of one star.
+type Result struct {
+	Ephemeris *Ephemeris  `json:"ephemeris,omitempty"`
+	Fits      []SurveyFit `json:"fits"`
+	// Checks has the survey history rows: Period (when no period was
+	// found), Fold, Half, Double, and the per survey rows ZTF, TESS,
+	// ATLAS and NEOWISE.
+	Checks []check.Check `json:"checks"`
+}
+
+// Options bound the search.
+type Options struct {
+	MinPeriod float64
+	MaxPeriod float64
+}
+
+// Analyze searches series for a period and tests it. series holds every
+// survey's light curve of the star; the ones from the user's own images
+// (lc.Own) are only used for the timing check, not the search.
+func Analyze(series []lc.Series, opts Options) (*Result, error) {
+	return analyze(series, opts)
+}
+
+// Timing is the user's own minimum against the ephemeris: Offset in
+// minutes, negative when early, with its one sigma error, from a fit of
+// the model's dip shape to points around the predicted minimum.
+type Timing struct {
+	Offset    float64 `json:"offset_min"`
+	OffsetErr float64 `json:"offset_err_min"`
+	Depth     float64 `json:"depth"`
+	Dip       int     `json:"dip"`
+	Points    int     `json:"points"`
+}
+
+// TimeMinimum fits the dip the points of one night cover. ok is false
+// when the points do not cover a dip's minimum.
+func TimeMinimum(e *Ephemeris, points []lc.Point, band string) (Timing, bool) {
+	return timeMinimum(e, points, band)
+}
