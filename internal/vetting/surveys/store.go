@@ -73,7 +73,11 @@ func segment(prefix, key string) string {
 }
 
 func zstdEncode(raw []byte) ([]byte, error) {
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBetterCompression), zstd.WithWindowSize(8<<20))
+	return zstdEncodeLevel(raw, zstd.SpeedBetterCompression)
+}
+
+func zstdEncodeLevel(raw []byte, level zstd.EncoderLevel) ([]byte, error) {
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(level), zstd.WithWindowSize(8<<20))
 	if err != nil {
 		return nil, err
 	}
