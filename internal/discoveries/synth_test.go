@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -315,5 +316,53 @@ func TestRunFindsSyntheticChanges(t *testing.T) {
 	}
 	if tracks[0].Class != ClassKnownAsteroid || tracks[0].OffsetArc == nil || *tracks[0].OffsetArc > 3 {
 		t.Errorf("track class %s offset %v", tracks[0].Class, tracks[0].OffsetArc)
+	}
+}
+
+// TestRunComparesANightOfOneSubPerFilter replays North America Nebula
+// Panel 2's 2025-12-17: two L subs and one each of R, G and B.
+func TestRunComparesANightOfOneSubPerFilter(t *testing.T) {
+	t.Parallel()
+	f := newField(t)
+	in := f.input(t)
+	all := in.Filters[0]
+	split := func(name string, night []Sub, ref []Sub) FilterInput {
+		fi := FilterInput{Filter: name, Anchors: all.Anchors}
+		for _, s := range night {
+			s.Filter = name
+			fi.Night = append(fi.Night, s)
+		}
+		for _, s := range ref {
+			s.Filter = name
+			fi.Ref = append(fi.Ref, s)
+		}
+		return fi
+	}
+	r, q := all.Ref, len(all.Ref)/4
+	in.Filters = []FilterInput{
+		split("Luminance", all.Night[0:2], r[0:q]),
+		split("Red", all.Night[2:3], r[q:2*q]),
+		split("Green", all.Night[3:4], r[2*q:3*q]),
+		split("Blue", all.Night[4:5], r[3*q:]),
+	}
+	res, err := Run(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := f.Stars[f.Var]
+	found := false
+	for _, c := range res.Candidates {
+		found = found || (math.Hypot(c.X-v.X, c.Y-v.Y) < 1.5 && c.Sign > 0 && c.SubsTested == 5)
+	}
+	if res.NightSubs != 5 || len(res.Filters) != 4 || !found {
+		t.Errorf("night subs %d, filters %v, brightened star found %v", res.NightSubs, res.Filters, found)
+	}
+	in.Filters = []FilterInput{
+		split("Red", all.Night[0:1], r[0:q]),
+		split("Green", all.Night[1:2], r[q:2*q]),
+		split("Blue", all.Night[2:3], r[2*q:3*q]),
+	}
+	if _, err := Run(context.Background(), in); !errors.Is(err, ErrTooLittle) {
+		t.Errorf("a night of one R, G and B sub has no filter to stack: %v", err)
 	}
 }
