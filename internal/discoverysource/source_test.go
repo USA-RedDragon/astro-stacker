@@ -469,6 +469,7 @@ func TestOnPostgres(t *testing.T) { //nolint:tparallel
 		"cleared": checkAClearedSourceIgnoresAStaleRerunCopy,
 		"many":    checkGatheringManyCandidatesGivesEachItsOwnSource,
 		"join":    checkACandidateLinkingTwoSourcesJoinsThem,
+		"earlier": checkARangeCountsTheEarlierSourcesThatNeedALook,
 	} {
 		t.Run(name, func(t *testing.T) {
 			db := pg.Session(&gorm.Session{NewDB: true})

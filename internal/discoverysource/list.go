@@ -92,6 +92,9 @@ type Counts struct {
 	Low       int `json:"low"`
 	Vetted    int `json:"vetted"`
 	All       int `json:"all"`
+	// LookEarlier counts the sources that need a look and were last seen
+	// before Since, so the range leaves them out.
+	LookEarlier int `json:"look_earlier"`
 }
 
 func countOf(list []Summary) Counts {
@@ -149,6 +152,11 @@ func List(ctx context.Context, db *gorm.DB, f Filter) ([]Summary, Counts, error)
 		list = slices.DeleteFunc(list, func(s Summary) bool { return !matchesSearch(s, f.Search) })
 	}
 	counts := countOf(list)
+	if f.Since != nil && f.Until == nil && f.Night == nil {
+		if counts.LookEarlier, err = lookEarlier(db, f, ids); err != nil {
+			return nil, Counts{}, err
+		}
+	}
 	if f.View != "" {
 		list = slices.DeleteFunc(list, func(s Summary) bool { return !s.In(f.View) })
 	}
@@ -166,6 +174,27 @@ func List(ctx context.Context, db *gorm.DB, f Filter) ([]Summary, Counts, error)
 		return a.Best.SNR > b.Best.SNR
 	})
 	return list, counts, nil
+}
+
+func lookEarlier(db *gorm.DB, f Filter, inRange *gorm.DB) (int, error) {
+	news := db.Model(&app.DiscoveryCandidate{}).Select("source_id").Where("source_id IS NOT NULL AND class IN ?",
+		[]string{discoveries.ClassNova, discoveries.ClassSupernova, discoveries.ClassNewVariable, discoveries.ClassUnknownMover})
+	if f.Object != "" {
+		news = news.Where("object = ?", f.Object)
+	}
+	list, err := summaries(db, func(q *gorm.DB) *gorm.DB {
+		return q.Where("vetting = ? AND id IN (?) AND id NOT IN (?)", "", news, inRange)
+	})
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, s := range list {
+		if s.Look() && (f.Search == "" || matchesSearch(s, f.Search)) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // Get is one source with its candidates.
