@@ -41,6 +41,7 @@ func startDiscoveries(cfg *config.Config, s3 *minio.Client, appStore, schedStore
 	}
 	cat := tnsCatalogs(d)
 	cat.Local = smallBodies(cfg, appStore)
+	cat.GaiaMirror, cat.VSXMirror = catalogMirrors(cfg, s3)
 	r := discoveries.New(appStore.DB(), schedStore.DB(), discoveries.MinioStore{Client: s3, Bucket: cfg.S3.ProcessedBucket}, cat, discoveries.Options{
 		Interval:     time.Duration(d.IntervalMinutes) * time.Minute,
 		Threads:      d.Threads,

@@ -48,6 +48,7 @@ func newDiscoveriesCommand() *cobra.Command {
 			d := cfg.Discoveries
 			cat := tnsCatalogs(d)
 			cat.Local = smallBodies(cfg, appStore)
+			cat.GaiaMirror, cat.VSXMirror = catalogMirrors(cfg, s3)
 			r := discoveries.New(appStore.DB(), schedStore.DB(), discoveries.MinioStore{Client: s3, Bucket: cfg.S3.ProcessedBucket}, cat,
 				discoveries.Options{Threads: d.Threads, RefSubs: d.RefSubs, BackfillDays: d.BackfillDays, Catalog: sync.OnceValues(catalog.LoadEmbedded)})
 			if object != "" {
