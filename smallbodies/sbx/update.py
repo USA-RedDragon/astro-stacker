@@ -133,8 +133,10 @@ def build_catalog(raw: dict) -> tuple[Orbits, np.ndarray]:
 
 
 def run(store: Store, workdir: str, grid_start: str, ahead_days: float, retain_days: int, workers: int) -> None:
-    today = dt.datetime.now(dt.timezone.utc).date()
+    now = dt.datetime.now(dt.timezone.utc)
+    today = now.date()
     date = today.isoformat()
+    build = now.strftime("%Y-%m-%dT%H%M%SZ")
     os.makedirs(workdir, exist_ok=True)
     eph = ensure_ephemerides(store, os.path.join(workdir, "ephemeris"))
     raw = mirror_sources(store, date, workdir)
@@ -143,6 +145,7 @@ def run(store: Store, workdir: str, grid_start: str, ahead_days: float, retain_d
     path = os.path.join(workdir, "catalog.npz.zst")
     cat.save(path)
     store.put_file(f"catalog/{date}/catalog.npz.zst", path, "application/zstd")
+    store.put_file(f"grid/{build}/catalog.npz.zst", path, "application/zstd")
     log(f"catalogue: {len(cat)} orbits, {int((src == catalog.SOURCE_JPL).sum())} from JPL")
 
     start = core.utc_to_tdb(_jd(grid_start))
@@ -153,11 +156,12 @@ def run(store: Store, workdir: str, grid_start: str, ahead_days: float, retain_d
     for t, states in grid.build(cat, eph[PLANETS], eph[ASTEROIDS], times, os.path.join(workdir, "grid"), workers=workers, log=log):
         blob = grid.encode(states)
         total += len(blob)
-        store.put(f"grid/{date}/{grid.epoch_name(t)}.zst", blob, "application/zstd")
+        store.put(f"grid/{build}/{grid.epoch_name(t)}.zst", blob, "application/zstd")
     build_s = time.time() - t0
     meta = {
+        "build": build,
         "date": date,
-        "catalog": f"catalog/{date}/catalog.npz.zst",
+        "catalog": f"grid/{build}/catalog.npz.zst",
         "objects": len(cat),
         "times_tdb": [float(t) for t in times],
         "step_days": grid.STEP_DAYS,
@@ -165,9 +169,9 @@ def run(store: Store, workdir: str, grid_start: str, ahead_days: float, retain_d
         "bytes": total,
         "built": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
-    store.put_json(f"grid/{date}/meta.json", meta)
+    store.put_json(f"grid/{build}/meta.json", meta)
     store.put_json("grid/latest.json", meta)
-    log(f"grid: {len(times)} epochs, {total / 1e9:.2f} GB, built and stored in {build_s:.0f}s")
+    log(f"grid {build}: {len(times)} epochs, {total / 1e9:.2f} GB, built and stored in {build_s:.0f}s")
     prune(store, today, retain_days)
 
 
@@ -178,7 +182,8 @@ def prune(store: Store, today: dt.date, retain_days: int) -> None:
             d = p[len(top) :].strip("/")
             if d < cutoff:
                 log(f"pruned {p}: {store.delete_prefix(p)} objects")
-    latest = store.get_json("grid/latest.json")["date"]
+    latest = store.get_json("grid/latest.json")
+    latest = latest.get("build", latest["date"])
     grids = [p[len("grid/") :].strip("/") for p in store.prefixes("grid/")]
     complete = [d for d in grids if d <= latest and store.exists(f"grid/{d}/meta.json")]
     keep = sorted(complete)[-2:]
