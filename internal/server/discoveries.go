@@ -79,6 +79,9 @@ type DiscoveryRun struct {
 	MidTime       *time.Time                    `json:"mid_time"`
 	FinishedAt    *time.Time                    `json:"finished_at"`
 	Seconds       float64                       `json:"seconds"`
+	// MoverNull and ChangeNull are the night's null tests.
+	MoverNull  MoverNull  `json:"mover_null"`
+	ChangeNull ChangeNull `json:"change_null"`
 }
 
 // DiscoveryCandidate is a change or a moving object found on a night.
@@ -116,6 +119,22 @@ type DiscoveryCandidate struct {
 	BodyV      *float64                 `json:"body_v,omitempty"`
 }
 
+// MoverNull is the mover null test: the night's detections relinked with
+// its subs shuffled in time; a track needs more than MaxHits detections.
+type MoverNull struct {
+	Tracks  float64 `json:"tracks"`
+	MaxHits int     `json:"max_hits"`
+}
+
+// ChangeNull is the change null test: the night's subs in two interleaved
+// halves compared with each other; a new variable must be stronger than
+// MaxSNR.
+type ChangeNull struct {
+	Subs   int     `json:"subs"`
+	Found  int     `json:"found"`
+	MaxSNR float64 `json:"max_snr"`
+}
+
 // DiscoveryCutouts link a candidate's night, reference and difference
 // cutouts and its FITS stamp.
 type DiscoveryCutouts struct {
@@ -137,7 +156,9 @@ func runOf(r app.DiscoveryRun, n runCount) DiscoveryRun {
 		Error: r.Error, NightSubs: r.NightSubs, RefSubs: r.RefSubs, RefNights: r.RefNights, Depth: r.Depth, SubDepth: r.SubDepth, ZeroPoint: r.ZeroPoint,
 		AstroRMS: r.AstroRMS, AstroStars: r.AstroStars, HFRNight: r.HFRNight, HFRRef: r.HFRRef, PixelScale: r.PixelScale, FieldRA: r.FieldRA, FieldDec: r.FieldDec,
 		Candidates: r.Candidates, New: r.NewCandidates, Tracks: r.Tracks, KnownTracks: r.KnownTracks, BodiesInField: r.BodiesInField,
-		Checked: splitList(r.Checked), Failed: splitList(r.Failed), Classes: n.classes, Vetted: n.vetted, Look: n.look, MidTime: r.MidTime, FinishedAt: r.FinishedAt, Seconds: r.Seconds}
+		Checked: splitList(r.Checked), Failed: splitList(r.Failed), Classes: n.classes, Vetted: n.vetted, Look: n.look, MidTime: r.MidTime, FinishedAt: r.FinishedAt, Seconds: r.Seconds,
+		MoverNull:  MoverNull{Tracks: r.MoverNullTracks, MaxHits: r.MoverNullHits},
+		ChangeNull: ChangeNull{Subs: r.ChangeNullSubs, Found: r.ChangeNullFound, MaxSNR: r.ChangeNullSNR}}
 	if out.Classes == nil {
 		out.Classes = map[string]int{}
 	}

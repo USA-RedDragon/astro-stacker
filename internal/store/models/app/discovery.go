@@ -43,10 +43,19 @@ type DiscoveryRun struct {
 	KnownTracks   int
 	BodiesInField int
 	SubDetections int
-	Seconds       float64
-	StartedAt     *time.Time
-	FinishedAt    *time.Time
-	UpdatedAt     time.Time
+	// MoverNullTracks and MoverNullHits are the mover null test's mean
+	// tracks a shuffle and most detections in one; ChangeNullSubs,
+	// ChangeNullFound and ChangeNullSNR the change null test's subs split,
+	// changes found and the strongest of them.
+	MoverNullTracks float64
+	MoverNullHits   int
+	ChangeNullSubs  int
+	ChangeNullFound int
+	ChangeNullSNR   float64
+	Seconds         float64
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	UpdatedAt       time.Time
 }
 
 const (
