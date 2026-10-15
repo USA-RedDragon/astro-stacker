@@ -262,6 +262,11 @@ func TestRunnerComparesSettledNight(t *testing.T) {
 	if len(fx.finished) != 1 {
 		t.Errorf("a second pass with the same subs ran again")
 	}
+	fx.db.Model(&app.DiscoveryRun{}).Where("1 = 1").Update("method", 3)
+	if jobs, err := fx.r.due(ctx); err != nil || len(jobs) != 1 {
+		t.Errorf("a night compared by method 3, before the hot pixel, proper motion, SIMBAD and nova fixes, is not due again: %v %v", jobs, err)
+	}
+	fx.db.Model(&app.DiscoveryRun{}).Where("1 = 1").Update("method", Method)
 	fx.r.Request(synthObject, fx.f.Nights[len(fx.f.Nights)-1], "")
 	if err := fx.r.Pass(ctx); err != nil {
 		t.Fatal(err)
