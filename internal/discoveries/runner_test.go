@@ -314,13 +314,52 @@ func TestPickRefTakesNightsInTurn(t *testing.T) {
 		d1: {{FrameID: 1, Weight: 1}, {FrameID: 2, Weight: 3}, {FrameID: 3, Weight: 2}},
 		d2: {{FrameID: 4, Weight: 1}},
 	}
-	got := pickRef(nights, 3)
+	got := pickRef(nights, d2.AddDate(0, 0, 1), 3)
 	ids := make([]int, 0, len(got))
 	for _, s := range got {
 		ids = append(ids, s.FrameID)
 	}
 	if !slices.Equal(ids, []int{2, 4, 3}) {
 		t.Errorf("picked %v", ids)
+	}
+}
+
+// TestPickRefPrefersNightsFarInTime: a transient that lasts weeks, like
+// the luminous red nova AT 2025abao in M 31, is in the nights near the one
+// compared; nights a month or more away make the reference when they have
+// subs enough, the farthest first.
+func TestPickRefPrefersNightsFarInTime(t *testing.T) {
+	t.Parallel()
+	night := time.Date(2025, 10, 20, 0, 0, 0, 0, time.UTC)
+	rows := func(id0, n int) []subRow {
+		out := make([]subRow, n)
+		for i := range out {
+			out[i] = subRow{FrameID: id0 + i, Weight: float64(n - i)}
+		}
+		return out
+	}
+	nights := map[time.Time][]subRow{
+		night.AddDate(0, 0, -3): rows(100, 10), night.AddDate(0, 0, 2): rows(200, 10),
+		night.AddDate(0, 0, -280): rows(300, 4), night.AddDate(0, 0, 365): rows(400, 4),
+	}
+	got := pickRef(nights, night, 6)
+	for _, s := range got {
+		if s.FrameID < 300 {
+			t.Errorf("picked sub %d from a night days away while nights months away had subs enough", s.FrameID)
+		}
+	}
+	if len(got) != 6 || got[0].FrameID != 400 {
+		t.Errorf("picked %v, want the farthest night's best first", got)
+	}
+	got = pickRef(nights, night, 12)
+	near := 0
+	for _, s := range got {
+		if s.FrameID < 300 {
+			near++
+		}
+	}
+	if len(got) != 12 || near != 4 {
+		t.Errorf("with too few far subs the nearer nights fill in: %d of %d near", near, len(got))
 	}
 }
 

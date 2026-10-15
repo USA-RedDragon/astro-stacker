@@ -839,7 +839,7 @@ func (r *Runner) input(ctx context.Context, j Job, nights groupNights) (*Input, 
 		if err != nil {
 			return nil, err
 		}
-		f := FilterInput{Filter: st.Filter, Anchors: anchors, Night: toSubs(byFilter[st.Filter]), Ref: toSubs(pickRef(refBy[st.Filter], r.opts.RefSubs))}
+		f := FilterInput{Filter: st.Filter, Anchors: anchors, Night: toSubs(byFilter[st.Filter]), Ref: toSubs(pickRef(refBy[st.Filter], j.Night, r.opts.RefSubs))}
 		in.Filters = append(in.Filters, f)
 	}
 	if len(in.Filters) == 0 {
@@ -882,16 +882,30 @@ func toSubs(rows []subRow) []Sub {
 }
 
 // pickRef takes up to n reference subs, the best of each night in turn so
-// no night dominates.
-func pickRef(nights map[time.Time][]subRow, n int) []subRow {
-	keys := make([]time.Time, 0, len(nights))
+// no night dominates, the nights farthest in time from the night compared
+// first: a transient that lasts weeks or months is in the nights near it,
+// and a reference of them hides it.
+func pickRef(nights map[time.Time][]subRow, night time.Time, n int) []subRow {
+	away := func(t time.Time) time.Duration { return max(t.Sub(night), night.Sub(t)) }
+	var far, near []time.Time
 	for k := range nights {
-		keys = append(keys, k)
 		subs := nights[k]
 		sort.SliceStable(subs, func(a, b int) bool { return subs[a].Weight > subs[b].Weight })
+		if away(k) >= refApart {
+			far = append(far, k)
+		} else {
+			near = append(near, k)
+		}
 	}
-	sort.Slice(keys, func(a, b int) bool { return keys[a].Before(keys[b]) })
-	var out []subRow
+	for _, ks := range [][]time.Time{far, near} {
+		sort.Slice(ks, func(a, b int) bool { return away(ks[a]) > away(ks[b]) })
+	}
+	out := inTurn(nights, far, n, nil)
+	return inTurn(nights, near, n, out)
+}
+
+// inTurn adds to out, up to n, the best sub of each night of keys in turn.
+func inTurn(nights map[time.Time][]subRow, keys []time.Time, n int, out []subRow) []subRow {
 	for i := 0; len(out) < n; i++ {
 		added := false
 		for _, k := range keys {
@@ -906,6 +920,10 @@ func pickRef(nights map[time.Time][]subRow, n int) []subRow {
 	}
 	return out
 }
+
+// refApart is how far from the night compared its reference nights are
+// kept when they have subs enough.
+const refApart = 30 * 24 * time.Hour
 
 func (r *Runner) loadSub(ctx context.Context, s Sub) (*Plane, error) {
 	if err := r.waitIdle(ctx); err != nil {
