@@ -123,24 +123,87 @@ func reflect(i, n int) int {
 
 func clamp(i, n int) int { return min(max(i, 0), n-1) }
 
-// MedianFilter is a size×size moving median with reflected edges.
+// MedianFilter is a size×size moving median of the non-NaN values with
+// reflected edges. Each row keeps its window sorted and slides it one
+// column at a time.
 func MedianFilter(m Map, size int) Map {
 	r := size / 2
 	out := NewMap(m.W, m.H)
-	buf := make([]float32, 0, size*size)
+	rows := make([]int, 2*r+1)
+	win := make([]float32, 0, (2*r+1)*(2*r+1))
 	for y := range m.H {
-		for x := range m.W {
-			buf = buf[:0]
-			for dy := -r; dy <= r; dy++ {
-				row := reflect(y+dy, m.H) * m.W
-				for dx := -r; dx <= r; dx++ {
-					buf = append(buf, m.Pix[row+reflect(x+dx, m.W)])
+		for dy := -r; dy <= r; dy++ {
+			rows[dy+r] = reflect(y+dy, m.H) * m.W
+		}
+		win = win[:0]
+		for dx := -r; dx <= r; dx++ {
+			c := reflect(dx, m.W)
+			for _, row := range rows {
+				if v := m.Pix[row+c]; !isNaN(v) {
+					win = append(win, v)
 				}
 			}
-			out.Pix[y*m.W+x] = median(buf)
+		}
+		slices.Sort(win)
+		for x := range m.W {
+			if x > 0 {
+				drop, add := reflect(x-1-r, m.W), reflect(x+r, m.W)
+				for _, row := range rows {
+					win = slide(win, m.Pix[row+drop], m.Pix[row+add])
+				}
+			}
+			out.Pix[y*m.W+x] = sortedMedian(win)
 		}
 	}
 	return out
+}
+
+// slide takes a out of the sorted window and puts b in, either of which
+// may be NaN for none.
+func slide(win []float32, a, b float32) []float32 {
+	switch {
+	case isNaN(a) && isNaN(b):
+		return win
+	case isNaN(a):
+		return slices.Insert(win, lowerBound(win, b), b)
+	case isNaN(b):
+		i := lowerBound(win, a)
+		return slices.Delete(win, i, i+1)
+	}
+	i, j := lowerBound(win, a), lowerBound(win, b)
+	if j > i {
+		copy(win[i:j-1], win[i+1:j])
+		win[j-1] = b
+	} else {
+		copy(win[j+1:i+1], win[j:i])
+		win[j] = b
+	}
+	return win
+}
+
+func lowerBound(s []float32, v float32) int {
+	lo, hi := 0, len(s)
+	for lo < hi {
+		m := int(uint(lo+hi) >> 1)
+		if s[m] < v {
+			lo = m + 1
+		} else {
+			hi = m
+		}
+	}
+	return lo
+}
+
+func sortedMedian(s []float32) float32 {
+	n := len(s)
+	if n == 0 {
+		return float32(math.NaN())
+	}
+	k := n / 2
+	if n%2 == 1 {
+		return s[k]
+	}
+	return float32((float64(s[k-1]) + float64(s[k])) / 2)
 }
 
 // fillNaN replaces NaN pixels with the median of the valid ones in the 5×5
