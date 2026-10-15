@@ -10,9 +10,10 @@ import (
 )
 
 // surveyVariables reads the survey catalogues of variable stars from their
-// mirrors in the survey bucket, and from VizieR while a mirror cannot.
+// mirrors in the survey bucket, and from VizieR while a mirror cannot or
+// the mirrors are off.
 func surveyVariables(cfg *config.Config, s3 *minio.Client) *discoveries.SurveyVariables {
-	if s3 == nil || cfg.Discover.SurveyBucket == "" {
+	if s3 == nil || !cfg.Discover.CatalogMirror || cfg.Discover.SurveyBucket == "" {
 		return discoveries.NewSurveyVariables(nil)
 	}
 	return discoveries.NewSurveyVariables(starcat.MinioBucket{Client: s3, Name: cfg.Discover.SurveyBucket})

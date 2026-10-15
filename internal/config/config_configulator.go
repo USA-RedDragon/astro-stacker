@@ -2834,7 +2834,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.String(names[90], "hips/CDS_P_DSS2_color", "Path of the DSS2 colour HiPS inside the survey bucket")
 	fs.Var(impl.NewInt(8), names[91], "Deepest HiPS order in the survey mirror")
 	fs.Var(impl.NewInt(100), names[92], "Memory for decoded survey tiles, in MB")
-	fs.Bool(names[93], true, "Read Gaia DR3 and AAVSO VSX stars from their mirrors in the survey bucket, falling back to VizieR while a mirror or one of its files is missing")
+	fs.Bool(names[93], true, "Read Gaia DR3, AAVSO VSX and the survey variable star catalogs from their mirrors in the survey bucket, falling back to VizieR while a mirror or one of its files is missing")
 	fs.String(names[94], "catalogs/gaia-dr3/v1", "Path of the Gaia DR3 mirror inside the survey bucket")
 	fs.String(names[95], "catalogs/vsx", "Path of the VSX mirror inside the survey bucket")
 	fs.String(names[96], "", "Base URL of the observatory-scheduler plugin's API, e.g. http://observatory:8189; empty leaves the scheduler unconfigured and commands queued")
