@@ -92,10 +92,13 @@ func (c *Catalogs) do(req *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", req.URL.Host, resp.Status)
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return b, nil
+	case http.StatusNoContent:
+		return nil, nil
 	}
-	return b, nil
+	return nil, fmt.Errorf("%s: %s", req.URL.Host, resp.Status)
 }
 
 // vizierTSV parses VizieR's tab separated output into rows by column name.
@@ -329,7 +332,9 @@ func (b Body) At(dt time.Duration) (ra, dec float64) {
 }
 
 // SkyBoT returns the known asteroids and comets within radius degrees at
-// epoch, as seen from the geocentre (no site is sent).
+// epoch, as seen from the geocenter (no site is sent). SkyBoT answers 204 No
+// Content when there are none, as for Pelican Nebula Panel 2, whose nights
+// failed on it.
 func (c *Catalogs) SkyBoT(ctx context.Context, ra, dec, radius float64, epoch time.Time) ([]Body, error) {
 	q := url.Values{}
 	q.Set("-ep", fmt.Sprintf("%.6f", julian(epoch)))
@@ -346,6 +351,9 @@ func (c *Catalogs) SkyBoT(ctx context.Context, ra, dec, radius float64, epoch ti
 	b, err := c.get(ctx, or(c.SkyBoTURL, skybotURL)+"?"+q.Encode())
 	if err != nil {
 		return nil, fmt.Errorf("skybot: %w", err)
+	}
+	if len(b) == 0 {
+		return nil, nil
 	}
 	return ParseSkyBoT(b)
 }

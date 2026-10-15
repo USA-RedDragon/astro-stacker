@@ -250,3 +250,13 @@ func TestClippedMeanKeepsAStarsSeeing(t *testing.T) {
 		}
 	}
 }
+
+func TestSkyBoTWithNoBodiesIsNoneNotAFailure(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer srv.Close()
+	bs, err := (&Catalogs{SkyBoTURL: srv.URL}).SkyBoT(context.Background(), 313.6, 44.8, 2, time.Date(2026, 10, 8, 4, 0, 0, 0, time.UTC))
+	if err != nil || len(bs) != 0 {
+		t.Errorf("SkyBoT's 204 No Content: %v %v", bs, err)
+	}
+}
