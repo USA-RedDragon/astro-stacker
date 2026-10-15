@@ -299,6 +299,12 @@ discoveries:
   # tns-instrument-id: ""
   # Minor Planet Center observatory code for ADES reports of moving objects; empty shows Not set
   # mpc-code: ""
+  # Base URL of the local known asteroids and comets service (astro-small-bodies), e.g. http://astro-small-bodies:8080; empty asks IMCCE's SkyBoT
+  # small-bodies-url: ""
+  # Ask the local known asteroids and comets service for positions seen from the observatory (the discover site, or the newest light's SITELAT and SITELONG) instead of the geocentre; the site is never sent to a public service
+  topocentric: false
+  # Public services also asked for each night's known asteroids and comets, from the geocentre, logging how they differ from the local service: skybot, sbident
+  # cross-check: []
 # One global set of scheduling settings for every Target Scheduler project, with each project's minimum time at the measured switching floor and its minimum altitude at the hard limit
 scheduling:
   # Keep every project on the global scheduling settings and its automatic minimum time and minimum altitude through project.batchedit commands: off, dry-run (log the edits) or on
