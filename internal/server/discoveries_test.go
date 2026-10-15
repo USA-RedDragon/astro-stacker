@@ -95,7 +95,8 @@ func newDiscoveryAPI(t *testing.T) *discoveryAPI {
 	night := time.Date(2025, 2, 28, 0, 0, 0, 0, time.UTC)
 	depth := 20.2
 	run := app.DiscoveryRun{Object: "IC 3393 Panel 1", Night: night, Group: discoveries.GroupBroadband, Filters: "Luminance,Red", State: app.DiscoveryDone, NightSubs: 16,
-		RefSubs: 48, Depth: &depth, Candidates: 2, NewCandidates: 1, Checked: "VSX,SkyBoT", Funnel: `{"brighter":{"raw":3}}`}
+		RefSubs: 48, Depth: &depth, Candidates: 2, NewCandidates: 1, Checked: "VSX,SkyBoT", Funnel: `{"brighter":{"raw":3}}`,
+		MoverNullTracks: 0.33, MoverNullHits: 6, ChangeNullSubs: 51, ChangeNullFound: 2, ChangeNullSNR: 8.5}
 	if err := db.Create(&run).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +172,8 @@ func TestDiscoveryRunsAndRequests(t *testing.T) {
 	}
 	var runs []DiscoveryRun
 	a.get("/api/v1/discoveries/runs?night=2025-02-28", &runs)
-	if len(runs) != 1 || runs[0].Vetted != 1 || runs[0].Classes[discoveries.ClassNewVariable] != 1 {
+	if len(runs) != 1 || runs[0].Vetted != 1 || runs[0].Classes[discoveries.ClassNewVariable] != 1 ||
+		runs[0].MoverNull != (MoverNull{Tracks: 0.33, MaxHits: 6}) || runs[0].ChangeNull != (ChangeNull{Subs: 51, Found: 2, MaxSNR: 8.5}) {
 		t.Errorf("runs %+v", runs)
 	}
 	var nights []map[string]any
