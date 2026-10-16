@@ -261,6 +261,9 @@ func TestAnalyzeStars(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
+			if underRace && !c.ztf {
+				t.Skip("every survey together is too slow under the race detector; the ZTF case covers the same code")
+			}
 			var in []lc.Series
 			if c.ztf {
 				in = loadZTF(t, c.star)
@@ -319,6 +322,9 @@ func TestAndromedaHalfPeriod(t *testing.T) {
 
 func TestOwnTiming(t *testing.T) {
 	t.Parallel()
+	if underRace {
+		t.Skip("two full fits are too slow under the race detector")
+	}
 	s := star{andDir, 10.889321, 41.662433, 1}
 	r, err := Analyze(loadZTF(t, s), Options{})
 	if err != nil {
