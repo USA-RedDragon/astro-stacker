@@ -365,8 +365,8 @@ func checkSent(ctx context.Context, t *testing.T, wd *world, follow *discoveryfo
 // goes to the scheduler, and the follow-up night's comparison confirms it.
 func TestNewFindAlertsOnceAndIsConfirmedByItsFollowup(t *testing.T) {
 	t.Parallel()
-	if testing.Short() {
-		t.Skip("runs the night comparisons on a synthetic field")
+	if testing.Short() || underRace {
+		t.Skip("runs the night comparisons on a synthetic field, over 20 minutes under the race detector; the discoveries package's race tests run the comparison")
 	}
 	ctx := context.Background()
 	tonight := discoveryfollowup.Tonight(time.Now(), time.UTC)
