@@ -56,7 +56,10 @@ type ZTFManifest struct {
 	Radius   float64                 `json:"radius"`
 	Complete bool                    `json:"complete"`
 	Files    map[string]ZTFFileEntry `json:"files"`
-	Updated  time.Time               `json:"updated"`
+	// Quadrants are the light curve files that cover the footprint, kept
+	// so a resumed pull need not ask IRSA's image index again.
+	Quadrants []ZTFQuadrant `json:"quadrants,omitempty"`
+	Updated   time.Time     `json:"updated"`
 }
 
 // ZTFFileEntry is one ZTF light curve file (one field, CCD quadrant and
@@ -72,14 +75,16 @@ type ZTFFileEntry struct {
 	Source int64 `json:"source"`
 }
 
-type ztfQuadrant struct {
-	Field  int
-	CCD    int
-	Q      int
-	Filter string
+// ZTFQuadrant is one ZTF light curve file: field, CCD, quadrant and
+// filter code ("zg", "zr" or "zi").
+type ZTFQuadrant struct {
+	Field  int    `json:"field"`
+	CCD    int    `json:"ccd"`
+	Q      int    `json:"q"`
+	Filter string `json:"filter"`
 }
 
-func (q ztfQuadrant) stem(release string) string {
+func (q ZTFQuadrant) stem(release string) string {
 	return fmt.Sprintf("ztf_%06d_%s_c%02d_q%d_%s", q.Field, q.Filter, q.CCD, q.Q, release)
 }
 
@@ -160,7 +165,7 @@ func (f *Fetcher) ztfRelease(ctx context.Context) (string, error) {
 // ztfQuadrants asks IRSA's reference image index which ZTF fields, CCD
 // quadrants and filters touch the footprint; each has one light curve
 // file.
-func (f *Fetcher) ztfQuadrants(ctx context.Context, field Field) ([]ztfQuadrant, error) {
+func (f *Fetcher) ztfQuadrants(ctx context.Context, field Field) ([]ZTFQuadrant, error) {
 	q := url.Values{}
 	q.Set("POS", fmt.Sprintf("%.6f,%.6f", field.RA, field.Dec))
 	q.Set("SIZE", fmt.Sprintf("%.4f", 2*fieldRadius(field)))
@@ -180,8 +185,8 @@ func (f *Fetcher) ztfQuadrants(ctx context.Context, field Field) ([]ztfQuadrant,
 			return nil, fmt.Errorf("ZTF reference index: no %s column", c)
 		}
 	}
-	seen := map[ztfQuadrant]bool{}
-	var out []ztfQuadrant
+	seen := map[ZTFQuadrant]bool{}
+	var out []ZTFQuadrant
 	for _, r := range rows {
 		fl, e1 := strconv.Atoi(r[col["field"]])
 		cc, e2 := strconv.Atoi(r[col["ccdid"]])
@@ -190,13 +195,13 @@ func (f *Fetcher) ztfQuadrants(ctx context.Context, field Field) ([]ztfQuadrant,
 		if e1 != nil || e2 != nil || e3 != nil || len(fc) != 2 {
 			continue
 		}
-		k := ztfQuadrant{Field: fl, CCD: cc, Q: qq, Filter: fc}
+		k := ZTFQuadrant{Field: fl, CCD: cc, Q: qq, Filter: fc}
 		if !seen[k] {
 			seen[k] = true
 			out = append(out, k)
 		}
 	}
-	slices.SortFunc(out, func(a, b ztfQuadrant) int {
+	slices.SortFunc(out, func(a, b ZTFQuadrant) int {
 		return strings.Compare(a.stem(""), b.stem(""))
 	})
 	return out, nil
@@ -242,15 +247,21 @@ func (f *Fetcher) prefetchZTF(ctx context.Context, field Field) error {
 	if !same || m.Release != release {
 		m = &ZTFManifest{Release: release, RA: field.RA, Dec: field.Dec, Radius: fieldRadius(field), Files: map[string]ZTFFileEntry{}}
 	}
-	quads, err := f.ztfQuadrants(ctx, field)
-	if err != nil {
-		return err
+	if len(m.Quadrants) == 0 {
+		quads, err := f.ztfQuadrants(ctx, field)
+		if err != nil {
+			return err
+		}
+		m.Quadrants = quads
+		if err := f.putZTFManifest(ctx, field, m); err != nil {
+			return err
+		}
 	}
 	dirs, err := f.ztfFieldDirs(ctx, release)
 	if err != nil {
 		return err
 	}
-	for _, q := range quads {
+	for _, q := range m.Quadrants {
 		stem := q.stem(release)
 		if _, ok := m.Files[stem]; ok {
 			continue
@@ -312,7 +323,7 @@ func (f *Fetcher) download(ctx context.Context, u string) (*os.File, int64, erro
 	return tmp, n, nil
 }
 
-func (f *Fetcher) pullZTFFile(ctx context.Context, field Field, release, u string, q ztfQuadrant) (ZTFFileEntry, error) {
+func (f *Fetcher) pullZTFFile(ctx context.Context, field Field, release, u string, q ZTFQuadrant) (ZTFFileEntry, error) {
 	var e ZTFFileEntry
 	file, size, err := f.download(ctx, u)
 	if err != nil {
@@ -358,7 +369,7 @@ func (f *Fetcher) tileKey(field Field, release string, pix int64, stem string) s
 
 // readZTFFile keeps the light curves inside the footprint, their epochs
 // with catflags 0, grouped by tile.
-func (f *Fetcher) readZTFFile(r io.ReaderAt, size int64, field Field, q ztfQuadrant) (map[int64][]*ztfObject, error) {
+func (f *Fetcher) readZTFFile(r io.ReaderAt, size int64, field Field, q ZTFQuadrant) (map[int64][]*ztfObject, error) {
 	pf, err := parquet.OpenFile(r, size)
 	if err != nil {
 		return nil, err
