@@ -11,6 +11,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/ephem"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
+	"github.com/klauspost/compress/zstd"
 )
 
 // Field is one target's footprint on the sky, in degrees.
@@ -106,6 +107,9 @@ type Fetcher struct {
 	atlasGap  time.Duration
 	lastATLAS time.Time
 	pullMu    sync.Mutex
+	zmu       sync.Mutex
+	encs      map[zstd.EncoderLevel]*zstd.Encoder
+	dec       *zstd.Decoder
 }
 
 // ZTF is the star's ZTF light curves, from the field's ZTF files.
