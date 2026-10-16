@@ -152,7 +152,7 @@ internal/horizonsurvey/camera.go	115	111
 internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
-internal/horizonsurvey/nina.go	101	83
+internal/horizonsurvey/nina.go	101	81
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
@@ -304,7 +304,7 @@ internal/sky/frame.go	40	40
 internal/sky/sky.go	92	91
 internal/sky/sunset.go	20	20
 internal/skybright/skybright.go	114	111
-internal/skycutout/render.go	158	146
+internal/skycutout/render.go	158	147
 internal/skycutout/s3tiles.go	10	0
 internal/skycutout/skycutout.go	207	181
 internal/skyevents/autoplan.go	110	89
