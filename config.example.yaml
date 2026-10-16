@@ -353,3 +353,13 @@ discovery-alerts:
   followup: false
   # Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later
   interval-minutes: 5
+# Automatic checks of every new discovery: image checks, its own light curve, ZTF, ATLAS, TESS and NEOWISE history with a period search, catalogs and known moving objects, with a suggested verdict
+vetting:
+  # ATLAS forced photometry API token; empty skips ATLAS
+  # atlas-token: "(secret)"
+  # Cores the vetting job uses to read subs and fit light curves
+  threads: 4
+  # Scratch directory for survey files while a field is pulled; the largest is under 1 GB
+  work-dir: "/tmp/vetting"
+  # Path in the processed bucket where survey data pulled per target field is kept, zstd compressed
+  cache-prefix: "vetting/cache/"
