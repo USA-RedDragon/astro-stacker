@@ -41,11 +41,12 @@ type listResult struct {
 }
 
 // bucketServer is an S3 bucket that lists and serves objects, and records
-// the prefixes listed.
+// the prefixes listed and where each listing started.
 type bucketServer struct {
-	mu       sync.Mutex
-	objs     map[string][]byte
-	prefixes []string
+	mu         sync.Mutex
+	objs       map[string][]byte
+	prefixes   []string
+	startAfter map[string]string
 }
 
 func (b *bucketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,11 +54,17 @@ func (b *bucketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer b.mu.Unlock()
 	key := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/astro"), "/")
 	if key == "" && r.URL.Query().Has("list-type") {
-		prefix := r.URL.Query().Get("prefix")
+		prefix, after := r.URL.Query().Get("prefix"), r.URL.Query().Get("start-after")
 		b.prefixes = append(b.prefixes, prefix)
+		if after != "" {
+			if b.startAfter == nil {
+				b.startAfter = map[string]string{}
+			}
+			b.startAfter[prefix] = after
+		}
 		res := listResult{Name: "astro", Prefix: prefix, MaxKeys: 1000}
 		for k, v := range b.objs {
-			if strings.HasPrefix(k, prefix) {
+			if strings.HasPrefix(k, prefix) && k > after {
 				res.Contents = append(res.Contents, listedObject{Key: k, ETag: etagOf(v), Size: int64(len(v)),
 					LastModified: time.Now().UTC().Format(time.RFC3339)})
 			}
@@ -83,6 +90,11 @@ func etagOf(b []byte) string {
 
 func fitsLight(t *testing.T, object string) []byte {
 	t.Helper()
+	return fitsFrame(t, "LIGHT", object)
+}
+
+func fitsFrame(t *testing.T, typ, object string) []byte {
+	t.Helper()
 	const w, h = 64, 64
 	px := make([]float32, w*h)
 	for i := range px {
@@ -93,7 +105,7 @@ func fitsLight(t *testing.T, object string) []byte {
 	}
 	var buf bytes.Buffer
 	if err := imagedata.WriteFITS(&buf, w, h, 1, px, []imagedata.Card{
-		imagedata.StringCard("IMAGETYP", "LIGHT", ""),
+		imagedata.StringCard("IMAGETYP", typ, ""),
 		imagedata.StringCard("OBJECT", object, ""),
 		imagedata.StringCard("FILTER", "L", ""),
 		imagedata.FloatCard("EXPTIME", 300, ""),
@@ -105,8 +117,9 @@ func fitsLight(t *testing.T, object string) []byte {
 }
 
 // IndexRecent lists only the folders of recent lights and of the targets
-// Target Scheduler imaged lately, indexes what is new there, measures its
-// starlight and wakes the loops waiting on new frames.
+// Target Scheduler imaged lately, and the calibration keys dated within
+// RecentWindow, indexes what is new there, measures its starlight and wakes
+// the loops waiting on new frames.
 func TestIndexRecent(t *testing.T) {
 	t.Parallel()
 	old := fitsLight(t, "M31")
@@ -116,6 +129,9 @@ func TestIndexRecent(t *testing.T) {
 		"M31/LIGHT/notes.txt":        []byte("x"),
 		"NGC 7000/LIGHT/first.fits":  fitsLight(t, "NGC 7000"),
 		"Stale/LIGHT/unindexed.fits": fitsLight(t, "Stale"),
+		"DARK/" + time.Now().UTC().Format("2006-01-02_15-04-05") + "_L_-10.00_300.00s_0000.fits": fitsFrame(t, "DARK", ""),
+		"BIAS/" + time.Now().UTC().Format("2006-01-02_15-04-05") + "_L_-10.00_0.00s_0000.fits":   fitsFrame(t, "BIAS", ""),
+		"DARK/2020-01-01_00-00-00_L_-10.00_300.00s_0000.fits":                                    fitsFrame(t, "DARK", ""),
 	}}
 	srv := httptest.NewServer(bucket)
 	t.Cleanup(srv.Close)
@@ -152,8 +168,8 @@ func TestIndexRecent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 {
-		t.Errorf("indexed %d, want 2: new.fits and first.fits", n)
+	if n != 4 {
+		t.Errorf("indexed %d, want 4: new.fits, first.fits and the new dark and bias", n)
 	}
 	select {
 	case <-woke:
@@ -162,9 +178,14 @@ func TestIndexRecent(t *testing.T) {
 	}
 	bucket.mu.Lock()
 	listed := slices.Sorted(slices.Values(bucket.prefixes))
+	after := bucket.startAfter
 	bucket.mu.Unlock()
-	if want := []string{"M31/", "NGC 7000/"}; !slices.Equal(listed, want) {
+	if want := []string{"BIAS/", "DARK/", "M31/", "NGC 7000/"}; !slices.Equal(listed, want) {
 		t.Errorf("listed %q, want %q", listed, want)
+	}
+	from := time.Now().UTC().Add(-RecentWindow - 24*time.Hour).Format(time.DateOnly)
+	if after["DARK/"] != "DARK/"+from || after["BIAS/"] != "BIAS/"+from || after["M31/"] != "" {
+		t.Errorf("listings started after %q, want the calibration folders from %s and the light folders from the start", after, from)
 	}
 	var frames []app.Frame
 	if err := db.Order("key").Find(&frames).Error; err != nil {
@@ -184,6 +205,18 @@ func TestIndexRecent(t *testing.T) {
 		case f.PhotometryRev == nil || *f.PhotometryRev != measure.PhotometryRevision:
 			t.Errorf("%s starlight not measured: rev %v", k, f.PhotometryRev)
 		}
+	}
+	n = 0
+	for k, f := range got {
+		if strings.HasPrefix(k, "DARK/") || strings.HasPrefix(k, "BIAS/") {
+			n++
+			if f.Type != strings.TrimSuffix(k[:5], "/") {
+				t.Errorf("%s indexed as %q", k, f.Type)
+			}
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d calibration frames indexed, want the new dark and bias only", n)
 	}
 	if _, ok := got["Stale/LIGHT/unindexed.fits"]; ok {
 		t.Error("a folder with no recent lights was listed")

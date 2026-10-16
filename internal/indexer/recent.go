@@ -19,20 +19,48 @@ import (
 // keyChunk bounds how many keys go in one IN list.
 const keyChunk = 1000
 
+// calibrationFolders hold darks and bias frames, keyed by the local date
+// and time they were taken (DARK/2026-10-15_07-04-06_...).
+func calibrationFolders() []string { return []string{"DARK/", "BIAS/"} }
+
+// recentListings are the listings of the fast pass: the folders of recent
+// lights, and the keys in the calibration folders dated within
+// RecentWindow. Calibration keys start one day earlier than the window, as
+// their dates are local time.
+func (ix *Indexer) recentListings(ctx context.Context, now time.Time) ([]minio.ListObjectsOptions, error) {
+	prefixes, err := ix.recentPrefixes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cal := calibrationFolders()
+	out := make([]minio.ListObjectsOptions, 0, len(prefixes)+len(cal))
+	for _, p := range prefixes {
+		if !slices.Contains(cal, p) {
+			out = append(out, minio.ListObjectsOptions{Prefix: p, Recursive: true})
+		}
+	}
+	from := now.UTC().Add(-RecentWindow - 24*time.Hour).Format(time.DateOnly)
+	for _, p := range cal {
+		out = append(out, minio.ListObjectsOptions{Prefix: p, StartAfter: p + from, Recursive: true})
+	}
+	return out, nil
+}
+
 // IndexRecent indexes new and changed images in the folders of targets
-// imaged lately, measures the new lights' starlight, and returns how many
-// frames it indexed. It lists those few folders rather than the bucket, and
+// imaged lately and in the calibration folders, measures the new lights'
+// starlight, and returns how many frames it indexed. It lists those few
+// folders, and only recent calibration keys, rather than the bucket, and
 // never removes frames: the bucket scan does that.
 func (ix *Indexer) IndexRecent(ctx context.Context) (int, error) {
-	prefixes, err := ix.recentPrefixes(ctx)
+	listings, err := ix.recentListings(ctx, time.Now())
 	if err != nil {
 		return 0, err
 	}
 	var objs []minio.ObjectInfo
-	for _, prefix := range prefixes {
-		for obj := range ix.client.ListObjects(ctx, ix.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+	for _, opts := range listings {
+		for obj := range ix.client.ListObjects(ctx, ix.bucket, opts) {
 			if obj.Err != nil {
-				return 0, fmt.Errorf("list %q: %w", prefix, obj.Err)
+				return 0, fmt.Errorf("list %q: %w", opts.Prefix, obj.Err)
 			}
 			if Indexable(obj.Key) {
 				objs = append(objs, obj)
