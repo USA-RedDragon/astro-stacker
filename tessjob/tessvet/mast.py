@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 TESSCUT = "https://mast.stsci.edu/tesscut/api/v0.1"
 HLSP = "https://archive.stsci.edu/hlsps/tglc"
 HLSP_MAX_SECTOR = 55
+RETRY = (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError)
 USER_AGENT = "astro-tess-vetting/1 (+https://github.com/USA-RedDragon/astro-stacker)"
 
 
@@ -50,7 +51,7 @@ class Client:
                     return r
                 last = f"HTTP {r.status_code}"
                 r.close()
-            except (requests.ConnectionError, requests.Timeout) as e:
+            except RETRY as e:
                 last = type(e).__name__
             if attempt + 1 < self.attempts:
                 wait = self.backoff * 2 ** attempt
@@ -99,7 +100,7 @@ class Client:
                         f.write(chunk)
                 os.replace(tmp, path)
                 return
-            except (requests.ConnectionError, requests.Timeout) as e:
+            except RETRY as e:
                 if attempt + 1 == streams:
                     raise Transient(f"{url}: {type(e).__name__} while downloading") from e
                 log.warning("download of %s broke (%s); retry", url, type(e).__name__)

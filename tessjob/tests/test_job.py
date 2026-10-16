@@ -207,9 +207,11 @@ def request(slug="m31", gid=GID, when="2026-10-15T12:00:00Z", **kw):
     return doc
 
 
-def fake_runner(tmp, calls, produce=(GID, NB), fail=None, dip=20):
+def fake_runner(tmp, calls, produce=(GID, NB), fail=None, dip=20, positions=None):
     def run(spec):
         calls.append(dict(spec))
+        if isinstance(fail, BaseException):
+            raise fail
         if fail:
             return fail
         lcs = {}
@@ -221,7 +223,10 @@ def fake_runner(tmp, calls, produce=(GID, NB), fail=None, dip=20):
         np.savez(epsf, e_psf=np.zeros((2, 2)))
         with open(spec["catalog"], "wb") as f:
             f.write(b"catalog")
-        return {"ok": True, "lcs": lcs, "errors": {}, "epsf": str(epsf), "camera": 2, "ccd": 4, "n_gaia": 10}
+        pos = {g: [45.0, 45.0] for g in lcs}
+        pos.update(positions or {})
+        return {"ok": True, "lcs": lcs, "errors": {}, "epsf": str(epsf), "camera": 2, "ccd": 4, "n_gaia": 10,
+                "positions": pos}
     return run
 
 
@@ -313,9 +318,10 @@ def test_permanent_and_transient_failures(tmp_path):
     for i in range(3):
         make_job(tmp_path, st2, FakeMast(tmp_path, SECTORS[1:]), fake_runner(tmp_path, calls, fail=flaky)).run()
         if i < 2:
-            assert st2.get_json(key)["attempts"] == {"57": i + 1}
+            assert st2.get_json(f"vetting/tess/attempts/{GID}.json") == {"57": i + 1}
             assert st2.get_json(f"vetting/cache/m31/tess/{GID}/status.json")["sectors_failed"] == {}
     assert not st2.exists(key)
+    assert not st2.exists(f"vetting/tess/attempts/{GID}.json")
     assert "gave up after 3 runs" in st2.get_json(f"vetting/cache/m31/tess/{GID}/status.json")["sectors_failed"]["57"]
 
 
@@ -365,3 +371,32 @@ def test_local_store_roundtrip(tmp_path):
         s.put("../x", b"")
     assert zst(b"") is not None
     _ = io, json
+
+
+class Killed(BaseException):
+    pass
+
+
+def test_runs_killed_mid_sector_still_use_up_attempts(tmp_path):
+    st = MemStore()
+    key = f"vetting/tess/requests/{GID}.json"
+    st.put_json(key, request(neighbours=[]))
+    calls = []
+    for _ in range(3):
+        with pytest.raises(Killed):
+            make_job(tmp_path, st, FakeMast(tmp_path, SECTORS[1:]), fake_runner(tmp_path, calls, fail=Killed())).run()
+    make_job(tmp_path, st, FakeMast(tmp_path, SECTORS[1:]), fake_runner(tmp_path, calls)).run()
+    assert len(calls) == 3
+    status = st.get_json(f"vetting/cache/m31/tess/{GID}/status.json")
+    assert status["sectors_failed"] == {"57": "gave up after 3 runs that did not finish"}
+    assert not st.exists(key)
+
+
+@pytest.mark.parametrize("doc", [["not", "an", "object"], request(slug="m31\n"), request(gid="123\n"),
+                                 request(neighbours=["x", None])])
+def test_odd_requests_do_not_stop_the_queue(tmp_path, doc):
+    st = MemStore()
+    st.put_json("vetting/tess/requests/a.json", doc)
+    st.put_json("vetting/tess/requests/b.json", request(gid="5", when="2030-01-01T00:00:00Z", neighbours=[]))
+    make_job(tmp_path, st, FakeMast(tmp_path, []), fake_runner(tmp_path, [])).run()
+    assert st.exists("vetting/cache/m31/tess/5/status.json")
