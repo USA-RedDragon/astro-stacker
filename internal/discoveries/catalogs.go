@@ -107,8 +107,17 @@ func (c *Catalogs) do(req *http.Request) ([]byte, error) {
 	case http.StatusNoContent:
 		return nil, nil
 	}
-	return nil, fmt.Errorf("%s: %s", req.URL.Host, resp.Status)
+	return nil, &StatusError{Host: req.URL.Host, Status: resp.Status, Code: resp.StatusCode, Body: string(b[:min(len(b), 300)])}
 }
+
+// StatusError is an HTTP answer other than 200 or 204.
+type StatusError struct {
+	Host, Status string
+	Code         int
+	Body         string
+}
+
+func (e *StatusError) Error() string { return e.Host + ": " + e.Status }
 
 // vizierTSV parses VizieR's tab separated output into rows by column name.
 func vizierTSV(b []byte) ([]map[string]string, error) {
