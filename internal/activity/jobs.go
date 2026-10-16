@@ -112,7 +112,7 @@ func (j *Jobs) Refresh(ctx context.Context) error {
 		}
 		if info.Running {
 			if oom := j.oom(ctx, w.Namespace, mine); oom > 0 {
-				info.Warning = fmt.Sprintf("%d %s ran out of memory and %s replaced", oom, plural(oom, "worker", "workers"), plural(oom, "was", "were"))
+				info.Warning = fmt.Sprintf("%d %s ran out of memory", oom, plural(oom, "worker", "workers"))
 			}
 		}
 		out[w.Kind] = merge(out[w.Kind], info)
@@ -275,7 +275,10 @@ func (ji JobInfo) Apply(it *Item) {
 	if ji.LastFailed != nil {
 		it.LastFailed, it.LastError = ji.LastFailed, ji.LastError
 	}
-	if ji.Warning != "" {
+	switch {
+	case ji.Warning != "" && it.Warning != "":
+		it.Warning += "; " + ji.Warning
+	case ji.Warning != "":
 		it.Warning = ji.Warning
 	}
 }

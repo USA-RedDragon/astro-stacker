@@ -301,6 +301,9 @@ func (f *Fetcher) prefetchZTF(ctx context.Context, field Field, progress func(do
 			return err
 		}
 	}
+	if progress != nil {
+		progress(len(m.Quadrants), len(m.Quadrants))
+	}
 	m.Complete = true
 	return f.putZTFManifest(ctx, field, m)
 }

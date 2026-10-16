@@ -99,6 +99,9 @@ func newVetCommand() *cobra.Command {
 			svc.Report.Start(cmd.Context())
 			st, err := svc.Run(cmd.Context(), vetting.RunOptions{Objects: objects, IDs: ids, Budget: budget})
 			svc.Report.Finish(cmd.Context(), err)
+			if host, herr := os.Hostname(); herr == nil {
+				appStore.DB().Where("kind = ? AND worker = ?", activity.KindVetting, host).Delete(&app.JobProgress{})
+			}
 			slog.Info("Vetting done", "sources", st.Sources, "done", st.Done, "failed", st.Failed)
 			return err
 		},
