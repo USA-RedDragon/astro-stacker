@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
-from . import core, grid, query
+from . import core, grid, progress, query
 from .engine import Engine
 from .orbits import Orbits, calendar_jd
 from .store import Store
@@ -276,6 +276,11 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/healthz":
                 ok = self.state.gen is not None
                 return self._send(200 if ok else 503, b"ok\n" if ok else b"loading\n", "text/plain")
+            if u.path == "/progress":
+                body = progress.read(self.state.store)
+                if body is None:
+                    return self._send(404, b"no update has run\n", "text/plain")
+                return self._send(200, body, "application/json")
             if u.path == "/v1/status":
                 g = self.state.gen
                 doc = {"grid": g.build if g else None, "orbits": g.date if g else None, "objects": len(g.cat) if g else 0}
