@@ -63,6 +63,9 @@ func (o *ztfObject) magErr(i int) float64 { return math.Exp(float64(o.Err[i])/er
 
 // sort puts the epochs in time order.
 func (o *ztfObject) sort() {
+	if slices.IsSorted(o.T) {
+		return
+	}
 	idx := make([]int, len(o.T))
 	for i := range idx {
 		idx[i] = i

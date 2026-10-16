@@ -360,17 +360,16 @@ func (f *Fetcher) pullZTFFile(ctx context.Context, field Field, release, u strin
 	}
 	defer file.Close()
 	e.Source = size
-	tiles, err := f.readZTFFile(file, size, field, q)
-	if err != nil {
+	sp := &tileSpill{dir: f.WorkDir, tiles: map[int64]*spillFile{}}
+	defer sp.close()
+	if err := f.readZTFFile(file, size, field, q, sp.add); err != nil {
 		return e, err
 	}
-	keys := make([]int64, 0, len(tiles))
-	for p := range tiles {
-		keys = append(keys, p)
-	}
-	slices.Sort(keys)
-	for _, p := range keys {
-		objs := tiles[p]
+	for _, p := range sp.keys() {
+		objs, err := sp.read(p)
+		if err != nil {
+			return e, err
+		}
 		for _, o := range objs {
 			e.Epochs += len(o.T)
 		}
@@ -392,19 +391,18 @@ func (f *Fetcher) tileKey(field Field, release string, pix int64, stem string) s
 	return fmt.Sprintf("%s%s/%d/%s.bin.zst", f.dir(field, "ztf"), release, pix, stem)
 }
 
-// readZTFFile keeps the light curves inside the footprint, their epochs
-// with catflags 0, grouped by tile.
-func (f *Fetcher) readZTFFile(r io.ReaderAt, size int64, field Field, q ZTFQuadrant) (map[int64][]*ztfObject, error) {
+// readZTFFile hands emit each light curve inside the footprint, with its
+// epochs of catflags 0, and the tile it falls in, one at a time.
+func (f *Fetcher) readZTFFile(r io.ReaderAt, size int64, field Field, q ZTFQuadrant, emit func(int64, *ztfObject) error) error {
 	pf, err := parquet.OpenFile(r, size)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	h, err := f.helio()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	limit := (fieldRadius(field) + ztfMargin) * 3600
-	out := map[int64][]*ztfObject{}
 	rd := parquet.NewGenericReader[ztfRow](pf)
 	defer rd.Close()
 	buf := make([]ztfRow, parquetBatch)
@@ -428,21 +426,22 @@ func (f *Fetcher) readZTFFile(r io.ReaderAt, size int64, field Field, q ZTFQuadr
 				}
 				utc, err := h.utc(row.HMJD.List[j].Item, ra, dec)
 				if err != nil {
-					return nil, err
+					return err
 				}
 				o.add(utc, mag, me)
 			}
 			if len(o.T) == 0 {
 				continue
 			}
-			p := tileOf(ra, dec)
-			out[p] = append(out[p], o)
+			if err := emit(tileOf(ra, dec), o); err != nil {
+				return err
+			}
 		}
 		if errors.Is(rerr, io.EOF) {
-			return out, nil
+			return nil
 		}
 		if rerr != nil {
-			return nil, rerr
+			return rerr
 		}
 	}
 }
