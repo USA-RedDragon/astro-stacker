@@ -207,7 +207,7 @@ def request(slug="m31", gid=GID, when="2026-10-15T12:00:00Z", **kw):
     return doc
 
 
-def fake_runner(tmp, calls, produce=(GID, NB), fail=None):
+def fake_runner(tmp, calls, produce=(GID, NB), fail=None, dip=20):
     def run(spec):
         calls.append(dict(spec))
         if fail:
@@ -215,7 +215,7 @@ def fake_runner(tmp, calls, produce=(GID, NB), fail=None):
         lcs = {}
         for gid in produce:
             p = tmp / f"tglc-{gid}-{spec['sector']}.fits"
-            write_tglc_fits(p, gid, spec["sector"], dip=[20])
+            write_tglc_fits(p, gid, spec["sector"], dip=[dip])
             lcs[gid] = str(p)
         epsf = tmp / "epsf_field_sector_57_abc.npz"
         np.savez(epsf, e_psf=np.zeros((2, 2)))
@@ -269,7 +269,9 @@ def test_hlsp_then_tglc_then_cache_reuse(tmp_path):
     fm._sectors = SECTORS[1:]
     st.put_json(f"vetting/tess/requests/{other}.json",
                 request(gid=other, ra=10.95, dec=41.70, neighbours=[]))
-    make_job(tmp_path, st, fm, fake_runner(tmp_path, calls, produce=(other,))).run()
+    before = st.get(f"vetting/cache/m31/tess/lc/s0057/{GID}.csv.zst")
+    make_job(tmp_path, st, fm, fake_runner(tmp_path, calls, produce=(other, GID), dip=30)).run()
+    assert st.get(f"vetting/cache/m31/tess/lc/s0057/{GID}.csv.zst") == before
     assert len(fm.cutouts) == 1
     assert calls[0]["reuse"] is True and calls[0]["epsf_name"] == "epsf_field_sector_57_abc.npz"
     assert calls[0]["names"] == [other] and calls[0]["field_mag"] is None

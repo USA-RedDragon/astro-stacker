@@ -273,10 +273,15 @@ class Job:
                 if res.get("permanent"):
                     raise Permanent(f"tglc: {res.get('error')}")
                 raise RuntimeError(f"tglc: {res.get('error')}")
+            new = 0
             for gid, path in sorted(res["lcs"].items()):
+                key = f"{base}/lc/s{n:04d}/{gid}.csv.zst"
+                if self.store.exists(key):
+                    continue
                 csv, _ = lightcurve.from_fits(path)
-                self.store.put_zst(f"{base}/lc/s{n:04d}/{gid}.csv.zst", csv)
-            log.info("s%04d: %d light curves cached for the field", n, len(res["lcs"]))
+                self.store.put_zst(key, csv)
+                new += 1
+            log.info("s%04d: %d of %d light curves new to the field cache", n, new, len(res["lcs"]))
             if req.gaia_id in res.get("errors", {}):
                 raise Permanent(f"tglc: {res['errors'][req.gaia_id]}")
             if not spec["reuse"]:
