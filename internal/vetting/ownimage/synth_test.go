@@ -12,6 +12,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 )
 
@@ -26,6 +27,8 @@ const (
 	spotX      = 180.3
 	spotY      = 140.6
 	flaggedDay = "2025-06-03"
+	newX       = 232.4
+	newY       = 196.7
 )
 
 type synthStar struct {
@@ -41,6 +44,7 @@ type synthSub struct {
 	hotSpot    float64
 	sensorHot  float64
 	streak     float64
+	transient  float64
 	seed       uint64
 }
 
@@ -66,7 +70,7 @@ func synthWCS() *discoveries.WCS {
 	return w
 }
 
-func newField() *synthField {
+func newSynth() *synthField {
 	f := &synthField{w: synthWCS(), blobs: map[string][]byte{}}
 	f.stars = append(f.stars, synthStar{x: spotX, y: spotY, g: 15, bprp: 1})
 	for _, p := range [][2]float64{{60, 60}, {300, 60}, {60, 220}, {300, 220}, {110, 140}, {250, 140}, {180, 50}, {180, 230}} {
@@ -120,6 +124,7 @@ func (f *synthField) render(s synthSub) *discoveries.Plane {
 		}
 		gaussian(p, st.x, st.y, s.sigma, fl)
 	}
+	gaussian(p, newX, newY, s.sigma, s.transient*s.tr)
 	cx, cy := int(math.Round(spotX)), int(math.Round(spotY))
 	p.Data[cy*synthW+cx] += float32(s.hotSpot)
 	if s.sensorHot > 0 {
@@ -221,7 +226,7 @@ func synthNights() []time.Time {
 func (f *synthField) spot(sign int, dm float64) Spot {
 	ra, dec := f.w.SkyOf(spotX, spotY)
 	g := 15.0
-	return Spot{SourceID: 7, Object: synthObj, Kind: "change", RA: ra, Dec: dec, GaiaG: &g, Nights: []Night{{
+	return Spot{SourceID: 7, Object: synthObj, Kind: app.DiscoveryKindChange, RA: ra, Dec: dec, GaiaG: &g, Nights: []Night{{
 		Night: day(flaggedDay), Group: discoveries.GroupBroadband, X: spotX, Y: spotY, Sign: sign, DeltaMag: &dm,
 		RunAt: day("2025-06-05"),
 	}}}
@@ -268,7 +273,7 @@ func want(t *testing.T, r Result, id string, s check.Status, has ...string) {
 
 func TestEclipseIsMeasuredAndPasses(t *testing.T) {
 	t.Parallel()
-	f := newField()
+	f := newSynth()
 	f.addNights(synthNights(), 6)
 	for i := range f.subs {
 		if nightKey(f.subs[i].Night) == flaggedDay {
@@ -306,7 +311,7 @@ func TestEclipseIsMeasuredAndPasses(t *testing.T) {
 
 func TestContaminatedReferenceFails(t *testing.T) {
 	t.Parallel()
-	f := newField()
+	f := newSynth()
 	f.addNights(synthNights(), 6)
 	for i := range f.subs {
 		if n := nightKey(f.subs[i].Night); n == "2025-01-02" || n == "2025-01-05" {
@@ -326,7 +331,7 @@ func TestContaminatedReferenceFails(t *testing.T) {
 
 func TestClippedOutlierDoesNotFailARealChange(t *testing.T) {
 	t.Parallel()
-	f := newField()
+	f := newSynth()
 	f.addNights(synthNights(), 6)
 	for i := range f.subs {
 		if nightKey(f.subs[i].Night) == flaggedDay {
@@ -356,7 +361,7 @@ func darkFITS(t *testing.T, x, y int) []byte {
 
 func TestHotPixelOnTheSensorFails(t *testing.T) {
 	t.Parallel()
-	f := newField()
+	f := newSynth()
 	f.addNights(synthNights(), 6)
 	f.hotSX, f.hotSY = int(math.Round(spotX))-6, int(math.Round(spotY))-5
 	f.blobs[darkKey] = darkFITS(t, f.hotSX, f.hotSY)
@@ -380,7 +385,7 @@ func TestHotPixelOnTheSensorFails(t *testing.T) {
 
 func TestSatelliteTrailFails(t *testing.T) {
 	t.Parallel()
-	f := newField()
+	f := newSynth()
 	f.addNights(synthNights(), 6)
 	for i := range f.subs {
 		if nightKey(f.subs[i].Night) == flaggedDay && i%6 == 2 {
@@ -396,7 +401,7 @@ func TestSatelliteTrailFails(t *testing.T) {
 
 func TestMoverAndOutsideAreNotMeasured(t *testing.T) {
 	t.Parallel()
-	f := newField()
+	f := newSynth()
 	f.addNights(synthNights()[:3], 2)
 	mover := f.spot(1, -0.3)
 	mover.Kind = "mover"
@@ -453,3 +458,4 @@ func TestInRefJudgesLateSubs(t *testing.T) {
 		}
 	}
 }
+

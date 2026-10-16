@@ -36,14 +36,18 @@ func measure(ctx context.Context, d Data, object string, spots []Spot, opts Opti
 	}
 	plans := make([]*spotPlan, len(spots))
 	for i, s := range spots {
-		if s.Kind == app.DiscoveryKindMover {
-			plans[i] = &spotPlan{spot: s}
-			continue
-		}
-		if plans[i], err = planSpot(ctx, d, w, width, height, subs, s, refSubs); err != nil {
-			return nil, fmt.Errorf("plan source %d: %w", s.SourceID, err)
+		plans[i] = newSpotPlan(w, width, height, subs, s, refSubs)
+	}
+	f, err := newField(ctx, d, w, width, height, plans)
+	if err != nil {
+		return nil, fmt.Errorf("the target's Gaia stars: %w", err)
+	}
+	for _, sp := range plans {
+		if sp.inFrame {
+			f.pickComps(sp)
 		}
 	}
+	f.shapes(plans)
 	if err := stream(ctx, d, subs, plans, opts.Threads); err != nil {
 		return nil, err
 	}

@@ -77,7 +77,46 @@ func annulus(p *discoveries.Plane, x, y float64) (bg, noise float64) {
 	return median(v), robustStd(v)
 }
 
-func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int) *rec {
+type shapeFit struct {
+	sigma, sx, sy float64
+	ok            bool
+}
+
+type fitKey struct {
+	t *tile
+	m *starModel
+}
+
+// subFits fits each tile's star width and shift once per sub, and each
+// star once per tile, however many spots use them.
+type subFits struct {
+	p      *discoveries.Plane
+	shapes map[*tile]shapeFit
+	stars  map[fitKey]fitOut
+}
+
+func (f *subFits) shape(t *tile) shapeFit {
+	if s, ok := f.shapes[t]; ok {
+		return s
+	}
+	var s shapeFit
+	s.sigma, s.sx, s.sy, s.ok = fitShape(f.p, t.shape)
+	f.shapes[t] = s
+	return s
+}
+
+func (f *subFits) star(t *tile, m *starModel) fitOut {
+	k := fitKey{t, m}
+	if o, ok := f.stars[k]; ok {
+		return o
+	}
+	s := f.shape(t)
+	o := fitStar(f.p, m, s.sigma, s.sx, s.sy, true)
+	f.stars[k] = o
+	return o
+}
+
+func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits *subFits) *rec {
 	cx, cy := int(math.Round(sp.x)), int(math.Round(sp.y))
 	if isNaN32(p.At(cx, cy)) {
 		return nil
@@ -88,15 +127,14 @@ func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int) *rec 
 		r.sensOK = true
 	}
 	measureLocal(p, sp, info, r)
-	sigma, sx, sy, ok := fitShape(p, sp.shape)
-	if ok {
-		r.sigma = sigma
-		o := fitStar(p, sp.target, sigma, sx, sy, true)
+	if sh := fits.shape(sp.tile); sh.ok {
+		r.sigma = sh.sigma
+		o := fits.star(sp.tile, sp.target)
 		r.flux, r.ferr, r.fluxOK = o.flux, o.err, o.ok
 		r.comps = make([]float64, len(sp.comps))
 		for j, c := range sp.comps {
 			r.comps[j] = math.NaN()
-			if o := fitStar(p, c, sigma, sx, sy, true); o.ok {
+			if o := fits.star(sp.tile, c); o.ok {
 				r.comps[j] = o.flux
 			}
 		}
@@ -191,11 +229,12 @@ func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads 
 					continue
 				}
 				info := subInfo{fm: footprint(p), sat: planeMax(p)}
+				fits := &subFits{p: p, shapes: map[*tile]shapeFit{}, stars: map[fitKey]fitOut{}}
 				for _, sp := range plans {
 					if !sp.inFrame {
 						continue
 					}
-					r := measureSpot(p, sp, info, i)
+					r := measureSpot(p, sp, info, i, fits)
 					mu.Lock()
 					sp.recs[i] = r
 					mu.Unlock()
