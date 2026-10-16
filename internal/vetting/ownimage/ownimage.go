@@ -148,6 +148,9 @@ type Result struct {
 // Options bound the work.
 type Options struct {
 	Threads int
+	// RefSubs is the most subs per filter a night's reference took, as
+	// the discoveries runner's setting; 0 is its default of 48.
+	RefSubs int
 }
 
 // Measure checks every spot of one target, reading each sub once.
