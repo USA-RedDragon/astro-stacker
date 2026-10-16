@@ -29,6 +29,7 @@ from .store import Base
 log = logging.getLogger(__name__)
 
 REQUESTS = "vetting/tess/requests/"
+ATTEMPTS = "vetting/tess/attempts/"
 CUTOUT_SIZE = 90
 LIMIT_MAG = 16.0
 EPSF_FACTOR = 2
@@ -50,6 +51,7 @@ class Config:
     field_mag: float | None = LIMIT_MAG
     threads: int = 4
     max_attempts: int = MAX_ATTEMPTS
+    grace_minutes: float = 180.0
 
 
 @dataclass
@@ -60,20 +62,20 @@ class Request:
     dec: float
     slug: str
     neighbours: list = field(default_factory=list)
-    attempts: dict = field(default_factory=dict)
-    raw: dict = field(default_factory=dict)
 
     @staticmethod
     def parse(key: str, doc: dict) -> "Request":
         gid = str(doc["gaia_id"]).strip()
         slug = str(doc["field"]["slug"])
-        if not GAIA.match(gid):
+        if not GAIA.fullmatch(gid):
             raise ValueError(f"bad gaia_id {gid!r}")
-        if not SLUG.match(slug):
+        if not SLUG.fullmatch(slug):
             raise ValueError(f"bad field slug {slug!r}")
-        nb = [n for n in doc.get("neighbours") or [] if GAIA.match(str(n.get("gaia_id", "")))]
-        return Request(key, gid, float(doc["ra"]), float(doc["dec"]), slug, nb,
-                       dict(doc.get("attempts") or {}), doc)
+        nb = []
+        for n in doc.get("neighbours") or []:
+            if isinstance(n, dict) and GAIA.fullmatch(str(n.get("gaia_id", "")).strip()):
+                nb.append(dict(n, gaia_id=str(n["gaia_id"]).strip()))
+        return Request(key, gid, float(doc["ra"]), float(doc["dec"]), slug, nb)
 
 
 def now() -> str:
@@ -95,6 +97,7 @@ class Job:
         self.cfg = cfg
         self.runner = runner or self._run_tglc
         self.deadline = time.monotonic() + cfg.max_minutes * 60
+        self.hard_deadline = self.deadline + cfg.grace_minutes * 60
         os.makedirs(cfg.workdir, exist_ok=True)
         for name in os.listdir(cfg.workdir):
             if name.startswith(("tglc-", "hlsp-")):
@@ -111,10 +114,10 @@ class Job:
                 continue
             try:
                 doc = self.store.get_json(key)
-            except (ValueError, KeyError) as e:
+            except Exception as e:
                 log.error("unreadable request %s: %s", key, e)
                 continue
-            items.append((_when(doc, mtime), key, doc))
+            items.append((_when(doc, mtime) if isinstance(doc, dict) else mtime, key, doc))
         items.sort(key=lambda x: (x[0], x[1]))
         return [(k, d) for _, k, d in items]
 
@@ -126,7 +129,7 @@ class Job:
                 break
             try:
                 req = Request.parse(key, doc)
-            except (KeyError, TypeError, ValueError) as e:
+            except Exception as e:
                 log.error("dropping malformed request %s: %s", key, e)
                 self.store.delete(key)
                 continue
@@ -140,6 +143,8 @@ class Job:
     def process(self, req: Request) -> None:
         base = self.base(req)
         status_key = f"{base}/{req.gaia_id}/status.json"
+        attempts_key = f"{ATTEMPTS}{req.gaia_id}.json"
+        attempts = self.store.get_json(attempts_key) if self.store.exists(attempts_key) else {}
         status = {"gaia_id": req.gaia_id, "sectors_available": [], "sectors_done": [], "sectors_failed": {},
                   "updated_at": now()}
         if self.store.exists(status_key):
@@ -161,6 +166,13 @@ class Job:
             if self.out_of_time():
                 log.info("time budget used during %s", req.gaia_id)
                 return
+            tries = int(attempts.get(str(n), 0))
+            if tries >= self.cfg.max_attempts:
+                status["sectors_failed"][str(n)] = f"gave up after {tries} runs that did not finish"
+                self._status(status_key, status)
+                continue
+            attempts[str(n)] = tries + 1
+            self.store.put_json(attempts_key, attempts)
             t0 = time.time()
             try:
                 how = self.sector(req, s)
@@ -170,17 +182,14 @@ class Job:
                 status["sectors_failed"][str(n)] = str(e)
                 log.warning("%s s%04d failed: %s", req.gaia_id, n, e)
             except Exception as e:
-                tries = int(req.attempts.get(str(n), 0)) + 1
-                req.attempts[str(n)] = tries
-                log.warning("%s s%04d attempt %d failed: %s", req.gaia_id, n, tries, e)
-                if tries >= self.cfg.max_attempts:
-                    status["sectors_failed"][str(n)] = f"gave up after {tries} runs: {e}"[:300]
-                else:
-                    self.store.put_json(req.key, dict(req.raw, attempts=req.attempts))
+                log.warning("%s s%04d attempt %d failed: %s", req.gaia_id, n, tries + 1, e)
+                if tries + 1 >= self.cfg.max_attempts:
+                    status["sectors_failed"][str(n)] = f"gave up after {tries + 1} runs: {e}"[:300]
             self._status(status_key, status)
         finished = set(status["sectors_done"]) | {int(k) for k in status["sectors_failed"]}
         if finished >= set(status["sectors_available"]):
             self.store.delete(req.key)
+            self.store.delete(attempts_key)
             log.info("%s complete; request removed", req.gaia_id)
 
     def _status(self, key: str, status: dict) -> None:
@@ -328,7 +337,16 @@ class Job:
         t0 = time.time()
         p = subprocess.Popen([sys.executable, "-m", "tessvet.tglcrun", path], env=env)
         try:
-            _, rc, ru = os.wait4(p.pid, 0)
+            while True:
+                pid, rc, ru = os.wait4(p.pid, os.WNOHANG)
+                if pid:
+                    break
+                if time.monotonic() > self.hard_deadline:
+                    p.kill()
+                    os.wait4(p.pid, 0)
+                    log.warning("s%04d: tglc stopped at the time budget plus grace", spec["sector"])
+                    return {"ok": False, "permanent": False, "error": "tglc did not finish within the time budget"}
+                time.sleep(5)
         except BaseException:
             p.kill()
             p.wait()

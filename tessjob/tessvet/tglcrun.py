@@ -61,6 +61,11 @@ def _source_new(spec, log):
             src = fc.Source_cut(name, size=spec["size"], sector=spec["sector"], limit_mag=spec["limit_mag"],
                                 transient=None, ffi="SPOC")
             break
+        except json.JSONDecodeError as e:
+            last = e
+            log(f"Source_cut attempt {attempt + 1}: a catalog service sent a non-JSON reply")
+            time.sleep(spec.get("backoff", 120) * (attempt + 1))
+            continue
         except ValueError as e:
             raise Permanent(str(e)) from e
         except Exception as e:
