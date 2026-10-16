@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
@@ -75,7 +76,8 @@ func siteFunc(cfg *config.Config, appStore store.Store) discover.SiteFunc {
 	}
 }
 
-func newDiscover(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, backfill func() goals.BackfillLive, plans *mosaicplan.Service) (*discover.Service, *starfront.Poller) {
+func newDiscover(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, backfill func() goals.BackfillLive, plans *mosaicplan.Service,
+	task *activity.Task) (*discover.Service, *starfront.Poller) {
 	ix, err := catalog.LoadEmbedded()
 	if err != nil {
 		slog.Error("Catalogue store failed to load; the Discover pages are off", "error", err)
@@ -110,6 +112,7 @@ func newDiscover(ctx context.Context, cfg *config.Config, appStore, schedStore s
 		Interval: time.Duration(cfg.Discover.StarfrontMinutes) * time.Minute,
 		DB:       appStore.DB(),
 	}
+	poller.Task = task
 	go poller.Run(ctx)
 	slog.Info("Reading Starfront collaborations", "url", cfg.Discover.StarfrontURL, "minutes", cfg.Discover.StarfrontMinutes)
 	return svc, poller

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/horizons"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
@@ -197,6 +198,8 @@ func (r *Result) Positions(guid, night string) []PositionRow {
 }
 
 type Service struct {
+	// Task, if set, hears each refresh's progress and the next one.
+	Task     *activity.Task
 	Sched    *gorm.DB
 	Horizons *horizons.Client
 	Site     SiteFunc
@@ -340,7 +343,10 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	}
 	spans := Spans(site, at, Nights)
 	seen := map[rowKey]bool{}
-	for _, t := range targets {
+	s.Task.SetProgress(0, int64(len(targets)*len(spans)))
+	for i, t := range targets {
+		s.Task.SetCurrent("reading " + t.Name + "'s positions from JPL Horizons")
+		s.Task.SetProgress(int64(i*len(spans)), int64(len(targets)*len(spans)))
 		for _, ns := range spans {
 			if err := ctx.Err(); err != nil {
 				return res, err
@@ -449,10 +455,13 @@ func (s *Service) Publish(ctx context.Context, res *Result) error {
 func (s *Service) Refresh(ctx context.Context) (*Result, error) {
 	s.refresh.Lock()
 	defer s.refresh.Unlock()
+	s.Task.Start("building the position tables", 0, "nights")
 	res, err := s.Compute(ctx)
 	if err == nil {
+		s.Task.SetCurrent("publishing the position tables")
 		err = s.Publish(ctx, res)
 	}
+	s.Task.Finish(err)
 	if err != nil {
 		res.Error = err.Error()
 	}
@@ -509,6 +518,7 @@ func (s *Service) Run(ctx context.Context, every time.Duration) {
 				slog.Error("Building body position tables failed", "error", err)
 			}
 			next = time.Now().Add(every)
+			s.Task.SetNext(next)
 			last = key
 		}
 		select {

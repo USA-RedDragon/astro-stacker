@@ -94,6 +94,9 @@ type Client struct {
 	HTTP    *http.Client
 	// Gap overrides minGap, for tests.
 	Gap time.Duration
+	// Progress, if set, hears the bytes of a download read so far and its
+	// size, -1 when the server does not say.
+	Progress func(done, total int64)
 
 	mu        sync.Mutex
 	notBefore time.Time
@@ -207,7 +210,11 @@ func (c *Client) post(ctx context.Context, name string) ([]byte, http.Header, in
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 		return nil, resp.Header, resp.StatusCode, nil
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, maxZip+1))
+	var body io.Reader = resp.Body
+	if c.Progress != nil {
+		body = &progressReader{r: resp.Body, total: resp.ContentLength, tell: c.Progress}
+	}
+	b, err := io.ReadAll(io.LimitReader(body, maxZip+1))
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("tnsmirror: %s: %w", name, err)
 	}
@@ -215,6 +222,24 @@ func (c *Client) post(ctx context.Context, name string) ([]byte, http.Header, in
 		return nil, nil, 0, fmt.Errorf("tnsmirror: %s is over %d MB", name, maxZip>>20)
 	}
 	return b, resp.Header, resp.StatusCode, nil
+}
+
+type progressReader struct {
+	r     io.Reader
+	n     int64
+	last  int64
+	total int64
+	tell  func(done, total int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.n += int64(n)
+	if p.n-p.last >= 256<<10 || err != nil {
+		p.last = p.n
+		p.tell(p.n, p.total)
+	}
+	return n, err
 }
 
 func unzipCSV(b []byte) ([]byte, error) {

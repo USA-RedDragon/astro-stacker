@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveryreport"
@@ -14,7 +15,7 @@ import (
 
 // startTNSMirror keeps the TNS public objects mirror in the survey bucket
 // and memory when the TNS bot's credentials are set; nil when it is off.
-func startTNSMirror(cfg *config.Config, s3 *minio.Client) *tnsmirror.Mirror {
+func startTNSMirror(cfg *config.Config, s3 *minio.Client, task *activity.Task) *tnsmirror.Mirror {
 	d := cfg.Discoveries
 	c := tnsMirrorClient(d)
 	switch {
@@ -25,7 +26,13 @@ func startTNSMirror(cfg *config.Config, s3 *minio.Client) *tnsmirror.Mirror {
 		slog.Warn("TNS mirror off: no S3 client")
 		return nil
 	}
-	m := &tnsmirror.Mirror{Bucket: starcat.MinioBucket{Client: s3, Name: cfg.Discover.SurveyBucket}, Prefix: d.TNSMirrorPrefix, Client: c}
+	m := &tnsmirror.Mirror{Bucket: starcat.MinioBucket{Client: s3, Name: cfg.Discover.SurveyBucket}, Prefix: d.TNSMirrorPrefix, Client: c,
+		Task: task}
+	c.Progress = func(done, total int64) {
+		if m.Task.Running() {
+			m.Task.SetProgress(done, total)
+		}
+	}
 	go m.Run(context.Background())
 	slog.Info("TNS mirror on", "site", c.BaseURL, "bucket", cfg.Discover.SurveyBucket, "prefix", d.TNSMirrorPrefix, "match_arcsec", d.TNSMatchArcsec)
 	return m

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/ephem"
@@ -103,6 +104,8 @@ type SiteFunc func(ctx context.Context) (sky.Site, error)
 type RigFunc func(ctx context.Context) (rigsource.Rig, error)
 
 type Service struct {
+	// Task, if set, hears each search's progress and the next search.
+	Task     *activity.Task
 	App      *gorm.DB
 	Sched    *gorm.DB
 	Horizons *horizons.Client
@@ -243,7 +246,8 @@ func (s *Service) Compute(ctx context.Context) (*Result, error) {
 	}
 	seen := map[string]bool{}
 	var orbits []bodies.Orbit
-	for _, t := range designated {
+	for i, t := range designated {
+		s.Task.SetProgress(int64(i), int64(len(designated)))
 		key := strings.ToLower(t.Designation)
 		if !t.Active || seen[key] || s.Horizons == nil {
 			continue
@@ -376,7 +380,9 @@ func (s *Service) save(ctx context.Context, res *Result) error {
 func (s *Service) Refresh(ctx context.Context) (*Result, error) {
 	s.refresh.Lock()
 	defer s.refresh.Unlock()
+	s.Task.Start("searching the coming months for sky events", 0, "bodies")
 	res, err := s.Compute(ctx)
+	s.Task.Finish(err)
 	if err != nil {
 		return nil, err
 	}
@@ -413,6 +419,7 @@ func (s *Service) Run(ctx context.Context, every time.Duration) {
 				slog.Error("Sky event search failed", "error", err)
 			}
 			search.Reset(every)
+			s.Task.SetNext(time.Now().Add(every))
 		case <-auto.C:
 		}
 		if err := s.AutoPlanRare(ctx); err != nil && ctx.Err() == nil {

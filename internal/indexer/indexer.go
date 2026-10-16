@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkcheck"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
@@ -57,6 +58,11 @@ type Indexer struct {
 
 	AfterScan        func(context.Context)
 	RejectDarksSince time.Time
+
+	// ScanTask and PhotometryTask, if set, hear the scans' and the
+	// starlight backlog's progress.
+	ScanTask       *activity.Task
+	PhotometryTask *activity.Task
 }
 
 // RecentWindow is how lately a light must have been taken for its folder to
@@ -83,7 +89,10 @@ func (ix *Indexer) Run(ctx context.Context, interval, recent time.Duration) {
 	if recent > 0 {
 		go ix.runRecent(ctx, recent)
 	}
-	runLoop(ctx, interval, ix.scan, ix.photometryPass)
+	runLoop(ctx, interval, func(ctx context.Context) {
+		ix.scan(ctx)
+		ix.ScanTask.SetNext(time.Now().Add(interval))
+	}, ix.photometryPass)
 }
 
 func (ix *Indexer) runRecent(ctx context.Context, every time.Duration) {
@@ -142,7 +151,12 @@ func runLoop(ctx context.Context, interval time.Duration, scan func(context.Cont
 // be scored.
 func (ix *Indexer) scan(ctx context.Context) {
 	start := time.Now()
+	var scanErr error
+	defer func() { ix.ScanTask.Finish(scanErr) }()
 	stats, err := ix.IndexOnce(ctx)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		scanErr = err
+	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("Indexing failed", "error", err)
 	} else if err == nil {
@@ -153,23 +167,28 @@ func (ix *Indexer) scan(ctx context.Context) {
 		slog.Info("Indexed bucket", "bucket", ix.bucket, "seen", stats.Seen, "indexed", stats.Indexed,
 			"failed", stats.Failed, "removed", stats.Removed, "duration", time.Since(start).Round(time.Millisecond))
 	}
+	ix.ScanTask.SetCurrent("reading mount pointing")
 	if n, err := ix.BackfillPointing(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("Reading mount pointing failed", "error", err)
 	} else if n > 0 {
 		slog.Info("Read mount pointing", "lights", n)
 	}
+	ix.ScanTask.SetCurrent("reading frame geometry")
 	if n, err := ix.BackfillGeometry(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("Reading frame geometry failed", "error", err)
 	} else if n > 0 {
 		slog.Info("Read frame geometry", "frames", n)
 	}
+	ix.ScanTask.SetCurrent("measuring lights without a scheduler record")
 	if n, err := ix.MeasureUnrecorded(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("Measuring lights failed", "error", err)
 	} else if n > 0 {
 		slog.Info("Measured lights without a scheduler record", "lights", n)
 	}
+	ix.ScanTask.SetCurrent("checking darks")
 	darkcheck.Run(ctx, ix.db, ix.download, photometryWorkers, ix.RejectDarksSince)
 	if ix.AfterScan != nil && ctx.Err() == nil {
+		ix.ScanTask.SetCurrent("publishing calibration needs")
 		ix.AfterScan(ctx)
 	}
 }
@@ -180,14 +199,24 @@ func (ix *Indexer) scan(ctx context.Context) {
 // the next scan rather than spinning.
 func (ix *Indexer) photometryPass(ctx context.Context) bool {
 	start := time.Now()
+	if ix.PhotometryTask != nil && !ix.PhotometryTask.Running() {
+		var pending int64
+		if err := photometryPending(ix.db.WithContext(ctx)).Count(&pending).Error; err == nil && pending > 0 {
+			ix.PhotometryTask.Start("measuring the starlight of new subs", pending, "subs")
+		}
+	}
 	n, err := ix.MeasurePhotometry(ctx)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("Measuring lights' starlight failed", "error", err)
+			ix.PhotometryTask.Finish(err)
 		}
 		return false
 	}
 	if n == 0 {
+		if ix.PhotometryTask.Running() {
+			ix.PhotometryTask.Finish(nil)
+		}
 		return false
 	}
 	ix.Wake.Notify()
@@ -198,6 +227,13 @@ func (ix *Indexer) photometryPass(ctx context.Context) bool {
 	}
 	slog.Info("Measured lights' starlight", "lights", n, "pending", pending,
 		"duration", time.Since(start).Round(time.Millisecond))
+	if ix.PhotometryTask.Running() {
+		if pending == 0 {
+			ix.PhotometryTask.Finish(nil)
+		} else {
+			ix.PhotometryTask.SetTotal(ix.PhotometryTask.Item().Done + pending)
+		}
+	}
 	return pending > 0
 }
 
@@ -409,6 +445,7 @@ func (ix *Indexer) measurePhotometry(ctx context.Context, pending *gorm.DB) (int
 				done++
 				objects[f.Object] = true
 				mu.Unlock()
+				ix.PhotometryTask.Step(1)
 			}
 		})
 	}
@@ -482,6 +519,7 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 	}
 
 	present := make(map[string]bool, len(etags))
+	ix.ScanTask.Start("listing the bucket", int64(len(etags)), "files")
 	var listErr error
 	for obj := range ix.client.ListObjects(ctx, ix.bucket, minio.ListObjectsOptions{Recursive: true}) {
 		if obj.Err != nil {
@@ -492,6 +530,9 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 			continue
 		}
 		stats.Seen++
+		if stats.Seen%250 == 0 {
+			ix.ScanTask.SetProgress(int64(stats.Seen), max(int64(stats.Seen), int64(len(etags))))
+		}
 		present[obj.Key] = true
 		if etags[obj.Key] == obj.ETag {
 			continue
@@ -507,6 +548,7 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 	}
 	close(work)
 	wg.Wait()
+	ix.ScanTask.SetProgress(int64(stats.Seen), int64(stats.Seen))
 	if listErr != nil {
 		// A partial listing must not be mistaken for deletions.
 		return stats, fmt.Errorf("list bucket: %w", listErr)

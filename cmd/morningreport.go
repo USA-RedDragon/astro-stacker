@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/morningreport"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
@@ -76,7 +77,7 @@ func newMorningReport(cfg *config.Config, appStore, schedStore store.Store, send
 }
 
 // startMorningReport runs the daily report when it is enabled.
-func startMorningReport(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store) {
+func startMorningReport(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, task *activity.Task) {
 	if !cfg.MorningReport.Enabled {
 		return
 	}
@@ -85,6 +86,7 @@ func startMorningReport(ctx context.Context, cfg *config.Config, appStore, sched
 		slog.Error("Morning report not started", "error", err)
 		return
 	}
+	report.Task = task
 	go report.Run(ctx)
 	slog.Info("Morning report started", "time", cfg.MorningReport.Time, "timezone", cfg.MorningReport.Timezone,
 		"next", report.Schedule.Next(time.Now()).Format(time.RFC3339))

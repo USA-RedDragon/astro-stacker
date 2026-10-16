@@ -112,6 +112,11 @@ func (p *Pipeline) checkLightNights(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	type due struct {
+		n    dustNight
+		prev app.DustLightCheck
+	}
+	var todo []due
 	for _, n := range nights {
 		if p.stopping(ctx) {
 			return ctx.Err()
@@ -131,6 +136,18 @@ func (p *Pipeline) checkLightNights(ctx context.Context, now time.Time) error {
 		if prev.ID != 0 && prev.Subs == n.Subs {
 			continue
 		}
+		todo = append(todo, due{n, prev})
+	}
+	if len(todo) > 0 {
+		p.DustTask.Start("", int64(len(todo)), "nights")
+	}
+	for i, d := range todo {
+		n, prev := d.n, d.prev
+		if p.stopping(ctx) {
+			return ctx.Err()
+		}
+		p.DustTask.SetProgress(int64(i), int64(len(todo)))
+		p.DustTask.SetCurrent("checking the lights of " + n.Night.Format("2 Jan 2006") + " for dust")
 		if err := p.checkLightNight(ctx, n, prev.ID); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

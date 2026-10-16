@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
@@ -42,6 +43,8 @@ type Previewer struct {
 	Events *events.Broker
 	// Wake, if set, ends the idle wait early, as when new lights are indexed.
 	Wake *wake.Signal
+	// Task, if set, hears the backlog's progress.
+	Task *activity.Task
 }
 
 func New(client *minio.Client, source, dest string, db *gorm.DB, concurrency int, opts preview.Options) *Previewer {
@@ -58,9 +61,13 @@ func Key(frameKey string) string {
 func (p *Previewer) Run(ctx context.Context, interval time.Duration) {
 	for {
 		woke := p.Wake.C()
+		p.startTask(ctx)
 		n, err := p.RenderBatch(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("Rendering previews failed", "error", err)
+			p.Task.Finish(err)
+		} else if n == 0 && p.Task.Running() {
+			p.Task.Finish(nil)
 		}
 		if n > 0 && err == nil {
 			// More may be waiting; go straight to the next batch.
@@ -75,6 +82,28 @@ func (p *Previewer) Run(ctx context.Context, interval time.Duration) {
 		case <-woke:
 		case <-time.After(interval):
 		}
+	}
+}
+
+func (p *Previewer) pending(db *gorm.DB) *gorm.DB {
+	return db.Model(&app.Frame{}).Where("type = ? AND index_error IS NULL AND preview_key IS NULL AND preview_error IS NULL", "LIGHT")
+}
+
+// startTask starts the task when a backlog appears, and keeps its total
+// current while it lasts.
+func (p *Previewer) startTask(ctx context.Context) {
+	if p.Task == nil {
+		return
+	}
+	var n int64
+	if err := p.pending(p.db.WithContext(ctx)).Count(&n).Error; err != nil {
+		return
+	}
+	switch {
+	case !p.Task.Running() && n > 0:
+		p.Task.Start("rendering previews of new subs", n, "subs")
+	case p.Task.Running():
+		p.Task.SetTotal(p.Task.Item().Done + n)
 	}
 }
 
@@ -103,6 +132,9 @@ func (p *Previewer) RenderBatch(ctx context.Context) (int, error) {
 			defer wg.Done()
 			for f := range work {
 				settled, err := p.renderOne(ctx, f)
+				if settled {
+					p.Task.Step(1)
+				}
 				mu.Lock()
 				if err != nil {
 					failed++

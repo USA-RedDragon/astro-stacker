@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
@@ -29,11 +30,13 @@ type discoveryHandle struct {
 	kick   func()
 	drain  func()
 	tns    *tnsmirror.Mirror
+	live   func() discoveries.Live
 }
 
 // startDiscoveries starts the night comparisons in the background when
 // they are on.
-func startDiscoveries(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, busy func() bool, broker *events.Broker) discoveryHandle {
+func startDiscoveries(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, busy func() bool, broker *events.Broker,
+	tnsTask *activity.Task) discoveryHandle {
 	d := cfg.Discoveries
 	if !d.Enabled {
 		slog.Info("TNS mirror off: discoveries are off")
@@ -56,7 +59,7 @@ func startDiscoveries(cfg *config.Config, s3 *minio.Client, appStore, schedStore
 		},
 		SurveyVariables: surveyVariables(cfg, s3),
 	})
-	tns := startTNSMirror(cfg, s3)
+	tns := startTNSMirror(cfg, s3, tnsTask)
 	if tns != nil {
 		cat.TNSLocal, cat.TNSMatchArcsec = discoveries.LocalTNS(tns.Index), d.TNSMatchArcsec
 	}
@@ -67,7 +70,7 @@ func startDiscoveries(cfg *config.Config, s3 *minio.Client, appStore, schedStore
 	}()
 	slog.Info("Discoveries started", "backstop_minutes", d.IntervalMinutes, "threads", d.Threads, "reference_subs", d.RefSubs,
 		"backfill_days", d.BackfillDays, "tns", cat.TNSEnabled(), "waits_for_stacking", busy != nil)
-	return discoveryHandle{source: r, kick: r.Kick, tns: tns, drain: func() {
+	return discoveryHandle{source: r, kick: r.Kick, tns: tns, live: r.Live, drain: func() {
 		r.Drain()
 		select {
 		case <-done:
