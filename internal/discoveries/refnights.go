@@ -134,6 +134,16 @@ func (in *Input) measureRefNights(ctx context.Context, stacks []*filterStacks, c
 				}
 				c.refNights[fs.f.Filter] = append(c.refNights[fs.f.Filter], refNight{night: nt, mean: a.sum / a.n, n: int(a.n), w: a.w})
 			}
+			if len(per[ci]) > 0 {
+				r := apertureR
+				if c.wide {
+					r = residualR
+				}
+				if c.refLight == nil {
+					c.refLight = map[string]float64{}
+				}
+				c.refLight[fs.f.Filter] = Aperture(fs.ref, c.X, c.Y, r)
+			}
 			sort.Slice(c.refNights[fs.f.Filter], func(a, b int) bool {
 				return c.refNights[fs.f.Filter][a].night.Before(c.refNights[fs.f.Filter][b].night)
 			})
@@ -183,7 +193,7 @@ func localFlux(p, ref *Plane, x, y, r float64) float64 {
 
 // envelopeSigma is how far, in sigma, the night must stand beyond each
 // reference night of two subs or more, filters combined, for a change to be
-// the night's own, unless it stands DetectSigma beyond the reference
+// the night's own, unless it changed by minNewStarMag from the reference
 // nights' median.
 const envelopeSigma = 2.0
 
@@ -192,18 +202,18 @@ const minEnvelopeSubs = 2
 
 // refNightShift says which reference night already held the change, or "":
 // one is the night's own where the night stands beyond every reference
-// night of minEnvelopeSubs subs or more, or beyond the median of the
-// reference nights, each weighted by its weight in the reference, by
-// DetectSigma. A reference night that outweighs the others makes a change
-// on a variable star's other nights: Andromeda's 2025-01-19 read 2MASS
-// J00433343+4139446 0.169 mag brighter than a reference holding 28 subs of
-// its eclipse on 2026-10-11 among 38, and 0.071 brighter once no night held
-// over a third; it stood no brighter than on 2025-01-22, and 2.4 sigma
-// beyond the median. A transient on a reference night too stands out of the
-// median: AT 2026aeob was as bright on 2026-10-09 as on 2026-10-08. Each
-// sub's error is the larger of its noise and the night's scatter of subs,
-// which on a bright star is its seeing and scintillation: three times the
-// noise there.
+// night of minEnvelopeSubs subs or more, or changed by minNewStarMag or
+// more from the median of the reference nights, each weighted by its weight
+// in the reference. A reference night that outweighs the others makes a
+// change on a variable star's other nights: Andromeda's 2025-01-19 read
+// 2MASS J00433343+4139446 0.169 mag brighter than a reference holding 28
+// subs of its eclipse on 2026-10-11 among 38, and 0.071 brighter once no
+// night held over a third; it stood no brighter than on 2025-01-22, and
+// 0.02 mag from the median. A transient on a reference night too changed
+// from the median: AT 2026aeob, as bright on 2026-10-09 as on 2026-10-08,
+// by 0.3 mag of the light there. Each sub's error is the larger of its
+// noise and the night's scatter of subs, which on a bright star is its
+// seeing and scintillation: three times the noise there.
 func (c *cand) refNightShift() string {
 	if len(c.refNights) == 0 {
 		return ""
@@ -228,7 +238,7 @@ func (c *cand) refNightShift() string {
 		filters = append(filters, f)
 	}
 	slices.Sort(filters)
-	var envSum, medSum float64
+	var envSum, medMag float64
 	var nf int
 	var at time.Time
 	worst := math.Inf(1)
@@ -262,7 +272,7 @@ func (c *cand) refNightShift() string {
 		if len(rs) == 0 {
 			continue
 		}
-		medSum += beyond(medianNight(rs))
+		medMag = math.Max(medMag, magChange(c.refLight[f], mean-medianNight(rs).mean, c.Sign))
 		envSum += zf
 		nf++
 		if zf < worst {
@@ -272,11 +282,25 @@ func (c *cand) refNightShift() string {
 	if nf == 0 {
 		return ""
 	}
-	env, med := envSum/math.Sqrt(float64(nf)), medSum/math.Sqrt(float64(nf))
-	if env < envelopeSigma && med < DetectSigma {
-		return fmt.Sprintf("as %s on the reference night of %s: %.1f sigma beyond it, %.1f beyond the reference nights' median", signName(c.Sign), at.Format(time.DateOnly), env, med)
+	env := envSum / math.Sqrt(float64(nf))
+	if env < envelopeSigma && medMag < minNewStarMag {
+		return fmt.Sprintf("as %s on the reference night of %s: %.1f sigma beyond it, %.2f mag from the reference nights' median", signName(c.Sign), at.Format(time.DateOnly), env, medMag)
 	}
 	return ""
+}
+
+// magChange is the size in magnitudes of a change of d, in the direction of
+// sign, on light ref; infinite where there is no light to change or it all
+// went.
+func magChange(ref, d float64, sign int) float64 {
+	if !(ref > 0) {
+		return math.Inf(1)
+	}
+	r := (ref + float64(sign)*d) / ref
+	if !(r > 0) {
+		return math.Inf(1)
+	}
+	return math.Abs(2.5 * math.Log10(r))
 }
 
 // medianNight is the night at half the reference nights' weight, by

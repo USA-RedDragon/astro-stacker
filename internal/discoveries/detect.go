@@ -670,6 +670,9 @@ type cand struct {
 	// refNights are, per filter, the change's light in each reference
 	// night's subs minus the reference.
 	refNights map[string][]refNight
+	// refLight is, per filter, the reference's light in the aperture the
+	// change is measured in.
+	refLight map[string]float64
 }
 
 // Run compares the night with its reference.
