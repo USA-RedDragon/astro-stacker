@@ -260,7 +260,7 @@ func TestRunnerComparesSettledNight(t *testing.T) {
 	fx.checkRun(t)
 	fx.checkCandidates(t)
 
-	fx.db.Model(&app.DiscoveryCandidate{}).Where("class = ?", ClassNewVariable).Updates(map[string]any{"vetting": app.VetReal, "vet_note": "checked"})
+	fx.db.Model(&app.DiscoveryCandidate{}).Where("class = ?", ClassNewVariable).Updates(map[string]any{"vetting": app.VetReal, "vet_note": vetChecked})
 	if err := fx.r.Pass(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -298,6 +298,8 @@ func TestRunnerComparesSettledNight(t *testing.T) {
 // find vetted, on request: the vetting stays with the find. It is apart
 // from TestRunnerComparesSettledNight so each compares the synthetic night
 // once, as under the race detector a comparison takes minutes.
+const vetChecked = "checked"
+
 func TestRequestedRerunKeepsVetting(t *testing.T) {
 	t.Parallel()
 	fx := newRunnerFixture(t)
@@ -311,7 +313,7 @@ func TestRequestedRerunKeepsVetting(t *testing.T) {
 	}
 	nra, ndec := f.WCS.SkyOf(f.NewX, f.NewY)
 	if err := fx.db.Create(&app.DiscoveryCandidate{RunID: run.ID, Object: synthObject, Night: night, Group: GroupBroadband, Kind: app.DiscoveryKindChange,
-		Class: ClassNewVariable, X: f.NewX, Y: f.NewY, RA: nra, Dec: ndec, Sign: 1, SNR: 100, Matches: "[]", Vetting: app.VetReal, VetNote: "checked"}).Error; err != nil {
+		Class: ClassNewVariable, X: f.NewX, Y: f.NewY, RA: nra, Dec: ndec, Sign: 1, SNR: 100, Matches: "[]", Vetting: app.VetReal, VetNote: vetChecked}).Error; err != nil {
 		t.Fatal(err)
 	}
 	fx.r.Request(synthObject, night, "")
@@ -323,7 +325,7 @@ func TestRequestedRerunKeepsVetting(t *testing.T) {
 	}
 	var vetted []app.DiscoveryCandidate
 	fx.db.Where("vetting <> ''").Find(&vetted)
-	if len(vetted) != 1 || vetted[0].VetNote != "checked" || vetted[0].RunID != run.ID {
+	if len(vetted) != 1 || vetted[0].VetNote != vetChecked || vetted[0].RunID != run.ID {
 		t.Errorf("vetting not kept over a rerun: %+v", vetted)
 	}
 }
