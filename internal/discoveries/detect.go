@@ -664,6 +664,9 @@ type cand struct {
 	// wide measures the subs with the wider aperture: on a bright source
 	// the narrow one mostly sees each sub's seeing.
 	wide bool
+	// refNights are, per filter, the change's light in each reference
+	// night's subs minus the reference.
+	refNights map[string][]refNight
 }
 
 // Run compares the night with its reference.
@@ -688,7 +691,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 			return nil, err
 		}
 		in.stage(fmt.Sprintf("stacking %s reference (%d subs)", fs.f.Filter, len(fs.f.Ref)))
-		if fs.ref, err = ClippedMean(ctx, W, H, len(fs.f.Ref), stackLoader(fs.load, fs.f.Ref), threads); err != nil {
+		if fs.ref, err = clippedMean(ctx, W, H, len(fs.f.Ref), stackLoader(fs.load, fs.f.Ref), threads, nightShares(fs.f.Ref)); err != nil {
 			return nil, err
 		}
 		fs.noise = emptyApertureSigma(fs.night, nil, apertureR, 4000)
@@ -734,6 +737,9 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 
 	subs, dets, times, err := in.measureSubs(ctx, stacks, cands, valid, edge, bmask, res)
 	if err != nil {
+		return nil, err
+	}
+	if err := in.measureRefNights(ctx, stacks, cands); err != nil {
 		return nil, err
 	}
 	local := in.localResiduals(ref, D, edge, res)
@@ -1329,6 +1335,10 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 				continue
 			}
 			fn.NotResidual++
+			if why := c.refNightShift(); why != "" {
+				reject(why)
+				continue
+			}
 			cc := c.Candidate
 			cc.SubSharp, cc.SkyFixed = c.inSubs(star)
 			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && cc.SubSharp > maxSubSharpness)

@@ -33,6 +33,12 @@ type Loader func(ctx context.Context, i int) (*Plane, float64, error)
 // of subs. Pixels covered by fewer than half the subs used (and at least 2)
 // are NaN.
 func ClippedMean(ctx context.Context, w, h, n int, load Loader, threads int) (*Plane, error) {
+	return clippedMean(ctx, w, h, n, load, threads, nil)
+}
+
+// clippedMean is ClippedMean with each sub's weight in the mean, not in the
+// clip, times its share, when shares is not nil.
+func clippedMean(ctx context.Context, w, h, n int, load Loader, threads int, shares []float64) (*Plane, error) {
 	size := w * h
 	norm := make([]float32, n)
 	var first float64
@@ -55,6 +61,9 @@ func ClippedMean(ctx context.Context, w, h, n int, load Loader, threads int) (*P
 			first = weight
 		}
 		norm[i] = float32(weight / first)
+		if shares != nil {
+			norm[i] *= float32(shares[i])
+		}
 		noise = append(noise, 1/math.Sqrt(weight))
 		parallelRows(h, threads, func(y0, y1 int) {
 			for j := y0 * w; j < y1*w; j++ {
