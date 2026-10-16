@@ -93,3 +93,12 @@ func requeueStale(ctx context.Context, db *gorm.DB, now time.Time) (map[int]bool
 	return out, nil
 }
 
+// release puts the sources a run marked running but did not start back
+// in the queue, not started, so those asked for by hand keep their place.
+func release(ctx context.Context, db *gorm.DB, ids []int, now time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return db.WithContext(ctx).Model(&app.DiscoveryVet{}).Where("source_id IN ? AND "+colState+" = ?", ids, StateRunning).
+		Updates(map[string]any{colState: StateQueued, "started_at": nil, colUpdatedAt: now}).Error
+}
