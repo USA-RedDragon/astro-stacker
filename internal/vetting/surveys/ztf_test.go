@@ -10,10 +10,11 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 )
 
-const refCSV = `in_row_id,in_ra,in_dec,field,ccdid,qid,filtercode
-1,323.277,58.6343,802,15,1,zg
-1,323.277,58.6343,802,15,1,zr
-1,323.277,58.6343,1835,9,3,zg
+const refCSV = `in_row_id,in_ra,in_dec,field,ccdid,qid,filtercode,ra,dec
+1,323.277,58.6343,802,15,1,zg,323.6,58.3
+1,323.277,58.6343,802,15,1,zr,323.6,58.3
+1,323.277,58.6343,1835,9,3,zg,323.1,58.9
+1,323.277,58.6343,1835,9,4,zg,325.9,58.9
 `
 
 func ztfServer(t *testing.T, parquetHits *atomic.Int32) http.Handler {

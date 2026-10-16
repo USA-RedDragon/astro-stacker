@@ -39,6 +39,9 @@ const (
 	maxListing   = 8 << 20
 	maxAPIBody   = 64 << 20
 	ztfMargin    = 0.02
+	// quadrantHalfDiagonal is half the diagonal of a ZTF CCD quadrant,
+	// 3072 by 3080 pixels of 1.01 arcsec, in degrees, rounded up.
+	quadrantHalfDiagonal = 0.62
 )
 
 var (
@@ -171,7 +174,7 @@ func (f *Fetcher) ztfQuadrants(ctx context.Context, field Field) ([]ZTFQuadrant,
 	q.Set("SIZE", fmt.Sprintf("%.4f", 2*fieldRadius(field)))
 	q.Set("INTERSECT", "OVERLAPS")
 	q.Set("ct", "csv")
-	q.Set("columns", "field,ccdid,qid,filtercode")
+	q.Set("columns", "field,ccdid,qid,filtercode,ra,dec")
 	b, err := f.getBytes(ctx, f.irsa()+"/ibe/search/ztf/products/ref?"+q.Encode(), maxListing)
 	if err != nil {
 		return nil, fmt.Errorf("ZTF reference index: %w", err)
@@ -192,7 +195,7 @@ func (f *Fetcher) ztfQuadrants(ctx context.Context, field Field) ([]ZTFQuadrant,
 		cc, e2 := strconv.Atoi(r[col["ccdid"]])
 		qq, e3 := strconv.Atoi(r[col["qid"]])
 		fc := strings.TrimSpace(r[col["filtercode"]])
-		if e1 != nil || e2 != nil || e3 != nil || len(fc) != 2 {
+		if e1 != nil || e2 != nil || e3 != nil || len(fc) != 2 || quadrantMisses(field, r, col) {
 			continue
 		}
 		k := ZTFQuadrant{Field: fl, CCD: cc, Q: qq, Filter: fc}
@@ -205,6 +208,22 @@ func (f *Fetcher) ztfQuadrants(ctx context.Context, field Field) ([]ZTFQuadrant,
 		return strings.Compare(a.stem(""), b.stem(""))
 	})
 	return out, nil
+}
+
+// quadrantMisses says a quadrant, whose centre the index gives, cannot
+// reach the footprint circle: the index answers for a square around it.
+func quadrantMisses(field Field, r []string, col map[string]int) bool {
+	ci, ok1 := col[colRA]
+	cj, ok2 := col[colDec]
+	if !ok1 || !ok2 {
+		return false
+	}
+	ra, e1 := strconv.ParseFloat(r[ci], 64)
+	dec, e2 := strconv.ParseFloat(r[cj], 64)
+	if e1 != nil || e2 != nil {
+		return false
+	}
+	return sepArcsec(field.RA, field.Dec, ra, dec) > (fieldRadius(field)+quadrantHalfDiagonal)*3600
 }
 
 // ztfFieldDirs maps each ZTF field to the directory its light curve
