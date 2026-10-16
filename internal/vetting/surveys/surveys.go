@@ -105,6 +105,7 @@ type Fetcher struct {
 	atlasMu   sync.Mutex
 	atlasGap  time.Duration
 	lastATLAS time.Time
+	pullMu    sync.Mutex
 }
 
 // ZTF is the star's ZTF light curves, from the field's ZTF files.

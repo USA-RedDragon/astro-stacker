@@ -9,6 +9,8 @@ import (
 // star instead: a footprint holds 9 to 22 million single exposure rows,
 // more than IRSA's TAP service returns in one query.
 func (f *Fetcher) prefetch(ctx context.Context, field Field) error {
+	f.pullMu.Lock()
+	defer f.pullMu.Unlock()
 	return f.prefetchZTF(ctx, field)
 }
 
