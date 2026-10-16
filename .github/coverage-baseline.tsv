@@ -88,7 +88,7 @@ internal/discoveries/catalogs.go	293	258
 internal/discoveries/classify.go	222	205
 internal/discoveries/combine.go	119	112
 internal/discoveries/cutouts.go	76	67
-internal/discoveries/detect.go	802	754
+internal/discoveries/detect.go	805	757
 internal/discoveries/extract.go	110	106
 internal/discoveries/image.go	227	205
 internal/discoveries/kernel.go	196	185
@@ -98,7 +98,7 @@ internal/discoveries/movers.go	254	245
 internal/discoveries/newlight.go	12	11
 internal/discoveries/null.go	85	71
 internal/discoveries/progress.go	14	13
-internal/discoveries/runner.go	713	545
+internal/discoveries/runner.go	713	546
 internal/discoveries/sensor.go	72	70
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -177,7 +177,7 @@ internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/memlimit/memlimit.go	15	7
-internal/memwatch/memwatch.go	58	44
+internal/memwatch/memwatch.go	58	49
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -272,7 +272,7 @@ internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/schedglobal.go	53	48
-internal/schedcmd/service.go	234	203
+internal/schedcmd/service.go	234	205
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/templates.go	30	28
 internal/schedcmd/window.go	58	53
