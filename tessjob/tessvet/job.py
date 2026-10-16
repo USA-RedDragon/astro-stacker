@@ -4,10 +4,14 @@ Layout under vetting/cache/<slug>/tess/:
   <gaia_id>/status.json                     progress, read by the Go side
   <gaia_id>/s<NNNN>.csv.zst                 one light curve per done sector
   lc/s<NNNN>/<gaia_id>.csv.zst              every light curve fetched or fitted in the field
-  cutouts/s<NNNN>/<ra><dec>/meta.json       cutout centre, WCS, tglc products; written last
+  cutouts/s<NNNN>/<ra><dec>/meta.json       cutout centre, WCS, tglc products, field_complete; written last
   cutouts/s<NNNN>/<ra><dec>/cutout.fits.zst the TESScut FFI cutout
   cutouts/s<NNNN>/<ra><dec>/catalog.pkl.zst tglc Source state without pixels (Gaia DR3, TIC)
   cutouts/s<NNNN>/<ra><dec>/epsf.npz.zst    the fitted ePSF per cadence
+
+Time budget: no request or sector starts after max_minutes. Everything stops by stop_minutes:
+network calls and tglc stop CHILD_RESERVE before it, tglc is killed KILL_RESERVE before it, and
+the light curves and cutout written so far are saved, so the next run resumes the sector.
 """
 
 from __future__ import annotations
@@ -36,12 +40,20 @@ EPSF_FACTOR = 2
 EDGE_MARGIN = 10
 NEIGHBOUR_HLSP_ARCSEC = 42.0
 MAX_ATTEMPTS = 3
+CHILD_RESERVE = 8 * 60
+KILL_RESERVE = 4 * 60
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 GAIA = re.compile(r"^[0-9]{1,20}$")
 
 
 class Permanent(Exception):
     pass
+
+
+class OutOfTime(Exception):
+    def __init__(self, msg: str, progress: bool = False):
+        super().__init__(msg)
+        self.progress = progress
 
 
 @dataclass
@@ -51,7 +63,7 @@ class Config:
     field_mag: float | None = LIMIT_MAG
     threads: int = 4
     max_attempts: int = MAX_ATTEMPTS
-    grace_minutes: float = 180.0
+    stop_minutes: float | None = None
 
 
 @dataclass
@@ -96,8 +108,12 @@ class Job:
         self.mast = client
         self.cfg = cfg
         self.runner = runner or self._run_tglc
-        self.deadline = time.monotonic() + cfg.max_minutes * 60
-        self.hard_deadline = self.deadline + cfg.grace_minutes * 60
+        start = time.monotonic()
+        stop = cfg.stop_minutes if cfg.stop_minutes is not None else cfg.max_minutes + 30
+        self.deadline = start + cfg.max_minutes * 60
+        self.hard_deadline = start + max(stop, cfg.max_minutes) * 60
+        self.mast.stop_at = self.hard_deadline - CHILD_RESERVE
+        self.stopped = False
         os.makedirs(cfg.workdir, exist_ok=True)
         for name in os.listdir(cfg.workdir):
             if name.startswith(("tglc-", "hlsp-")):
@@ -105,7 +121,10 @@ class Job:
                 shutil.rmtree(path) if os.path.isdir(path) else os.unlink(path)
 
     def out_of_time(self) -> bool:
-        return time.monotonic() >= self.deadline
+        return self.stopped or time.monotonic() >= self.deadline
+
+    def child_deadline(self) -> float:
+        return time.time() + (self.hard_deadline - CHILD_RESERVE - time.monotonic())
 
     def queue(self) -> list[tuple[str, dict]]:
         items = []
@@ -153,6 +172,10 @@ class Job:
             status["sectors_failed"] = {str(k): v for k, v in (old.get("sectors_failed") or {}).items()}
         try:
             sectors = self.mast.sectors(req.ra, req.dec)
+        except mast.OutOfTime as e:
+            log.info("%s: time budget used before the sector lookup: %s", req.gaia_id, e)
+            self.stopped = True
+            return
         except mast.Transient as e:
             log.warning("%s: sector lookup failed, retry next run: %s", req.gaia_id, e)
             return
@@ -178,6 +201,15 @@ class Job:
                 how = self.sector(req, s)
                 status["sectors_done"] = sorted(set(status["sectors_done"]) | {n})
                 log.info("%s s%04d done via %s in %.0f s", req.gaia_id, n, how, time.time() - t0)
+            except (OutOfTime, mast.OutOfTime) as e:
+                self.stopped = True
+                if getattr(e, "progress", False):
+                    attempts[str(n)] = tries
+                    self.store.put_json(attempts_key, attempts)
+                log.info("%s s%04d stopped at the time budget after %.0f s (%s); it resumes next run",
+                         req.gaia_id, n, time.time() - t0, e)
+                self._status(status_key, status)
+                return
             except Permanent as e:
                 status["sectors_failed"][str(n)] = str(e)
                 log.warning("%s s%04d failed: %s", req.gaia_id, n, e)
@@ -250,28 +282,37 @@ class Job:
     def _tglc(self, req: Request, s: dict) -> None:
         n = s["sector"]
         base = self.base(req)
+        lc_dir = f"{base}/lc/s{n:04d}/"
         work = os.path.join(self.cfg.workdir, f"tglc-{req.gaia_id}-s{n:04d}")
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work)
         try:
             names = [req.gaia_id] + [str(nb["gaia_id"]) for nb in req.neighbours
-                                     if not self.store.exists(f"{base}/lc/s{n:04d}/{nb['gaia_id']}.csv.zst")]
+                                     if not self.store.exists(f"{lc_dir}{nb['gaia_id']}.csv.zst")]
             cutout = os.path.join(work, "cutout.fits")
             catalog = os.path.join(work, "catalog.pkl")
             spec = {"workdir": work, "cutout": cutout, "catalog": catalog, "sector": n, "size": CUTOUT_SIZE,
-                    "limit_mag": LIMIT_MAG, "factor": EPSF_FACTOR, "names": names}
+                    "limit_mag": LIMIT_MAG, "factor": EPSF_FACTOR, "names": names, "edge_margin": EDGE_MARGIN,
+                    "deadline": self.child_deadline()}
             prefix = self.find_cutout(req, n)
+            meta = None
             if prefix:
                 meta = self.store.get_json(prefix + "meta.json")
                 log.info("s%04d: reusing cached cutout %s", n, prefix)
                 self.store.get_file_zst(prefix + "cutout.fits.zst", cutout, work)
                 with open(catalog, "wb") as f:
                     f.write(self.store.get_zst(prefix + "catalog.pkl.zst"))
-                epsf_in = os.path.join(work, "epsf-in.npz")
-                with open(epsf_in, "wb") as f:
-                    f.write(self.store.get_zst(prefix + "epsf.npz.zst"))
-                spec.update(reuse=True, epsf_in=epsf_in, epsf_name=meta["epsf_name"], field_mag=None,
-                            center=meta["center"])
+                spec.update(reuse=True, field_mag=None, center=meta["center"])
+                if meta.get("epsf_name"):
+                    epsf_in = os.path.join(work, "epsf-in.npz")
+                    with open(epsf_in, "wb") as f:
+                        f.write(self.store.get_zst(prefix + "epsf.npz.zst"))
+                    spec.update(epsf_in=epsf_in, epsf_name=meta["epsf_name"])
+                if not meta.get("field_complete", True) and self.cfg.field_mag is not None:
+                    done = [k[len(lc_dir):-len(".csv.zst")] for k in self.store.keys(lc_dir)
+                            if k.endswith(".csv.zst")]
+                    spec.update(field_mag=meta.get("field_mag") or self.cfg.field_mag, skip=done)
+                    log.info("s%04d: resuming the field light curves; %d already cached", n, len(done))
             else:
                 log.info("s%04d: downloading a %dx%d cutout around %s", n, CUTOUT_SIZE, CUTOUT_SIZE, req.gaia_id)
                 t0 = time.time()
@@ -282,14 +323,19 @@ class Job:
                 log.info("s%04d: cutout %.0f MB in %.0f s", n, os.path.getsize(cutout) / 1e6, time.time() - t0)
                 spec.update(reuse=False, field_mag=self.cfg.field_mag, center=[req.ra, req.dec])
             res = self.runner(spec)
+            if res.get("stopped"):
+                self.stopped = True
             if not res.get("ok"):
                 if res.get("permanent"):
                     raise Permanent(f"tglc: {res.get('error')}")
+                if res.get("stopped"):
+                    saved = self._checkpoint(base, n, spec, res, prefix, meta)
+                    raise OutOfTime(f"tglc: {res.get('error')}", progress=saved)
                 raise RuntimeError(f"tglc: {res.get('error')}")
             new = 0
             pos = res.get("positions", {})
             for gid, path in sorted(res["lcs"].items()):
-                key = f"{base}/lc/s{n:04d}/{gid}.csv.zst"
+                key = f"{lc_dir}{gid}.csv.zst"
                 if gid not in names and not _inside(pos.get(gid), CUTOUT_SIZE):
                     continue
                 if self.store.exists(key):
@@ -298,34 +344,58 @@ class Job:
                 self.store.put_zst(key, csv)
                 new += 1
             log.info("s%04d: %d of %d light curves new to the field cache", n, new, len(res["lcs"]))
+            saved = self._checkpoint(base, n, spec, res, prefix, meta) or new > 0
             if req.gaia_id in res.get("errors", {}):
                 raise Permanent(f"tglc: {res['errors'][req.gaia_id]}")
-            if not spec["reuse"]:
-                self._save_cutout(base, n, spec, res)
+            if res.get("stopped") and req.gaia_id not in res["lcs"]:
+                raise OutOfTime("tglc stopped before the star's light curve", progress=saved)
+            if res.get("stopped"):
+                log.info("s%04d: field light curves stopped at the time budget; the rest wait for a later request", n)
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    def _save_cutout(self, base: str, n: int, spec: dict, res: dict) -> None:
+    def _checkpoint(self, base: str, n: int, spec: dict, res: dict, prefix: str | None, meta: dict | None) -> bool:
+        """Save the cutout, catalog and ePSF a later run can resume from. True when something new was saved."""
         from astropy.io import fits
 
+        complete = bool(res.get("field_complete", not res.get("stopped")))
+        if prefix and meta is not None:
+            update = dict(meta)
+            changed = False
+            if res.get("epsf") and not meta.get("epsf_name"):
+                with open(res["epsf"], "rb") as f:
+                    self.store.put_zst(prefix + "epsf.npz.zst", f.read())
+                update["epsf_name"] = os.path.basename(res["epsf"])
+                changed = True
+            if spec.get("field_mag") is not None and complete != meta.get("field_complete", True):
+                update["field_complete"] = complete
+                changed = True
+            if changed:
+                update["updated"] = now()
+                self.store.put_json(prefix + "meta.json", update)
+            return changed
+        if not os.path.exists(spec["catalog"]) or not os.path.exists(spec["cutout"]):
+            return False
         ra, dec = spec["center"]
         prefix = f"{base}/cutouts/s{n:04d}/{ra:.5f}{dec:+.5f}/"
         with fits.open(spec["cutout"], memmap=True) as h:
             wcs = h[2].header.tostring()
-        if not res.get("epsf"):
-            log.warning("s%04d: no ePSF file to cache", n)
-            return
         self.store.put_file_zst(prefix + "cutout.fits.zst", spec["cutout"], spec["workdir"])
         with open(spec["catalog"], "rb") as f:
             self.store.put_zst(prefix + "catalog.pkl.zst", f.read())
-        with open(res["epsf"], "rb") as f:
-            self.store.put_zst(prefix + "epsf.npz.zst", f.read())
+        if res.get("epsf"):
+            with open(res["epsf"], "rb") as f:
+                self.store.put_zst(prefix + "epsf.npz.zst", f.read())
+        else:
+            log.warning("s%04d: no ePSF file to cache yet", n)
         self.store.put_json(prefix + "meta.json", {
             "center": [ra, dec], "size": spec["size"], "sector": n, "camera": res.get("camera"),
-            "ccd": res.get("ccd"), "wcs": wcs, "epsf_name": os.path.basename(res["epsf"]),
+            "ccd": res.get("ccd"), "wcs": wcs, "epsf_name": os.path.basename(res["epsf"]) if res.get("epsf") else None,
             "limit_mag": spec["limit_mag"], "field_mag": spec["field_mag"], "factor": spec["factor"],
-            "n_gaia": res.get("n_gaia"), "light_curves": len(res["lcs"]), "tglc": _tglc_version(),
+            "field_complete": complete if spec["field_mag"] is not None else True,
+            "n_gaia": res.get("n_gaia"), "light_curves": len(res.get("lcs") or {}), "tglc": _tglc_version(),
             "timings": res.get("timings"), "peak_rss_mb": res.get("peak_rss_mb"), "created": now()})
+        return True
 
     def _run_tglc(self, spec: dict) -> dict:
         path = os.path.join(spec["workdir"], "spec.json")
@@ -344,11 +414,12 @@ class Job:
                 pid, rc, ru = os.wait4(p.pid, os.WNOHANG)
                 if pid:
                     break
-                if time.monotonic() > self.hard_deadline:
+                if time.monotonic() > self.hard_deadline - KILL_RESERVE:
                     p.kill()
                     os.wait4(p.pid, 0)
-                    log.warning("s%04d: tglc stopped at the time budget plus grace", spec["sector"])
-                    return {"ok": False, "permanent": False, "error": "tglc did not finish within the time budget"}
+                    log.warning("s%04d: tglc did not stop by itself; killed at the time budget", spec["sector"])
+                    return {"ok": False, "permanent": False, "stopped": True,
+                            "error": "tglc was killed at the time budget"}
                 time.sleep(5)
         except BaseException:
             p.kill()

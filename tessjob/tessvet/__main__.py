@@ -1,6 +1,7 @@
-"""python -m tessvet [--local-dir DIR] [--work DIR] [--max-minutes N]
+"""python -m tessvet [--local-dir DIR] [--work DIR] [--max-minutes N] [--stop-minutes M]
 
-Process the vetting/tess/requests queue once, oldest first, then exit.
+Process the vetting/tess/requests queue once, oldest first, then exit. Nothing new starts after
+--max-minutes; by --stop-minutes the run has saved its progress and exited with status 0.
 Without --local-dir the store is MinIO from S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY,
 S3_USE_SSL and S3_BUCKET (default astro-processed).
 """
@@ -25,6 +26,9 @@ def main() -> int:
     p.add_argument("--work", default=os.environ.get("WORKDIR", "/work"))
     p.add_argument("--local-dir", default=os.environ.get("LOCAL_DIR"))
     p.add_argument("--max-minutes", type=float, default=float(os.environ.get("MAX_MINUTES", "300")))
+    p.add_argument("--stop-minutes", type=float,
+                   default=float(os.environ["STOP_MINUTES"]) if os.environ.get("STOP_MINUTES") else None,
+                   help="hard stop; default max-minutes plus 30")
     p.add_argument("--field-mag", type=float, default=float(os.environ.get("FIELD_MAG", "16")),
                    help="also fit light curves of every star down to this TESS magnitude; negative turns it off")
     p.add_argument("--threads", type=int, default=int(os.environ.get("TGLC_THREADS", "4")))
@@ -37,10 +41,11 @@ def main() -> int:
     from .store import LocalStore, S3Store
 
     store = LocalStore(args.local_dir) if args.local_dir else S3Store.from_env()
-    cfg = Config(workdir=args.work, max_minutes=args.max_minutes,
+    cfg = Config(workdir=args.work, max_minutes=args.max_minutes, stop_minutes=args.stop_minutes,
                  field_mag=args.field_mag if args.field_mag >= 0 else None, threads=args.threads)
-    n = Job(store, Client(), cfg).run()
-    logging.info("processed %d requests", n)
+    job = Job(store, Client(), cfg)
+    n = job.run()
+    logging.info("processed %d requests%s", n, "; stopped at the time budget with work left" if job.stopped else "")
     return 0
 
 

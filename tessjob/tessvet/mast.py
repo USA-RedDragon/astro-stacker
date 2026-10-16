@@ -29,6 +29,10 @@ class Transient(Exception):
     """A server or network error that may clear on a later run."""
 
 
+class OutOfTime(Transient):
+    """The run's time budget ended before the request finished."""
+
+
 class Client:
     def __init__(self, session: requests.Session | None = None, attempts: int = 5, backoff: float = 30.0,
                  sleep=time.sleep):
@@ -37,12 +41,25 @@ class Client:
         self.attempts = attempts
         self.backoff = backoff
         self.sleep = sleep
+        self.stop_at: float | None = None
+        self.clock = time.monotonic
+
+    def remaining(self) -> float:
+        return float("inf") if self.stop_at is None else self.stop_at - self.clock()
+
+    def _check(self, url: str) -> float:
+        left = self.remaining()
+        if left <= 0:
+            raise OutOfTime(f"{url}: time budget used")
+        return left
 
     def _get(self, url: str, params=None, timeout=(30, 300), stream=False) -> requests.Response:
         last = None
         for attempt in range(self.attempts):
+            left = self._check(url)
+            t = (min(timeout[0], left), min(timeout[1], left))
             try:
-                r = self.session.get(url, params=params, timeout=timeout, stream=stream)
+                r = self.session.get(url, params=params, timeout=t, stream=stream)
                 if r.status_code == 404:
                     r.close()
                     raise NotFound(url)
@@ -55,6 +72,8 @@ class Client:
                 last = type(e).__name__
             if attempt + 1 < self.attempts:
                 wait = self.backoff * 2 ** attempt
+                if wait >= self.remaining():
+                    raise OutOfTime(f"{url}: {last}; no time left to retry")
                 log.warning("GET %s failed (%s); retry in %.0f s", url, last, wait)
                 self.sleep(wait)
         raise Transient(f"{url}: {last} after {self.attempts} attempts")
@@ -98,13 +117,17 @@ class Client:
                 with open(tmp, "wb") as f:
                     for chunk in r.iter_content(1 << 22):
                         f.write(chunk)
+                        self._check(url)
                 os.replace(tmp, path)
                 return
             except RETRY as e:
                 if attempt + 1 == streams:
                     raise Transient(f"{url}: {type(e).__name__} while downloading") from e
+                wait = self.backoff * 2 ** attempt
+                if wait >= self.remaining():
+                    raise OutOfTime(f"{url}: {type(e).__name__}; no time left to retry") from e
                 log.warning("download of %s broke (%s); retry", url, type(e).__name__)
-                self.sleep(self.backoff * 2 ** attempt)
+                self.sleep(wait)
             finally:
                 r.close()
                 if os.path.exists(tmp):
