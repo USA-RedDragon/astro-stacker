@@ -231,17 +231,17 @@ func (f *Fetcher) prefetchZTF(ctx context.Context, field Field) error {
 	if err != nil && !isNotFound(err) {
 		return err
 	}
-	if m != nil && m.Complete && (f.ZTFRelease == "" || f.ZTFRelease == m.Release) {
+	same := m != nil && sepArcsec(m.RA, m.Dec, field.RA, field.Dec) < 1 && math.Abs(m.Radius-fieldRadius(field)) < 1e-6
+	if same && m.Complete && (f.ZTFRelease == "" || f.ZTFRelease == m.Release) {
 		return nil
 	}
 	release, err := f.ztfRelease(ctx)
 	if err != nil {
 		return err
 	}
-	if m == nil || m.Release != release {
-		m = &ZTFManifest{Release: release, Files: map[string]ZTFFileEntry{}}
+	if !same || m.Release != release {
+		m = &ZTFManifest{Release: release, RA: field.RA, Dec: field.Dec, Radius: fieldRadius(field), Files: map[string]ZTFFileEntry{}}
 	}
-	m.RA, m.Dec, m.Radius = field.RA, field.Dec, fieldRadius(field)
 	quads, err := f.ztfQuadrants(ctx, field)
 	if err != nil {
 		return err
