@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/astrometry"
 	"github.com/USA-RedDragon/astro-stacker/internal/calmatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
@@ -175,6 +176,8 @@ type Pipeline struct {
 
 	// Events, if set, hears about updated masters and what workers do.
 	Events *events.Broker
+	// DustTask, if set, hears the dust checks' progress.
+	DustTask *activity.Task
 	// Wake, if set, ends idle workers' wait early, as when new lights are
 	// ready to score.
 	Wake *wake.Signal

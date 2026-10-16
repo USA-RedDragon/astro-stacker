@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/collabswitch"
@@ -66,6 +67,7 @@ type Extras struct {
 	SkyEvents    *skyevents.Service
 	Site         SiteSource
 	Discoveries  DiscoverySource
+	Activity     *activity.Registry
 }
 
 const schedulerWriteTimeout = 45 * time.Second

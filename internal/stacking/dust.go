@@ -117,12 +117,21 @@ func (d *dustState) waiting(key string, now time.Time) bool {
 // changes every DustInterval.
 func (p *Pipeline) runDust(ctx context.Context) {
 	for !p.stopping(ctx) {
-		if err := p.CheckFlats(ctx); err != nil && ctx.Err() == nil {
+		err := p.CheckFlats(ctx)
+		if err != nil && ctx.Err() == nil {
 			slog.Error("Flat dust check failed", "error", err)
 		}
-		if err := p.checkLightNights(ctx, time.Now()); err != nil && ctx.Err() == nil {
-			slog.Error("Lights dust check failed", "error", err)
+		lerr := p.checkLightNights(ctx, time.Now())
+		if lerr != nil && ctx.Err() == nil {
+			slog.Error("Lights dust check failed", "error", lerr)
 		}
+		if p.DustTask.Running() {
+			if ctx.Err() != nil {
+				err, lerr = nil, nil
+			}
+			p.DustTask.Finish(errors.Join(err, lerr))
+		}
+		p.DustTask.SetNext(time.Now().Add(DustInterval))
 		p.dustMetrics(ctx, time.Now())
 		if !p.pause(ctx, DustInterval) {
 			return
@@ -183,7 +192,12 @@ func (p *Pipeline) CheckFlats(ctx context.Context) error {
 	}
 	sort.SliceStable(todo, func(i, j int) bool { return todo[i].takenAt.Before(todo[j].takenAt) })
 	nights := map[time.Time]bool{}
-	for _, f := range todo {
+	if len(todo) > 0 {
+		p.DustTask.Start("checking new flats for dust", int64(len(todo)), "flat sets")
+	}
+	for i, f := range todo {
+		p.DustTask.SetProgress(int64(i), int64(len(todo)))
+		p.DustTask.SetCurrent(fmt.Sprintf("checking %s flats of %s for dust", f.set.Filter, f.set.Night.Format("2 Jan 2006")))
 		if p.stopping(ctx) {
 			return ctx.Err()
 		}

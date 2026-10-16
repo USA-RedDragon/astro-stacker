@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -35,6 +36,8 @@ type Service struct {
 	// First is the first night sent; earlier nights never are. Zero sends
 	// every night.
 	First time.Time
+	// Task, if set, hears each send's steps and the next run.
+	Task *activity.Task
 }
 
 // Render collects a night's report and renders the message and photos
@@ -65,6 +68,7 @@ func (s *Service) now() time.Time {
 func (s *Service) Run(ctx context.Context) {
 	for {
 		wait := s.Tick(ctx)
+		s.Task.SetNext(s.now().Add(wait))
 		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -148,7 +152,7 @@ func (s *Service) claim(ctx context.Context, key string, now time.Time) (bool, t
 	return true, 0, nil
 }
 
-func (s *Service) send(ctx context.Context, night, now time.Time) (time.Duration, error) {
+func (s *Service) send(ctx context.Context, night, now time.Time) (retry time.Duration, err error) {
 	key := NightKey(night)
 	ok, retry, err := s.claim(ctx, key, now)
 	if err != nil || !ok {
@@ -157,6 +161,8 @@ func (s *Service) send(ctx context.Context, night, now time.Time) (time.Duration
 		}
 		return retry, err
 	}
+	s.Task.Start("collecting the night of "+key, 3, "steps")
+	defer func() { s.Task.Finish(err) }()
 	record := func(fields map[string]any) {
 		if err := s.DB.WithContext(context.WithoutCancel(ctx)).Model(&app.MorningReport{}).Where("night = ?", key).Updates(fields).Error; err != nil {
 			slog.Error("Recording the morning report's state failed", "night", key, "error", err)
@@ -171,6 +177,8 @@ func (s *Service) send(ctx context.Context, night, now time.Time) (time.Duration
 		Update("sending_at", s.now()).Error; err != nil {
 		return ClaimLease, fmt.Errorf("record the send before sending: %w", err)
 	}
+	s.Task.SetProgress(1, 3)
+	s.Task.SetCurrent("sending the report")
 	if err := s.Sender.Message(ctx, text); err != nil {
 		if errors.Is(err, ErrOutcomeUnknown) {
 			record(map[string]any{colError: err.Error()})
@@ -184,6 +192,8 @@ func (s *Service) send(ctx context.Context, night, now time.Time) (time.Duration
 	if len(photos) == 0 {
 		return 0, nil
 	}
+	s.Task.SetProgress(2, 3)
+	s.Task.SetCurrent("sending the photos")
 	if err := s.Sender.Photos(ctx, photos); err != nil {
 		record(map[string]any{colError: "photos: " + err.Error()})
 		return 0, err

@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/klauspost/compress/zstd"
 )
@@ -85,6 +86,8 @@ type Mirror struct {
 	// Keep is how long old versions stay; DefaultKeep when zero.
 	Keep time.Duration
 	Now  func() time.Time
+	// Task, if set, hears the full list's downloads and the next run.
+	Task *activity.Task
 
 	mu        sync.Mutex
 	cur       *Manifest
@@ -338,7 +341,9 @@ func (m *Mirror) step(ctx context.Context) time.Time {
 	cur := m.cur
 	m.mu.Unlock()
 	if (cur == nil || cur.Version < day.Format("20060102") && !now.Before(day.Add(fullAt))) && !now.Before(m.nextFull) {
+		m.Task.Start("downloading today's full object list", 0, "bytes")
 		switched, err := m.Full(ctx)
+		m.Task.Finish(err)
 		switch {
 		case errors.Is(err, ErrRefused):
 			slog.Error("TNS refused the bot's key; the TNS mirror stops until the stacker restarts", "error", err)
@@ -426,6 +431,7 @@ func (m *Mirror) Run(ctx context.Context) {
 	}
 	for ctx.Err() == nil {
 		next := m.step(ctx)
+		m.Task.SetNext(next)
 		if next.IsZero() {
 			return
 		}

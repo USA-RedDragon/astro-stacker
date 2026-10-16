@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/calreq"
@@ -113,6 +114,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 
 	indexCtx, stopIndexer := context.WithCancel(context.Background())
 	defer stopIndexer()
+	reg := activity.NewRegistry()
 	var signer *previewer.Signer
 	mosaicPlans, horizon := newMosaicPlans(cfg, appStore, schedulerDBStore)
 	var bodyNightsRef atomic.Pointer[bodies.NightService]
@@ -128,7 +130,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	newFrames := &wake.Signal{}
 	hz := horizons.New(cmd.Annotations["version"], appStore.DB())
 	hz.BaseURL = cfg.Bodies.HorizonsURL
-	bodyTables := &bodies.Service{Sched: schedulerDBStore.DB(), Horizons: hz, Site: bodies.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.Bodies.Publish}
+	bodyTables := &bodies.Service{Task: reg.Task(activity.KindBodies, "Moving target position tables"), Sched: schedulerDBStore.DB(), Horizons: hz, Site: bodies.SiteFunc(siteFunc(cfg, appStore)), Mode: cfg.Bodies.Publish}
 	go bodyTables.Run(indexCtx, time.Duration(cfg.Bodies.IntervalMinutes)*time.Minute)
 	slog.Info("Body position tables started", "publish", cfg.Bodies.Publish, "interval_minutes", cfg.Bodies.IntervalMinutes)
 	darkNeed := &darkneed.Publisher{App: appStore.DB(), Sched: schedulerDBStore.DB(), Mode: cfg.Darks.Publish}
@@ -161,6 +163,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			ix.RecentTargets = indexer.ScheduledTargets(schedulerDBStore.DB())
 			ix.AfterScan = afterScan(appStore.DB(), broker, darkNeed.Run, biasNeed.Run, flatRequests.Run)
 			ix.RejectDarksSince = cfg.Darks.RejectSinceTime()
+			ix.ScanTask = reg.Task(activity.KindIndexer, "Frame index scan")
+			ix.PhotometryTask = reg.Task(activity.KindPhotometry, "Starlight of new subs")
 			go ix.Run(indexCtx, time.Duration(cfg.Indexer.IntervalSeconds)*time.Second, time.Duration(cfg.Indexer.RecentSeconds)*time.Second)
 			slog.Info("Frame indexer started", "bucket", cfg.S3.Bucket, "interval_seconds", cfg.Indexer.IntervalSeconds,
 				"recent_seconds", cfg.Indexer.RecentSeconds)
@@ -170,6 +174,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 				preview.Options{MaxWidth: cfg.Previews.MaxWidth, Quality: cfg.Previews.Quality})
 			pv.Events = broker
 			pv.Wake = newFrames
+			pv.Task = reg.Task(activity.KindPreviews, "Previews")
 			go pv.Run(indexCtx, time.Duration(cfg.Previews.IntervalSeconds)*time.Second)
 			slog.Info("Preview renderer started", "bucket", cfg.S3.ProcessedBucket, "concurrency", cfg.Previews.Concurrency)
 		}
@@ -191,6 +196,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if cfg.Stacking.Enabled {
 			p := newPipeline(cfg, s3, appStore, schedulerDBStore)
 			p.Events = broker
+			p.DustTask = reg.Task(activity.KindDust, "Dust check")
 			p.Wake = newFrames
 			p.Horizons = hz
 			restacker = p
@@ -228,11 +234,11 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		if cfg.Goals.Enabled {
 			drainGoals, backfill, kick.goals, kick.goalsPublish = startGoals(cfg, s3, appStore, schedulerDBStore, mosaicPlans.SeasonBoosts, stackBusy, kick.onMeasured)
 		}
-		nights = startDiscoveries(cfg, s3, appStore, schedulerDBStore, stackBusy, broker)
+		nights = startDiscoveries(cfg, s3, appStore, schedulerDBStore, stackBusy, broker, reg.Task(activity.KindTNS, "TNS object list"))
 		kick.discoveries = nights.kick
 	}
 
-	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill, mosaicPlans)
+	disc, collabs := newDiscover(indexCtx, cfg, appStore, schedulerDBStore, backfill, mosaicPlans, reg.Task(activity.KindStarfront, "Starfront shared projects"))
 	attachSubLengths(disc, subLengths)
 	previews := server.NewPreviewCache(nil, nil)
 	commands, monitor, obs := newScheduler(indexCtx, cfg, appStore, schedulerDBStore, broker, func(r schedcmd.Record) {
@@ -252,7 +258,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	bodyNightsRef.Store(bodyNights)
 	asteroids := &bodies.AsteroidList{Comets: comets, Horizons: hz}
 	go asteroids.Run(indexCtx, bodies.AsteroidWarmInterval)
-	skyEvents := &skyevents.Service{App: appStore.DB(), Sched: schedulerDBStore.DB(), Horizons: hz, Site: skyevents.SiteFunc(siteFunc(cfg, appStore)),
+	skyEvents := &skyevents.Service{Task: reg.Task(activity.KindSkyEvents, "Sky event search"), App: appStore.DB(), Sched: schedulerDBStore.DB(), Horizons: hz, Site: skyevents.SiteFunc(siteFunc(cfg, appStore)),
 		Rig: func(ctx context.Context) (rigsource.Rig, error) {
 			return rigsource.Measure(ctx, appStore.DB(), schedulerDBStore.DB(), time.Now())
 		},
@@ -280,7 +286,10 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		extras.Grader = &observatory.GraderCache{Client: obs, Monitor: monitor}
 	}
 
-	startMorningReport(indexCtx, cfg, appStore, schedulerDBStore)
+	extras.Activity = reg
+	startActivity(indexCtx, reg, cfg, appStore, broker, backfill, nights.live, monitor)
+
+	startMorningReport(indexCtx, cfg, appStore, schedulerDBStore, reg.Task(activity.KindMorning, "Morning report"))
 	startDiscoverySources(indexCtx, appStore, broker)
 	startDiscoveryAlerts(indexCtx, cfg, appStore, schedulerDBStore, broker, commands, backfill)
 

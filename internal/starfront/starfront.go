@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -184,6 +185,8 @@ type State struct {
 }
 
 type Poller struct {
+	// Task, if set, hears each refresh's progress and the next one.
+	Task     *activity.Task
 	BaseURL  string
 	Interval time.Duration
 	Client   *http.Client
@@ -328,7 +331,9 @@ func (p *Poller) wanted(pr Project, cache map[string]app.StarfrontCache) bool {
 	return !have
 }
 
-func (p *Poller) Once(ctx context.Context) error {
+func (p *Poller) Once(ctx context.Context) (err error) {
+	p.Task.Start("reading the project list", 0, "projects")
+	defer func() { p.Task.Finish(err) }()
 	body, err := p.get(ctx, "/api/v1/projects")
 	if err != nil {
 		p.fail(err)
@@ -349,7 +354,9 @@ func (p *Poller) Once(ctx context.Context) error {
 	p.store(ctx, keyProjects, trimmed)
 	cache := p.cached(ctx)
 	cache[keyProjects] = app.StarfrontCache{Key: keyProjects, Body: string(trimmed)}
-	for _, pr := range list.Projects {
+	for i, pr := range list.Projects {
+		p.Task.SetProgress(int64(i), int64(len(list.Projects)))
+		p.Task.SetCurrent("reading the shared projects")
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -411,6 +418,7 @@ func (p *Poller) Run(ctx context.Context) {
 	}
 	backoff := interval
 	for {
+		p.Task.SetNext(p.now().Add(wait))
 		select {
 		case <-ctx.Done():
 			return
