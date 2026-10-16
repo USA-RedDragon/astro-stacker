@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -65,7 +66,36 @@ func TestDiagnoseNight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runNight(t, dir, night, colourFilters(), "skybot.txt", epoch, false)
+	filters := colourFilters()
+	if f := os.Getenv("DISCOVERIES_DIAG_FILTERS"); f != "" {
+		filters = strings.Split(f, ",")
+	}
+	runNight(t, dir, night, filters, "skybot.txt", epoch, false)
+}
+
+// logAt logs what the night found or left out within 4 px of a position,
+// given as "ra,dec" in degrees.
+func logAt(t *testing.T, at string, in discoveries.Input, res *discoveries.Result) {
+	t.Helper()
+	parts := strings.Split(at, ",")
+	if len(parts) != 2 {
+		t.Fatalf("DISCOVERIES_DIAG_AT %q is not ra,dec", at)
+	}
+	ra, _ := strconv.ParseFloat(parts[0], 64)
+	dec, _ := strconv.ParseFloat(parts[1], 64)
+	x, y, ok := in.WCS.PixelOf(ra, dec)
+	t.Logf("at %.5f %+.5f: pixel %.1f, %.1f (in frame %v)", ra, dec, x, y, ok)
+	for _, c := range res.Candidates {
+		if d := math.Hypot(c.X-x, c.Y-y); d <= 4 {
+			t.Logf("   candidate %.1f px away: sign %+d snr %.1f gaia %v dmag %v present %d/%d lowconf %v subsharp %.1f skyfixed %v", d, c.Sign, c.SNR, deref(c.GaiaG), deref(c.DeltaMag), c.PresentIn, c.SubsTested, c.LowConf, c.SubSharp, c.SkyFixed)
+		}
+	}
+	for _, r := range res.Rejected {
+		if d := math.Hypot(r.X-x, r.Y-y); d <= 4 {
+			t.Logf("   rejected %.1f px away: sign %+d snr %.1f %s; present %d/%d, top share %.2f, mean %.1f sigma, median/mean %.2f, dipole %.2f",
+				d, r.Sign, r.SNR, r.Reason, r.PresentIn, r.Subs, r.TopShare, r.MeanSigma, r.MedianShare, r.Dipole)
+		}
+	}
 }
 
 func colourFilters() []string { return []string{testFilterL, "Red", "Green", "Blue"} }
@@ -118,6 +148,9 @@ func runNight(t *testing.T, dir string, night time.Time, filters []string, skybo
 	logRejectedVSX(t, vsx, in, res)
 	inField, recovered := knownAsteroids(t, bodies, tracks, in.WCS, res, epoch)
 	logMoverSubs(t, res)
+	if at := os.Getenv("DISCOVERIES_DIAG_AT"); at != "" {
+		logAt(t, at, in, res)
+	}
 	if !assert {
 		var b strings.Builder
 		for _, r := range res.Rejected {
