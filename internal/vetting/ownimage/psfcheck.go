@@ -207,5 +207,8 @@ func psf(ctx context.Context, d Data, sp *spotPlan, e *ensemble) check.Check {
 	case el > maxElong:
 		return check.New(check.PSF, check.Fail, fmt.Sprintf("The change is stretched %.1f to 1, where stars are round.", el))
 	}
+	if snr := g.amp / noise; snr < psfFirmSNR {
+		return check.New(check.PSF, check.Pass, fmt.Sprintf("The change is %.2f times as wide as nearby stars and stretched %.2f to 1, within what the noise allows at a signal to noise of %.0f.", ratio, el, snr))
+	}
 	return check.New(check.PSF, check.Pass, fmt.Sprintf("The change is as wide as nearby stars (%.2f times) and round (%.2f to 1).", ratio, el))
 }
