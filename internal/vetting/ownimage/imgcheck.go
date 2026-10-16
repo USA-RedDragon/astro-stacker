@@ -27,6 +27,9 @@ const (
 	psfMaxElong   = 1.6
 	psfFitR       = 5.0
 	psfMinSNR     = 5.0
+	psfFirmSNR    = 20.0
+	psfFaintRatio = 0.45
+	psfFaintElong = 2.2
 	edgeNear      = 10.0
 	satNearPx     = 10.0
 	satAtShare    = 0.2
@@ -54,7 +57,7 @@ func nightChanges(sp *spotPlan, e *ensemble, evals []refEval) []*nightChange {
 	for _, ev := range evals {
 		nc := byNight[ev.set.night]
 		if nc == nil {
-			nc = &nightChange{night: ev.set.night, dir: -float64(sp.fadeSign)}
+			nc = &nightChange{night: ev.set.night, dir: -float64(sp.signOf(ev.set.night, ev.set.filter))}
 			byNight[ev.set.night] = nc
 			order = append(order, ev.set.night)
 		}
@@ -185,13 +188,26 @@ func hotPixel(ncs []*nightChange, darkZ float64, darkOK bool) check.Check {
 		}
 	}
 	nc := ncs[0]
+	for _, c := range ncs {
+		if float64(c.agree) < consistent*float64(len(c.d)) {
+			nc = c
+			break
+		}
+	}
 	return check.Skipped(check.HotPixel, fmt.Sprintf("Not measured yet. On %s the change shows in only %d of %d frames, too unevenly to tell.", nc.night, nc.agree, len(nc.d))+darkNote)
 }
 
 func trail(subs []Sub, sp *spotPlan, e *ensemble, ncs []*nightChange) check.Check {
-	if sp.fadeSign < 0 {
+	var up []*nightChange
+	for _, nc := range ncs {
+		if nc.dir < 0 {
+			up = append(up, nc)
+		}
+	}
+	if len(up) == 0 && sp.fadeSign < 0 {
 		return check.New(check.Trail, check.Pass, "A trail only adds light, and this spot got fainter.")
 	}
+	ncs = up
 	if len(ncs) == 0 {
 		return check.Skipped(check.Trail, "Not measured yet. None of the night's frames could be measured at this spot.")
 	}

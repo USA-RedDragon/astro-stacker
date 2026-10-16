@@ -36,6 +36,51 @@ func (sp *spotPlan) reported(night, filter string) (float64, bool) {
 	return 0, false
 }
 
+func (sp *spotPlan) meanReported() (float64, bool) {
+	var v []float64
+	for _, n := range sp.spot.Nights {
+		if n.DeltaMag != nil {
+			x := *n.DeltaMag
+			if sp.mixedSigns() {
+				x = math.Abs(x)
+			}
+			v = append(v, x)
+		}
+	}
+	return mean(v), len(v) > 0
+}
+
+func (sp *spotPlan) mixedSigns() bool {
+	for _, n := range sp.spot.Nights {
+		if n.Sign != 0 && n.Sign != sp.fadeSign {
+			return true
+		}
+	}
+	return false
+}
+
+// mixedChange judges a spot flagged fainter on some nights and brighter
+// on others by how far, on average, each level moved the way it was
+// reported.
+func mixedChange(sp *spotPlan, c *Curve, rep float64, hasRep bool) check.Check {
+	moved := -float64(sp.fadeSign) * c.Change
+	sig := -float64(sp.fadeSign) * c.ChangeSigma
+	way := "the reported way"
+	if moved < 0 {
+		way = "against the reported way"
+	}
+	ev := fmt.Sprintf("Over the %d flagged nights and filters, some reported fainter and some brighter, the star moved %.2f mag %s on average, give or take %.2f",
+		c.ChangeLevels, math.Abs(moved), way, changeErr(c))
+	if hasRep {
+		ev += fmt.Sprintf(", against %.2f mag reported", rep)
+	}
+	ev += fmt.Sprintf(". Single frames scatter by %.3f mag on normal nights.", c.Scatter)
+	if sig >= changeSigma && moved >= changeShare*rep {
+		return check.New(check.OwnChange, check.Pass, ev)
+	}
+	return check.New(check.OwnChange, check.Fail, ev)
+}
+
 func (sp *spotPlan) changePoints(c *Curve) []Point {
 	var out []Point
 	for _, p := range c.Points {
@@ -77,7 +122,7 @@ func ownLC(sp *spotPlan, c *Curve) check.Check {
 		return check.Skipped(check.OwnLC, "Not measured yet. Too few frames of the night could be measured at this spot.")
 	}
 	ev := fmt.Sprintf("Measured against %d steady nearby stars over %d frames.", c.Comps, len(pts))
-	ext := runningExtreme(pts, sp.fadeSign)
+	ext := runningExtreme(pts, sp.signOf(c.ChangeNight, pts[0].Filter))
 	switch {
 	case math.Abs(c.ChangeSigma) < changeSigma || math.Abs(ext) < dipScatters*c.Scatter:
 		ev += fmt.Sprintf(" That night shows no clear change against single frames scattering by %.2f mag.", c.Scatter)
@@ -94,15 +139,19 @@ func ownChange(sp *spotPlan, c *Curve) check.Check {
 		return check.Skipped(check.OwnChange, "Not measured yet. The flagged night could not be measured at this spot.")
 	}
 	lead := "The night was"
-	if len(sp.flagged) > 1 {
-		lead = "On " + c.ChangeNight + " the star was"
-	}
 	var filter string
 	for _, p := range sp.changePoints(c) {
 		filter = p.Filter
 	}
-	scatter := fmt.Sprintf(" Single frames scatter by %.3f mag on normal nights.", c.Scatter)
 	rep, hasRep := sp.reported(c.ChangeNight, filter)
+	if c.ChangeLevels > 1 {
+		lead = fmt.Sprintf("Over the %d flagged nights and filters the star was", c.ChangeLevels)
+		rep, hasRep = sp.meanReported()
+		if sp.mixedSigns() {
+			return mixedChange(sp, c, rep, hasRep)
+		}
+	}
+	scatter := fmt.Sprintf(" Single frames scatter by %.3f mag on normal nights.", c.Scatter)
 	ok := c.ChangeSigma >= changeSigma
 	if sp.fadeSign != 0 {
 		ok = -float64(sp.fadeSign)*c.ChangeSigma >= changeSigma

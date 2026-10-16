@@ -501,3 +501,25 @@ func TestNewSourceAndEclipseShareOneRead(t *testing.T) {
 	}
 }
 
+func TestMixedSignsCountEachNightItsOwnWay(t *testing.T) {
+	t.Parallel()
+	f := newSynth()
+	f.addNights(synthNights(), 6)
+	for i := range f.subs {
+		switch nightKey(f.subs[i].Night) {
+		case flaggedDay:
+			f.subs[i].targetDMag = 0.3
+		case "2025-06-04":
+			f.subs[i].targetDMag = -0.3
+		}
+	}
+	s := f.spot(-1, 0.3)
+	up := s.Nights[0]
+	up.Night, up.Sign = day("2025-06-04"), 1
+	dm := -0.3
+	up.DeltaMag = &dm
+	s.Nights = append(s.Nights, up)
+	r := runSynth(t, f, s)
+	want(t, r, check.OwnChange, check.Pass, "some reported fainter and some brighter, the star moved 0.30 mag the reported way")
+	want(t, r, check.HotPixel, check.Pass)
+}

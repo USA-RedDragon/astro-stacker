@@ -16,6 +16,7 @@ type diffStamp struct {
 	v      []float64
 	n      int
 	cx, cy float64
+	sign   int
 }
 
 // storedDiff reads the difference plane of the detection's cutout.
@@ -33,7 +34,7 @@ func storedDiff(ctx context.Context, d Data, sp *spotPlan) (diffStamp, bool) {
 			continue
 		}
 		p := im.Plane(2)
-		out := diffStamp{v: make([]float64, len(p)), n: im.W}
+		out := diffStamp{v: make([]float64, len(p)), n: im.W, sign: n.Sign}
 		for i, x := range p {
 			out.v[i] = float64(x)
 		}
@@ -130,7 +131,7 @@ func ownDiff(sp *spotPlan, e *ensemble) (diffStamp, bool) {
 	} else {
 		ref = blur(ref, stampSide, math.Sqrt(sn*sn-sr*sr))
 	}
-	out := diffStamp{v: make([]float64, len(night)), n: stampSide}
+	out := diffStamp{v: make([]float64, len(night)), n: stampSide, sign: sp.signOf(best.night, best.filter)}
 	for k := range night {
 		out.v[k] = night[k] - ref[k]
 	}
@@ -165,9 +166,9 @@ func psf(ctx context.Context, d Data, sp *spotPlan, e *ensemble) check.Check {
 	}
 	sign := 1.0
 	switch {
-	case sp.fadeSign < 0:
+	case ds.sign < 0:
 		sign = -1
-	case sp.fadeSign == 0:
+	case ds.sign == 0:
 		c := int(math.Round(ds.cy))*ds.n + int(math.Round(ds.cx))
 		if c >= 0 && c < len(ds.v) && ds.v[c] < 0 {
 			sign = -1
@@ -194,12 +195,16 @@ func psf(ctx context.Context, d Data, sp *spotPlan, e *ensemble) check.Check {
 	ratio := g.width() / sw
 	narrow := math.Min(g.sa, g.sb) / sw
 	el := g.elongation()
+	minNarrow, maxElong := psfMinRatio, psfMaxElong
+	if g.amp/noise < psfFirmSNR {
+		minNarrow, maxElong = psfFaintRatio, psfFaintElong
+	}
 	switch {
-	case narrow < psfMinRatio:
+	case narrow < minNarrow:
 		return check.New(check.PSF, check.Fail, fmt.Sprintf("The change is %.2f times as wide as nearby stars, sharper than any star.", narrow))
 	case ratio > psfMaxRatio:
 		return check.New(check.PSF, check.Fail, fmt.Sprintf("The change is %.1f times as wide as nearby stars, too spread out for a star.", ratio))
-	case el > psfMaxElong:
+	case el > maxElong:
 		return check.New(check.PSF, check.Fail, fmt.Sprintf("The change is stretched %.1f to 1, where stars are round.", el))
 	}
 	return check.New(check.PSF, check.Pass, fmt.Sprintf("The change is as wide as nearby stars (%.2f times) and round (%.2f to 1).", ratio, el))

@@ -113,7 +113,7 @@ func evalRef(ctx context.Context, sp *spotPlan, e *ensemble, set refSet) refEval
 	}
 	med := median(lv)
 	spread := math.Max(robustStd(lv), median(noise))
-	dir := -float64(sp.fadeSign)
+	dir := -float64(sp.signOf(set.night, set.filter))
 	medPeak := median(peaks)
 	var clean []int
 	var cleanLv []float64
