@@ -34,3 +34,18 @@ func TestMovesWithTheSky(t *testing.T) {
 		}
 	}
 }
+
+// TestSharpInTheSubsHoldingItsLight replays a defect pixel of Cygnis Loop
+// Panel 2's night of 2026-08-19: sharp in the two subs of one dither
+// position, faint in three more it counts as present in.
+func TestSharpInTheSubsHoldingItsLight(t *testing.T) {
+	t.Parallel()
+	c := &cand{}
+	for _, v := range [][2]float64{{0.3, 1.2}, {5.2, 3.9}, {7.1, 6.4}, {0.4, 1.2}, {0.7, 1.0}, {0.8, 1.4}, {0, 3.9}} {
+		c.fluxes, c.errs, c.sharp = append(c.fluxes, v[0]), append(c.errs, 0.1), append(c.sharp, v[1]*0.1)
+		c.sensor, c.off = append(c.sensor, [2]float64{0, 0}), append(c.off, [2]float64{0, 0})
+	}
+	if sharp, _ := c.inSubs(0.1); sharp < maxSubSharpness {
+		t.Errorf("%.1f times a star's sharpness", sharp)
+	}
+}

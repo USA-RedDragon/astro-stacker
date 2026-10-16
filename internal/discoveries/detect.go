@@ -1028,17 +1028,29 @@ const maxSubSharpness = 3.0
 // up to 4.3 px apart.
 const skyFixedPx = 8.0
 
+// subSharpShare is the least share of its brightest sub's light a sub must
+// hold for its sharpness to count: on Cygnis Loop Panel 2's night of
+// 2026-08-19 a defect pixel was 3 to 7 times a star's sharpness in the two
+// subs of one dither position and held a fifth as much light, at a star's
+// sharpness, in the others it was "present" in, which held the median down.
+const subSharpShare = 0.5
+
 // inSubs measures, over the night subs a candidate is present in, its
-// median sharpness against a star's, star, and whether it moved with the
-// sky across them.
+// median sharpness against a star's, star, in those holding at least half
+// the light of its brightest, and whether it moved with the sky across
+// them.
 func (c *cand) inSubs(star float64) (sharp float64, skyFixed bool) {
 	var s, off []float64
 	var at [][2]float64
+	top := 0.0
+	for _, f := range c.fluxes {
+		top = math.Max(top, f)
+	}
 	for k, f := range c.fluxes {
 		if !(f > presenceSigma*c.errs[k]) {
 			continue
 		}
-		if k < len(c.sharp) {
+		if k < len(c.sharp) && f >= subSharpShare*top {
 			s = append(s, c.sharp[k])
 		}
 		if k < len(c.off) && !math.IsNaN(c.off[k][0]) {
