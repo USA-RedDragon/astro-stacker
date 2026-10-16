@@ -1,4 +1,5 @@
 import io
+import time
 import json
 from datetime import datetime, timezone
 
@@ -418,3 +419,222 @@ def test_odd_requests_do_not_stop_the_queue(tmp_path, doc):
     st.put_json("vetting/tess/requests/b.json", request(gid="5", when="2030-01-01T00:00:00Z", neighbours=[]))
     make_job(tmp_path, st, FakeMast(tmp_path, []), fake_runner(tmp_path, [])).run()
     assert st.exists("vetting/cache/m31/tess/5/status.json")
+
+
+class Tick:
+    def __init__(self, t=0.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+class ChunkedResp(FakeResp):
+    def __init__(self, chunks, clock, step):
+        super().__init__(200)
+        self.chunks = chunks
+        self.clock = clock
+        self.step = step
+
+    def iter_content(self, n):
+        for c in self.chunks:
+            self.clock.t += self.step
+            yield c
+
+
+def test_mast_stops_at_the_budget(tmp_path):
+    clock = Tick()
+    s = FakeSession([])
+    c = mast.Client(s, sleep=lambda x: None)
+    c.clock, c.stop_at = clock, -1.0
+    with pytest.raises(mast.OutOfTime):
+        c.sectors(1, 2)
+    assert s.calls == []
+
+    sleeps = []
+    s = FakeSession([FakeResp(503)])
+    c = mast.Client(s, sleep=sleeps.append, backoff=30)
+    c.clock, c.stop_at = clock, 20.0
+    with pytest.raises(mast.OutOfTime):
+        c.sectors(1, 2)
+    assert sleeps == [] and len(s.calls) == 1
+
+    class Recording(FakeSession):
+        def get(self, url, params=None, timeout=None, stream=False):
+            self.timeout = timeout
+            return super().get(url, params, timeout, stream)
+
+    s = Recording([FakeResp(200, js={"results": []})])
+    c = mast.Client(s)
+    c.clock, c.stop_at = clock, 45.0
+    c.sectors(1, 2)
+    assert s.timeout == (30, 45.0)
+
+    clock.t = 0
+    s = FakeSession([ChunkedResp([b"a"] * 10, clock, 10)])
+    c = mast.Client(s, sleep=lambda x: None)
+    c.clock, c.stop_at = clock, 35.0
+    path = tmp_path / "x.fits"
+    with pytest.raises(mast.OutOfTime):
+        c.hlsp(GID, 17, 2, 4, str(path))
+    assert not path.exists() and not (tmp_path / "x.fits.part").exists()
+
+
+def stopping_runner(tmp, calls, produce=(), field_complete=False, epsf=True, catalog=True, ok=True):
+    def run(spec):
+        calls.append(dict(spec))
+        if catalog:
+            with open(spec["catalog"], "wb") as f:
+                f.write(b"catalog")
+        lcs = {}
+        for gid in produce:
+            p = tmp / f"stop-{gid}-{spec['sector']}.fits"
+            write_tglc_fits(p, gid, spec["sector"])
+            lcs[gid] = str(p)
+        path = None
+        if epsf:
+            path = tmp / "epsf_field_sector_57_abc.npz"
+            np.savez(path, e_psf=np.zeros((2, 2)))
+        if not ok:
+            return {"ok": False, "permanent": False, "stopped": True, "error": "killed"}
+        return {"ok": True, "stopped": True, "field_complete": field_complete, "lcs": lcs, "errors": {},
+                "epsf": str(path) if path else None, "camera": 2, "ccd": 4, "n_gaia": 10,
+                "positions": {g: [45.0, 45.0] for g in lcs}}
+    return run
+
+
+PREFIX = "vetting/cache/m31/tess/cutouts/s0057/10.88932+41.66243/"
+
+
+def test_stop_after_the_star_marks_it_done_and_keeps_the_field_to_resume(tmp_path):
+    st = MemStore()
+    st.put_json(f"vetting/tess/requests/{GID}.json", request(neighbours=[]))
+    fm = FakeMast(tmp_path, SECTORS[1:])
+    calls = []
+    j = make_job(tmp_path, st, fm, stopping_runner(tmp_path, calls, produce=(GID, "777")))
+    j.run()
+    assert j.stopped
+    assert calls[0]["deadline"] == pytest.approx(time.time() + 82 * 60, abs=5)
+    assert st.get_json(f"vetting/cache/m31/tess/{GID}/status.json")["sectors_done"] == [57]
+    assert not st.exists(f"vetting/tess/requests/{GID}.json")
+    assert st.exists("vetting/cache/m31/tess/lc/s0057/777.csv.zst")
+    assert st.get_json(PREFIX + "meta.json")["field_complete"] is False
+
+    other = "381299946636125440"
+    st.put_json(f"vetting/tess/requests/{other}.json", request(gid=other, ra=10.95, dec=41.70, neighbours=[]))
+    calls.clear()
+    make_job(tmp_path, st, fm, fake_runner(tmp_path, calls, produce=(other, "888"))).run()
+    assert len(fm.cutouts) == 1
+    assert calls[0]["reuse"] is True and calls[0]["field_mag"] == 16.0
+    assert sorted(calls[0]["skip"]) == sorted([GID, "777"])
+    assert st.get_json(PREFIX + "meta.json")["field_complete"] is True
+    assert st.exists("vetting/cache/m31/tess/lc/s0057/888.csv.zst")
+
+    third = "381299946636125441"
+    st.put_json(f"vetting/tess/requests/{third}.json", request(gid=third, ra=10.95, dec=41.70, neighbours=[]))
+    calls.clear()
+    make_job(tmp_path, st, fm, fake_runner(tmp_path, calls, produce=(third,))).run()
+    assert calls[0]["field_mag"] is None and "skip" not in calls[0]
+
+
+def test_stop_before_the_star_saves_the_cutout_and_resumes_without_using_an_attempt(tmp_path):
+    st = MemStore()
+    key = f"vetting/tess/requests/{GID}.json"
+    st.put_json(key, request(neighbours=[]))
+    fm = FakeMast(tmp_path, SECTORS[1:])
+    calls = []
+    j = make_job(tmp_path, st, fm, stopping_runner(tmp_path, calls, epsf=False))
+    assert j.run() == 1 and j.stopped
+    assert st.exists(key)
+    assert st.get_json(f"vetting/tess/attempts/{GID}.json") == {"57": 0}
+    status = st.get_json(f"vetting/cache/m31/tess/{GID}/status.json")
+    assert status["sectors_done"] == [] and status["sectors_failed"] == {}
+    meta = st.get_json(PREFIX + "meta.json")
+    assert meta["epsf_name"] is None and meta["field_complete"] is False
+
+    calls.clear()
+    make_job(tmp_path, st, fm, fake_runner(tmp_path, calls, produce=(GID,))).run()
+    assert len(fm.cutouts) == 1
+    assert calls[0]["reuse"] is True and "epsf_in" not in calls[0] and calls[0]["skip"] == []
+    meta = st.get_json(PREFIX + "meta.json")
+    assert meta["epsf_name"] == "epsf_field_sector_57_abc.npz" and meta["field_complete"] is True
+    assert st.exists(PREFIX + "epsf.npz.zst")
+    assert st.get_json(f"vetting/cache/m31/tess/{GID}/status.json")["sectors_done"] == [57]
+    assert not st.exists(key)
+
+
+def test_stops_without_progress_use_up_attempts(tmp_path):
+    st = MemStore()
+    key = f"vetting/tess/requests/{GID}.json"
+    st.put_json(key, request(neighbours=[]))
+    for i in range(3):
+        j = make_job(tmp_path, st, FakeMast(tmp_path, SECTORS[1:]),
+                     stopping_runner(tmp_path, [], epsf=False, catalog=False, ok=False))
+        j.run()
+        assert j.stopped
+    assert st.get_json(f"vetting/tess/attempts/{GID}.json") == {"57": 3}
+    make_job(tmp_path, st, FakeMast(tmp_path, SECTORS[1:]), fake_runner(tmp_path, [])).run()
+    assert not st.exists(key)
+    assert "gave up after 3 runs" in st.get_json(f"vetting/cache/m31/tess/{GID}/status.json")["sectors_failed"]["57"]
+
+
+class SlowMast(FakeMast):
+    def cutout(self, *a):
+        raise mast.OutOfTime("cutout: time budget used")
+
+    def sectors(self, ra, dec):
+        if getattr(self, "late", False):
+            raise mast.OutOfTime("sector lookup: time budget used")
+        return super().sectors(ra, dec)
+
+
+def test_network_budget_stop_ends_the_run_cleanly(tmp_path):
+    st = MemStore()
+    st.put_json("vetting/tess/requests/1.json", request(gid="1", when="2026-10-14T12:00:00Z", neighbours=[]))
+    st.put_json("vetting/tess/requests/2.json", request(gid="2", when="2026-10-15T12:00:00Z", neighbours=[]))
+    fm = SlowMast(tmp_path, SECTORS[1:])
+    j = make_job(tmp_path, st, fm, fake_runner(tmp_path, []))
+    assert j.mast.stop_at == pytest.approx(j.hard_deadline - jobmod.CHILD_RESERVE)
+    assert j.run() == 1 and j.stopped
+    assert st.exists("vetting/tess/requests/1.json") and st.exists("vetting/tess/requests/2.json")
+    assert not st.exists("vetting/cache/m31/tess/2/status.json")
+
+    fm.late = True
+    j = make_job(tmp_path, st, fm, fake_runner(tmp_path, []))
+    assert j.run() == 1 and j.stopped
+
+
+def test_budget_defaults(tmp_path):
+    fm = FakeMast(tmp_path, [])
+    j = jobmod.Job(MemStore(), fm, jobmod.Config(workdir=str(tmp_path / "w"), max_minutes=60))
+    assert j.hard_deadline - j.deadline == pytest.approx(30 * 60)
+    j = jobmod.Job(MemStore(), fm, jobmod.Config(workdir=str(tmp_path / "w"), max_minutes=60, stop_minutes=100))
+    assert j.hard_deadline - j.deadline == pytest.approx(40 * 60)
+    assert j.child_deadline() == pytest.approx(time.time() + 92 * 60, abs=5)
+
+
+def test_hard_stop_kills_a_stuck_tglc(tmp_path):
+    j = make_job(tmp_path, MemStore(), FakeMast(tmp_path, []), None)
+    j.hard_deadline = time.monotonic() + jobmod.KILL_RESERVE - 1
+    work = tmp_path / "w"
+    work.mkdir()
+    t0 = time.monotonic()
+    res = j._run_tglc({"workdir": str(work), "sector": 57, "cutout": str(work / "none.fits")})
+    assert res["stopped"] and not res["ok"] and not res.get("permanent")
+    assert time.monotonic() - t0 < 30
+
+
+def test_a_star_error_is_permanent_even_when_the_run_stopped(tmp_path):
+    st = MemStore()
+    st.put_json(f"vetting/tess/requests/{GID}.json", request(neighbours=[]))
+    base = stopping_runner(tmp_path, [], produce=("777",))
+
+    def run(spec):
+        res = base(spec)
+        res["errors"] = {GID: "Target does not have one verified Gaia match"}
+        return res
+
+    make_job(tmp_path, st, FakeMast(tmp_path, SECTORS[1:]), run).run()
+    status = st.get_json(f"vetting/cache/m31/tess/{GID}/status.json")
+    assert "Gaia match" in status["sectors_failed"]["57"]
+    assert not st.exists(f"vetting/tess/requests/{GID}.json")
