@@ -1,5 +1,5 @@
 cmd/activity.go	27	8
-cmd/activitysources.go	330	149
+cmd/activitysources.go	332	151
 cmd/catalogs.go	243	18
 cmd/discover.go	53	0
 cmd/discoveries.go	22	0
@@ -37,7 +37,7 @@ internal/bodies/period.go	56	31
 internal/bodies/positions.go	233	185
 internal/bodies/targets.go	73	65
 internal/bodies/track.go	52	47
-internal/calmatch/calmatch.go	107	101
+internal/calmatch/calmatch.go	111	105
 internal/calmatch/epochs.go	32	30
 internal/calpublish/calpublish.go	121	100
 internal/calreq/calreq.go	112	94
@@ -63,7 +63,7 @@ internal/conditions/moon.go	45	45
 internal/config/config.go	121	81
 internal/coverage/biasbacklog.go	121	110
 internal/coverage/coverage.go	191	166
-internal/coverage/darkbacklog.go	276	247
+internal/coverage/darkbacklog.go	277	248
 internal/coverage/darkrank.go	38	38
 internal/coverage/imported.go	56	54
 internal/coverage/recentcal.go	55	52
@@ -84,7 +84,7 @@ internal/discover/match.go	175	162
 internal/discover/pick.go	584	539
 internal/discover/service.go	214	202
 internal/discover/subjects.go	251	222
-internal/discoveries/catalogs.go	292	257
+internal/discoveries/catalogs.go	293	258
 internal/discoveries/classify.go	222	205
 internal/discoveries/combine.go	119	112
 internal/discoveries/cutouts.go	76	67
@@ -98,9 +98,9 @@ internal/discoveries/movers.go	254	245
 internal/discoveries/newlight.go	12	11
 internal/discoveries/null.go	85	71
 internal/discoveries/progress.go	14	13
-internal/discoveries/runner.go	711	544
+internal/discoveries/runner.go	711	543
 internal/discoveries/sensor.go	72	70
-internal/discoveries/smallbodies.go	171	156
+internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
 internal/discoveries/surveyvariables.go	99	95
 internal/discoveries/tns.go	91	89
@@ -149,7 +149,7 @@ internal/goals/progress.go	104	93
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	353	319
+internal/goals/tsgoals.go	353	320
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	106	84
 internal/halpha/halpha.go	177	154
@@ -176,6 +176,7 @@ internal/indexer/indexer.go	383	171
 internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
+internal/memlimit/memlimit.go	15	7
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -459,4 +460,4 @@ internal/wake/wake.go	14	14
 internal/ztflc/checker.go	55	48
 internal/ztflc/client.go	69	61
 internal/ztflc/judge.go	96	91
-main.go	7	0
+main.go	9	0
