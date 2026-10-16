@@ -20,7 +20,7 @@ cmd/tnsmirror.go	28	4
 cmd/triggers.go	24	24
 cmd/variablecatalogs.go	5	4
 cmd/vet.go	106	5
-internal/activity/activity.go	140	109
+internal/activity/activity.go	140	111
 internal/activity/jobs.go	150	109
 internal/activity/kube.go	66	47
 internal/activity/report.go	91	76
@@ -98,7 +98,7 @@ internal/discoveries/movers.go	254	245
 internal/discoveries/newlight.go	12	11
 internal/discoveries/null.go	85	71
 internal/discoveries/progress.go	14	13
-internal/discoveries/runner.go	711	544
+internal/discoveries/runner.go	713	545
 internal/discoveries/sensor.go	72	70
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -219,7 +219,7 @@ internal/ninapath/ninapath.go	9	9
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	207	178
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
