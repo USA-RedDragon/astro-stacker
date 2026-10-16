@@ -96,6 +96,10 @@ class Job:
         self.runner = runner or self._run_tglc
         self.deadline = time.monotonic() + cfg.max_minutes * 60
         os.makedirs(cfg.workdir, exist_ok=True)
+        for name in os.listdir(cfg.workdir):
+            if name.startswith(("tglc-", "hlsp-")):
+                path = os.path.join(cfg.workdir, name)
+                shutil.rmtree(path) if os.path.isdir(path) else os.unlink(path)
 
     def out_of_time(self) -> bool:
         return time.monotonic() >= self.deadline
@@ -323,7 +327,12 @@ class Job:
         env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH")) if p)
         t0 = time.time()
         p = subprocess.Popen([sys.executable, "-m", "tessvet.tglcrun", path], env=env)
-        _, rc, ru = os.wait4(p.pid, 0)
+        try:
+            _, rc, ru = os.wait4(p.pid, 0)
+        except BaseException:
+            p.kill()
+            p.wait()
+            raise
         p.returncode = os.waitstatus_to_exitcode(rc)
         peak = ru.ru_maxrss / 1024
         secs = time.time() - t0

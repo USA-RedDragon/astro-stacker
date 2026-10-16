@@ -8,6 +8,7 @@ S3_USE_SSL and S3_BUCKET (default astro-processed).
 import argparse
 import logging
 import os
+import signal
 import sys
 
 
@@ -29,6 +30,7 @@ def main() -> int:
     p.add_argument("--threads", type=int, default=int(os.environ.get("TGLC_THREADS", "4")))
     args = p.parse_args()
     _scratch_env(args.work)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     from .job import Config, Job
     from .mast import Client
