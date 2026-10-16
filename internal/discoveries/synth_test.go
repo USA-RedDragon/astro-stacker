@@ -33,13 +33,24 @@ type field struct {
 	// hot puts a defect pixel on the last night's subs, spread over 2x2
 	// pixels and moved by up to a pixel and a half between them, as
 	// registration spreads and moves one.
-	hot   bool
-	HotX  float64
-	HotY  float64
-	start time.Time
-	sky   float64
-	noise float64
-	zp    float64
+	hot  bool
+	HotX float64
+	HotY float64
+	// salt draws the subs' noise afresh, for another filter's subs, and red
+	// adds a source of RedFlux at RedX, RedY to the last night's subs.
+	salt    string
+	red     bool
+	RedX    float64
+	RedY    float64
+	RedFlux float64
+	// steady keeps the variable star as it is on the last night, and dim
+	// scales it on the nights it lists.
+	steady bool
+	dim    map[int]float64
+	start  time.Time
+	sky    float64
+	noise  float64
+	zp     float64
 }
 
 type synthStar struct{ X, Y, Flux float64 }
@@ -157,7 +168,7 @@ func addGauss(d []float32, w, h int, x, y, flux, sigma float64) {
 // render draws sub i of night n, or the noiseless master with n < 0. Each
 // sub's border moves with its dither, as a registered sub's does.
 func (f *field) render(n, i int) []float32 {
-	rng := rand.New(rand.NewChaCha8(sha256.Sum256(fmt.Appendf(nil, "%d/%d", n, i))))
+	rng := rand.New(rand.NewChaCha8(sha256.Sum256(fmt.Appendf(nil, "%s%d/%d", f.salt, n, i))))
 	d := make([]float32, f.W*f.H)
 	sigma, scale := 1.3, 1.0
 	if n >= 0 {
@@ -167,8 +178,11 @@ func (f *field) render(n, i int) []float32 {
 	last := n == len(f.Nights)-1
 	for k, s := range f.Stars {
 		fl := s.Flux
-		if k == f.Var && last {
+		if k == f.Var && last && !f.steady {
 			fl *= 1.6
+		}
+		if k == f.Var && n >= 0 && f.dim[n] > 0 {
+			fl *= f.dim[n]
 		}
 		addGauss(d, f.W, f.H, s.X, s.Y, fl*scale, sigma)
 	}
@@ -179,6 +193,9 @@ func (f *field) render(n, i int) []float32 {
 		for _, q := range [][3]float64{{0, 0, (1 - fx) * (1 - fy)}, {1, 0, fx * (1 - fy)}, {0, 1, (1 - fx) * fy}, {1, 1, fx * fy}} {
 			d[(y0+int(q[1]))*f.W+x0+int(q[0])] += float32(0.6 * q[2])
 		}
+	}
+	if last && f.red {
+		addGauss(d, f.W, f.H, f.RedX, f.RedY, f.RedFlux*scale, sigma)
 	}
 	if last {
 		addGauss(d, f.W, f.H, f.NewX, f.NewY, 0.6*scale, sigma)
