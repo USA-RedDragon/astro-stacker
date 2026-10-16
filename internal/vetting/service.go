@@ -102,9 +102,11 @@ type Spot struct {
 	RA     float64
 	Dec    float64
 	Nights []time.Time
-	Group  string
+	Groups []string
 	Sign   int
 	Delta  float64
+	// RunAt is when the comparison that flagged it ran; zero is now.
+	RunAt time.Time
 }
 
 // VetSpot vets a position without storing anything, for checking the
@@ -117,16 +119,22 @@ func (s *Service) VetSpot(ctx context.Context, sp Spot) (*Report, error) {
 	src := app.DiscoverySource{Object: sp.Object, Kind: "change", RA: sp.RA, Dec: sp.Dec}
 	var members []app.DiscoveryCandidate
 	x, y, _ := w.PixelOf(sp.RA, sp.Dec)
-	for i, n := range sp.Nights {
-		d := sp.Delta
-		members = append(members, app.DiscoveryCandidate{ID: -(i + 1), Object: sp.Object, Night: n, Group: sp.Group, Kind: "change",
-			Class: discoveries.ClassNewVariable, X: x, Y: y, RA: sp.RA, Dec: sp.Dec, Sign: sp.Sign, DeltaMag: &d})
+	for _, n := range sp.Nights {
+		for _, g := range sp.Groups {
+			d := sp.Delta
+			members = append(members, app.DiscoveryCandidate{ID: -(len(members) + 1), Object: sp.Object, Night: n, Group: g, Kind: app.DiscoveryKindChange,
+				Class: discoveries.ClassNewVariable, X: x, Y: y, RA: sp.RA, Dec: sp.Dec, Sign: sp.Sign, DeltaMag: &d})
+		}
 	}
 	if len(members) > 0 {
 		src.Night = members[0].Night
 	}
 	sum := summaryOf(src, members)
-	own, err := ownimage.Measure(ctx, s.Data, sp.Object, []ownimage.Spot{spotOf(sum, members, nil, s.now())}, ownimage.Options{Threads: s.threads()})
+	runAt := sp.RunAt
+	if runAt.IsZero() {
+		runAt = s.now()
+	}
+	own, err := ownimage.Measure(ctx, s.Data, sp.Object, []ownimage.Spot{spotOf(sum, members, nil, runAt)}, ownimage.Options{Threads: s.threads()})
 	var res *ownimage.Result
 	if err == nil && len(own) == 1 {
 		res = &own[0]
@@ -319,9 +327,9 @@ func (s *Service) identify(ctx context.Context, ra, dec float64) (star, error) {
 	g := stars[best]
 	out.found = true
 	out.bp, out.rp = float64(g.BP), float64(g.RP)
-	out.target = surveys.Target{GaiaID: g.SourceID, RA: g.RA, Dec: g.Dec, PMRA: g.PMRA, PMDec: g.PMDec, G: float64(g.G)}
+	out.target = surveys.Target{GaiaID: g.SourceID, RA: g.RA, Dec: g.Dec, PMRA: finite(g.PMRA), PMDec: finite(g.PMDec), G: float64(g.G)}
 	for i, n := range stars {
-		if i == best {
+		if i == best || math.IsNaN(float64(n.G)) || math.IsNaN(n.RA) || math.IsNaN(n.Dec) {
 			continue
 		}
 		out.neighbours = append(out.neighbours, surveys.Neighbour{GaiaID: n.SourceID, RA: n.RA, Dec: n.Dec, G: float64(n.G), Sep: arcsec(g.RA, g.Dec, n.RA, n.Dec)})
@@ -392,6 +400,9 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		if err != nil && !errors.Is(err, period.ErrNoPeriod) {
 			slog.Warn("Period search failed", "source", sum.Source.ID, "error", err)
 		}
+	}
+	if pr != nil && !hasPeriod(pr.Ephemeris) {
+		pr.Ephemeris = nil
 	}
 	var timing *period.Timing
 	if pr != nil && pr.Ephemeris != nil && curve != nil {
@@ -590,4 +601,15 @@ func (s *Service) Prefetch(ctx context.Context, objects []string) error {
 		slog.Info("Field survey data pulled", "object", obj)
 	}
 	return nil
+}
+
+func hasPeriod(e *period.Ephemeris) bool {
+	return e != nil && e.Period > 0 && (e.Kind == period.KindEclipsing || e.Kind == period.KindSinusoidal)
+}
+
+func finite(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return v
 }

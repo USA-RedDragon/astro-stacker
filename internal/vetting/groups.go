@@ -3,6 +3,7 @@ package vetting
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
@@ -104,10 +105,15 @@ func hasCheck(cs []check.Check, id string) bool {
 
 func fetchRow(id string, f surveys.Fetch, analysed bool) (check.Check, bool) {
 	note := func(def string) string {
-		if f.Note != "" {
-			return f.Note
+		n := strings.TrimSpace(f.Note)
+		if n == "" {
+			return def
 		}
-		return def
+		n = strings.ToUpper(n[:1]) + n[1:]
+		if !strings.HasSuffix(n, ".") {
+			n += "."
+		}
+		return n
 	}
 	switch f.State {
 	case "":
@@ -116,7 +122,7 @@ func fetchRow(id string, f surveys.Fetch, analysed bool) (check.Check, bool) {
 		if analysed && len(f.Series) > 0 {
 			return check.Check{}, false
 		}
-		return check.Skipped(id, note("Not fetched yet. The request is queued and a later run fills this in.")), true
+		return check.Skipped(id, "Not fetched yet. The request is queued and a later run fills this in."), true
 	case surveys.Failed:
 		return check.Skipped(id, note("Could not be reached this time.")), true
 	case surveys.Uncovered:
