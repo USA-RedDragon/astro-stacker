@@ -10,7 +10,7 @@ func TestDarkRequestsNearOneTemperatureShareACombo(t *testing.T) {
 	now := time.Date(2026, 10, 10, 15, 0, 0, 0, time.UTC)
 	need := func(id string, tmp float64, have int) openNeed {
 		return openNeed{ref: RequestRef{ID: id, Object: id, Night: "2026-10-09"},
-			need: requestNeed{exposure: 300, gain: 0, offset: 50, bin: 1, tmp: tmp, needed: DarkFramesTarget, have: have}}
+			need: requestNeed{exposure: 300, gain: 0, offset: 50, bin: 1, tmp: tmp, needed: DarkFramesTarget(300), have: have}}
 	}
 	b := DarkBacklog{Combos: []DarkCombo{{ComboKey: "600|0|50|1|-15", Exposure: 600, Offset: 50, Binning: 1, SetTemp: -15,
 		SetTempsCovered: []float64{-15}, Priority: 1, Requests: []RequestRef{}}}}

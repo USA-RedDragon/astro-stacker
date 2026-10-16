@@ -18,6 +18,8 @@ import (
 type DarkBacklog struct {
 	ComputedAt        time.Time         `json:"computed_at"`
 	FramesNeeded      int               `json:"frames_needed"`
+	FramesNeededLong  int               `json:"frames_needed_long"`
+	LongExposureS     float64           `json:"long_exposure_s"`
 	FramesNeededBasis string            `json:"frames_needed_basis"`
 	SetTempExactC     float64           `json:"set_temp_exact_c"`
 	SessionGapHours   float64           `json:"session_gap_hours"`
@@ -97,7 +99,8 @@ type RejectedDark struct {
 
 const RejectedListed = 50
 
-const DarkFramesTarget = calmatch.FullDarkSet
+// DarkFramesTarget is how many clean darks make a full set at this exposure.
+func DarkFramesTarget(exposure float64) int { return calmatch.FullDarkSet(exposure) }
 
 type cleanSets struct {
 	median, sets int
@@ -108,10 +111,10 @@ func FramesNeededBasis(c cleanSets) string {
 	if c.sets > 0 {
 		measured = fmt.Sprintf("The %d dark sets on record have a median of %d clean darks each (ingest check verdict clean, not rejected).", c.sets, c.median)
 	}
-	return fmt.Sprintf("The target of %d darks in one set is the user's choice, to match the dark sets already taken. %s "+
+	return fmt.Sprintf("A full set is %s, the user's choice. %s "+
 		"Lights use a full set of the same exposure within %s °C when one exists. Only when none does is a shorter set of %d or more "+
-		"(calmatch.MinFrames) used, and its lights stay on this backlog until a set of %d is taken.",
-		DarkFramesTarget, measured, numText(calmatch.SetTempExactC), calmatch.MinFrames, DarkFramesTarget)
+		"(calmatch.MinFrames) used, and its lights stay on this backlog until a full set is taken.",
+		calmatch.FullDarkRule(), measured, numText(calmatch.SetTempExactC), calmatch.MinFrames)
 }
 
 func clean(f darkFrame) bool {
@@ -158,7 +161,7 @@ func measureCleanSets(sets []calmatch.Set, darks []darkFrame) (map[int]int, clea
 }
 
 // fullChosenDark reports whether the dark set chosen for some lights is
-// full: a master made elsewhere, or a set with DarkFramesTarget clean darks.
+// full: a master made elsewhere, or a set with DarkFramesTarget clean darks for its exposure.
 func fullChosenDark(chosen calmatch.Set, sets []calmatch.Set, counts map[int]int) bool {
 	if chosen.Master != "" {
 		return true
@@ -167,7 +170,7 @@ func fullChosenDark(chosen calmatch.Set, sets []calmatch.Set, counts map[int]int
 		if s.Type == chosen.Type && s.From.Equal(chosen.From) && s.To.Equal(chosen.To) && s.Master == "" &&
 			same(s.Exposure, chosen.Exposure) && same(s.Gain, chosen.Gain) && same(s.Offset, chosen.Offset) &&
 			same(s.SetTemp, chosen.SetTemp) && same(s.BinX, chosen.BinX) {
-			return counts[i] >= DarkFramesTarget
+			return counts[i] >= DarkFramesTarget(s.Exposure)
 		}
 	}
 	return false
@@ -281,8 +284,9 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 	counts, measured := measureCleanSets(sets, darks)
 	r := newDarkRank(lights, now)
 	b := DarkBacklog{
-		ComputedAt: now.UTC(), FramesNeeded: DarkFramesTarget, FramesNeededBasis: FramesNeededBasis(measured),
-		SetTempExactC: calmatch.SetTempExactC, SessionGapHours: SessionGap.Hours(), RankingBasis: RankingBasis(), LastNight: r.lastNightText(),
+		ComputedAt: now.UTC(), FramesNeeded: calmatch.ShortDarkSet, FramesNeededLong: calmatch.LongDarkSet, LongExposureS: calmatch.LongDarkSeconds,
+		FramesNeededBasis: FramesNeededBasis(measured),
+		SetTempExactC:     calmatch.SetTempExactC, SessionGapHours: SessionGap.Hours(), RankingBasis: RankingBasis(), LastNight: r.lastNightText(),
 		Combos: []DarkCombo{}, Unschedulable: []DarkUnscheduled{}, Rejected: []RejectedDark{},
 	}
 	tallies := map[darkSetup]map[float64]*tempTally{}
@@ -341,10 +345,10 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 	sort.SliceStable(b.Unschedulable, func(i, j int) bool { return b.Unschedulable[i].Lights > b.Unschedulable[j].Lights })
 
 	for su, temps := range tallies {
-		for _, c := range pickSetTemps(temps, r.lastNightText()) {
+		for _, c := range pickSetTemps(temps, r.lastNightText(), DarkFramesTarget(su.exposure)) {
 			c.Exposure, c.Gain, c.Offset, c.Binning = su.exposure, su.gain, su.offset, su.bin
 			c.ComboKey = ComboKey(su.exposure, su.gain, su.offset, su.bin, c.SetTemp)
-			c.FramesNeeded = DarkFramesTarget
+			c.FramesNeeded = DarkFramesTarget(su.exposure)
 			fillDarkProgress(&c, su, darks, now)
 			b.Combos = append(b.Combos, c)
 		}
@@ -400,7 +404,7 @@ func fptr(p *float64) any {
 	return *p
 }
 
-func pickSetTemps(temps map[float64]*tempTally, lastNight string) []DarkCombo {
+func pickSetTemps(temps map[float64]*tempTally, lastNight string, need int) []DarkCombo {
 	left := map[float64]bool{}
 	for t := range temps {
 		left[t] = true
@@ -461,7 +465,7 @@ func pickSetTemps(temps map[float64]*tempTally, lastNight string) []DarkCombo {
 		c.Basis = fmt.Sprintf("%d lights at set temperature %s °C have no dark to calibrate with, %d use a dark scaled from another setpoint or exposure "+
 			"and %d have an exact dark set with fewer than %d clean darks. "+
 			"A dark at %s °C is an exact match for lights within %s °C of it (calmatch.SetTempExactC).",
-			c.LightsBlocked, strings.Join(temps, ", "), c.LightsScaled, c.LightsThin, DarkFramesTarget, numText(best), numText(calmatch.SetTempExactC))
+			c.LightsBlocked, strings.Join(temps, ", "), c.LightsScaled, c.LightsThin, need, numText(best), numText(calmatch.SetTempExactC))
 		c.ScoreParts = c.ScoreParts.rounded()
 		c.Score = roundScore(c.ScoreParts.Blocked + c.ScoreParts.Scaled + c.ScoreParts.Thin)
 		c.Basis += " " + scoreNote(c, lastNight)

@@ -156,7 +156,7 @@ func TestPickSetTempsCentresOnTheHigherScore(t *testing.T) {
 		-2: tally(10, 0, ScoreParts{Blocked: 0.01}),
 		-1: tally(10, 0, ScoreParts{Blocked: 0.01}),
 	}
-	got := pickSetTemps(temps, "")
+	got := pickSetTemps(temps, "", 10)
 	if len(got) != 2 || got[0].SetTemp != -3 || got[0].Score != 50.02 || len(got[0].SetTempsCovered) != 3 || got[1].SetTemp != -1 {
 		for _, c := range got {
 			t.Logf("%v covers %v score %v", c.SetTemp, c.SetTempsCovered, c.Score)
@@ -176,7 +176,7 @@ func TestPickSetTempsCentresOnLastNightsLights(t *testing.T) {
 		-1: tally(100, 0, ScoreParts{Blocked: 20}),
 		0:  tally(100, 0, ScoreParts{Blocked: 20}),
 	}
-	got := pickSetTemps(temps, "2026-10-10")
+	got := pickSetTemps(temps, "2026-10-10", 10)
 	if len(got) != 2 || got[0].SetTemp != -4 || got[0].LightsLastNight != 5 || got[1].SetTemp != -1 || !strings.Contains(got[0].Basis, "from the last imaging night, 2026-10-10") {
 		for _, c := range got {
 			t.Logf("%v covers %v score %v last night %d", c.SetTemp, c.SetTempsCovered, c.Score, c.LightsLastNight)

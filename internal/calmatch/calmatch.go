@@ -249,7 +249,7 @@ func chooseBias(g Group, sets []Set) Match {
 // Darks must match gain, offset and binning. Their thermal signal is scaled
 // to the lights (bias-subtracted dark optimization), and the IMX571 has no amp
 // glow, so neither the setpoint nor the exposure has to match exactly. A full
-// set (FullDarkSet) of the same exposure within SetTempExactC wins over any
+// set (FullDarkSet for its exposure) of the same exposure within SetTempExactC wins over any
 // short one; otherwise the closest setpoint wins, then a same-exposure dark,
 // then the longest one (scaling down adds less noise), then the nearest night.
 func chooseDark(g Group, sets []Set) Match {
@@ -292,14 +292,33 @@ func chooseDark(g Group, sets []Set) Match {
 	return m
 }
 
-// FullDarkSet is how many darks make a full set, the user's choice to match
-// the dark sets already taken. A shorter set is used only when no full one
-// matches.
-const FullDarkSet = 25
+// The user's choice of how many darks make a full set: LongDarkSet for
+// exposures of LongDarkSeconds and longer, ShortDarkSet below that. A
+// shorter set is used only when no full one matches.
+const (
+	LongDarkSeconds = 120
+	LongDarkSet     = 10
+	ShortDarkSet    = 25
+)
+
+// FullDarkSet is how many darks make a full set at this exposure in seconds.
+func FullDarkSet(exposure float64) int {
+	if exposure >= LongDarkSeconds {
+		return LongDarkSet
+	}
+	return ShortDarkSet
+}
+
+// FullDarkRule says in words how many darks make a full set.
+func FullDarkRule() string {
+	return fmt.Sprintf("%d darks for exposures of %d s and longer, %d for shorter ones", LongDarkSet, LongDarkSeconds, ShortDarkSet)
+}
 
 // FullDark reports whether a dark set is full: a master made elsewhere, a
-// set of unknown size, or one of at least FullDarkSet frames.
-func FullDark(s Set) bool { return s.Master != "" || s.Count == 0 || s.Count >= FullDarkSet }
+// set of unknown size, or one of at least FullDarkSet frames for its exposure.
+func FullDark(s Set) bool {
+	return s.Master != "" || s.Count == 0 || s.Count >= FullDarkSet(s.Exposure)
+}
 
 func fullExact(g Group, s Set) bool {
 	return FullDark(s) && TempOff(g, s) <= SetTempExactC && sameExposure(g, s)

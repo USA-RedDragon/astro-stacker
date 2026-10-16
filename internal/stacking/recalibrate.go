@@ -26,7 +26,7 @@ const (
 	recalCloser  = "closer_dark"
 	recalChanged = "dark_changed"
 	// recalFull: it was calibrated with a short dark set, and a full one
-	// (calmatch.FullDarkSet) matches now.
+	// (calmatch.FullDarkSet for its exposure) matches now.
 	recalFull = "dark_full"
 )
 

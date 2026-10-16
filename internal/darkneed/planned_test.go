@@ -58,7 +58,7 @@ func TestPlannedLengthsJoinTheBacklog(t *testing.T) {
 		t.Fatalf("rows %+v, want only the 300 s gain 100 set", rows)
 	}
 	r := rows[0]
-	if r.ComboKey != "300|100|50|1|-10" || r.FramesNeeded != 25 || r.FramesHave != 0 || r.LightsBlocked != 0 || r.Basis != "proposed by the sub length model" {
+	if r.ComboKey != "300|100|50|1|-10" || r.FramesNeeded != 10 || r.FramesHave != 0 || r.LightsBlocked != 0 || r.Basis != "proposed by the sub length model" {
 		t.Errorf("row %+v", r)
 	}
 }

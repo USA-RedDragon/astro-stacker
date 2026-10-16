@@ -196,7 +196,7 @@ func TestDarkPrefersAFullSetWithinTheExactBandOverACloserShortOne(t *testing.T) 
 	dark := func(temp float64, count int) calmatch.Set {
 		return calmatch.Set{Type: typeDark, Night: night("2025-11-01"), Exposure: 600, Gain: 0, Offset: 50, SetTemp: temp, BinX: 1, Count: count}
 	}
-	short, full := dark(-10, 14), dark(-11, 25)
+	short, full := dark(-10, 9), dark(-11, 10)
 	m := calmatch.Choose(g, []calmatch.Set{short, full}).Dark
 	if m.Set == nil || m.Set.SetTemp != -11 || m.Quality != calmatch.Exact || m.Scaled {
 		t.Fatalf("chose %+v (%s), want the full set at -11", m.Set, m.Quality)
@@ -220,5 +220,43 @@ func TestDarkPrefersAFullSetWithinTheExactBandOverACloserShortOne(t *testing.T) 
 	}
 	if !calmatch.FullDark(full) || calmatch.FullDark(short) || !calmatch.FullDark(imported) {
 		t.Fatal("FullDark misjudged a set")
+	}
+}
+
+func TestFullDarkSetDependsOnExposure(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		exposure float64
+		want     int
+	}{{0.5, 25}, {60, 25}, {119, 25}, {119.9, 25}, {120, 10}, {120.1, 10}, {300, 10}, {600, 10}} {
+		if got := calmatch.FullDarkSet(c.exposure); got != c.want {
+			t.Errorf("FullDarkSet(%v) = %d, want %d", c.exposure, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		exposure float64
+		count    int
+		want     bool
+	}{{119, 10, false}, {119, 24, false}, {119, 25, true}, {120, 9, false}, {120, 10, true}, {300, 10, true}, {300, 9, false}} {
+		s := calmatch.Set{Type: typeDark, Exposure: c.exposure, Count: c.count}
+		if got := calmatch.FullDark(s); got != c.want {
+			t.Errorf("FullDark(%v s, %d frames) = %v, want %v", c.exposure, c.count, got, c.want)
+		}
+	}
+}
+
+func TestTenDarksAt120sWinTheExactBandBut119sNeeds25(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		exposure float64
+		wantTemp float64
+	}{{119, -10}, {120, -11}} {
+		g := calmatch.Group{Night: night("2025-11-02"), Exposure: c.exposure, Gain: 0, Offset: 50, SetTemp: -10, BinX: 1, Rotator: math.NaN()}
+		closer := calmatch.Set{Type: typeDark, Night: night("2025-11-01"), Exposure: c.exposure, Gain: 0, Offset: 50, SetTemp: -10, BinX: 1, Count: 9}
+		ten := calmatch.Set{Type: typeDark, Night: night("2025-11-01"), Exposure: c.exposure, Gain: 0, Offset: 50, SetTemp: -11, BinX: 1, Count: 10}
+		m := calmatch.Choose(g, []calmatch.Set{closer, ten}).Dark
+		if m.Set == nil || m.Set.SetTemp != c.wantTemp {
+			t.Errorf("%v s: chose %+v, want the set at %v °C", c.exposure, m.Set, c.wantTemp)
+		}
 	}
 }

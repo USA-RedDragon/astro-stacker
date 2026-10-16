@@ -159,7 +159,7 @@ func checkComputed(t *testing.T, db *gorm.DB, fx *fixture) {
 func checkOlder(t *testing.T, first, third coverage.DarkCombo) {
 	t.Helper()
 	if third.SetTemp != -20 || third.LightsBlocked != 8 || third.LightsLastNight != 0 || third.Priority != 3 || len(third.SetTempsCovered) != 3 ||
-		third.FramesNeeded != 25 || !(third.Score > first.Score) {
+		third.FramesNeeded != 10 || !(third.Score > first.Score) {
 		t.Errorf("older lights with no dark rank after last night's combos even with a higher score: %+v", third)
 	}
 }
@@ -167,7 +167,7 @@ func checkOlder(t *testing.T, first, third coverage.DarkCombo) {
 func checkThin(t *testing.T, b coverage.DarkBacklog, c coverage.DarkCombo) {
 	t.Helper()
 	if c.SetTemp != -5 || c.LightsThin != 3 || c.LightsBlocked != 0 || c.LightsScaled != 0 || c.FramesHave != 0 ||
-		c.FramesNeeded != 25 || c.Priority != 2 || c.LightsLastNight != 3 {
+		c.FramesNeeded != 10 || c.Priority != 2 || c.LightsLastNight != 3 {
 		t.Errorf("an exact set of 3 clean darks should stay on the backlog: %+v", c)
 	}
 	if b.FramesNeeded != 25 || !strings.Contains(b.FramesNeededBasis, "The 2 dark sets on record have a median of 3 clean darks") {
@@ -223,13 +223,13 @@ func checkPublished(t *testing.T, db, sched *gorm.DB, fx *fixture) {
 	if err := sched.Table(darkneed.Table).Where("combo_key = ?", "300|100|50|1|-13").First(&thin).Error; err != nil {
 		t.Fatal(err)
 	}
-	if thin.FramesHave != 3 || thin.FramesNeeded != 25 || thin.LightsScaled != 0 {
+	if thin.FramesHave != 3 || thin.FramesNeeded != 10 || thin.LightsScaled != 0 {
 		t.Errorf("a usable set short of the target %+v", thin)
 	}
-	more(22)
+	more(7)
 	s, err = p.Publish(ctx)
 	if err != nil || s.Deleted != 1 || s.Rows != 2 {
-		t.Fatalf("publish after 25 darks %+v %v", s, err)
+		t.Fatalf("publish after 10 darks %+v %v", s, err)
 	}
 	var left int64
 	sched.Table(darkneed.Table).Count(&left)

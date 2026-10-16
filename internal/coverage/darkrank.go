@@ -36,10 +36,10 @@ func RankingBasis() string {
 		"so the darks for the night that just ended are taken at its dawn. All other combos follow. Within each group, combos are ranked by score, highest first. "+
 		"Each light adds its need weight times its age weight. "+
 		"Need weight: %s for a light with no dark at all, %s for a light calibrated with a dark scaled from another setpoint or exposure, "+
-		"%s for a light with an exact dark set of fewer than %d clean darks. Age weight: 1 for a light from the night that ends today, halved for every %s days "+
+		"%s for a light with an exact dark set short of a full set (%s) of clean darks. Age weight: 1 for a light from the night that ends today, halved for every %s days "+
 		"since its night, so recent lights dominate. A light of an active target never weighs less than %s; a target is active when it has lights "+
 		"from the last %d days. Ties go to more lights with no dark, then scaled, then short sets, then the latest night.",
-		numText(DarkWeightBlocked), numText(DarkWeightScaled), numText(DarkWeightThin), DarkFramesTarget, numText(DarkHalfLifeDays),
+		numText(DarkWeightBlocked), numText(DarkWeightScaled), numText(DarkWeightThin), calmatch.FullDarkRule(), numText(DarkHalfLifeDays),
 		numText(DarkActiveFloor), DarkRecentDays)
 }
 
