@@ -99,7 +99,7 @@ internal/discoveries/movers.go	254	247
 internal/discoveries/newlight.go	12	11
 internal/discoveries/null.go	106	90
 internal/discoveries/progress.go	14	13
-internal/discoveries/refnights.go	168	155
+internal/discoveries/refnights.go	181	168
 internal/discoveries/runner.go	717	548
 internal/discoveries/sensor.go	72	70
 internal/discoveries/smallbodies.go	175	161
@@ -116,7 +116,7 @@ internal/discoveryreport/ades.go	42	40
 internal/discoveryreport/bulk.go	24	22
 internal/discoveryreport/known.go	143	133
 internal/discoveryreport/report.go	335	299
-internal/discoveryreport/service.go	310	225
+internal/discoveryreport/service.go	310	226
 internal/discoveryreport/tns.go	97	81
 internal/discoverysource/list.go	200	181
 internal/discoverysource/match.go	27	24
