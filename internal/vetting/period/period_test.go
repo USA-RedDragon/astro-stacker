@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -108,6 +109,7 @@ func loadATLAS(t *testing.T, s star, ztf []lc.Series) []lc.Series {
 		"c": (ztfMedian(ztf, "g") + ztfMedian(ztf, "r")) / 2,
 	}
 	by := map[string]*lc.Series{}
+	var order []string
 	for _, r := range readCSV(t, filepath.Join("testdata", s.dir, "atlas.csv.zst")) {
 		f := r["f"]
 		total := math.Pow(10, -0.4*(ref[f]-23.9)) / s.dilution
@@ -115,21 +117,22 @@ func loadATLAS(t *testing.T, s star, ztf []lc.Series) []lc.Series {
 		if flux <= 0.05*total {
 			continue
 		}
-		se, ok := by[f]
+		key := r["cam"] + " " + f
+		se, ok := by[key]
 		if !ok {
-			se = &lc.Series{Survey: lc.ATLAS, Band: f, Relative: true, Dilution: s.dilution}
-			by[f] = se
+			se = &lc.Series{Survey: lc.ATLAS, Band: f, Relative: true, Dilution: s.dilution, Note: "camera " + r["cam"]}
+			by[key] = se
+			order = append(order, key)
 		}
 		se.Points = append(se.Points, lc.Point{
-			BJD: lc.BJD(lc.MJDTime(num(t, r["mjd"])), s.ra, s.dec),
+			BJD: lc.BJD(lc.MJDTime(num(t, r["mjd"])+15.0/86400), s.ra, s.dec),
 			Mag: -2.5 * math.Log10(flux/total), Err: 1.0857 * num(t, r["dujy"]) / flux,
 		})
 	}
-	var out []lc.Series
-	for _, b := range []string{"c", "o"} {
-		if se, ok := by[b]; ok {
-			out = append(out, *se)
-		}
+	slices.Sort(order)
+	out := make([]lc.Series, 0, len(order))
+	for _, k := range order {
+		out = append(out, *by[k])
 	}
 	return out
 }
@@ -358,8 +361,13 @@ func TestOwnTiming(t *testing.T) {
 	if math.Abs(rt.Offset+4.6) > 0.5 || math.Abs(rt.OffsetErr-4.2) > 0.6 || math.Abs(rt.Depth-0.31) > 0.01 {
 		t.Errorf("reference ephemeris: O-C %.1f +- %.1f min depth %.3f, want -4.6 +- 4.2 and 0.31", rt.Offset, rt.OffsetErr, rt.Depth)
 	}
-	if tm, ok := TimeMinimum(all.Ephemeris, pts, "Luminance"); ok {
-		t.Logf("against every survey: O-C %.1f +- %.1f min, depth %.3f", tm.Offset, tm.OffsetErr, tm.Depth)
+	at, ok := TimeMinimum(all.Ephemeris, pts, "Luminance")
+	if !ok {
+		t.Fatal("no minimum covered with the all-survey ephemeris")
+	}
+	t.Logf("against every survey: O-C %.1f +- %.1f min, depth %.3f", at.Offset, at.OffsetErr, at.Depth)
+	if math.Abs(at.Offset+4.6) > 1.5 || at.OffsetErr < 3 || at.OffsetErr > 6 {
+		t.Errorf("all-survey ephemeris: O-C %.1f +- %.1f min, want about -4.6 +- 4.2", at.Offset, at.OffsetErr)
 	}
 	if _, ok := TimeMinimum(r.Ephemeris, pts[20:], "Luminance"); ok {
 		t.Error("egress alone should not time a minimum")

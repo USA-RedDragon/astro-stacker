@@ -48,6 +48,7 @@ type ecFit struct {
 	iC      []int
 	robust  float64
 	nParams int
+	timing  bool
 }
 
 func profile(u, w, a float64) (float64, float64, float64, float64) {
@@ -199,6 +200,8 @@ type ecInit struct {
 	P, T0 float64
 	dips  []dipP
 	freeP bool
+	fixed bool
+	mask  []bool
 }
 
 func newEcFit(f *flatPts, d *data, in ecInit) *ecFit {
@@ -212,6 +215,9 @@ func newEcFit(f *flatPts, d *data, in ecInit) *ecFit {
 	}
 	m.offset = make([]float64, f.ns)
 	m.keep = append([]bool(nil), f.keep...)
+	if in.mask != nil {
+		copy(m.keep, in.mask)
+	}
 	m.initDepths(f, d)
 	return m
 }
@@ -277,19 +283,20 @@ func (m *ecFit) updateActive(f *flatPts, d *data) {
 	}
 }
 
-func (m *ecFit) bounds(in ecInit) ([]float64, []float64, []bool) {
+func (m *ecFit) bounds(in ecInit, live []bool) ([]float64, []float64, []bool) {
 	lo := make([]float64, m.nParams)
 	hi := make([]float64, m.nParams)
 	on := make([]bool, m.nParams)
 	dp := 1e-3 * in.P
-	lo[0], hi[0], on[0] = in.P-dp, in.P+dp, in.freeP
-	lo[1], hi[1], on[1] = in.T0-0.25*in.P, in.T0+0.25*in.P, true
+	free := !in.fixed
+	lo[0], hi[0], on[0] = in.P-dp, in.P+dp, in.freeP && free
+	lo[1], hi[1], on[1] = in.T0-0.25*in.P, in.T0+0.25*in.P, free
 	for k, d := range in.dips {
 		if k > 0 {
-			lo[m.iPh[k]], hi[m.iPh[k]], on[m.iPh[k]] = d.phase-0.15, d.phase+0.15, true
+			lo[m.iPh[k]], hi[m.iPh[k]], on[m.iPh[k]] = d.phase-0.15, d.phase+0.15, free
 		}
-		lo[m.iW[k]], hi[m.iW[k]], on[m.iW[k]] = 0.0015, 0.3, true
-		lo[m.iA[k]], hi[m.iA[k]], on[m.iA[k]] = 0.3, 8, true
+		lo[m.iW[k]], hi[m.iW[k]], on[m.iW[k]] = 0.0015, 0.3, free
+		lo[m.iA[k]], hi[m.iA[k]], on[m.iA[k]] = 0.3, 8, free
 	}
 	for g := range m.iD {
 		for k := range m.dips {
@@ -299,15 +306,19 @@ func (m *ecFit) bounds(in ecInit) ([]float64, []float64, []bool) {
 	}
 	for s := range m.iC {
 		i := m.iC[s]
-		lo[i], hi[i], on[i] = -2, 2, true
+		lo[i], hi[i], on[i] = -2, 2, live[s]
 	}
 	return lo, hi, on
 }
 
 func fitEclipse(f *flatPts, d *data, in ecInit) *ecFit {
 	m := newEcFit(f, d, in)
+	live := make([]bool, f.ns)
+	for i, k := range m.keep {
+		live[f.s[i]] = live[f.s[i]] || k
+	}
 	for pass := range 4 {
-		lo, hi, on := m.bounds(in)
+		lo, hi, on := m.bounds(in, live)
 		pr := &lmProblem{y: f.y, e: f.e, keep: m.keep, lo: lo, hi: hi, on: on, eval: m.evalFn(f), maxNNZ: 3 + 4*len(m.dips)}
 		m.res = pr.solve(m.pack())
 		m.unpack(m.res.p)
@@ -317,7 +328,7 @@ func fitEclipse(f *flatPts, d *data, in ecInit) *ecFit {
 		changed := false
 		for i := range f.t {
 			r := (f.y[i] - m.value(f.t[i], f.g[i], f.s[i])) / f.e[i]
-			k := math.Abs(r) < clipSigma
+			k := math.Abs(r) < clipSigma && (in.mask == nil || in.mask[i])
 			changed = changed || k != m.keep[i]
 			m.keep[i] = k
 		}

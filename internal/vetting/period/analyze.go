@@ -122,7 +122,7 @@ func (a *analysis) search(minP, maxP float64) {
 	}
 	switch {
 	case best != nil && (sBest == nil || bestBIC <= sBIC):
-		a.ecl, a.half = best, bestNote
+		a.ecl, a.half = a.timingRefit(best), bestNote
 	case sBest != nil:
 		a.sine = sBest
 	}
@@ -164,6 +164,61 @@ func (a *analysis) secondaryReal(m *ecFit) bool {
 		}
 	}
 	return false
+}
+
+func timingSurvey(s string) bool { return s == lc.ZTF || s == lc.TESS }
+
+func (a *analysis) timingRefit(m *ecFit) *ecFit {
+	mask := make([]bool, len(a.f.t))
+	all := true
+	for i := range a.f.t {
+		mask[i] = timingSurvey(a.d.groups[a.f.g[i]].survey)
+		all = all && mask[i]
+	}
+	if all || !a.timingCovered(m, mask) {
+		return m
+	}
+	in := ecInit{P: m.P, T0: m.T0, dips: append([]dipP(nil), m.dips...), freeP: true, mask: mask}
+	t := fitEclipse(a.f, a.d, in)
+	if !a.timingCovered(t, mask) {
+		return m
+	}
+	in = ecInit{P: t.P, T0: t.T0, dips: append([]dipP(nil), t.dips...), freeP: true, fixed: true}
+	out := fitEclipse(a.f, a.d, in)
+	shared := []int{0, 1}
+	for k := range out.dips {
+		if k > 0 {
+			shared = append(shared, out.iPh[k])
+		}
+		shared = append(shared, out.iW[k], out.iA[k])
+	}
+	for _, i := range shared {
+		for _, j := range shared {
+			out.res.cov[i][j] = t.res.cov[i][j]
+		}
+	}
+	out.timing = true
+	return out
+}
+
+func (a *analysis) timingCovered(m *ecFit, mask []bool) bool {
+	for k := range m.dips {
+		cycles := map[int]bool{}
+		n := 0
+		for i := range a.f.t {
+			if !mask[i] {
+				continue
+			}
+			if sh, u := m.shapeAt(a.f.t[i], k); sh > 0.5 {
+				cycles[int(math.Round((a.f.t[i]-m.T0)/m.P-u))] = true
+				n++
+			}
+		}
+		if len(cycles) < 3 || n < 10 {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *analysis) orderDips(m *ecFit) *ecFit {

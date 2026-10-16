@@ -106,8 +106,11 @@ func (a *analysis) eclipseRow(s string, si surveyInfo, fits []SurveyFit) check.C
 	if !agrees {
 		return check.New(id, check.Fail, base+" The points that fall in the dips are not fainter, against the period from the other surveys.")
 	}
-	if in == 0 || bestG < 0 {
+	if in == 0 {
 		return check.New(id, check.NotRun, base+" None fall in a dip.")
+	}
+	if bestG < 0 {
+		return check.New(id, check.NotRun, fmt.Sprintf("%s %s fall near dips, but too few deep inside one to measure it.", base, plural(in, "point", "points")))
 	}
 	if s == lc.ZTF {
 		return check.New(id, check.Pass, fmt.Sprintf("%s Repeats every %s days.", base, fmtPeriod(m.P, m.res.sigma(0))))

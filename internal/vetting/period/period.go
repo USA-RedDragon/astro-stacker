@@ -96,7 +96,11 @@ type Options struct {
 // Analyze searches series for a period and tests it. series holds every
 // survey's light curve of the star; the ones from the user's own images
 // (lc.Own) are only used for the timing check, not the search. Each
-// series is put on its own median first. A TESS series names its sector
+// series is put on its own median first. The period, epoch and dip shapes
+// come from ZTF and TESS alone when they catch every dip in at least three
+// cycles, since ATLAS and NEOWISE timing scatters more than their errors
+// say; those surveys then add depths and odd and even cycle coverage.
+// A TESS series names its sector
 // in Band or Note ("S17" or "Sector 17"). When no period stands out the
 // error is ErrNoPeriod and the Result still holds the survey rows; when
 // there were survey points its Ephemeris has Kind flat or irregular and
