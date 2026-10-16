@@ -536,6 +536,9 @@ func calibrationItem(v observatory.View, now time.Time) (activity.Item, error) {
 	it.Started = c.Since
 	it.QueueUnit = "sets"
 	for _, q := range c.Queue {
+		if q.Status == "skipped" || q.Status == "done" {
+			continue
+		}
 		if q.Remaining == nil || *q.Remaining > 0 {
 			it.Queued++
 		}

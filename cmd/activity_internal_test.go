@@ -50,7 +50,7 @@ func TestCalibrationItem(t *testing.T) {
 	}
 	it, err = calibrationItem(view(&observatory.Calibration{Kind: "darks", UpdatedAt: &now,
 		Set:   &observatory.CalibrationSet{Exposure: fp(300), FramesTotal: ip(30), FramesDone: ip(12)},
-		Queue: []observatory.CalibrationQueue{{Remaining: ip(5)}, {Remaining: ip(0)}, {}}}), now)
+		Queue: []observatory.CalibrationQueue{{Remaining: ip(5)}, {Remaining: ip(0)}, {}, {Status: "skipped", Remaining: ip(3)}}}), now)
 	if err != nil || it.Done != 12 || it.Total != 30 || it.Unit != "frames" || it.Current != "Darks, 300 s" || it.Queued != 2 {
 		t.Fatalf("darks %+v %v", it, err)
 	}
