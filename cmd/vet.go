@@ -99,7 +99,7 @@ func newVetCommand() *cobra.Command {
 	c.Flags().DurationVar(&budget, "budget", 0, "start no new target after this long; 0 runs until done")
 	c.Flags().StringVar(&spot, "spot", "", "vet a position with no stored source, \"object|ra|dec\" in degrees, and print the report")
 	c.Flags().StringVar(&nights, "nights", "", "with --spot, the flagged nights, comma separated YYYY-MM-DD")
-	c.Flags().StringVar(&group, "group", discoveries.GroupBroadband, "with --spot, the filter group")
+	c.Flags().StringVar(&group, "group", discoveries.GroupBroadband, "with --spot, the filter groups, comma separated")
 	c.Flags().IntVar(&sign, "sign", -1, "with --spot, 1 for brighter, -1 for fainter")
 	c.Flags().Float64Var(&delta, "delta-mag", 0, "with --spot, the reported change in magnitudes")
 	c.Flags().BoolVar(&prefetch, "prefetch", false, "pull the survey data of the --object targets' fields and exit")
@@ -116,7 +116,7 @@ func vetSpot(cmd *cobra.Command, svc *vetting.Service, spot, nights, group strin
 	if err1 != nil || err2 != nil {
 		return fmt.Errorf("--spot ra and dec must be degrees")
 	}
-	sp := vetting.Spot{Object: parts[0], RA: ra, Dec: dec, Group: group, Sign: sign, Delta: delta}
+	sp := vetting.Spot{Object: parts[0], RA: ra, Dec: dec, Groups: strings.Split(group, ","), Sign: sign, Delta: delta}
 	for _, n := range strings.Split(nights, ",") {
 		if n = strings.TrimSpace(n); n == "" {
 			continue
