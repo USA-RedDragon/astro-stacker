@@ -29,6 +29,7 @@ const (
 	historySpan  = "30d"
 	queryTimeout = 5 * time.Second
 	mConnected   = "connected"
+	mTemperature = "temperature_celsius"
 )
 
 type Source struct {
@@ -80,7 +81,39 @@ type Camera struct {
 	BinX              *float64 `json:"bin_x,omitempty"`
 	BinY              *float64 `json:"bin_y,omitempty"`
 	Gain              *float64 `json:"gain,omitempty"`
+	Offset            *float64 `json:"offset,omitempty"`
 	PixelSize         *float64 `json:"pixel_size,omitempty"`
+	IsExposing        *bool    `json:"is_exposing,omitempty"`
+	AtTarget          *bool    `json:"at_target,omitempty"`
+}
+
+// FlatDevice is the flat panel NINA is connected to.
+type FlatDevice struct {
+	Source
+	Connected     *bool    `json:"connected,omitempty"`
+	LightOn       *bool    `json:"light_on,omitempty"`
+	Brightness    *float64 `json:"brightness,omitempty"`
+	BrightnessMax *float64 `json:"brightness_max,omitempty"`
+}
+
+// FilterWheel is the filter wheel NINA is connected to.
+type FilterWheel struct {
+	Source
+	Connected  *bool `json:"connected,omitempty"`
+	SelectedID *int  `json:"selected_id,omitempty"`
+}
+
+// LastImage is the statistics NINA reports for the last image it saved.
+type LastImage struct {
+	Source
+	Exposure    *float64 `json:"exposure,omitempty"`
+	MedianADU   *float64 `json:"median_adu,omitempty"`
+	MeanADU     *float64 `json:"mean_adu,omitempty"`
+	StdevADU    *float64 `json:"stdev_adu,omitempty"`
+	MaxADU      *float64 `json:"max_adu,omitempty"`
+	Gain        *float64 `json:"gain,omitempty"`
+	Offset      *float64 `json:"offset,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
 }
 
 type Rotator struct {
@@ -116,14 +149,24 @@ type Sync struct {
 }
 
 type Report struct {
-	At      time.Time `json:"at"`
-	Weather Weather   `json:"weather"`
-	Safety  Safety    `json:"safety"`
-	Mount   Mount     `json:"mount"`
-	Camera  Camera    `json:"camera"`
-	Rotator Rotator   `json:"rotator"`
-	Power   Power     `json:"power"`
-	Sync    Sync      `json:"sync"`
+	At          time.Time   `json:"at"`
+	Weather     Weather     `json:"weather"`
+	Safety      Safety      `json:"safety"`
+	Mount       Mount       `json:"mount"`
+	Camera      Camera      `json:"camera"`
+	Rotator     Rotator     `json:"rotator"`
+	FlatDevice  FlatDevice  `json:"flat_device"`
+	FilterWheel FilterWheel `json:"filter_wheel"`
+	LastImage   LastImage   `json:"last_image"`
+	Power       Power       `json:"power"`
+	Sync        Sync        `json:"sync"`
+}
+
+// SetObservatorySources sets the source of every part read from the
+// observatory's metrics.
+func (r *Report) SetObservatorySources(s Source) {
+	r.Weather.Source, r.Safety.Source, r.Mount.Source, r.Camera.Source, r.Rotator.Source = s, s, s, s, s
+	r.FlatDevice.Source, r.FilterWheel.Source, r.LastImage.Source = s, s, s
 }
 
 type Options struct {
@@ -253,16 +296,13 @@ func manufacturer(m string) string {
 
 func (s *Service) fillMetrics(ctx context.Context, r *Report) {
 	if s.opts.MetricsURL == "" {
-		none := Source{Source: SourceNone}
-		r.Weather.Source, r.Safety.Source, r.Mount.Source, r.Power.Source = none, none, none, none
-		r.Camera.Source, r.Rotator.Source = none, none
+		r.SetObservatorySources(Source{Source: SourceNone})
+		r.Power.Source = Source{Source: SourceNone}
 		return
 	}
-	obs, err := s.query(ctx, `{__name__=~"observatory_(weather|safetymonitor|mount|camera|rotator)_.+"}`)
+	obs, err := s.query(ctx, `{__name__=~"observatory_(weather|safetymonitor|mount|camera|rotator|flatdevice|filterwheel|image)_.+"}`)
 	if err != nil {
-		e := Source{Source: SourceError, Error: err.Error()}
-		r.Weather.Source, r.Safety.Source, r.Mount.Source = e, e, e
-		r.Camera.Source, r.Rotator.Source = e, e
+		r.SetObservatorySources(Source{Source: SourceError, Error: err.Error()})
 	} else {
 		fillObservatory(r, obs)
 	}
@@ -324,31 +364,7 @@ func fillObservatory(r *Report, samples []sample) {
 		switch {
 		case strings.HasPrefix(name, "observatory_weather_"):
 			found["weather"] = true
-			w := &r.Weather
-			switch strings.TrimPrefix(name, "observatory_weather_") {
-			case mConnected:
-				w.Connected = flag(v)
-			case "cloud_cover_percent":
-				w.CloudCover = finite(v)
-			case "rain_rate":
-				w.RainRate = finite(v)
-			case "wind_speed_mps":
-				w.WindSpeed = finite(v)
-			case "wind_gust_mps":
-				w.WindGust = finite(v)
-			case "humidity_percent":
-				w.Humidity = finite(v)
-			case "dew_point_celsius":
-				w.DewPoint = finite(v)
-			case "temperature_celsius":
-				w.Temperature = finite(v)
-			case "sky_temperature_celsius":
-				w.SkyTemperature = finite(v)
-			case "sky_brightness":
-				w.SkyBrightness = finite(v)
-			case "pressure_mbar":
-				w.Pressure = finite(v)
-			}
+			fillWeather(&r.Weather, strings.TrimPrefix(name, "observatory_weather_"), v)
 		case strings.HasPrefix(name, "observatory_safetymonitor_"):
 			found["safety"] = true
 			switch strings.TrimPrefix(name, "observatory_safetymonitor_") {
@@ -359,29 +375,21 @@ func fillObservatory(r *Report, samples []sample) {
 			}
 		case strings.HasPrefix(name, "observatory_mount_"):
 			found["mount"] = true
-			m := &r.Mount
-			switch strings.TrimPrefix(name, "observatory_mount_") {
-			case mConnected:
-				m.Connected = flag(v)
-			case "tracking_enabled":
-				m.Tracking = flag(v)
-			case "at_park":
-				m.Parked = flag(v)
-			case "slewing":
-				m.Slewing = flag(v)
-			case "at_home":
-				m.AtHome = flag(v)
-			case "altitude_degrees":
-				m.Altitude = finite(v)
-			case "time_to_meridian_flip_hours":
-				m.FlipHours = finite(v)
-			}
+			fillMount(&r.Mount, strings.TrimPrefix(name, "observatory_mount_"), v)
 		case strings.HasPrefix(name, "observatory_camera_"):
 			found["camera"] = true
 			fillCamera(&r.Camera, strings.TrimPrefix(name, "observatory_camera_"), v)
 		case strings.HasPrefix(name, "observatory_rotator_"):
 			found["rotator"] = true
 			fillRotator(&r.Rotator, strings.TrimPrefix(name, "observatory_rotator_"), v)
+		case strings.HasPrefix(name, "observatory_flatdevice_"):
+			found["flat"] = true
+			fillFlatDevice(&r.FlatDevice, strings.TrimPrefix(name, "observatory_flatdevice_"), v)
+		case strings.HasPrefix(name, "observatory_filterwheel_"):
+			found["filterwheel"] = true
+			fillFilterWheel(&r.FilterWheel, strings.TrimPrefix(name, "observatory_filterwheel_"), v)
+		case strings.HasPrefix(name, "observatory_image_"):
+			found["image"] = fillLastImage(&r.LastImage, strings.TrimPrefix(name, "observatory_image_"), v) || found["image"]
 		}
 	}
 	state := func(k, what string) Source {
@@ -392,6 +400,107 @@ func fillObservatory(r *Report, samples []sample) {
 	}
 	r.Weather.Source, r.Safety.Source, r.Mount.Source = state("weather", "weather"), state("safety", "safety monitor"), state("mount", "mount")
 	r.Camera.Source, r.Rotator.Source = state("camera", "camera"), state("rotator", "rotator")
+	r.FlatDevice.Source, r.FilterWheel.Source = state("flat", "flat panel"), state("filterwheel", "filter wheel")
+	r.LastImage.Source = state("image", "last image")
+}
+
+func fillWeather(w *Weather, metric string, v float64) {
+	switch metric {
+	case mConnected:
+		w.Connected = flag(v)
+	case "cloud_cover_percent":
+		w.CloudCover = finite(v)
+	case "rain_rate":
+		w.RainRate = finite(v)
+	case "wind_speed_mps":
+		w.WindSpeed = finite(v)
+	case "wind_gust_mps":
+		w.WindGust = finite(v)
+	case "humidity_percent":
+		w.Humidity = finite(v)
+	case "dew_point_celsius":
+		w.DewPoint = finite(v)
+	case mTemperature:
+		w.Temperature = finite(v)
+	case "sky_temperature_celsius":
+		w.SkyTemperature = finite(v)
+	case "sky_brightness":
+		w.SkyBrightness = finite(v)
+	case "pressure_mbar":
+		w.Pressure = finite(v)
+	}
+}
+
+func fillMount(m *Mount, metric string, v float64) {
+	switch metric {
+	case mConnected:
+		m.Connected = flag(v)
+	case "tracking_enabled":
+		m.Tracking = flag(v)
+	case "at_park":
+		m.Parked = flag(v)
+	case "slewing":
+		m.Slewing = flag(v)
+	case "at_home":
+		m.AtHome = flag(v)
+	case "altitude_degrees":
+		m.Altitude = finite(v)
+	case "time_to_meridian_flip_hours":
+		m.FlipHours = finite(v)
+	}
+}
+
+func fillFlatDevice(f *FlatDevice, metric string, v float64) {
+	switch metric {
+	case mConnected:
+		f.Connected = flag(v)
+	case "light_on":
+		f.LightOn = flag(v)
+	case "brightness":
+		f.Brightness = finite(v)
+	case "brightness_max":
+		f.BrightnessMax = finite(v)
+	}
+}
+
+func fillFilterWheel(f *FilterWheel, metric string, v float64) {
+	switch metric {
+	case mConnected:
+		f.Connected = flag(v)
+	case "selected_filter_id":
+		if finite(v) != nil {
+			n := int(math.Round(v))
+			f.SelectedID = &n
+		}
+	}
+}
+
+// fillLastImage reports whether metric is one of the last image's
+// statistics the report carries.
+func fillLastImage(im *LastImage, metric string, v float64) bool {
+	var p **float64
+	switch metric {
+	case "exposure_time_seconds":
+		p = &im.Exposure
+	case "median_adu":
+		p = &im.MedianADU
+	case "mean_adu":
+		p = &im.MeanADU
+	case "stdev_adu":
+		p = &im.StdevADU
+	case "max_adu":
+		p = &im.MaxADU
+	case "gain":
+		p = &im.Gain
+	case "offset":
+		p = &im.Offset
+	case mTemperature:
+		p = &im.Temperature
+	default:
+		return false
+	}
+	*p = finite(v)
+	return true
 }
 
 func fillRotator(rt *Rotator, metric string, v float64) {
@@ -409,7 +518,7 @@ func fillCamera(c *Camera, metric string, v float64) {
 	switch metric {
 	case mConnected:
 		c.Connected = flag(v)
-	case "temperature_celsius":
+	case mTemperature:
 		c.Temperature = finite(v)
 	case "target_temperature_celsius":
 		c.TargetTemperature = finite(v)
@@ -427,8 +536,14 @@ func fillCamera(c *Camera, metric string, v float64) {
 		c.BinY = finite(v)
 	case "gain":
 		c.Gain = finite(v)
+	case "offset":
+		c.Offset = finite(v)
 	case "pixel_size_microns":
 		c.PixelSize = finite(v)
+	case "is_exposing":
+		c.IsExposing = flag(v)
+	case "at_target_temperature":
+		c.AtTarget = flag(v)
 	}
 }
 

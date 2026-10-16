@@ -2,6 +2,7 @@ package conditions
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,25 @@ const promBody = `{"status":"success","data":{"resultType":"vector","result":[
 {"metric":{"__name__":"observatory_camera_temperature_celsius"},"value":[1,"-3"]},
 {"metric":{"__name__":"observatory_camera_sensor_width_pixels"},"value":[1,"6248"]},
 {"metric":{"__name__":"observatory_camera_cooler_power_percent"},"value":[1,"NaN"]},
-{"metric":{"__name__":"observatory_rotator_position_degrees"},"value":[1,"359.5"]}
+{"metric":{"__name__":"observatory_camera_offset"},"value":[1,"50"]},
+{"metric":{"__name__":"observatory_camera_is_exposing"},"value":[1,"1"]},
+{"metric":{"__name__":"observatory_camera_at_target_temperature"},"value":[1,"0"]},
+{"metric":{"__name__":"observatory_rotator_position_degrees"},"value":[1,"359.5"]},
+{"metric":{"__name__":"observatory_flatdevice_connected"},"value":[1,"1"]},
+{"metric":{"__name__":"observatory_flatdevice_light_on"},"value":[1,"1"]},
+{"metric":{"__name__":"observatory_flatdevice_brightness"},"value":[1,"120"]},
+{"metric":{"__name__":"observatory_flatdevice_brightness_max"},"value":[1,"255"]},
+{"metric":{"__name__":"observatory_filterwheel_connected"},"value":[1,"1"]},
+{"metric":{"__name__":"observatory_filterwheel_selected_filter_id"},"value":[1,"3"]},
+{"metric":{"__name__":"observatory_image_exposure_time_seconds"},"value":[1,"2.5"]},
+{"metric":{"__name__":"observatory_image_median_adu"},"value":[1,"21000"]},
+{"metric":{"__name__":"observatory_image_mean_adu"},"value":[1,"21100.5"]},
+{"metric":{"__name__":"observatory_image_stdev_adu"},"value":[1,"410"]},
+{"metric":{"__name__":"observatory_image_max_adu"},"value":[1,"65535"]},
+{"metric":{"__name__":"observatory_image_gain"},"value":[1,"0"]},
+{"metric":{"__name__":"observatory_image_offset"},"value":[1,"50"]},
+{"metric":{"__name__":"observatory_image_temperature_celsius"},"value":[1,"-10"]},
+{"metric":{"__name__":"observatory_image_hfr"},"value":[1,"2.1"]}
 ]}}`
 
 const upsBody = `{"status":"success","data":{"resultType":"vector","result":[
@@ -69,9 +88,51 @@ func TestReportFromPrometheus(t *testing.T) {
 	if r.Rotator.Source.Source != SourcePrometheus || r.Rotator.Position == nil || *r.Rotator.Position != 359.5 {
 		t.Fatalf("rotator %+v", r.Rotator)
 	}
+	checkCalibrationDevices(t, r)
 	checkPower(t, r.Power)
 	if r.Sync.Source.Source != SourceNone {
 		t.Fatalf("sync %+v", r.Sync)
+	}
+}
+
+func checkCalibrationDevices(t *testing.T, r Report) {
+	t.Helper()
+	c := r.Camera
+	if c.Offset == nil || *c.Offset != 50 || c.IsExposing == nil || !*c.IsExposing || c.AtTarget == nil || *c.AtTarget {
+		t.Fatalf("camera offset/exposing/at target %+v %+v %+v", c.Offset, c.IsExposing, c.AtTarget)
+	}
+	f := r.FlatDevice
+	if f.Source.Source != SourcePrometheus || f.Connected == nil || !*f.Connected || f.LightOn == nil || !*f.LightOn ||
+		f.Brightness == nil || *f.Brightness != 120 || f.BrightnessMax == nil || *f.BrightnessMax != 255 {
+		t.Fatalf("flat device %+v", f)
+	}
+	w := r.FilterWheel
+	if w.Source.Source != SourcePrometheus || w.Connected == nil || !*w.Connected || w.SelectedID == nil || *w.SelectedID != 3 {
+		t.Fatalf("filter wheel %+v", w)
+	}
+	b, err := json.Marshal(r.LastImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"source":"prometheus","exposure":2.5,"median_adu":21000,"mean_adu":21100.5,"stdev_adu":410,"max_adu":65535,"gain":0,"offset":50,"temperature":-10}`; string(b) != want {
+		t.Fatalf("last image %s, want %s", b, want)
+	}
+}
+
+func TestMissingCalibrationDevicesAreNone(t *testing.T) {
+	t.Parallel()
+	var r Report
+	fillObservatory(&r, []sample{
+		{labels: map[string]string{"__name__": "observatory_camera_connected"}, value: 1},
+		{labels: map[string]string{"__name__": "observatory_image_hfr"}, value: 2},
+	})
+	for name, src := range map[string]Source{"flat device": r.FlatDevice.Source, "filter wheel": r.FilterWheel.Source, "last image": r.LastImage.Source} {
+		if src.Source != SourceNone || src.Error == "" {
+			t.Errorf("%s source %+v, want none with an error", name, src)
+		}
+	}
+	if r.Camera.Offset != nil || r.Camera.IsExposing != nil || r.Camera.AtTarget != nil {
+		t.Errorf("camera fields not reported were filled: %+v", r.Camera)
 	}
 }
 
@@ -141,7 +202,8 @@ func TestReportFromAnEndedRequestIsNotShared(t *testing.T) {
 func TestNoMetricsURL(t *testing.T) {
 	t.Parallel()
 	r := New(Options{}, nil).Report(context.Background())
-	for _, s := range []Source{r.Weather.Source, r.Safety.Source, r.Mount.Source, r.Power.Source, r.Camera.Source, r.Rotator.Source} {
+	for _, s := range []Source{r.Weather.Source, r.Safety.Source, r.Mount.Source, r.Power.Source, r.Camera.Source, r.Rotator.Source,
+		r.FlatDevice.Source, r.FilterWheel.Source, r.LastImage.Source} {
 		if s.Source != SourceNone {
 			t.Fatalf("want none, got %+v", s)
 		}
@@ -155,7 +217,7 @@ func TestMetricsError(t *testing.T) {
 	}))
 	defer srv.Close()
 	r := New(Options{MetricsURL: srv.URL}, nil).Report(context.Background())
-	if r.Weather.Source.Source != SourceError || r.Power.Source.Source != SourceError {
+	if r.Weather.Source.Source != SourceError || r.Power.Source.Source != SourceError || r.FlatDevice.Source.Source != SourceError || r.LastImage.Source.Source != SourceError {
 		t.Fatalf("want error, got %+v %+v", r.Weather.Source, r.Power.Source)
 	}
 }
