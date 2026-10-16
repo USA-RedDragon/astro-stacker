@@ -558,6 +558,19 @@ func TestConditionsAndMoon(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(string(body), `"weather":{"source":"none"}`) {
 		t.Fatalf("conditions %d %s", code, body)
 	}
+	code, body = do(t, h, http.MethodGet, "/api/v1/scheduler/conditions", "")
+	if !strings.Contains(string(body), `"flat_device":{"source":"none"}`) || !strings.Contains(string(body), `"last_image":{"source":"none"}`) {
+		t.Fatalf("conditions without metrics %d %s", code, body)
+	}
+	code, body = do(t, h, http.MethodGet, "/api/v1/scheduler/conditions/camera-history?minutes=120", "")
+	if code != http.StatusOK || string(body) != `{"source":"none","error":"no metrics store is configured","step_seconds":30,"points":[]}` {
+		t.Fatalf("camera history without metrics %d %s", code, body)
+	}
+	for _, q := range []string{"4", "361", "x", "1.5"} {
+		if code, _ = do(t, h, http.MethodGet, "/api/v1/scheduler/conditions/camera-history?minutes="+q, ""); code != http.StatusBadRequest {
+			t.Errorf("minutes=%s: %d", q, code)
+		}
+	}
 	if code, _ = do(t, h, http.MethodGet, "/api/v1/scheduler/moon?start=x&end=y", ""); code != http.StatusBadRequest {
 		t.Fatalf("bad times %d", code)
 	}

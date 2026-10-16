@@ -1,7 +1,9 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
@@ -19,6 +21,26 @@ func applyConditionsRoutes(g *gin.RouterGroup, x Extras, now func() time.Time) {
 			return
 		}
 		c.JSON(http.StatusOK, x.Conditions.Report(c.Request.Context()))
+	})
+	g.GET("/scheduler/conditions/camera-history", func(c *gin.Context) {
+		minutes := 60
+		if q := c.Query("minutes"); q != "" {
+			n, err := strconv.Atoi(q)
+			if err != nil || n < conditions.HistoryMinMinutes || n > conditions.HistoryMaxMinutes {
+				c.JSON(http.StatusBadRequest, gin.H{errorKey: fmt.Sprintf("minutes must be a whole number from %d to %d",
+					conditions.HistoryMinMinutes, conditions.HistoryMaxMinutes)})
+				return
+			}
+			minutes = n
+		}
+		if x.Conditions == nil {
+			c.JSON(http.StatusOK, conditions.CameraHistory{
+				Source:      conditions.Source{Source: conditions.SourceNone, Error: "no metrics store is configured"},
+				StepSeconds: int(conditions.HistoryStep(minutes) / time.Second), Points: []conditions.CameraPoint{},
+			})
+			return
+		}
+		c.JSON(http.StatusOK, x.Conditions.CameraHistory(c.Request.Context(), minutes))
 	})
 	g.GET("/scheduler/moon", func(c *gin.Context) {
 		start, err1 := time.Parse(time.RFC3339, c.Query("start"))
