@@ -266,11 +266,15 @@ func topShare(nc *nightChange) ([]int, float64) {
 func scaledStamp(sp *spotPlan, e *ensemble, i int) []float64 {
 	r := sp.recs[i]
 	t := e.transp[i]
-	if r == nil || r.stamp == nil || !(t > 0) {
+	if r == nil || !r.stamp.ok || !(t > 0) {
 		return nil
 	}
-	out := make([]float64, len(r.stamp))
-	for k, v := range r.stamp {
+	st := sp.stamps.get(r.stamp)
+	if st == nil {
+		return nil
+	}
+	out := make([]float64, len(st))
+	for k, v := range st {
 		out[k] = float64(v) / t
 	}
 	return out

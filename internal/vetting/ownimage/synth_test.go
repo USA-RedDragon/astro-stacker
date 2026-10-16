@@ -523,3 +523,30 @@ func TestMixedSignsCountEachNightItsOwnWay(t *testing.T) {
 	want(t, r, check.OwnChange, check.Pass, "some reported fainter and some brighter, the star moved 0.30 mag the reported way")
 	want(t, r, check.HotPixel, check.Pass)
 }
+
+func TestStampsOnDiskMatchInMemory(t *testing.T) {
+	t.Parallel()
+	f := newSynth()
+	f.addNights(synthNights(), 6)
+	for i := range f.subs {
+		if nightKey(f.subs[i].Night) == flaggedDay && i%6 == 2 {
+			f.subs[i].streak = 0.05
+		}
+	}
+	spots := []Spot{f.spot(1, -0.05)}
+	mem, err := Measure(context.Background(), f, synthObj, spots, Options{Threads: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	disk, err := Measure(context.Background(), f, synthObj, spots, Options{Threads: 4, WorkDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	show := func(r Result) string { return fmt.Sprintf("%+v %+v %+v", r.Checks, r.Flags, *r.Curve) }
+	if a, b := show(mem[0]), show(disk[0]); a != b {
+		t.Fatalf("stamps on disk changed the checks:\n%s\n%s", a, b)
+	}
+	if checkOf(t, disk[0], check.Trail).Status != check.Fail {
+		t.Error("the trail check did not read its stamps back")
+	}
+}
