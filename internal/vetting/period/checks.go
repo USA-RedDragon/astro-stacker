@@ -231,8 +231,9 @@ func (a *analysis) refGroup() int {
 
 func (a *analysis) seasons() [][]obs {
 	var pts []obs
+	onlyTiming := a.ecl != nil && a.ecl.timing
 	a.rawPoints(func(se *series, p obs) {
-		if se.survey != lc.TESS {
+		if se.survey != lc.TESS && (!onlyTiming || timingSurvey(se.survey)) {
 			pts = append(pts, p)
 		}
 	})
@@ -273,7 +274,7 @@ func (a *analysis) seasonShifts(prof func(p obs, tau float64) float64, inside fu
 			continue
 		}
 		sf, ok := fitShift(pts, prof, maxShift, false)
-		if !ok || sf.scale < 3*sf.scaleErr {
+		if !ok || sf.scale < 3*sf.scaleErr || math.Abs(sf.tau) > 0.95*maxShift {
 			continue
 		}
 		checked++
