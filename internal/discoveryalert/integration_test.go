@@ -359,15 +359,24 @@ func checkSent(ctx context.Context, t *testing.T, wd *world, follow *discoveryfo
 	return fu, create
 }
 
+// skipNightComparisons skips a test that runs night comparisons on a
+// synthetic field in short mode, and under the race detector, where three
+// take over 20 minutes; the discoveries package's race tests run the
+// comparison.
+func skipNightComparisons(t *testing.T) {
+	t.Helper()
+	if testing.Short() || underRace {
+		t.Skip("runs the night comparisons on a synthetic field")
+	}
+}
+
 // TestNewFindAlertsOnceAndIsConfirmedByItsFollowup runs the night
 // comparisons on SQLite over a synthetic field: a new source on the find's
 // night is alerted once with its picture, a follow-up project for the field
 // goes to the scheduler, and the follow-up night's comparison confirms it.
 func TestNewFindAlertsOnceAndIsConfirmedByItsFollowup(t *testing.T) {
 	t.Parallel()
-	if testing.Short() || underRace {
-		t.Skip("runs the night comparisons on a synthetic field, over 20 minutes under the race detector; the discoveries package's race tests run the comparison")
-	}
+	skipNightComparisons(t)
 	ctx := context.Background()
 	tonight := discoveryfollowup.Tonight(time.Now(), time.UTC)
 	findOn := tonight.AddDate(0, 0, -2)
