@@ -100,7 +100,7 @@ internal/discoveries/newlight.go	12	11
 internal/discoveries/null.go	106	90
 internal/discoveries/progress.go	14	13
 internal/discoveries/refnights.go	168	155
-internal/discoveries/runner.go	717	547
+internal/discoveries/runner.go	717	548
 internal/discoveries/sensor.go	72	70
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
