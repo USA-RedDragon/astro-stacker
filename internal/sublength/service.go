@@ -482,7 +482,7 @@ func (s *Service) darkLengths(ctx context.Context) (map[darkKey][]float64, error
 	out := map[darkKey][]float64{}
 	for _, r := range rows {
 		k := darkKey{r.Gain, r.Offset}
-		if r.N >= calmatch.FullDarkSet && !slices.Contains(out[k], r.Exposure) {
+		if r.N >= calmatch.FullDarkSet(r.Exposure) && !slices.Contains(out[k], r.Exposure) {
 			out[k] = append(out[k], r.Exposure)
 		}
 	}

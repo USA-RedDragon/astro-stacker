@@ -100,11 +100,11 @@ func TestRequestsMergeIntoTheDarkBacklog(t *testing.T) {
 	}
 	m31, m33, other := b.Combos[0], b.Combos[1], b.Combos[2]
 	if m31.ComboKey != "300|100|50|1|-10" || m31.Priority != 0 || len(m31.Requests) != 2 || m31.Requests[0].ID != "d31" ||
-		m31.Requests[0].Night != requestNight || m31.LightsScaled != 6 || m31.FramesNeeded != 25 {
+		m31.Requests[0].Night != requestNight || m31.LightsScaled != 6 || m31.FramesNeeded != 10 {
 		t.Errorf("a request merges into the combo covering its set temperature: %+v", m31)
 	}
 	if m33.ComboKey != "600|100|50|1|-15" || m33.Priority != 0 || len(m33.Requests) != 1 || m33.LightsBlocked != 0 ||
-		m33.FramesHave != 3 || m33.FramesNeeded != 25 || m33.LatestNight != requestNight {
+		m33.FramesHave != 3 || m33.FramesNeeded != 10 || m33.LatestNight != requestNight {
 		t.Errorf("a request for lights with a full set adds its own combo: %+v", m33)
 	}
 	if other.SetTemp != -20 || other.Priority != 1 || other.Requests == nil || len(other.Requests) != 0 {
@@ -144,7 +144,7 @@ func TestMeasureRequests(t *testing.T) {
 	for i, r := range reqs {
 		byID[r.ID] = prog[i]
 	}
-	if p := byID["d31"]; len(p.Items) != 2 || p.Lights != 6 || p.Items[0].FramesNeeded != 25 {
+	if p := byID["d31"]; len(p.Items) != 2 || p.Lights != 6 || p.Items[0].FramesNeeded != 10 {
 		t.Errorf("darks for two set temperatures %+v", p)
 	}
 	if p := byID["b31"]; len(p.Items) != 1 || p.Items[0].FramesHave != 5 || p.Items[0].FramesNeeded != coverage.BiasFramesTarget || p.Done() {

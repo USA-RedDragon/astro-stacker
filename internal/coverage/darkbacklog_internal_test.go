@@ -41,17 +41,17 @@ func TestBacklogKeepsLightsOnAShortSetUntilAFullOneMatches(t *testing.T) {
 		}
 		return n
 	}
-	shortDarks, short := darkSet(-10, 14, 14, night)
+	shortDarks, short := darkSet(-10, 9, 9, night)
 	if got := thin(shortDarks, []calmatch.Set{short}); got != 7 {
 		t.Errorf("only a short set: %d lights on a short set, want 7", got)
 	}
-	fullDarks, full := darkSet(-11, 25, 25, night.Add(48*time.Hour))
+	fullDarks, full := darkSet(-11, 10, 10, night.Add(48*time.Hour))
 	if got := thin(append(shortDarks, fullDarks...), []calmatch.Set{short, full}); got != 0 {
 		t.Errorf("a full set 1 °C off: %d lights still on the backlog, want 0", got)
 	}
-	keptDarks, kept := darkSet(-11, 25, 20, night.Add(48*time.Hour))
+	keptDarks, kept := darkSet(-11, 25, 9, night.Add(48*time.Hour))
 	if got := thin(append(shortDarks, keptDarks...), []calmatch.Set{short, kept}); got != 7 {
-		t.Errorf("a set of 25 with 20 clean: %d lights on a short set, want 7", got)
+		t.Errorf("a set of 25 with 9 clean: %d lights on a short set, want 7", got)
 	}
 }
 
@@ -84,6 +84,42 @@ func TestBacklogCombosListTheirTargetsMostLightsFirst(t *testing.T) {
 		g := got[temp]
 		if fmt.Sprint(g) != fmt.Sprint(w) {
 			t.Errorf("set temp %v: targets %v, want %v", temp, g, w)
+		}
+	}
+}
+
+func TestBacklogTenCleanDarksCompleteASetFrom120s(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 10, 7, 0, 0, 0, time.UTC)
+	night := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	f := func(v float64) *float64 { return &v }
+	clean := darkcheck.StateClean
+	for _, c := range []struct {
+		exposure  float64
+		cleanN    int
+		wantThin  int
+		wantCombo int
+	}{{119, 10, 7, 25}, {119, 24, 7, 25}, {119, 25, 0, 0}, {120, 9, 7, 10}, {120, 10, 0, 0}, {300, 10, 0, 0}} {
+		darks := make([]darkFrame, 0, c.cleanN)
+		for i := range c.cleanN {
+			at := night.Add(time.Duration(i) * time.Minute)
+			darks = append(darks, darkFrame{Key: fmt.Sprintf("DARK/%d", i), Exposure: f(c.exposure), Gain: f(0), Offset: f(50),
+				SetTemp: f(-10), BinX: f(1), DateObs: &at, Night: &night, CalCheck: &clean})
+		}
+		set := calmatch.Set{Type: darkType, Night: night, Exposure: c.exposure, Gain: 0, Offset: 50, SetTemp: -10, BinX: 1,
+			Rotator: math.NaN(), Count: c.cleanN, From: night, To: night.Add(time.Duration(c.cleanN-1) * time.Minute)}
+		lights := []darkLightGroup{{Night: night, Exposure: f(c.exposure), Gain: f(0), Offset: f(50), SetTemp: f(-10), BinX: f(1), N: 7}}
+		b := darkBacklog(lights, darks, []calmatch.Set{set}, now)
+		thin, need := 0, 0
+		for _, combo := range b.Combos {
+			thin += combo.LightsThin
+			need = combo.FramesNeeded
+		}
+		if thin != c.wantThin || need != c.wantCombo {
+			t.Errorf("%v s with %d clean darks: %d lights on a short set needing %d, want %d needing %d", c.exposure, c.cleanN, thin, need, c.wantThin, c.wantCombo)
+		}
+		if b.FramesNeeded != 25 || b.FramesNeededLong != 10 || b.LongExposureS != 120 {
+			t.Errorf("backlog rule fields %d %d %v", b.FramesNeeded, b.FramesNeededLong, b.LongExposureS)
 		}
 	}
 }

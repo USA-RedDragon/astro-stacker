@@ -261,12 +261,12 @@ func (p *Publisher) addPlanned(ctx context.Context, want []Row, b coverage.DarkB
 				"DARK", "clean", pl.Exposure, pl.Gain, pl.Offset, pl.SetTemp).Count(&n).Error; err != nil {
 			return nil, fmt.Errorf("count darks for planned length %s: %w", key, err)
 		}
-		if int(n) >= coverage.DarkFramesTarget {
+		if int(n) >= coverage.DarkFramesTarget(pl.Exposure) {
 			continue
 		}
 		have[key] = true
 		want = append(want, Row{ComboKey: key, Priority: len(want) + 1, Exposure: pl.Exposure, Gain: pl.Gain, CameraOffset: pl.Offset,
-			Binning: 1, SetTemp: pl.SetTemp, FramesNeeded: coverage.DarkFramesTarget, FramesHave: int(n), SessionGapHours: b.SessionGapHours,
+			Binning: 1, SetTemp: pl.SetTemp, FramesNeeded: coverage.DarkFramesTarget(pl.Exposure), FramesHave: int(n), SessionGapHours: b.SessionGapHours,
 			Basis: pl.Basis, ComputedAt: b.ComputedAt})
 	}
 	return want, nil

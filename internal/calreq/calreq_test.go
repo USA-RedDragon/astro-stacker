@@ -153,7 +153,7 @@ func TestRefreshMarksRequestsDoneFromTheIndex(t *testing.T) {
 	fx.add(t, app.Frame{Type: flat, Object: m31, Filter: typeRed, DateObs: &after}, 3)
 	fx.add(t, app.Frame{Type: flat, Object: m31, Filter: green, DateObs: &after}, 2)
 	clean, leak := darkcheck.StateClean, darkcheck.StateLeak
-	fx.add(t, app.Frame{Type: dark, Exposure: fp(300), Gain: fp(100), Offset: fp(50), SetTemp: fp(-10.5), BinX: fp(1), DateObs: &after, CalCheck: &clean}, 24)
+	fx.add(t, app.Frame{Type: dark, Exposure: fp(300), Gain: fp(100), Offset: fp(50), SetTemp: fp(-10.5), BinX: fp(1), DateObs: &after, CalCheck: &clean}, 9)
 	fx.add(t, app.Frame{Type: dark, Exposure: fp(300), Gain: fp(100), Offset: fp(50), SetTemp: fp(-10), BinX: fp(1), DateObs: &after, CalCheck: &leak}, 3)
 	fx.add(t, app.Frame{Type: dark, Exposure: fp(300), Gain: fp(100), Offset: fp(50), SetTemp: fp(-12), BinX: fp(1), DateObs: &after}, 3)
 	fx.add(t, app.Frame{Type: "BIAS", Gain: fp(100), Offset: fp(50), BinX: fp(1), DateObs: &after}, 30)

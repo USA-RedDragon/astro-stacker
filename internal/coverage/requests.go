@@ -65,9 +65,9 @@ func RequestBasis(typ string) string {
 		return fmt.Sprintf("Done when %d flats (calmatch.MinFrames, the fewest a master is built from) of each filter of the night's lights, "+
 			"named for the object, are indexed with a time at or after the request.", calmatch.MinFrames)
 	case app.CalibrationDarks:
-		return fmt.Sprintf("Done when %d darks (the dark set target) of each exposure, gain, offset, binning and set temperature of the night's lights, "+
+		return fmt.Sprintf("Done when a full set of darks (%s) of each exposure, gain, offset, binning and set temperature of the night's lights, "+
 			"within %s °C (calmatch.SetTempExactC), are indexed with a time at or after the request and not rejected by the ingest check.",
-			DarkFramesTarget, numText(calmatch.SetTempExactC))
+			calmatch.FullDarkRule(), numText(calmatch.SetTempExactC))
 	case app.CalibrationBias:
 		return fmt.Sprintf("Done when %d bias frames (the bias set target) of each gain, offset and binning of the night's lights are indexed "+
 			"with a time at or after the request.", BiasFramesTarget)
@@ -217,7 +217,7 @@ func needFor(typ string, l requestLight) (requestNeed, string) {
 		case l.BinX == nil:
 			return requestNeed{}, reasonNoBinning
 		}
-		n := requestNeed{exposure: *l.Exposure, gain: *l.Gain, offset: *l.Offset, bin: *l.BinX, tmp: *l.SetTemp, needed: DarkFramesTarget}
+		n := requestNeed{exposure: *l.Exposure, gain: *l.Gain, offset: *l.Offset, bin: *l.BinX, tmp: *l.SetTemp, needed: DarkFramesTarget(*l.Exposure)}
 		n.key = ComboKey(n.exposure, n.gain, n.offset, n.bin, n.tmp)
 		n.label = fmt.Sprintf("%s s darks at %s °C, gain %s, offset %s, bin %s", numText(n.exposure), numText(n.tmp), numText(n.gain),
 			numText(n.offset), numText(n.bin))
@@ -392,7 +392,7 @@ func mergeDarkRequests(b *DarkBacklog, needs []openNeed, darks []darkFrame, now 
 		if idx < 0 {
 			c := DarkCombo{
 				ComboKey: ComboKey(n.exposure, n.gain, n.offset, n.bin, n.tmp), Exposure: n.exposure, Gain: n.gain, Offset: n.offset,
-				Binning: n.bin, ReadoutMode: n.readout, SetTemp: n.tmp, SetTempsCovered: []float64{n.tmp}, FramesNeeded: DarkFramesTarget,
+				Binning: n.bin, ReadoutMode: n.readout, SetTemp: n.tmp, SetTempsCovered: []float64{n.tmp}, FramesNeeded: n.needed,
 				Nights: 1, LatestNight: on.ref.Night, Requests: []RequestRef{}, Targets: []DarkTarget{},
 				Basis: fmt.Sprintf("No lights at set temperature %s °C are short of darks; this set was asked for.", numText(n.tmp)),
 			}
