@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -57,7 +58,8 @@ type smallBodiesResponse struct {
 }
 
 // KnownBodies returns the known asteroids and comets within radius degrees
-// at epoch: from the local service when it is set, else from SkyBoT.
+// at epoch: from the local service when it is set and holds the night,
+// else from SkyBoT.
 func (c *Catalogs) KnownBodies(ctx context.Context, ra, dec, radius float64, epoch time.Time) ([]Body, error) {
 	sb := c.Local
 	if sb.URL == "" {
@@ -65,6 +67,11 @@ func (c *Catalogs) KnownBodies(ctx context.Context, ra, dec, radius float64, epo
 	}
 	topo := sb.Topocentric && sb.Site != nil
 	bodies, err := c.smallBodies(ctx, ra, dec, radius, epoch, topo)
+	var se *StatusError
+	if errors.As(err, &se) && se.Code == http.StatusBadRequest && strings.Contains(se.Body, "outside the precomputed range") {
+		slog.Info("Known bodies from SkyBoT: the night is outside the local service's range", "epoch", epoch.Format(time.DateOnly))
+		return c.SkyBoT(ctx, ra, dec, radius, epoch)
+	}
 	if err != nil {
 		return nil, err
 	}

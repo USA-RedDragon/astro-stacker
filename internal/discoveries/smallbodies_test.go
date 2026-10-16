@@ -160,3 +160,33 @@ func TestCompareBodies(t *testing.T) {
 		t.Errorf("max %v", r.MaxArc)
 	}
 }
+
+// TestKnownBodiesOfANightBeforeTheLocalRange replays M 22's night of
+// 2021-07-01: the local service holds a few months of orbits and refuses
+// older nights, which SkyBoT answers instead.
+func TestKnownBodiesOfANightBeforeTheLocalRange(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/cone") {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error": "epoch JD 2459397.70000 is outside the precomputed range JD 2461143.5 to 2461326.5"}`)
+			return
+		}
+		fmt.Fprint(w, skybotText)
+	}))
+	defer srv.Close()
+	c := &Catalogs{SkyBoTURL: srv.URL + "/skybot", Local: SmallBodies{URL: srv.URL}}
+	bs, err := c.KnownBodies(context.Background(), 279.1, -23.9, 1, time.Date(2021, 7, 2, 5, 0, 0, 0, time.UTC))
+	if err != nil || len(bs) != 2 {
+		t.Errorf("%+v %v", bs, err)
+	}
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error": "radius must be in (0, 10] degrees"}`)
+	}))
+	defer srv2.Close()
+	c.Local.URL = srv2.URL
+	if _, err := c.KnownBodies(context.Background(), 279.1, -23.9, 1, time.Now()); err == nil {
+		t.Error("any other refusal is still an error")
+	}
+}
