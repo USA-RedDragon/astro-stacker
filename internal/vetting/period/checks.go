@@ -211,9 +211,9 @@ func (a *analysis) spread() (float64, float64) {
 }
 
 func (a *analysis) refGroup() int {
-	best, bestN := 0, -1
+	best, bestN := 0, int64(-1)
 	for g, gr := range a.d.groups {
-		n := gr.points
+		n := int64(gr.points)
 		if gr.key == lc.ZTF+" r" {
 			n += 1 << 30
 		} else if gr.survey == lc.ZTF {
