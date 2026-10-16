@@ -12,15 +12,19 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/calreq"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/coverage"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
 	"github.com/gin-gonic/gin"
 )
 
 const (
 	calNight  = "2026-10-09"
 	calObject = "M 31"
+	biasType  = "BIAS"
+	flatType  = "FLAT"
 )
 
 func calibrationEngine(t *testing.T) *gin.Engine {
@@ -53,7 +57,7 @@ func calibrationEngine(t *testing.T) *gin.Engine {
 			Night: &night}, 3, now.Add(-12*time.Hour))
 	}
 	oldBias := time.Date(2025, 2, 5, 18, 0, 0, 0, time.UTC)
-	add(app.Frame{Type: "BIAS", Gain: &gain, Offset: &offset, BinX: &bin}, 30, oldBias)
+	add(app.Frame{Type: biasType, Gain: &gain, Offset: &offset, BinX: &bin}, 30, oldBias)
 	created := now.Add(-2 * time.Hour)
 	id := 12
 	ctx := context.Background()
@@ -65,8 +69,8 @@ func calibrationEngine(t *testing.T) *gin.Engine {
 	if _, err := calreq.Cancel(ctx, db, calreq.Payload{Type: app.CalibrationDarks, Object: calObject, Night: calNight}, "jacob", created.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	add(app.Frame{Type: "FLAT", Object: calObject, Filter: filterRed}, 3, now.Add(-time.Hour))
-	add(app.Frame{Type: "BIAS", Gain: &gain, Offset: &offset, BinX: &bin}, 12, now.Add(-time.Hour))
+	add(app.Frame{Type: flatType, Object: calObject, Filter: filterRed}, 3, now.Add(-time.Hour))
+	add(app.Frame{Type: biasType, Gain: &gain, Offset: &offset, BinX: &bin}, 12, now.Add(-time.Hour))
 	r := gin.New()
 	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{}, AppStore: appStore, SchedulerDBStore: memStore(t)}))
 	x := Extras{Now: func() time.Time { return now }, DarkNeed: &darkneed.Publisher{Mode: darkneed.PublishOff},
@@ -108,7 +112,7 @@ func TestCalibrationRequestsRoute(t *testing.T) {
 	}
 	green, _ := items[0].(map[string]any)
 	red, _ := items[1].(map[string]any)
-	if red["key"] != "Red" || red["label"] != "Red flats" || red["frames_have"] != 3.0 || red["frames_needed"] != 3.0 || red["done"] != true ||
+	if red["key"] != filterRed || red["label"] != "Red flats" || red["frames_have"] != 3.0 || red["frames_needed"] != 3.0 || red["done"] != true ||
 		green["done"] != false {
 		t.Errorf("flat items %v", items)
 	}
@@ -163,5 +167,91 @@ func TestBiasBacklogRoute(t *testing.T) {
 	dc, _ := dcombos[0].(map[string]any)
 	if dr, ok := dc["requests"].([]any); !ok || len(dr) != 0 {
 		t.Errorf("dark combo requests %v", dc["requests"])
+	}
+}
+
+// Darks and bias carry their ingest check verdicts; flats have no check, so
+// their runs carry no clean, leak or unchecked counts at all.
+func TestRecentCalibrationRoute(t *testing.T) {
+	t.Parallel()
+	checkRecentCalibration(t, memStore(t))
+}
+
+func TestRecentCalibrationRouteOnPostgres(t *testing.T) {
+	t.Parallel()
+	checkRecentCalibration(t, testStore{testdb.Postgres(t, "stacker", "stacker")})
+}
+
+func checkRecentCalibration(t *testing.T, appStore testStore) {
+	t.Helper()
+	db := appStore.DB()
+	if err := db.AutoMigrate(&app.Frame{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	n := 0
+	add := func(f app.Frame, at time.Time, check string, leak bool) {
+		n++
+		f.Key, f.LastModified, f.DateObs, f.IndexedAt = fmt.Sprintf("f%d", n), now, &at, at.Add(time.Minute)
+		if check != "" {
+			f.CalCheck = &check
+		}
+		if leak {
+			v := 9.5
+			f.LightLeak = &v
+		}
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := func(v float64) *float64 { return &v }
+	dark := func(exp float64) app.Frame {
+		return app.Frame{Type: "DARK", Exposure: p(exp), Gain: p(0), Offset: p(50), SetTemp: p(-10), BinX: p(1)}
+	}
+	start := now.Add(-6 * time.Hour)
+	at := func(m int) time.Time { return start.Add(time.Duration(m) * time.Minute) }
+	add(dark(300), now.Add(-30*time.Hour), "clean", false)
+	add(dark(300), at(0), "clean", false)
+	add(dark(300), at(5), "clean", false)
+	add(dark(300), at(10), "leak", false)
+	add(dark(300), at(15), "", true)
+	add(dark(300), at(20), "", false)
+	add(dark(120), at(26), "clean", false)
+	bad := dark(120)
+	msg := "unreadable"
+	bad.IndexError = &msg
+	add(bad, at(27), "", false)
+	add(dark(300), at(70), "unchecked", false)
+	for i := range 3 {
+		add(app.Frame{Type: flatType, Object: calObject, Filter: filterRed, Exposure: p(2.5), Gain: p(0), Offset: p(50), BinX: p(1)}, at(100+i), "", false)
+	}
+	add(app.Frame{Type: biasType, Exposure: p(0), Gain: p(0), Offset: p(50), BinX: p(1)}, at(110), "clean", false)
+	add(app.Frame{Type: "LIGHT", Object: calObject, Filter: filterRed, Exposure: p(300)}, at(200), "", false)
+
+	r := gin.New()
+	r.Use(middleware.Inject(&middleware.DepInjection{Config: &config.Config{}, AppStore: appStore, SchedulerDBStore: memStore(t)}))
+	applyCalibrationRoutes(r.Group("/api/v1"), Extras{Now: func() time.Time { return now }})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/scheduler/calibration/recent", nil))
+	want := `{"from":"2026-10-14T12:00:00Z","to":"2026-10-15T12:00:00Z","newest_indexed":"2026-10-15T07:51:00Z","runs":[` +
+		`{"kind":"bias","started_at":"2026-10-15T07:50:00Z","ended_at":"2026-10-15T07:50:00Z","exposure":0,"gain":0,"offset":50,"binning":1,"frames":1,"clean":1,"leak":0,"unchecked":0},` +
+		`{"kind":"flats","started_at":"2026-10-15T07:40:00Z","ended_at":"2026-10-15T07:42:02.5Z","target_name":"M 31","filter":"Red","exposure":2.5,"gain":0,"offset":50,"binning":1,"frames":3},` +
+		`{"kind":"darks","started_at":"2026-10-15T07:10:00Z","ended_at":"2026-10-15T07:15:00Z","exposure":300,"gain":0,"offset":50,"binning":1,"set_temp":-10,"frames":1,"clean":0,"leak":0,"unchecked":1},` +
+		`{"kind":"darks","started_at":"2026-10-15T06:26:00Z","ended_at":"2026-10-15T06:28:00Z","exposure":120,"gain":0,"offset":50,"binning":1,"set_temp":-10,"frames":1,"clean":1,"leak":0,"unchecked":0},` +
+		`{"kind":"darks","started_at":"2026-10-15T06:00:00Z","ended_at":"2026-10-15T06:25:00Z","exposure":300,"gain":0,"offset":50,"binning":1,"set_temp":-10,"frames":5,"clean":2,"leak":2,"unchecked":1}]}`
+	if w.Code != http.StatusOK || w.Body.String() != want {
+		t.Fatalf("%d\n got %s\nwant %s", w.Code, w.Body, want)
+	}
+	for _, q := range []string{"0", "169", "x"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/scheduler/calibration/recent?hours="+q, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("hours=%s: %d", q, w.Code)
+		}
+	}
+	var wide coverage.RecentCalibration
+	getJSON(t, r, "/api/v1/scheduler/calibration/recent?hours=48", &wide)
+	if len(wide.Runs) != 6 || wide.Runs[5].Frames != 1 {
+		t.Errorf("48 hours: runs %+v", wide.Runs)
 	}
 }
