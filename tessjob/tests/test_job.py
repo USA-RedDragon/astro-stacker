@@ -392,6 +392,24 @@ def test_runs_killed_mid_sector_still_use_up_attempts(tmp_path):
     assert not st.exists(key)
 
 
+def test_edge_stars_stay_out_of_the_field_cache(tmp_path):
+    st = MemStore()
+    st.put_json(f"vetting/tess/requests/{GID}.json", request(neighbours=[]))
+    edge, inner = "111", "222"
+    runner = fake_runner(tmp_path, [], produce=(GID, edge, inner), positions={edge: [1.5, 40.0], inner: [12.0, 77.0]})
+    make_job(tmp_path, st, FakeMast(tmp_path, SECTORS[1:]), runner).run()
+    assert st.exists(f"vetting/cache/m31/tess/lc/s0057/{inner}.csv.zst")
+    assert not st.exists(f"vetting/cache/m31/tess/lc/s0057/{edge}.csv.zst")
+
+
+def test_hlsp_preferred_over_field_cache_for_early_sectors(tmp_path):
+    st = MemStore()
+    st.put_zst(f"vetting/cache/m31/tess/lc/s0017/{GID}.csv.zst", b"old")
+    st.put_json(f"vetting/tess/requests/{GID}.json", request(neighbours=[]))
+    make_job(tmp_path, st, FakeMast(tmp_path, SECTORS[:1], hlsp={(GID, 17): [4]}), fake_runner(tmp_path, [])).run()
+    assert rows(unzst(st.get(f"vetting/cache/m31/tess/{GID}/s0017.csv.zst")))[0] == lightcurve.HEADER
+
+
 @pytest.mark.parametrize("doc", [["not", "an", "object"], request(slug="m31\n"), request(gid="123\n"),
                                  request(neighbours=["x", None])])
 def test_odd_requests_do_not_stop_the_queue(tmp_path, doc):

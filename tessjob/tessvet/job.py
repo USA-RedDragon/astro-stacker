@@ -201,9 +201,6 @@ class Job:
         base = self.base(req)
         lc_key = f"{base}/lc/s{n:04d}/{req.gaia_id}.csv.zst"
         out_key = f"{base}/{req.gaia_id}/s{n:04d}.csv.zst"
-        if self.store.exists(lc_key):
-            self.store.put(out_key, self.store.get(lc_key), "application/zstd")
-            return "field cache"
         if n <= mast.HLSP_MAX_SECTOR and self._hlsp(req, s, req.gaia_id, lc_key):
             self.store.put(out_key, self.store.get(lc_key), "application/zstd")
             for nb in req.neighbours:
@@ -212,6 +209,9 @@ class Job:
                     if not self.store.exists(nk):
                         self._hlsp(req, s, str(nb["gaia_id"]), nk)
             return "TGLC HLSP"
+        if self.store.exists(lc_key):
+            self.store.put(out_key, self.store.get(lc_key), "application/zstd")
+            return "field cache"
         self._tglc(req, s)
         if not self.store.exists(lc_key):
             raise Permanent("tglc produced no light curve for the star")
@@ -287,8 +287,11 @@ class Job:
                     raise Permanent(f"tglc: {res.get('error')}")
                 raise RuntimeError(f"tglc: {res.get('error')}")
             new = 0
+            pos = res.get("positions", {})
             for gid, path in sorted(res["lcs"].items()):
                 key = f"{base}/lc/s{n:04d}/{gid}.csv.zst"
+                if gid not in names and not _inside(pos.get(gid), CUTOUT_SIZE):
+                    continue
                 if self.store.exists(key):
                     continue
                 csv, _ = lightcurve.from_fits(path)
@@ -363,6 +366,13 @@ class Job:
         res["peak_rss_mb"] = round(peak)
         res["seconds"] = round(secs)
         return res
+
+
+def _inside(pos, size: int) -> bool:
+    if not pos:
+        return False
+    x, y = pos
+    return EDGE_MARGIN <= x <= size - 1 - EDGE_MARGIN and EDGE_MARGIN <= y <= size - 1 - EDGE_MARGIN
 
 
 def _tglc_version() -> str:
