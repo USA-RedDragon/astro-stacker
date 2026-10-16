@@ -72,25 +72,43 @@ func segment(prefix, key string) string {
 	return rest
 }
 
-func zstdEncode(raw []byte) ([]byte, error) {
-	return zstdEncodeLevel(raw, zstd.SpeedBetterCompression)
+func (f *Fetcher) zstdEncode(raw []byte) ([]byte, error) {
+	return f.zstdEncodeLevel(raw, zstd.SpeedBetterCompression)
 }
 
-func zstdEncodeLevel(raw []byte, level zstd.EncoderLevel) ([]byte, error) {
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(level), zstd.WithWindowSize(8<<20))
-	if err != nil {
-		return nil, err
+// zstdEncodeLevel compresses with the Fetcher's one encoder of that
+// level: a new best compression encoder takes 34 MB.
+func (f *Fetcher) zstdEncodeLevel(raw []byte, level zstd.EncoderLevel) ([]byte, error) {
+	f.zmu.Lock()
+	enc, ok := f.encs[level]
+	if !ok {
+		var err error
+		enc, err = zstd.NewWriter(nil, zstd.WithEncoderLevel(level), zstd.WithWindowSize(8<<20), zstd.WithEncoderConcurrency(1))
+		if err != nil {
+			f.zmu.Unlock()
+			return nil, err
+		}
+		if f.encs == nil {
+			f.encs = map[zstd.EncoderLevel]*zstd.Encoder{}
+		}
+		f.encs[level] = enc
 	}
-	defer enc.Close()
+	f.zmu.Unlock()
 	return enc.EncodeAll(raw, nil), nil
 }
 
-func zstdDecode(b []byte) ([]byte, error) {
-	dec, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(4<<30))
-	if err != nil {
-		return nil, err
+func (f *Fetcher) zstdDecode(b []byte) ([]byte, error) {
+	f.zmu.Lock()
+	if f.dec == nil {
+		dec, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(4<<30), zstd.WithDecoderConcurrency(1))
+		if err != nil {
+			f.zmu.Unlock()
+			return nil, err
+		}
+		f.dec = dec
 	}
-	defer dec.Close()
+	dec := f.dec
+	f.zmu.Unlock()
 	return dec.DecodeAll(b, nil)
 }
 
@@ -99,7 +117,7 @@ func (f *Fetcher) getZ(ctx context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := zstdDecode(b)
+	raw, err := f.zstdDecode(b)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", key, err)
 	}
@@ -107,7 +125,7 @@ func (f *Fetcher) getZ(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (f *Fetcher) putZ(ctx context.Context, key string, raw []byte) error {
-	b, err := zstdEncode(raw)
+	b, err := f.zstdEncode(raw)
 	if err != nil {
 		return err
 	}

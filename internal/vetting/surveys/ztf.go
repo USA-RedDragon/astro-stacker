@@ -375,7 +375,7 @@ func (f *Fetcher) pullZTFFile(ctx context.Context, field Field, release, u strin
 			e.Epochs += len(o.T)
 		}
 		e.Objects += len(objs)
-		z, err := zstdEncodeLevel(encodeTile(q.Filter[1], objs), zstd.SpeedBestCompression)
+		z, err := f.zstdEncodeLevel(encodeTile(q.Filter[1], objs), zstd.SpeedBestCompression)
 		if err != nil {
 			return e, err
 		}

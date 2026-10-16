@@ -54,7 +54,7 @@ func TestTESSContract(t *testing.T) {
 		t.Errorf("request %s", raw)
 	}
 
-	z, err := zstdEncode([]byte(tessCSV))
+	z, err := f.zstdEncode([]byte(tessCSV))
 	if err != nil {
 		t.Fatal(err)
 	}
