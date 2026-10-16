@@ -459,3 +459,41 @@ func TestInRefJudgesLateSubs(t *testing.T) {
 	}
 }
 
+func TestNewSourceAndEclipseShareOneRead(t *testing.T) {
+	t.Parallel()
+	f := newSynth()
+	f.addNights(synthNights(), 6)
+	for i := range f.subs {
+		if nightKey(f.subs[i].Night) == flaggedDay {
+			f.subs[i].targetDMag = 0.3
+			f.subs[i].transient = 0.5
+		}
+	}
+	eclipse := f.spot(-1, 0.3)
+	alone, err := Measure(context.Background(), f, synthObj, []Spot{eclipse}, Options{Threads: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := f.spot(1, -1)
+	fresh.SourceID, fresh.GaiaG = 9, nil
+	fresh.RA, fresh.Dec = f.w.SkyOf(newX, newY)
+	both, err := Measure(context.Background(), f, synthObj, []Spot{eclipse, fresh}, Options{Threads: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, c := range alone[0].Checks {
+		if both[0].Checks[k] != c {
+			t.Errorf("eclipse %s changed with a second spot: %q against %q", c.ID, both[0].Checks[k].Evidence, c.Evidence)
+		}
+	}
+	r := both[1]
+	if r.Curve != nil {
+		t.Errorf("a curve for a spot with no star: %+v", r.Curve)
+	}
+	for _, id := range []string{check.OwnLC, check.OwnChange, check.OwnQuiet} {
+		want(t, r, id, check.NotRun, "no catalogued star at this spot")
+	}
+	for _, id := range []string{check.HotPixel, check.RefClean, check.PSF, check.Edge} {
+		want(t, r, id, check.Pass)
+	}
+}

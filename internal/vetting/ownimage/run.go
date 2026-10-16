@@ -12,7 +12,10 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 )
 
-const darkSample = 97
+const (
+	darkSample = 97
+	noStar     = "Not measured. There is no catalogued star at this spot, so there is no steady level to measure it against."
+)
 
 func measure(ctx context.Context, d Data, object string, spots []Spot, opts Options) ([]Result, error) {
 	out := make([]Result, len(spots))
@@ -89,12 +92,12 @@ func prepare(ctx context.Context, subs []Sub, sp *spotPlan, need map[darkPos]boo
 		return ev
 	}
 	ev.e = buildEnsemble(subs, sp)
-	if len(ev.e.kept) >= minPresent {
+	if sp.star != nil && len(ev.e.kept) >= minPresent {
 		ev.curve = buildCurve(subs, sp, ev.e)
 		summarize(ev.curve, sp)
 	}
 	var evals []refEval
-	ev.ref, evals = refClean(ctx, subs, sp, ev.e, !ownChanged(sp, ev.curve))
+	ev.ref, evals = refClean(ctx, subs, sp, ev.e, sp.star != nil && !ownChanged(sp, ev.curve))
 	ev.ncs = nightChanges(sp, ev.e, evals)
 	ev.darks = darkNeeds(subs, ev.ncs, need)
 	return ev
@@ -132,7 +135,13 @@ func finish(ctx context.Context, d Data, subs []Sub, ev *spotEval, levels map[da
 	e, c := ev.e, ev.curve
 	res.Curve = c
 	res.Checks = append(res.Checks, hotPixel(ev.ncs, z, zok), ev.ref, trail(subs, sp, e, ev.ncs), psf(ctx, d, sp, e), edge(sp))
-	res.Checks = append(res.Checks, ownLC(sp, c), ownChange(sp, c), ownQuiet(sp, c))
+	if sp.star == nil {
+		for _, id := range []string{check.OwnLC, check.OwnChange, check.OwnQuiet} {
+			res.Checks = append(res.Checks, check.Skipped(id, noStar))
+		}
+	} else {
+		res.Checks = append(res.Checks, ownLC(sp, c), ownChange(sp, c), ownQuiet(sp, c))
+	}
 	res.Flags = flagsOf(res.Checks)
 	return res
 }
