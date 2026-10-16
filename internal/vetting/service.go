@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
@@ -38,6 +39,8 @@ type Service struct {
 	Surveys *surveys.Fetcher
 	Threads int
 	Now     func() time.Time
+	// Report, if set, hears each target's steps and progress.
+	Report *activity.Reporter
 }
 
 // RunOptions narrow a run: Objects to those targets, IDs to those
@@ -80,7 +83,8 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 		byObject[obj] = append(byObject[obj], d)
 	}
 	var st Stats
-	for _, obj := range objects {
+	for i, obj := range objects {
+		s.Report.Queue(len(objects)-i-1, "targets")
 		if ctx.Err() != nil {
 			return st, ctx.Err()
 		}
@@ -191,8 +195,11 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int
 	if err != nil {
 		return fail(err)
 	}
+	s.Report.Set(object+": pulling survey data", 0, 0, "")
 	if s.Surveys != nil {
-		if err := s.Surveys.Prefetch(ctx, f); err != nil {
+		if err := s.Surveys.PrefetchProgress(ctx, f, func(done, total int) {
+			s.Report.Set(object+": pulling survey data", int64(done), int64(total), "files")
+		}); err != nil {
 			slog.Warn("Could not pull the field's survey data; reading per star", "object", object, "error", err)
 		}
 	}
@@ -215,7 +222,9 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int
 		spots = append(spots, spotOf(d.Summary, byID[d.Summary.Source.ID], runs, s.now()))
 	}
 	slog.Info("Vetting a target", "object", object, "sources", len(dues))
-	own, err := ownimage.Measure(ctx, s.Data, object, spots, ownimage.Options{Threads: s.threads()})
+	own, err := ownimage.Measure(ctx, s.Data, object, spots, ownimage.Options{Threads: s.threads(), Progress: func(done, total int) {
+		s.Report.Set(object+": reading our own subs", int64(done), int64(total), "subs")
+	}})
 	if err != nil {
 		slog.Warn("Own image checks failed", "object", object, "error", err)
 	}
@@ -224,7 +233,8 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int
 		ownBy[own[i].SourceID] = &own[i]
 	}
 	done, failed := 0, 0
-	for _, d := range dues {
+	for i, d := range dues {
+		s.Report.Set(object+": checking sources", int64(i), int64(len(dues)), "sources")
 		if ctx.Err() != nil {
 			return done, failed
 		}

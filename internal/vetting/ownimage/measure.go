@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 )
@@ -200,15 +201,26 @@ func measureLocal(p *discoveries.Plane, sp *spotPlan, info subInfo, r *rec) {
 
 // stream reads every sub once, threads at a time, and measures every spot
 // in it.
-func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads int) error {
+func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads int, progress func(done, total int)) error {
 	need := make([]bool, len(subs))
+	total := 0
 	for i := range subs {
 		for _, sp := range plans {
 			if sp.inFrame {
 				need[i] = true
+				total++
 				break
 			}
 		}
+	}
+	var read atomic.Int64
+	tell := func() {
+		if progress != nil {
+			progress(int(read.Add(1)), total)
+		}
+	}
+	if progress != nil {
+		progress(0, total)
 	}
 	jobs := make(chan int)
 	var mu sync.Mutex
@@ -218,6 +230,7 @@ func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads 
 		wg.Go(func() {
 			for i := range jobs {
 				p, err := d.Load(ctx, subs[i].Key)
+				tell()
 				if err != nil {
 					if ctx.Err() != nil {
 						mu.Lock()

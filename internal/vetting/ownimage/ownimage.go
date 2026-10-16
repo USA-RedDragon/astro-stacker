@@ -154,6 +154,8 @@ type Options struct {
 	// RefSubs is the most subs per filter a night's reference took, as
 	// the discoveries runner's setting; 0 is its default of 48.
 	RefSubs int
+	// Progress, if set, hears how many of the subs to read are read.
+	Progress func(done, total int)
 }
 
 // Measure checks every spot of one target, reading each sub once.

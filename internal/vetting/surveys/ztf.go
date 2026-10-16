@@ -250,7 +250,7 @@ func (f *Fetcher) ztfFieldDirs(ctx context.Context, release string) (map[int]str
 	return out, nil
 }
 
-func (f *Fetcher) prefetchZTF(ctx context.Context, field Field) error {
+func (f *Fetcher) prefetchZTF(ctx context.Context, field Field, progress func(done, total int)) error {
 	m, err := f.ztfManifest(ctx, field)
 	if err != nil && !isNotFound(err) {
 		return err
@@ -280,7 +280,10 @@ func (f *Fetcher) prefetchZTF(ctx context.Context, field Field) error {
 	if err != nil {
 		return err
 	}
-	for _, q := range m.Quadrants {
+	for i, q := range m.Quadrants {
+		if progress != nil {
+			progress(i, len(m.Quadrants))
+		}
 		stem := q.stem(release)
 		if _, ok := m.Files[stem]; ok {
 			continue

@@ -9,9 +9,15 @@ import (
 // star instead: a footprint holds 9 to 22 million single exposure rows,
 // more than IRSA's TAP service returns in one query.
 func (f *Fetcher) prefetch(ctx context.Context, field Field) error {
+	return f.PrefetchProgress(ctx, field, nil)
+}
+
+// PrefetchProgress is Prefetch, telling progress how many of the field's
+// survey files are pulled.
+func (f *Fetcher) PrefetchProgress(ctx context.Context, field Field, progress func(done, total int)) error {
 	f.pullMu.Lock()
 	defer f.pullMu.Unlock()
-	return f.prefetchZTF(ctx, field)
+	return f.prefetchZTF(ctx, field, progress)
 }
 
 // Sizes is the bytes cached per field slug and survey.
