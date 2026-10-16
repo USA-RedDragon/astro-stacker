@@ -648,6 +648,9 @@ type cand struct {
 	// measured), in the order of fluxes.
 	sharp  []float64
 	sensor [][2]float64
+	// off is the light's centroid in each night sub, from the candidate's
+	// position.
+	off [][2]float64
 	// wide measures the subs with the wider aperture: on a bright source
 	// the narrow one mostly sees each sub's seeing.
 	wide bool
@@ -820,6 +823,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 				sx, sy = sm.at(c.X, c.Y)
 			}
 			c.sensor = append(c.sensor, [2]float64{sx, sy})
+			c.off = append(c.off, centroidOffset(p, c.X, c.Y, c.Sign))
 		}
 		if ns.fs.zp != nil && sig > 0 {
 			d := *ns.fs.zp - 2.5*math.Log10(DetectSigma*sig)
@@ -1018,14 +1022,17 @@ const maxSharpness = 4.0
 const maxSubSharpness = 3.0
 
 // skyFixedPx is how far apart, in sensor pixels, two subs holding a
-// source must put it for it to move with the sky rather than the sensor.
-const skyFixedPx = 3.0
+// source must put it for the night to have dithered under it. The
+// footprints read the subs' shifts only to a few pixels: on Pelican Nebula
+// Panel 2's night of 2026-09-14, shot without dithers, they put five subs
+// up to 4.3 px apart.
+const skyFixedPx = 8.0
 
 // inSubs measures, over the night subs a candidate is present in, its
 // median sharpness against a star's, star, and whether it moved with the
 // sky across them.
 func (c *cand) inSubs(star float64) (sharp float64, skyFixed bool) {
-	var s []float64
+	var s, off []float64
 	var at [][2]float64
 	for k, f := range c.fluxes {
 		if !(f > presenceSigma*c.errs[k]) {
@@ -1034,12 +1041,18 @@ func (c *cand) inSubs(star float64) (sharp float64, skyFixed bool) {
 		if k < len(c.sharp) {
 			s = append(s, c.sharp[k])
 		}
+		if k < len(c.off) && !math.IsNaN(c.off[k][0]) {
+			off = append(off, math.Hypot(c.off[k][0], c.off[k][1]))
+		}
 		if k < len(c.sensor) && !math.IsNaN(c.sensor[k][0]) {
 			at = append(at, c.sensor[k])
 		}
 	}
 	if len(s) >= 2 && star > 0 {
 		sharp = median64(s) / star
+	}
+	if len(off) < 2 || median64(off) > skyFixedOffPx {
+		return sharp, false
 	}
 	for i := range at {
 		for j := range i {
@@ -1049,6 +1062,37 @@ func (c *cand) inSubs(star float64) (sharp float64, skyFixed bool) {
 		}
 	}
 	return sharp, false
+}
+
+// skyFixedOffPx is how far, at the median of its subs, a source's light may
+// sit from its place in the stack and still be fixed on the sky: a defect
+// pixel walks with each sub's dither, so its light sits off it.
+const skyFixedOffPx = 0.7
+
+// centroidOffset is where the light of sign within 2.5 px of (x, y) is
+// centred, from (x, y).
+func centroidOffset(p *Plane, x, y float64, sign int) [2]float64 {
+	xi, yi := int(math.Round(x)), int(math.Round(y))
+	var sw, sx, sy float64
+	for yy := yi - 3; yy <= yi+3; yy++ {
+		for xx := xi - 3; xx <= xi+3; xx++ {
+			dx, dy := float64(xx)-x, float64(yy)-y
+			if math.Hypot(dx, dy) > 2.5 {
+				continue
+			}
+			v := float64(sign) * float64(p.At(xx, yy))
+			if !(v > 0) {
+				continue
+			}
+			sw += v
+			sx += v * dx
+			sy += v * dy
+		}
+	}
+	if !(sw > 0) {
+		return [2]float64{math.NaN(), math.NaN()}
+	}
+	return [2]float64{sx / sw, sy / sw}
 }
 
 // signedSharpness is sharpness on the plane times sign, so a fading is
