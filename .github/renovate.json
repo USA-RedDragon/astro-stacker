@@ -3,5 +3,22 @@
     "extends": [
         "local>USA-RedDragon/renovate-configs",
         "local>USA-RedDragon/renovate-configs:golang"
+    ],
+    "packageRules": [
+        {
+            "matchFileNames": ["tessjob/requirements.txt"],
+            "matchPackageNames": ["numpy"],
+            "allowedVersions": "<2"
+        },
+        {
+            "matchFileNames": ["tessjob/requirements.txt"],
+            "matchPackageNames": ["contourpy"],
+            "allowedVersions": "<1.4"
+        },
+        {
+            "matchFileNames": ["tessjob/requirements.txt"],
+            "matchPackageNames": ["astroquery"],
+            "enabled": false
+        }
     ]
 }
