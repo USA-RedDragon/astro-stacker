@@ -102,6 +102,7 @@ type Fetcher struct {
 
 	mu        sync.Mutex
 	eph       *ephem.Ephemeris
+	atlasMu   sync.Mutex
 	atlasGap  time.Duration
 	lastATLAS time.Time
 }
