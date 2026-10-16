@@ -309,24 +309,53 @@ func summarize(c *Curve, sp *spotPlan) {
 		nightSD = 0
 	}
 	best := math.Inf(-1)
+	var sw, swx float64
 	for _, n := range c.Nights {
 		if !sp.flagged[n.Night] || !sp.inGroup(n.Night, n.Filter) {
 			continue
 		}
-		sig := n.DMag / math.Hypot(n.Err, nightSD)
+		e2 := n.Err*n.Err + nightSD*nightSD
+		sig := n.DMag / math.Sqrt(e2)
 		score := math.Abs(sig)
-		if sp.fadeSign != 0 {
-			score = -float64(sp.fadeSign) * sig
+		agree := n.DMag
+		if s := sp.signOf(n.Night, n.Filter); s != 0 {
+			score = -float64(s) * sig
+			agree = float64(s*sp.fadeSign) * n.DMag
 		}
+		sw, swx = sw+1/e2, swx+agree/e2
 		if score > best {
 			best = score
 			c.ChangeNight, c.Change, c.ChangeSigma = n.Night, n.DMag, sig
 		}
 	}
+	if c.ChangeLevels = flaggedLevels(c, sp); c.ChangeLevels > 1 && sw > 0 {
+		c.Change, c.ChangeSigma = swx/sw, swx/math.Sqrt(sw)
+	}
+}
+
+func flaggedLevels(c *Curve, sp *spotPlan) int {
+	k := 0
+	for _, n := range c.Nights {
+		if sp.flagged[n.Night] && sp.inGroup(n.Night, n.Filter) {
+			k++
+		}
+	}
+	return k
 }
 
 // groupFilter says whether a filter is in any group the spot was flagged
 // in.
+// signOf is the sign the detection gave a flagged night and filter: -1
+// fainter, 1 brighter, or the spot's first sign when it gave none.
+func (sp *spotPlan) signOf(night, filter string) int {
+	for _, n := range sp.spot.Nights {
+		if nightKey(n.Night) == night && discoveries.GroupOf(filter) == n.Group && n.Sign != 0 {
+			return n.Sign
+		}
+	}
+	return sp.fadeSign
+}
+
 func (sp *spotPlan) groupFilter(filter string) bool {
 	for _, n := range sp.spot.Nights {
 		if discoveries.GroupOf(filter) == n.Group {

@@ -130,6 +130,9 @@ type Curve struct {
 	ChangeNight string  `json:"change_night"`
 	Change      float64 `json:"change"`
 	ChangeSigma float64 `json:"change_sigma"`
+	// ChangeLevels is how many flagged night and filter levels Change
+	// averages; with one, it is ChangeNight's own level.
+	ChangeLevels int `json:"change_levels"`
 	// Quiet is the largest departure of any other night.
 	Quiet float64 `json:"quiet"`
 }
