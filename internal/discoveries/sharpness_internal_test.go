@@ -91,3 +91,19 @@ func TestPSFSharpness(t *testing.T) {
 		t.Errorf("sharpness of sigma 1 %.3f, of sigma 2 %.3f", a, b)
 	}
 }
+
+// TestPerSubWeighsSubsBySignificance replays AT 2025xtl on 2025-10-15,
+// its per-sub fluxes and errors as measured: two noisy twilight subs held
+// most of the flux.
+func TestPerSubWeighsSubsBySignificance(t *testing.T) {
+	t.Parallel()
+	nova := []float64{0.0777, -0.00053, 0.0595, 0.00591, 0.00739, 0.00318, 0.00379, 0.00225, 0.00262, 0.00873, 0.00329, -0.00026}
+	errs := []float64{0.00644, 0.00454, 0.00608, 0.00112, 0.00115, 0.00116, 0.00121, 0.00127, 0.00136, 0.00141, 0.00153, 0.00166}
+	if st := perSub(nova, errs); st.reason != "" || st.present != 10 {
+		t.Errorf("the nova: %+v", st)
+	}
+	trail := []float64{0, 0.0001, 0.006, 0.0025, 0.0001, 0, 0.0003, 0, 0.0001, 0, 0.0002, 0}
+	if st := perSub(trail, errs); st.reason == "" {
+		t.Errorf("light in two subs passed: %+v", st)
+	}
+}
