@@ -208,18 +208,19 @@ type CalibrationQueue struct {
 
 // CalibrationTaken is one set taken in this run.
 type CalibrationTaken struct {
-	Kind       string     `json:"kind,omitempty"`
-	ComboKey   string     `json:"combo_key,omitempty"`
-	Exposure   *float64   `json:"exposure,omitempty"`
-	Gain       *float64   `json:"gain,omitempty"`
-	Offset     *float64   `json:"offset,omitempty"`
-	Binning    *float64   `json:"binning,omitempty"`
-	SetTemp    *float64   `json:"set_temp,omitempty"`
-	Filter     string     `json:"filter,omitempty"`
-	TargetName string     `json:"target_name,omitempty"`
-	Frames     *int       `json:"frames,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	EndedAt    *time.Time `json:"ended_at,omitempty"`
+	Kind            string     `json:"kind,omitempty"`
+	ComboKey        string     `json:"combo_key,omitempty"`
+	Exposure        *float64   `json:"exposure,omitempty"`
+	Gain            *float64   `json:"gain,omitempty"`
+	Offset          *float64   `json:"offset,omitempty"`
+	Binning         *float64   `json:"binning,omitempty"`
+	SetTemp         *float64   `json:"set_temp,omitempty"`
+	Filter          string     `json:"filter,omitempty"`
+	TargetName      string     `json:"target_name,omitempty"`
+	PanelBrightness *int       `json:"panel_brightness,omitempty"`
+	Frames          *int       `json:"frames,omitempty"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	EndedAt         *time.Time `json:"ended_at,omitempty"`
 }
 
 // CalibrationStop says why the last run stopped or why nothing is left.

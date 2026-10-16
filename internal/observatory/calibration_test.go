@@ -25,7 +25,7 @@ const calibrationJSON = `{"kind":"darks","placement":"while_unsafe","since":"202
 	`"frames_total":25,"frames_have":3,"remaining":22,"lights_blocked":40,"lights_scaled":0,"status":"taking","reason_code":"sun","reason":"The sun is up.",` +
 	`"planned_start":"2026-10-15T11:00:00Z","planned_end":"2026-10-15T12:10:00Z","fit_frames":0}],` +
 	`"taken":[{"kind":"darks","combo_key":"300|0|50|1|-10","exposure":300,"gain":0,"offset":50,"binning":1,"set_temp":-10,"filter":"L","target_name":"M 31",` +
-	`"frames":4,"started_at":"2026-10-15T11:00:00Z","ended_at":"2026-10-15T11:20:00Z"}],` +
+	`"panel_brightness":0,"frames":4,"started_at":"2026-10-15T11:00:00Z","ended_at":"2026-10-15T11:20:00Z"}],` +
 	`"stop":{"at":"2026-10-15T12:10:00Z","code":"sun","reason":"The sun reached -8°."},` +
 	`"log":[{"at":"2026-10-15T11:00:00Z","text":"Started darks."}]}`
 
