@@ -101,7 +101,7 @@ func TestDevMeasure(t *testing.T) { //nolint:paralleltest
 		spots = append(spots, spotOf(d.Summary, byID[d.Summary.Source.ID], runs, time.Now().UTC()))
 	}
 	cands = nil
-	t.Logf("%s: %d sources due, setup peak %d MiB", object, len(dues), memwatch.MiB(w.Step()))
+	t.Logf("%s: %d sources due, setup peak %d MiB", object, len(dues), memwatch.MiB(w.Step().RSS))
 	data := ownimage.DBData{App: db, Store: discoveries.MinioStore{Client: mc, Bucket: "astro-processed"},
 		Gaia: starcat.NewGaia(starcat.MinioBucket{Client: mc, Name: "sky-survey"}, "catalogs/gaia-dr3/v1")}
 	if p := os.Getenv("VET_DEV_PROF"); p != "" {
@@ -112,6 +112,7 @@ func TestDevMeasure(t *testing.T) { //nolint:paralleltest
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%d results in %s, own image peak %d MiB, process peak %d MiB", len(res), time.Since(start).Round(time.Second),
-		memwatch.MiB(w.Step()), memwatch.MiB(w.Peak()))
+	own := w.Step()
+	t.Logf("%d results in %s, own image peak %d MiB resident, %d MiB live heap, process peak %d MiB", len(res), time.Since(start).Round(time.Second),
+		memwatch.MiB(own.RSS), memwatch.MiB(own.Live), memwatch.MiB(w.Peak().RSS))
 }

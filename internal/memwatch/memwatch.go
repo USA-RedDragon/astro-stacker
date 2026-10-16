@@ -1,5 +1,8 @@
-// Package memwatch samples the process's resident memory, so a job can
-// log the peak of each of its steps and of the whole run.
+// Package memwatch samples the process's resident memory and the Go
+// heap left live by the last collection, so a job can log the peaks of
+// each of its steps and of the whole run. Resident memory shows what the
+// kernel charged; the live heap shows what the job needed, as the
+// collector lets the heap grow past it before it collects.
 package memwatch
 
 import (
@@ -12,19 +15,27 @@ import (
 	"time"
 )
 
-// Watch keeps the highest resident memory seen since Start and since the
-// last Step. A nil Watch reads as zero.
+// Peaks are the highest resident memory and live heap seen, in bytes.
+type Peaks struct {
+	RSS  uint64
+	Live uint64
+}
+
+func (p Peaks) max(q Peaks) Peaks { return Peaks{max(p.RSS, q.RSS), max(p.Live, q.Live)} }
+
+// Watch keeps the peaks seen since Start and since the last Step. A nil
+// Watch reads as zero.
 type Watch struct {
 	mu   sync.Mutex
-	step uint64
-	all  uint64
+	step Peaks
+	all  Peaks
 	stop chan struct{}
-	read func() uint64
+	read func() Peaks
 }
 
 // Start samples every interval until Stop.
 func Start(every time.Duration) *Watch {
-	w := &Watch{stop: make(chan struct{}), read: RSS}
+	w := &Watch{stop: make(chan struct{}), read: func() Peaks { return Peaks{RSS(), Live()} }}
 	w.sample()
 	go func() {
 		t := time.NewTicker(every)
@@ -44,34 +55,34 @@ func Start(every time.Duration) *Watch {
 func (w *Watch) sample() {
 	v := w.read()
 	w.mu.Lock()
-	w.step = max(w.step, v)
-	w.all = max(w.all, v)
+	w.step = w.step.max(v)
+	w.all = w.all.max(v)
 	w.mu.Unlock()
 }
 
-// Step is the peak since the last Step, and starts the next one.
-func (w *Watch) Step() uint64 {
+// Step is the peaks since the last Step, and starts the next one.
+func (w *Watch) Step() Peaks {
 	if w == nil {
-		return 0
+		return Peaks{}
 	}
 	w.sample()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	v := w.step
-	w.step = 0
+	w.step = Peaks{}
 	return v
 }
 
-// Peak is the peak since Start: the sampled one or the kernel's own high
-// water mark, whichever is higher.
-func (w *Watch) Peak() uint64 {
+// Peak is the peaks since Start, resident memory taken as the sampled
+// peak or the kernel's own high water mark, whichever is higher.
+func (w *Watch) Peak() Peaks {
 	if w == nil {
-		return 0
+		return Peaks{}
 	}
 	w.sample()
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return max(w.all, hwm())
+	return w.all.max(Peaks{RSS: hwm()})
 }
 
 // Stop ends the sampling.
@@ -91,6 +102,16 @@ func RSS() uint64 {
 		return v
 	}
 	s := []metrics.Sample{{Name: "/memory/classes/total:bytes"}}
+	metrics.Read(s)
+	if s[0].Value.Kind() == metrics.KindUint64 {
+		return s[0].Value.Uint64()
+	}
+	return 0
+}
+
+// Live is the Go heap the last collection found live.
+func Live() uint64 {
+	s := []metrics.Sample{{Name: "/gc/heap/live:bytes"}}
 	metrics.Read(s)
 	if s[0].Value.Kind() == metrics.KindUint64 {
 		return s[0].Value.Uint64()

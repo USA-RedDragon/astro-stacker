@@ -304,7 +304,7 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 	for _, d := range dues {
 		spots = append(spots, spotOf(d.Summary, byID[d.Summary.Source.ID], runs, s.now()))
 	}
-	pulled := memwatch.MiB(s.Mem.Step())
+	pulled := s.Mem.Step()
 	slog.Info("Vetting a target", "object", object, "sources", len(dues))
 	own, err := ownimage.Measure(ctx, s.Data, object, spots, ownimage.Options{Threads: s.threads(), WorkDir: s.WorkDir, Progress: func(done, total int) {
 		s.Report.Set(object+": reading our own subs", int64(done), int64(total), "subs")
@@ -316,12 +316,15 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 	for i := range own {
 		ownBy[own[i].SourceID] = &own[i]
 	}
-	measured := memwatch.MiB(s.Mem.Step())
+	measured := s.Mem.Step()
 	done, failed := 0, 0
 	defer func() {
 		if s.Mem != nil {
+			checked := s.Mem.Step()
 			slog.Info("Target vetted", "object", object, "done", done, "failed", failed,
-				"pull_peak_mib", pulled, "own_images_peak_mib", measured, "sources_peak_mib", memwatch.MiB(s.Mem.Step()))
+				"pull_rss_mib", memwatch.MiB(pulled.RSS), "pull_live_mib", memwatch.MiB(pulled.Live),
+				"own_images_rss_mib", memwatch.MiB(measured.RSS), "own_images_live_mib", memwatch.MiB(measured.Live),
+				"sources_rss_mib", memwatch.MiB(checked.RSS), "sources_live_mib", memwatch.MiB(checked.Live))
 		}
 	}()
 	for i, d := range dues {
