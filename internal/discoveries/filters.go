@@ -81,7 +81,7 @@ func (in *Input) filterChanges(stacks []*filterStacks, have []cand, valid, edge,
 
 // only is the candidate measured in its filter's subs alone.
 func (c *cand) only(filter string) *cand {
-	o := &cand{Candidate: c.Candidate, wide: c.wide, refNights: c.refNights}
+	o := &cand{Candidate: c.Candidate, wide: c.wide, refNights: c.refNights, refLight: c.refLight}
 	for k, pt := range c.Light {
 		if pt.Filter != filter || k >= len(c.fluxes) {
 			continue

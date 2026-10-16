@@ -162,7 +162,7 @@ func TestReferenceNightEnvelope(t *testing.T) {
 	t.Parallel()
 	night := []float64{0.0233, 0.0289, 0.0198, 0.0116, 0.0226, 0.0246, 0.0312, 0.0274, 0.0220, 0.0165, 0.0177, 0.0193, 0.0154}
 	day := func(y, m, d int) time.Time { return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC) }
-	c := cand{Candidate: Candidate{Sign: 1}}
+	c := cand{Candidate: Candidate{Sign: 1}, refLight: map[string]float64{broadbandClear: 0.32}}
 	for _, v := range night {
 		c.Light = append(c.Light, LightPoint{Filter: broadbandClear})
 		c.fluxes, c.errs = append(c.fluxes, v), append(c.errs, 0.0018)
@@ -180,11 +180,9 @@ func TestReferenceNightEnvelope(t *testing.T) {
 	if why := c.refNightShift(); why != "" {
 		t.Errorf("one sub of 2025-01-22 does not count: %q", why)
 	}
-	c.refNights[broadbandClear][1].n, c.refNights[broadbandClear][1].mean = 2, 0.045
-	for k := range c.fluxes {
-		c.fluxes[k] += 0.02
-	}
+	c.refNights[broadbandClear][1].n = 2
+	c.refLight[broadbandClear] = 0.05
 	if why := c.refNightShift(); why != "" {
-		t.Errorf("a transient there on 2025-01-22 too, and far beyond the median night: %q", why)
+		t.Errorf("a change by a third of the light, as on 2025-01-22: %q", why)
 	}
 }
