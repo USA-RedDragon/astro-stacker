@@ -32,6 +32,22 @@ class Permanent(Exception):
     pass
 
 
+class _Lines:
+    """Turn tqdm's carriage returns into newlines so container logs get one line per update."""
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, s):
+        return self.stream.write(s.replace("\r", "\n"))
+
+    def flush(self):
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
 def _source_new(spec, log):
     from astropy.io import fits
     import tglc.ffi_cut as fc
@@ -130,6 +146,7 @@ def _lc_path(out, gid, sector):
 
 
 def main(spec_path: str) -> int:
+    sys.stderr = _Lines(sys.stderr)
     with open(spec_path) as f:
         spec = json.load(f)
     res_path = os.path.join(spec["workdir"], "result.json")
