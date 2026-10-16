@@ -108,6 +108,131 @@ type Status struct {
 	Pending        []PendingCommand `json:"pending,omitempty"`
 	LastPlanAt     *time.Time       `json:"last_plan_at,omitempty"`
 	Autofocus      *Autofocus       `json:"autofocus,omitempty"`
+	Calibration    *Calibration     `json:"calibration,omitempty"`
+}
+
+// Calibration is the plugin's report of the night's calibration run: a
+// camera cool-down, darks, bias or flats, or the end of the last run.
+type Calibration struct {
+	Kind            string             `json:"kind,omitempty"`
+	Placement       string             `json:"placement,omitempty"`
+	Purpose         string             `json:"purpose,omitempty"`
+	Since           *time.Time         `json:"since,omitempty"`
+	UpdatedAt       *time.Time         `json:"updated_at,omitempty"`
+	Camera          *CalibrationCamera `json:"camera,omitempty"`
+	Ambient         *float64           `json:"ambient,omitempty"`
+	SunLimitAt      *time.Time         `json:"sun_limit_at,omitempty"`
+	SunLimitDegrees *float64           `json:"sun_limit_degrees,omitempty"`
+	Cooling         *CalibrationCool   `json:"cooling,omitempty"`
+	Set             *CalibrationSet    `json:"set,omitempty"`
+	Frame           *CalibrationFrame  `json:"frame,omitempty"`
+	Queue           []CalibrationQueue `json:"queue,omitempty"`
+	Taken           []CalibrationTaken `json:"taken,omitempty"`
+	Stop            *CalibrationStop   `json:"stop,omitempty"`
+	Log             []CalibrationLog   `json:"log,omitempty"`
+}
+
+// CalibrationCamera is the plugin's own read of the camera.
+type CalibrationCamera struct {
+	Connected   *bool    `json:"connected,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	Setpoint    *float64 `json:"setpoint,omitempty"`
+	CoolerPower *float64 `json:"cooler_power,omitempty"`
+}
+
+// CalibrationCool describes a camera cool-down the plugin watches.
+type CalibrationCool struct {
+	Target      *float64   `json:"target,omitempty"`
+	From        *float64   `json:"from,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	EndsAt      *time.Time `json:"ends_at,omitempty"`
+	RateCPerMin *float64   `json:"rate_c_per_min,omitempty"`
+	Source      string     `json:"source,omitempty"`
+}
+
+// CalibrationSet is the dark, bias or flat set being taken.
+type CalibrationSet struct {
+	ComboKey        string     `json:"combo_key,omitempty"`
+	Exposure        *float64   `json:"exposure,omitempty"`
+	Gain            *float64   `json:"gain,omitempty"`
+	Offset          *float64   `json:"offset,omitempty"`
+	Binning         *float64   `json:"binning,omitempty"`
+	ReadoutMode     string     `json:"readout_mode,omitempty"`
+	SetTemp         *float64   `json:"set_temp,omitempty"`
+	Filter          string     `json:"filter,omitempty"`
+	TargetName      string     `json:"target_name,omitempty"`
+	TargetID        *int64     `json:"target_id,omitempty"`
+	SessionDate     *time.Time `json:"session_date,omitempty"`
+	Rotation        *float64   `json:"rotation,omitempty"`
+	PanelBrightness *int       `json:"panel_brightness,omitempty"`
+	FramesTotal     *int       `json:"frames_total,omitempty"`
+	FramesBefore    *int       `json:"frames_before,omitempty"`
+	FramesDone      *int       `json:"frames_done,omitempty"`
+	Index           *int       `json:"index,omitempty"`
+	Count           *int       `json:"count,omitempty"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	EndsAt          *time.Time `json:"ends_at,omitempty"`
+}
+
+// CalibrationFrame is the calibration exposure in progress.
+type CalibrationFrame struct {
+	Number    *int       `json:"number,omitempty"`
+	Seconds   *float64   `json:"seconds,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	EndsAt    *time.Time `json:"ends_at,omitempty"`
+}
+
+// CalibrationQueue is one set in the run's order.
+type CalibrationQueue struct {
+	Kind          string     `json:"kind,omitempty"`
+	ComboKey      string     `json:"combo_key,omitempty"`
+	Exposure      *float64   `json:"exposure,omitempty"`
+	Gain          *float64   `json:"gain,omitempty"`
+	Offset        *float64   `json:"offset,omitempty"`
+	Binning       *float64   `json:"binning,omitempty"`
+	SetTemp       *float64   `json:"set_temp,omitempty"`
+	Filter        string     `json:"filter,omitempty"`
+	TargetName    string     `json:"target_name,omitempty"`
+	FramesTotal   *int       `json:"frames_total,omitempty"`
+	FramesHave    *int       `json:"frames_have,omitempty"`
+	Remaining     *int       `json:"remaining,omitempty"`
+	LightsBlocked *int       `json:"lights_blocked,omitempty"`
+	LightsScaled  *int       `json:"lights_scaled,omitempty"`
+	Status        string     `json:"status,omitempty"`
+	ReasonCode    string     `json:"reason_code,omitempty"`
+	Reason        string     `json:"reason,omitempty"`
+	PlannedStart  *time.Time `json:"planned_start,omitempty"`
+	PlannedEnd    *time.Time `json:"planned_end,omitempty"`
+	FitFrames     *int       `json:"fit_frames,omitempty"`
+}
+
+// CalibrationTaken is one set taken in this run.
+type CalibrationTaken struct {
+	Kind       string     `json:"kind,omitempty"`
+	ComboKey   string     `json:"combo_key,omitempty"`
+	Exposure   *float64   `json:"exposure,omitempty"`
+	Gain       *float64   `json:"gain,omitempty"`
+	Offset     *float64   `json:"offset,omitempty"`
+	Binning    *float64   `json:"binning,omitempty"`
+	SetTemp    *float64   `json:"set_temp,omitempty"`
+	Filter     string     `json:"filter,omitempty"`
+	TargetName string     `json:"target_name,omitempty"`
+	Frames     *int       `json:"frames,omitempty"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	EndedAt    *time.Time `json:"ended_at,omitempty"`
+}
+
+// CalibrationStop says why the last run stopped or why nothing is left.
+type CalibrationStop struct {
+	At     *time.Time `json:"at,omitempty"`
+	Code   string     `json:"code,omitempty"`
+	Reason string     `json:"reason,omitempty"`
+}
+
+// CalibrationLog is one plain-words step of the night's calibration.
+type CalibrationLog struct {
+	At   *time.Time `json:"at,omitempty"`
+	Text string     `json:"text,omitempty"`
 }
 
 const (
