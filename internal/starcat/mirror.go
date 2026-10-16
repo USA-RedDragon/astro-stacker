@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/klauspost/compress/gzip"
 	"golang.org/x/sync/errgroup"
 )
@@ -114,6 +115,8 @@ type MirrorOptions struct {
 	// ResumeWait is the pause before asking for the rest of a broken
 	// download, longer after each failure in a row; 0 is 10 seconds.
 	ResumeWait time.Duration
+	// Report, if set, hears each step and its progress.
+	Report *activity.Reporter
 }
 
 func (o *MirrorOptions) client() *http.Client {
@@ -264,6 +267,7 @@ func MirrorGaia(ctx context.Context, o MirrorOptions) error {
 		todo = todo[:o.Limit]
 	}
 	var downloaded, finished, rows atomic.Int64
+	o.Report.Track("Downloading Gaia files", "files", int64(len(todo)), &finished)
 	start := time.Now()
 	stop := make(chan struct{})
 	go progress(stop, start, &downloaded, &finished, len(todo), len(files)-len(done))
@@ -485,7 +489,7 @@ func (o *MirrorOptions) writeManifest(ctx context.Context, files []gaiaFile, don
 		man.Pieces = append(man.Pieces, m.Pieces...)
 	}
 	if o.Verify && len(redo) == 0 {
-		bad, err := verifyPieces(ctx, o.Bucket, gaiaSchema(), GaiaOrder, man.Pieces)
+		bad, err := verifyPieces(ctx, o.Bucket, gaiaSchema(), GaiaOrder, man.Pieces, o.Report)
 		if err != nil {
 			return err
 		}
@@ -519,7 +523,7 @@ func (o *MirrorOptions) writeManifest(ctx context.Context, files []gaiaFile, don
 // verifyPieces reads every piece back: its checksum, its rows, and that
 // each row lies within its partition. It returns the keys of the pieces
 // that fail; err is for a failure to read the bucket.
-func verifyPieces[T any](ctx context.Context, b Bucket, s schema[T], order int, pieces []Piece) ([]string, error) {
+func verifyPieces[T any](ctx context.Context, b Bucket, s schema[T], order int, pieces []Piece, rep *activity.Reporter) ([]string, error) {
 	var mu sync.Mutex
 	var bad []string
 	fail := func(key string, why error) {
@@ -529,11 +533,14 @@ func verifyPieces[T any](ctx context.Context, b Bucket, s schema[T], order int, 
 		mu.Unlock()
 	}
 	var checked, rows atomic.Int64
+	var verified atomic.Int64
+	rep.Track("Checking the stored pieces", "pieces", int64(len(pieces)), &verified)
 	start := time.Now()
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(fetchParallel)
 	for _, p := range pieces {
 		g.Go(func() error {
+			defer verified.Add(1)
 			data, err := b.Get(gctx, p.Key)
 			if errors.Is(err, ErrNotFound) {
 				fail(p.Key, err)
@@ -619,6 +626,7 @@ func MirrorVSX(ctx context.Context, o MirrorOptions) error {
 		sum.Reset()
 		n.Store(0)
 		return o.download(ctx, o.BaseURL+"vsx.dat", &n, &total, func(r io.Reader, resp *http.Response) error {
+			o.Report.Track("Downloading the catalogue", "bytes", resp.ContentLength, &n)
 			sc := bufio.NewScanner(io.TeeReader(r, sum))
 			sc.Buffer(make([]byte, 4096), 1<<16)
 			for sc.Scan() {
@@ -655,7 +663,7 @@ func MirrorVSX(ctx context.Context, o MirrorOptions) error {
 	if err := o.storeVSX(ctx, vprefix, parts, man); err != nil {
 		return err
 	}
-	bad, err := verifyPieces(ctx, o.Bucket, vsxSchema(), VSXOrder, man.Pieces)
+	bad, err := verifyPieces(ctx, o.Bucket, vsxSchema(), VSXOrder, man.Pieces, o.Report)
 	if err != nil {
 		return err
 	}
@@ -684,7 +692,8 @@ func (o *MirrorOptions) storeVSX(ctx context.Context, vprefix string, parts map[
 		keys = append(keys, p)
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	for _, p := range keys {
+	for i, p := range keys {
+		o.Report.Set("Storing the catalogue", int64(i), int64(len(keys)), "pieces")
 		var stars []VSXStar
 		if _, err := ParseVSXDat(bytes.NewReader(parts[p]), func(s VSXStar) error { stars = append(stars, s); return nil }); err != nil {
 			return err

@@ -208,6 +208,7 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 		sum.Reset()
 		n.Store(0)
 		return o.downloadResuming(ctx, src, &n, &total, func(r io.Reader, resp *http.Response) error {
+			o.Report.Track("Downloading the catalogue", "bytes", resp.ContentLength, &n)
 			tee := io.TeeReader(r, sum)
 			zr, err := gzip.NewReader(tee)
 			if err != nil {
@@ -269,7 +270,7 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 	if err := o.storeVars(ctx, vprefix, c.Order, parts, man); err != nil {
 		return err
 	}
-	bad, err := verifyPieces(ctx, o.Bucket, varSchema(), c.Order, man.Pieces)
+	bad, err := verifyPieces(ctx, o.Bucket, varSchema(), c.Order, man.Pieces, o.Report)
 	if err != nil {
 		return err
 	}
@@ -299,7 +300,8 @@ func (o *MirrorOptions) storeVars(ctx context.Context, vprefix string, order int
 		keys = append(keys, p)
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	for _, p := range keys {
+	for i, p := range keys {
+		o.Report.Set("Storing the catalogue", int64(i), int64(len(keys)), "pieces")
 		data, err := encodePiece(varSchema(), parts[p])
 		if err != nil {
 			return err
