@@ -40,7 +40,7 @@ type rec struct {
 	edge       float64
 	satAt      bool
 	satNear    float64
-	stamp      []float32
+	stamp      stampRef
 }
 
 // subInfo is what is known of a sub as a whole.
@@ -117,10 +117,13 @@ func (f *subFits) star(t *tile, m *starModel) fitOut {
 	return o
 }
 
-func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits *subFits) *rec {
+// errOffData says the sub has no data at the spot.
+var errOffData = errors.New("no data at the spot")
+
+func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits *subFits) (*rec, error) {
 	cx, cy := int(math.Round(sp.x)), int(math.Round(sp.y))
 	if isNaN32(p.At(cx, cy)) {
-		return nil
+		return nil, errOffData
 	}
 	r := &rec{edge: noDistance, satNear: noDistance}
 	if info.fm.ok {
@@ -142,14 +145,18 @@ func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits 
 	}
 	if sp.night[si] || sp.ref[si] {
 		bg, _ := annulus(p, sp.x, sp.y)
-		r.stamp = make([]float32, stampSide*stampSide)
+		st := make([]float32, stampSide*stampSide)
 		for j := range stampSide {
 			for i := range stampSide {
-				r.stamp[j*stampSide+i] = p.At(cx-stampHalf+i, cy-stampHalf+j) - float32(bg)
+				st[j*stampSide+i] = p.At(cx-stampHalf+i, cy-stampHalf+j) - float32(bg)
 			}
 		}
+		var err error
+		if r.stamp, err = sp.stamps.put(st); err != nil {
+			return nil, err
+		}
 	}
-	return r
+	return r, nil
 }
 
 func measureLocal(p *discoveries.Plane, sp *spotPlan, info subInfo, r *rec) {
@@ -201,7 +208,9 @@ func measureLocal(p *discoveries.Plane, sp *spotPlan, info subInfo, r *rec) {
 
 // stream reads every sub once, threads at a time, and measures every spot
 // in it.
-func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads int, progress func(done, total int)) error {
+func stream(parent context.Context, d Data, subs []Sub, plans []*spotPlan, threads int, progress func(done, total int)) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
 	need := make([]bool, len(subs))
 	total := 0
 	for i := range subs {
@@ -224,7 +233,7 @@ func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads 
 	}
 	jobs := make(chan int)
 	var mu sync.Mutex
-	var firstErr error
+	var firstErr, keepErr error
 	var wg sync.WaitGroup
 	for range max(threads, 1) {
 		wg.Go(func() {
@@ -232,10 +241,13 @@ func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads 
 				p, err := d.Load(ctx, subs[i].Key)
 				tell()
 				if err != nil {
-					if ctx.Err() != nil {
+					if parent.Err() != nil {
 						mu.Lock()
-						firstErr = errors.Join(firstErr, ctx.Err())
+						firstErr = errors.Join(firstErr, parent.Err())
 						mu.Unlock()
+						continue
+					}
+					if ctx.Err() != nil {
 						continue
 					}
 					slog.Warn("Could not read a sub for vetting", "key", subs[i].Key, "error", err)
@@ -247,10 +259,18 @@ func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads 
 					if !sp.inFrame {
 						continue
 					}
-					r := measureSpot(p, sp, info, i, fits)
+					r, err := measureSpot(p, sp, info, i, fits)
 					mu.Lock()
 					sp.recs[i] = r
+					failed := err != nil && !errors.Is(err, errOffData)
+					if failed && keepErr == nil {
+						keepErr = err
+						cancel()
+					}
 					mu.Unlock()
+					if failed {
+						break
+					}
 				}
 			}
 		})
@@ -269,8 +289,11 @@ func stream(ctx context.Context, d Data, subs []Sub, plans []*spotPlan, threads 
 	}
 	close(jobs)
 	wg.Wait()
-	if firstErr != nil || ctx.Err() != nil {
-		return fmt.Errorf("measure the subs: %w", errors.Join(firstErr, ctx.Err()))
+	if keepErr != nil {
+		return fmt.Errorf("keep the stamps: %w", keepErr)
+	}
+	if firstErr != nil || parent.Err() != nil {
+		return fmt.Errorf("measure the subs: %w", errors.Join(firstErr, parent.Err()))
 	}
 	return nil
 }

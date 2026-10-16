@@ -80,6 +80,7 @@ func newVetCommand() *cobra.Command {
 				Bodies:  cat.KnownBodies,
 				Surveys: fetcher,
 				Threads: cfg.Vetting.Threads,
+				WorkDir: cfg.Vetting.WorkDir,
 			}
 			if prefetch {
 				return svc.Prefetch(cmd.Context(), objects)

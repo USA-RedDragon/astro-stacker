@@ -37,9 +37,15 @@ func measure(ctx context.Context, d Data, object string, spots []Spot, opts Opti
 	if refSubs <= 0 {
 		refSubs = defaultRefSubs
 	}
+	st, err := newStamps(opts.WorkDir)
+	if err != nil {
+		return nil, fmt.Errorf("the stamp file: %w", err)
+	}
+	defer st.close()
 	plans := make([]*spotPlan, len(spots))
 	for i, s := range spots {
 		plans[i] = newSpotPlan(w, width, height, subs, s, refSubs)
+		plans[i].stamps = st
 	}
 	f, err := newField(ctx, d, w, width, height, plans)
 	if err != nil {

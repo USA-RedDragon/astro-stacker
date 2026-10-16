@@ -38,6 +38,9 @@ type Service struct {
 	Bodies  Bodies
 	Surveys *surveys.Fetcher
 	Threads int
+	// WorkDir holds the own image checks' stamps on disk; empty keeps
+	// them in memory.
+	WorkDir string
 	Now     func() time.Time
 	// Report, if set, hears each target's steps and progress.
 	Report *activity.Reporter
@@ -138,7 +141,7 @@ func (s *Service) VetSpot(ctx context.Context, sp Spot) (*Report, error) {
 	if runAt.IsZero() {
 		runAt = s.now()
 	}
-	own, err := ownimage.Measure(ctx, s.Data, sp.Object, []ownimage.Spot{spotOf(sum, members, nil, runAt)}, ownimage.Options{Threads: s.threads()})
+	own, err := ownimage.Measure(ctx, s.Data, sp.Object, []ownimage.Spot{spotOf(sum, members, nil, runAt)}, ownimage.Options{Threads: s.threads(), WorkDir: s.WorkDir})
 	var res *ownimage.Result
 	if err == nil && len(own) == 1 {
 		res = &own[0]
@@ -222,7 +225,7 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int
 		spots = append(spots, spotOf(d.Summary, byID[d.Summary.Source.ID], runs, s.now()))
 	}
 	slog.Info("Vetting a target", "object", object, "sources", len(dues))
-	own, err := ownimage.Measure(ctx, s.Data, object, spots, ownimage.Options{Threads: s.threads(), Progress: func(done, total int) {
+	own, err := ownimage.Measure(ctx, s.Data, object, spots, ownimage.Options{Threads: s.threads(), WorkDir: s.WorkDir, Progress: func(done, total int) {
 		s.Report.Set(object+": reading our own subs", int64(done), int64(total), "subs")
 	}})
 	if err != nil {

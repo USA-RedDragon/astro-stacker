@@ -60,6 +60,7 @@ type spotPlan struct {
 	night    map[int]bool
 	ref      map[int]bool
 	recs     []*rec
+	stamps   *stamps
 	fadeSign int
 }
 

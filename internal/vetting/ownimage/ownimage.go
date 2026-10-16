@@ -156,6 +156,9 @@ type Options struct {
 	RefSubs int
 	// Progress, if set, hears how many of the subs to read are read.
 	Progress func(done, total int)
+	// WorkDir, if set, holds the spots' stamps on disk while the checks
+	// run, instead of in memory.
+	WorkDir string
 }
 
 // Measure checks every spot of one target, reading each sub once.
