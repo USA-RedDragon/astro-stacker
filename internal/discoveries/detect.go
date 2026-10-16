@@ -319,7 +319,9 @@ const (
 
 // localFrac is the change of catalogued stars across the field, as a share
 // of each star's reference flux, so a candidate on a star is judged
-// against the stars around it: a flat or transparency mismatch shifts a
+// against the stars around it, and only one on a star: a nova on M 31's
+// bulge (AT 2025xtl, H-a, 2025-10-15) added 8.4% to the bulge's light
+// there, which the stars' spread of 2.2% would have hidden: a flat or transparency mismatch shifts a
 // whole region alike and is not a change of one star. A star must stand
 // 3.5 times the robust spread of its 25 nearest neighbours above their
 // median: on Caldwell 14's 2026-10-09 night 867 changes on stars were within
@@ -1322,18 +1324,9 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 				continue
 			}
 			fn.NotDipole++
-			if c.RefFlux > residualRefSNR*res.ApSigma {
-				if c.Frac < minResidualFrac {
-					reject("star residual")
-					continue
-				}
-				if m, spread, ok := local.around(c.X, c.Y, Aperture(ref, c.X, c.Y, residualR)); ok {
-					excess := float64(c.Sign) * (c.DiffFlux/c.RefFlux - m)
-					if excess < math.Max(minResidualFrac, localSigma*spread) {
-						reject(fmt.Sprintf("like its neighbours: %+.3f against their %+.3f ± %.3f", c.DiffFlux/c.RefFlux, m, spread))
-						continue
-					}
-				}
+			if why := c.residual(ref, local, res); why != "" {
+				reject(why)
+				continue
 			}
 			fn.NotResidual++
 			cc := c.Candidate
@@ -1367,6 +1360,29 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 		res.Funnel[name] = fn
 	}
 	return out
+}
+
+// residual says why a change on reference light is the light's
+// subtraction residual, or "" when it is not: under 5% of that light, or,
+// on a catalogued star, no more than its neighbours about as bright
+// changed.
+func (c *cand) residual(ref *Plane, local localFrac, res *Result) string {
+	if !(c.RefFlux > residualRefSNR*res.ApSigma) {
+		return ""
+	}
+	if c.Frac < minResidualFrac {
+		return "star residual"
+	}
+	if c.GaiaG == nil {
+		return ""
+	}
+	if m, spread, ok := local.around(c.X, c.Y, Aperture(ref, c.X, c.Y, residualR)); ok {
+		excess := float64(c.Sign) * (c.DiffFlux/c.RefFlux - m)
+		if excess < math.Max(minResidualFrac, localSigma*spread) {
+			return fmt.Sprintf("like its neighbours: %+.3f against their %+.3f ± %.3f", c.DiffFlux/c.RefFlux, m, spread)
+		}
+	}
+	return ""
 }
 
 // brightStars indexes the pixel positions, at the night's epoch, of the
