@@ -270,7 +270,10 @@ def test_hlsp_then_tglc_then_cache_reuse(tmp_path):
     st.put_json(f"vetting/tess/requests/{other}.json",
                 request(gid=other, ra=10.95, dec=41.70, neighbours=[]))
     before = st.get(f"vetting/cache/m31/tess/lc/s0057/{GID}.csv.zst")
+    stale = tmp_path / "work" / "tglc-1-s0001"
+    stale.mkdir(parents=True)
     make_job(tmp_path, st, fm, fake_runner(tmp_path, calls, produce=(other, GID), dip=30)).run()
+    assert not stale.exists()
     assert st.get(f"vetting/cache/m31/tess/lc/s0057/{GID}.csv.zst") == before
     assert len(fm.cutouts) == 1
     assert calls[0]["reuse"] is True and calls[0]["epsf_name"] == "epsf_field_sector_57_abc.npz"
