@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -102,6 +103,10 @@ func newVetCommand() *cobra.Command {
 			svc.Report = dbReporter(appStore.DB(), activity.KindVetting)
 			svc.Report.Start(cmd.Context())
 			st, err := svc.Run(cmd.Context(), vetting.RunOptions{Objects: objects, IDs: ids, Budget: budget})
+			if errors.Is(err, vetting.ErrBusy) {
+				slog.Warn("Another vetting run holds the lock; nothing to do")
+				err = nil
+			}
 			svc.Report.Finish(cmd.Context(), err)
 			if host, herr := os.Hostname(); herr == nil {
 				appStore.DB().Where("kind = ? AND worker = ?", activity.KindVetting, host).Delete(&app.JobProgress{})

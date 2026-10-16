@@ -72,14 +72,29 @@ func (s *Service) now() time.Time {
 	return time.Now().UTC()
 }
 
-// Run vets every source due, one target at a time.
+// Run vets every source due, one target at a time, while it holds the
+// vetting lock; with another run going it returns ErrBusy. Sources a
+// stopped run left behind go last.
 func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
+	unlock, err := Lock(ctx, s.App)
+	if err != nil {
+		return Stats{}, err
+	}
+	defer unlock()
 	start := s.now()
+	stale, err := requeueStale(ctx, s.App, start)
+	if err != nil {
+		return Stats{}, err
+	}
+	if len(stale) > 0 {
+		slog.Info("Vetting again the sources a stopped run left", "sources", len(stale))
+	}
 	dues, err := Pick(ctx, s.App, start, o.Objects, o.IDs)
 	if err != nil {
 		return Stats{}, err
 	}
 	byObject := map[string][]Due{}
+	retry := map[string]bool{}
 	var objects []string
 	for _, d := range dues {
 		obj := d.Summary.Source.Object
@@ -87,7 +102,11 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 			objects = append(objects, obj)
 		}
 		byObject[obj] = append(byObject[obj], d)
+		if stale[d.Summary.Source.ID] {
+			retry[obj] = true
+		}
 	}
+	sort.SliceStable(objects, func(i, j int) bool { return !retry[objects[i]] && retry[objects[j]] })
 	var st Stats
 	for i, obj := range objects {
 		s.Report.Queue(len(objects)-i-1, "targets")
