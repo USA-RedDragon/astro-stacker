@@ -19,6 +19,7 @@ const (
 	shapeIters  = 120
 	startSigma  = 1.3
 	shapeBright = 5
+	fitTiny     = 1e-9
 )
 
 // starModel is one star to fit and the Gaia stars around it, all at their
@@ -86,14 +87,21 @@ func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip boo
 		}
 	}
 	row := make([]float64, n)
+	act := make([]int, 0, n)
 	fill := func(q pix) {
 		ix, iy := q.x-x0, q.y-y0
+		act = act[:0]
 		for j := range k {
-			row[j] = norm * gx[j*side+ix] * gy[j*side+iy]
+			v := gx[j*side+ix] * gy[j*side+iy]
+			if v > fitTiny {
+				row[j] = norm * v
+				act = append(act, j)
+			}
 		}
 		row[k] = 1
 		row[k+1] = (float64(q.x) - cx) / fitR
 		row[k+2] = (float64(q.y) - cy) / fitR
+		act = append(act, k, k+1, k+2)
 	}
 	use := make([]bool, len(px))
 	for i := range use {
@@ -112,9 +120,9 @@ func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip boo
 			}
 			used++
 			fill(q)
-			for a := range n {
+			for ai, a := range act {
 				atb[a] += row[a] * q.v
-				for b := a; b < n; b++ {
+				for _, b := range act[ai:] {
 					ata[a*n+b] += row[a] * row[b]
 				}
 			}
@@ -136,7 +144,7 @@ func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip boo
 		for i, q := range px {
 			fill(q)
 			var mv float64
-			for a := range n {
+			for _, a := range act {
 				mv += row[a] * coef[a]
 			}
 			res[i] = q.v - mv
@@ -144,8 +152,11 @@ func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip boo
 				kept = append(kept, res[i])
 			}
 		}
+		if !clip {
+			break
+		}
 		s = robustStd(kept)
-		if !clip || pass == fitPasses-1 || !(s > 0) {
+		if pass == fitPasses-1 || !(s > 0) {
 			break
 		}
 		changed := false
@@ -165,6 +176,9 @@ func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip boo
 		if use[i] {
 			rss += res[i] * res[i]
 		}
+	}
+	if !clip {
+		return fitOut{flux: coef[m.self], rss: rss, ok: true}
 	}
 	e := make([]float64, n)
 	e[m.self] = 1
