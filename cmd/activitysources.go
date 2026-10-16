@@ -230,7 +230,8 @@ func (a *activitySources) vetting(ctx context.Context) ([]activity.Item, error) 
 		items = append(items, it)
 	}
 	if info.Running {
-		for _, g := range groups {
+		live := liveGroups(groups, info.Workers-len(items))
+		for _, g := range live {
 			if running[g.Object] {
 				continue
 			}
@@ -273,6 +274,22 @@ func (a *activitySources) vetting(ctx context.Context) ([]activity.Item, error) 
 		items[0].Current = "choosing the sources to check"
 	}
 	return items, nil
+}
+
+// liveGroups is the n groups updated last: a worker that died leaves its
+// target's sources marked running, and each live worker holds one target,
+// whose rows change as it saves them.
+func liveGroups(groups []vetGroup, n int) []vetGroup {
+	if n <= 0 {
+		return nil
+	}
+	out := append([]vetGroup(nil), groups...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
+	if len(out) > n {
+		out = out[:n]
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
+	return out
 }
 
 func firstN(s []string, n int) []string {

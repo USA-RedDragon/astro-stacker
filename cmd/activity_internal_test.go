@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	objM13  = "M 13"
-	groupHa = "H-a"
+	objM13   = "M 13"
+	objAbell = "Abell 85"
+	groupHa  = "H-a"
 )
 
 func fp(v float64) *float64 { return &v }
@@ -52,6 +53,23 @@ func TestCalibrationItem(t *testing.T) {
 		Queue: []observatory.CalibrationQueue{{Remaining: ip(5)}, {Remaining: ip(0)}, {}}}), now)
 	if err != nil || it.Done != 12 || it.Total != 30 || it.Unit != "frames" || it.Current != "Darks, 300 s" || it.Queued != 2 {
 		t.Fatalf("darks %+v %v", it, err)
+	}
+}
+
+func TestLiveGroups(t *testing.T) {
+	t.Parallel()
+	at := func(m int) time.Time { return time.Date(2026, 10, 16, 5, m, 0, 0, time.UTC) }
+	groups := []vetGroup{
+		{Object: objAbell, Started: at(0), Updated: at(37)},
+		{Object: "Barnard's E", Started: at(10), Updated: at(10)},
+		{Object: "Caldwell 14", Started: at(23), Updated: at(23)},
+	}
+	got := liveGroups(groups, 2)
+	if len(got) != 2 || got[0].Object != objAbell || got[1].Object != "Caldwell 14" {
+		t.Fatalf("live groups %+v", got)
+	}
+	if liveGroups(groups, 0) != nil {
+		t.Fatal("no workers, no groups")
 	}
 }
 
@@ -122,8 +140,8 @@ func vetChecks(t *testing.T, db *gorm.DB, now time.Time) {
 	src := &activitySources{DB: db}
 
 	sources := []app.DiscoverySource{
-		{Object: "Abell 85", Kind: app.DiscoveryKindChange, Night: night(1)},
-		{Object: "Abell 85", Kind: app.DiscoveryKindChange, Night: night(1)},
+		{Object: objAbell, Kind: app.DiscoveryKindChange, Night: night(1)},
+		{Object: objAbell, Kind: app.DiscoveryKindChange, Night: night(1)},
 		{Object: "Andromeda", Kind: app.DiscoveryKindChange, Night: night(1)},
 	}
 	if err := db.Create(&sources).Error; err != nil {
