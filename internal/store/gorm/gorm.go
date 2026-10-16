@@ -42,7 +42,7 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err := store.db.AutoMigrate(app.ObservatoryContact{}, app.ObservatoryHorizon{}, app.MorningReport{}); err != nil {
 		return nil, err
 	}
-	if err := store.db.AutoMigrate(app.DiscoveryRun{}, app.DiscoveryCandidate{}, app.DiscoverySource{}, app.DiscoveryVet{}); err != nil {
+	if err := store.db.AutoMigrate(app.DiscoveryRun{}, app.DiscoveryCandidate{}, app.DiscoverySource{}, app.DiscoveryVet{}, app.JobProgress{}); err != nil {
 		return nil, err
 	}
 	if err := store.db.AutoMigrate(app.DiscoveryAlert{}, app.DiscoveryAlertMessage{}, app.DiscoveryAlertState{}, app.DiscoveryFollowup{}, app.DiscoveryReport{}); err != nil {

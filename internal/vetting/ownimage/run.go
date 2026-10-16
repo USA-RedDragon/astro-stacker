@@ -51,7 +51,7 @@ func measure(ctx context.Context, d Data, object string, spots []Spot, opts Opti
 		}
 	}
 	f.shapes(plans)
-	if err := stream(ctx, d, subs, plans, opts.Threads); err != nil {
+	if err := stream(ctx, d, subs, plans, opts.Threads, opts.Progress); err != nil {
 		return nil, err
 	}
 	evs := make([]*spotEval, len(plans))

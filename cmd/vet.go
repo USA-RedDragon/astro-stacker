@@ -1,23 +1,29 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/surveys"
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	"github.com/spf13/cobra"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func newVetCommand() *cobra.Command {
@@ -89,7 +95,10 @@ func newVetCommand() *cobra.Command {
 				}
 				ids = append(ids, id)
 			}
+			svc.Report = dbReporter(appStore.DB(), activity.KindVetting)
+			svc.Report.Start(cmd.Context())
 			st, err := svc.Run(cmd.Context(), vetting.RunOptions{Objects: objects, IDs: ids, Budget: budget})
+			svc.Report.Finish(cmd.Context(), err)
 			slog.Info("Vetting done", "sources", st.Sources, "done", st.Done, "failed", st.Failed)
 			return err
 		},
@@ -134,4 +143,20 @@ func vetSpot(cmd *cobra.Command, svc *vetting.Service, spot, nights, group strin
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(rep)
+}
+
+// dbReporter writes a Job's progress as the job_progress row of kind and
+// this pod.
+func dbReporter(db *gorm.DB, kind string) *activity.Reporter {
+	worker, err := os.Hostname()
+	if err != nil || worker == "" {
+		worker = "local"
+	}
+	return &activity.Reporter{Every: 10 * time.Second, Put: func(ctx context.Context, data []byte) error {
+		row := app.JobProgress{Kind: kind, Worker: worker, Report: string(data), UpdatedAt: time.Now().UTC()}
+		return db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "kind"}, {Name: "worker"}},
+			DoUpdates: clause.AssignmentColumns([]string{"report", "updated_at"}),
+		}).Create(&row).Error
+	}}
 }
