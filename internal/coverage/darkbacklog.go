@@ -56,7 +56,14 @@ type DarkCombo struct {
 	LatestNight     string       `json:"latest_night"`
 	NewestDarkAt    *time.Time   `json:"newest_dark_at"`
 	Requests        []RequestRef `json:"requests"`
+	Targets         []DarkTarget `json:"targets"`
 	Basis           string       `json:"basis"`
+}
+
+// DarkTarget counts the lights of one object in a combo's backlog.
+type DarkTarget struct {
+	Name   string `json:"name"`
+	Lights int    `json:"lights"`
 }
 
 type DarkUnscheduled struct {
@@ -220,6 +227,7 @@ type tempTally struct {
 	nights                map[string]bool
 	latest                string
 	readout               map[string]int
+	objects               map[string]int
 }
 
 func BuildDarkBacklog(ctx context.Context, db *gorm.DB, now time.Time) (DarkBacklog, error) {
@@ -313,7 +321,7 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 		}
 		t := tallies[su][g.SetTemp]
 		if t == nil {
-			t = &tempTally{nights: map[string]bool{}, readout: map[string]int{}}
+			t = &tempTally{nights: map[string]bool{}, readout: map[string]int{}, objects: map[string]int{}}
 			tallies[su][g.SetTemp] = t
 		}
 		switch m.Quality {
@@ -325,14 +333,7 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 			t.scaled += l.N
 		}
 		r.add(t, l, m.Quality)
-		night := l.Night.Format(time.DateOnly)
-		t.nights[night] = true
-		if night > t.latest {
-			t.latest = night
-		}
-		if l.ReadoutMode != nil && *l.ReadoutMode != "" {
-			t.readout[*l.ReadoutMode] += l.N
-		}
+		t.addLights(l)
 	}
 	for _, u := range unsched {
 		b.Unschedulable = append(b.Unschedulable, *u)
@@ -378,6 +379,20 @@ func darkBacklog(lights []darkLightGroup, darks []darkFrame, sets []calmatch.Set
 	return b
 }
 
+func (t *tempTally) addLights(l darkLightGroup) {
+	night := l.Night.Format(time.DateOnly)
+	t.nights[night] = true
+	if night > t.latest {
+		t.latest = night
+	}
+	if l.ReadoutMode != nil && *l.ReadoutMode != "" {
+		t.readout[*l.ReadoutMode] += l.N
+	}
+	if l.Object != "" {
+		t.objects[l.Object] += l.N
+	}
+}
+
 func fptr(p *float64) any {
 	if p == nil {
 		return nil
@@ -414,6 +429,7 @@ func pickSetTemps(temps map[float64]*tempTally, lastNight string) []DarkCombo {
 		c := DarkCombo{SetTemp: best, SetTempsCovered: []float64{}, Requests: []RequestRef{}}
 		nights := map[string]bool{}
 		readout := map[string]int{}
+		objects := map[string]int{}
 		var covered []float64
 		for t := range left {
 			if math.Abs(t-best) > calmatch.SetTempExactC {
@@ -423,28 +439,11 @@ func pickSetTemps(temps map[float64]*tempTally, lastNight string) []DarkCombo {
 		}
 		sort.Float64s(covered)
 		for _, t := range covered {
-			tt := temps[t]
-			c.LightsBlocked += tt.blocked
-			c.LightsScaled += tt.scaled
-			c.LightsThin += tt.thin
-			c.LightsRecent += tt.recent
-			c.LightsActive += tt.active
-			c.LightsLastNight += tt.lastNight
-			c.ScoreParts.Blocked += tt.score.Blocked
-			c.ScoreParts.Scaled += tt.score.Scaled
-			c.ScoreParts.Thin += tt.score.Thin
-			for n := range tt.nights {
-				nights[n] = true
-			}
-			if tt.latest > c.LatestNight {
-				c.LatestNight = tt.latest
-			}
-			for r, n := range tt.readout {
-				readout[r] += n
-			}
+			c.addTally(temps[t], nights, readout, objects)
 			delete(left, t)
 		}
 		c.SetTempsCovered = covered
+		c.Targets = darkTargets(objects)
 		c.Nights = len(nights)
 		mode, most := "", 0
 		for r, n := range readout {
@@ -468,6 +467,44 @@ func pickSetTemps(temps map[float64]*tempTally, lastNight string) []DarkCombo {
 		c.Basis += " " + scoreNote(c, lastNight)
 		out = append(out, c)
 	}
+	return out
+}
+
+func (c *DarkCombo) addTally(tt *tempTally, nights map[string]bool, readout, objects map[string]int) {
+	c.LightsBlocked += tt.blocked
+	c.LightsScaled += tt.scaled
+	c.LightsThin += tt.thin
+	c.LightsRecent += tt.recent
+	c.LightsActive += tt.active
+	c.LightsLastNight += tt.lastNight
+	c.ScoreParts.Blocked += tt.score.Blocked
+	c.ScoreParts.Scaled += tt.score.Scaled
+	c.ScoreParts.Thin += tt.score.Thin
+	for n := range tt.nights {
+		nights[n] = true
+	}
+	if tt.latest > c.LatestNight {
+		c.LatestNight = tt.latest
+	}
+	for r, n := range tt.readout {
+		readout[r] += n
+	}
+	for o, n := range tt.objects {
+		objects[o] += n
+	}
+}
+
+func darkTargets(objects map[string]int) []DarkTarget {
+	out := make([]DarkTarget, 0, len(objects))
+	for name, n := range objects {
+		out = append(out, DarkTarget{Name: name, Lights: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Lights != out[j].Lights {
+			return out[i].Lights > out[j].Lights
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out
 }
 

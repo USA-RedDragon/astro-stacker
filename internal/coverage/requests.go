@@ -393,7 +393,7 @@ func mergeDarkRequests(b *DarkBacklog, needs []openNeed, darks []darkFrame, now 
 			c := DarkCombo{
 				ComboKey: ComboKey(n.exposure, n.gain, n.offset, n.bin, n.tmp), Exposure: n.exposure, Gain: n.gain, Offset: n.offset,
 				Binning: n.bin, ReadoutMode: n.readout, SetTemp: n.tmp, SetTempsCovered: []float64{n.tmp}, FramesNeeded: DarkFramesTarget,
-				Nights: 1, LatestNight: on.ref.Night, Requests: []RequestRef{},
+				Nights: 1, LatestNight: on.ref.Night, Requests: []RequestRef{}, Targets: []DarkTarget{},
 				Basis: fmt.Sprintf("No lights at set temperature %s °C are short of darks; this set was asked for.", numText(n.tmp)),
 			}
 			fillDarkProgress(&c, darkSetup{exposure: n.exposure, gain: n.gain, offset: n.offset, bin: n.bin}, darks, now)

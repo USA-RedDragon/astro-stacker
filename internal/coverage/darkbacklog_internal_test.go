@@ -54,3 +54,36 @@ func TestBacklogKeepsLightsOnAShortSetUntilAFullOneMatches(t *testing.T) {
 		t.Errorf("a set of 25 with 20 clean: %d lights on a short set, want 7", got)
 	}
 }
+
+func TestBacklogCombosListTheirTargetsMostLightsFirst(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 10, 7, 0, 0, 0, time.UTC)
+	night := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+	f := func(v float64) *float64 { return &v }
+	light := func(object string, temp float64, n int) darkLightGroup {
+		return darkLightGroup{Night: night, Object: object, Exposure: f(300), Gain: f(0), Offset: f(50), SetTemp: f(temp), BinX: f(1), N: n}
+	}
+	lights := []darkLightGroup{
+		light("M 31", -10, 4), light("IC 1396", -10, 6), light("M 31", -10.5, 3),
+		light("NGC 7000", -10, 7), light("Abell 85", -10.5, 7), light("", -10, 2),
+		light("M 33", -20, 5),
+	}
+	b := darkBacklog(lights, nil, nil, now)
+	got := map[float64][]DarkTarget{}
+	for _, c := range b.Combos {
+		got[c.SetTemp] = c.Targets
+	}
+	want := map[float64][]DarkTarget{
+		-10: {{Name: "Abell 85", Lights: 7}, {Name: "M 31", Lights: 7}, {Name: "NGC 7000", Lights: 7}, {Name: "IC 1396", Lights: 6}},
+		-20: {{Name: "M 33", Lights: 5}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("combos at %v, want set temps -10 and -20", got)
+	}
+	for temp, w := range want {
+		g := got[temp]
+		if fmt.Sprint(g) != fmt.Sprint(w) {
+			t.Errorf("set temp %v: targets %v, want %v", temp, g, w)
+		}
+	}
+}
