@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,6 +25,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/minio/minio-go/v7"
 	miniocreds "github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -276,7 +278,7 @@ func (d *devData) sourceSpot(ctx context.Context, id int) (Spot, error) {
 func cygnusSpot(ctx context.Context, t *testing.T, d *devData) Spot {
 	t.Helper()
 	g := 18.06
-	s := Spot{SourceID: -1, Object: "Cygnis Loop Panel 2", Kind: "change", RA: 314.32090, Dec: 28.71857, GaiaG: &g}
+	s := Spot{SourceID: -1, Object: "Cygnis Loop Panel 2", Kind: app.DiscoveryKindChange, RA: 314.32090, Dec: 28.71857, GaiaG: &g}
 	w, _, _, err := d.Frame(ctx, s.Object)
 	if err != nil {
 		t.Fatal(err)
@@ -349,4 +351,65 @@ func TestDevMeasure(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(filepath.Join(home(), "work/vetting/ownimage", devCase+".json"), b.Bytes(), 0o600)
+}
+
+func (d *devData) viewSources(ctx context.Context, object, view string) ([]int, error) {
+	var out struct {
+		Sources []struct {
+			ID   int    `json:"id"`
+			Kind string `json:"kind"`
+		} `json:"sources"`
+	}
+	if err := d.api(ctx, "/api/v1/discoveries/sources?object="+url.QueryEscape(object)+"&view="+view+"&since=all", &out); err != nil {
+		return nil, err
+	}
+	ids := make([]int, 0, len(out.Sources))
+	for _, s := range out.Sources {
+		if s.Kind == app.DiscoveryKindChange {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids, nil
+}
+
+func TestDevMultiSpot(t *testing.T) {
+	t.Parallel()
+	n, _ := strconv.Atoi(os.Getenv("OWNIMAGE_SPOTS"))
+	if n <= 0 {
+		t.Skip("set OWNIMAGE_SPOTS")
+	}
+	ctx := context.Background()
+	d := newDev(t)
+	const object = "Cygnis Loop Panel 2"
+	var ids []int
+	for _, v := range []string{"look", "low"} {
+		got, err := d.viewSources(ctx, object, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, got...)
+	}
+	ids = ids[:min(n, len(ids))]
+	spots := make([]Spot, 0, len(ids))
+	for _, id := range ids {
+		s, err := d.sourceSpot(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		spots = append(spots, s)
+	}
+	start := time.Now()
+	res, err := Measure(ctx, d, object, spots, Options{Threads: 6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := time.Since(start)
+	for i, r := range res {
+		var line []string
+		for _, c := range r.Checks {
+			line = append(line, c.ID+"="+string(c.Status))
+		}
+		t.Logf("source %d G=%v %s", spots[i].SourceID, spots[i].GaiaG != nil, strings.Join(line, " "))
+	}
+	t.Logf("spots %d, subs read %d, %.1f MB, wall %.1fs, %.3fs per sub, max RSS %d MB", len(spots), d.loads, float64(d.bytes)/1e6, el.Seconds(), el.Seconds()/float64(max(d.loads, 1)), maxRSS()/1024)
 }
