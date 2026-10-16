@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
+	"github.com/USA-RedDragon/astro-stacker/internal/memwatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
@@ -44,6 +45,8 @@ type Service struct {
 	Now     func() time.Time
 	// Report, if set, hears each target's steps and progress.
 	Report *activity.Reporter
+	// Mem, if set, gives each target step's peak memory for the log.
+	Mem *memwatch.Watch
 }
 
 // RunOptions narrow a run: Objects to those targets, IDs to those
@@ -95,6 +98,7 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 			slog.Info("Vetting budget used up", "targets_left", len(objects))
 			break
 		}
+		s.Mem.Step()
 		done, failed := s.vetObject(ctx, obj, byObject[obj])
 		st.Sources += len(byObject[obj])
 		st.Done += done
@@ -224,6 +228,7 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int
 	for _, d := range dues {
 		spots = append(spots, spotOf(d.Summary, byID[d.Summary.Source.ID], runs, s.now()))
 	}
+	pulled := memwatch.MiB(s.Mem.Step())
 	slog.Info("Vetting a target", "object", object, "sources", len(dues))
 	own, err := ownimage.Measure(ctx, s.Data, object, spots, ownimage.Options{Threads: s.threads(), WorkDir: s.WorkDir, Progress: func(done, total int) {
 		s.Report.Set(object+": reading our own subs", int64(done), int64(total), "subs")
@@ -235,7 +240,14 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int
 	for i := range own {
 		ownBy[own[i].SourceID] = &own[i]
 	}
+	measured := memwatch.MiB(s.Mem.Step())
 	done, failed := 0, 0
+	defer func() {
+		if s.Mem != nil {
+			slog.Info("Target vetted", "object", object, "done", done, "failed", failed,
+				"pull_peak_mib", pulled, "own_images_peak_mib", measured, "sources_peak_mib", memwatch.MiB(s.Mem.Step()))
+		}
+	}()
 	for i, d := range dues {
 		s.Report.Set(object+": checking sources", int64(i), int64(len(dues)), "sources")
 		if ctx.Err() != nil {
