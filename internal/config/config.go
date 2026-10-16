@@ -55,6 +55,7 @@ type Config struct {
 type Vetting struct {
 	ATLASToken  string `name:"atlas-token" description:"ATLAS forced photometry API token; empty skips ATLAS" secret:"true"`
 	Threads     int    `name:"threads" description:"Cores the vetting job uses to read subs and fit light curves" default:"4"`
+	WorkDir     string `name:"work-dir" description:"Scratch directory for survey files while a field is pulled; the largest is under 1 GB" default:"/tmp/vetting"`
 	CachePrefix string `name:"cache-prefix" description:"Path in the processed bucket where survey data pulled per target field is kept, zstd compressed" default:"vetting/cache/"`
 }
 

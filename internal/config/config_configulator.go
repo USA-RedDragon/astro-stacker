@@ -245,6 +245,7 @@ type discoveryAlertsShadow struct {
 type vettingShadow struct {
 	ATLASToken  *string `json:"atlas-token"  toml:"atlas-token"  yaml:"atlas-token"`
 	Threads     *int    `json:"threads"      toml:"threads"      yaml:"threads"`
+	WorkDir     *string `json:"work-dir"     toml:"work-dir"     yaml:"work-dir"`
 	CachePrefix *string `json:"cache-prefix" toml:"cache-prefix" yaml:"cache-prefix"`
 }
 
@@ -492,6 +493,8 @@ func configApplyDefaults(cfg *Config, _ string, set configulator.SetOrigin) erro
 	set("discovery-alerts.interval-minutes", configulator.LayerDefault, "default tag")
 	cfg.Vetting.Threads = 4
 	set("vetting.threads", configulator.LayerDefault, "default tag")
+	cfg.Vetting.WorkDir = "/tmp/vetting"
+	set("vetting.work-dir", configulator.LayerDefault, "default tag")
 	cfg.Vetting.CachePrefix = "vetting/cache/"
 	set("vetting.cache-prefix", configulator.LayerDefault, "default tag")
 	return nil
@@ -1182,6 +1185,10 @@ func (s *configShadow) applyTo(cfg *Config, _ string, set configulator.SetOrigin
 		if s.Vetting.Threads != nil {
 			cfg.Vetting.Threads = *s.Vetting.Threads
 			set("vetting.threads", configulator.LayerFile, file)
+		}
+		if s.Vetting.WorkDir != nil {
+			cfg.Vetting.WorkDir = *s.Vetting.WorkDir
+			set("vetting.work-dir", configulator.LayerFile, file)
 		}
 		if s.Vetting.CachePrefix != nil {
 			cfg.Vetting.CachePrefix = *s.Vetting.CachePrefix
@@ -2600,6 +2607,10 @@ func configApplyEnv(cfg *Config, ec configulator.EnvContext, set configulator.Se
 		cfg.Vetting.Threads = int(p)
 		set("vetting.threads", configulator.LayerEnv, n)
 	}
+	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "vetting", "work-dir"); ok {
+		cfg.Vetting.WorkDir = v
+		set("vetting.work-dir", configulator.LayerEnv, n)
+	}
 	if n, v, ok := impl.LookupEnv(ec.Getenv, ec.Opts.Prefix, ec.Opts.Separator, "vetting", "cache-prefix"); ok {
 		cfg.Vetting.CachePrefix = v
 		set("vetting.cache-prefix", configulator.LayerEnv, n)
@@ -2774,6 +2785,7 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 		"discovery-alerts" + o.Separator + "interval-minutes",
 		"vetting" + o.Separator + "atlas-token",
 		"vetting" + o.Separator + "threads",
+		"vetting" + o.Separator + "work-dir",
 		"vetting" + o.Separator + "cache-prefix",
 	}
 	for i, name := range names {
@@ -2947,7 +2959,8 @@ func configRegisterPFlags(fs *pflag.FlagSet, o *cpflag.Options) error {
 	fs.Var(impl.NewInt(5), names[154], "Minutes between backstop looks for new finds and follow-up results; a stored comparison starts a look about 20 seconds later")
 	fs.String(names[155], "", "ATLAS forced photometry API token; empty skips ATLAS")
 	fs.Var(impl.NewInt(4), names[156], "Cores the vetting job uses to read subs and fit light curves")
-	fs.String(names[157], "vetting/cache/", "Path in the processed bucket where survey data pulled per target field is kept, zstd compressed")
+	fs.String(names[157], "/tmp/vetting", "Scratch directory for survey files while a field is pulled; the largest is under 1 GB")
+	fs.String(names[158], "vetting/cache/", "Path in the processed bucket where survey data pulled per target field is kept, zstd compressed")
 	return nil
 }
 
@@ -4836,6 +4849,18 @@ func configApplyPFlags(cfg *Config, fs *pflag.FlagSet, o *cpflag.Options, _ stri
 		}
 		cfg.Vetting.Threads = v
 		set("vetting.threads", configulator.LayerCLI, "--"+n)
+	}
+	if n := "vetting" + o.Separator + "work-dir"; fs.Changed(n) {
+		v, err := fs.GetString(n)
+		if err != nil {
+			return &configulator.ParseError{
+				Err:    err,
+				Path:   "vetting.work-dir",
+				Source: "--" + n,
+			}
+		}
+		cfg.Vetting.WorkDir = v
+		set("vetting.work-dir", configulator.LayerCLI, "--"+n)
 	}
 	if n := "vetting" + o.Separator + "cache-prefix"; fs.Changed(n) {
 		v, err := fs.GetString(n)
@@ -8366,6 +8391,19 @@ func (s *vettingShadow) decodeJSON(dec *jsontext.Decoder, path string) error {
 			default:
 				return configJSONError(path+".threads", v, fmt.Errorf("expected a number, got %v", v.Kind()))
 			}
+		case "work-dir":
+			v, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			switch v.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindString:
+				str := v.String()
+				s.WorkDir = &str
+			default:
+				return configJSONError(path+".work-dir", v, fmt.Errorf("expected a string, got %v", v.Kind()))
+			}
 		case "cache-prefix":
 			v, err := dec.ReadToken()
 			if err != nil {
@@ -8565,6 +8603,7 @@ func (c Config) PrintConfig() string {
 	fmt.Fprintf(&b, "discovery-alerts.interval-minutes = %v\n", c.DiscoveryAlerts.IntervalMinutes)
 	b.WriteString("vetting.atlas-token = (redacted)\n")
 	fmt.Fprintf(&b, "vetting.threads = %v\n", c.Vetting.Threads)
+	fmt.Fprintf(&b, "vetting.work-dir = %v\n", c.Vetting.WorkDir)
 	fmt.Fprintf(&b, "vetting.cache-prefix = %v\n", c.Vetting.CachePrefix)
 	return b.String()
 }
