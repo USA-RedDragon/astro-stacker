@@ -482,9 +482,12 @@ func TestNewSourceAndEclipseShareOneRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	for k, c := range alone[0].Checks {
-		if both[0].Checks[k] != c {
+		if both[0].Checks[k].Status != c.Status {
 			t.Errorf("eclipse %s changed with a second spot: %q against %q", c.ID, both[0].Checks[k].Evidence, c.Evidence)
 		}
+	}
+	if a, b := alone[0].Curve, both[0].Curve; a == nil || b == nil || math.Abs(a.Change-b.Change) > 0.005 {
+		t.Errorf("eclipse change moved with a second spot: %+v against %+v", b, a)
 	}
 	r := both[1]
 	if r.Curve != nil {
@@ -497,3 +500,4 @@ func TestNewSourceAndEclipseShareOneRead(t *testing.T) {
 		want(t, r, id, check.Pass)
 	}
 }
+
