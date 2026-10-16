@@ -195,7 +195,10 @@ type Candidate struct {
 	// SkyFixed says the subs it is in put it on sensor pixels more than
 	// skyFixedPx apart: its light moves with the sky across the dithers.
 	SkyFixed bool
-	Light    []LightPoint
+	// Filter is the filter whose own comparison found the change, when
+	// the filters combined did not.
+	Filter string
+	Light  []LightPoint
 }
 
 // TrackPoint is one detection of a moving object.
@@ -734,6 +737,11 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 
 	in.stage("finding changes")
 	cands := in.findChanges(D, dmesh.RMSPlane(), ref, edge, bmask, res)
+	fds := in.filterChanges(stacks, cands, valid, edge, bmask, res, threads, minFilterSubs, nil)
+	for _, fs := range stacks {
+		fs.night = nil
+	}
+	cands, own := withFilterChanges(cands, fds)
 
 	subs, dets, times, err := in.measureSubs(ctx, stacks, cands, valid, edge, bmask, res)
 	if err != nil {
@@ -742,9 +750,11 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	if err := in.measureRefNights(ctx, stacks, cands); err != nil {
 		return nil, err
 	}
+	combined, per := splitByFilter(cands, fds)
 	local := in.localResiduals(ref, D, edge, res)
-	res.Candidates = in.cut(cands, ref, D, local, res)
-	if res.ChangeNull, err = in.nullChanges(ctx, stacks, edge, bmask, res, threads); err != nil {
+	res.Candidates = in.cut(combined, ref, D, local, res)
+	in.cutFilters(fds, per, edge, res)
+	if res.ChangeNull, err = in.nullChanges(ctx, stacks, edge, bmask, res, threads, own); err != nil {
 		return nil, err
 	}
 
@@ -786,6 +796,21 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	}
 	res.Night, res.Ref, res.Diff, res.Valid, res.Edge = night, ref, D, valid, edge
 	return res, nil
+}
+
+// cutFilters cuts each filter's own changes in its own comparison, and adds
+// them, what it rejected and its funnel to res.
+func (in *Input) cutFilters(fds []filterDiff, per [][]cand, edge []bool, res *Result) {
+	for i := range fds {
+		fd := &fds[i]
+		lf := in.localResiduals(fd.fs.ref, fd.diff, edge, fd.res)
+		res.Candidates = append(res.Candidates, in.cut(per[i], fd.fs.ref, fd.diff, lf, fd.res)...)
+		res.Rejected = append(res.Rejected, fd.res.Rejected...)
+		for k, v := range fd.res.Funnel {
+			res.Funnel[k+" in "+fd.fs.f.Filter] = v
+		}
+		fd.diff = nil
+	}
 }
 
 // measureSubs measures every candidate in each of the night's subs minus
@@ -916,7 +941,6 @@ func combine(stacks []*filterStacks, w, h int) (night, ref *Plane, valid []bool)
 			ref.Data[i] += wf * b
 			wsum[i] += wf
 		}
-		fs.night = nil
 	}
 	valid = make([]bool, w*h)
 	for i := range wsum {
@@ -1291,26 +1315,7 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			if c.Sign != sign {
 				continue
 			}
-			st := perSub(c.fluxes, c.errs)
-			if st.reason != "" {
-				for _, f := range filtersOf(c.Light) {
-					if f != broadbandClear && c.GaiaG == nil {
-						continue
-					}
-					var fl, er []float64
-					for k, pt := range c.Light {
-						if pt.Filter == f {
-							fl, er = append(fl, c.fluxes[k]), append(er, c.errs[k])
-						}
-					}
-					if len(fl) >= minFilterSubs {
-						if fs := perSub(fl, er); fs.reason == "" {
-							st = fs
-							break
-						}
-					}
-				}
-			}
+			m, st := c.subTest()
 			c.PresentIn, c.SubsTested, c.TopShare = st.present, st.n, st.top
 			reject := func(reason string) {
 				res.Rejected = append(res.Rejected, Rejection{X: c.X, Y: c.Y, Sign: c.Sign, SNR: c.SNR, Reason: reason, PresentIn: st.present, Subs: st.n,
@@ -1335,12 +1340,18 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 				continue
 			}
 			fn.NotResidual++
-			if why := c.refNightShift(); why != "" {
+			if why := m.refNightShift(); why != "" {
 				reject(why)
 				continue
 			}
+			if c.Filter != "" {
+				if why := c.against(); why != "" {
+					reject(why)
+					continue
+				}
+			}
 			cc := c.Candidate
-			cc.SubSharp, cc.SkyFixed = c.inSubs(star)
+			cc.SubSharp, cc.SkyFixed = m.inSubs(star)
 			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && cc.SubSharp > maxSubSharpness)
 			if cc.LowConf {
 				fn.LowConfident++
@@ -1370,6 +1381,37 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 		res.Funnel[name] = fn
 	}
 	return out
+}
+
+// subTest is the candidate as the per-sub test measures it, in its own
+// filter's subs for a filter's change, and the test's outcome: over all
+// the night's subs, or else over one filter's.
+func (c *cand) subTest() (*cand, perSubStats) {
+	if c.Filter != "" {
+		m := c.only(c.Filter)
+		return m, perSub(m.fluxes, m.errs)
+	}
+	st := perSub(c.fluxes, c.errs)
+	if st.reason == "" {
+		return c, st
+	}
+	for _, f := range filtersOf(c.Light) {
+		if f != broadbandClear && c.GaiaG == nil {
+			continue
+		}
+		var fl, er []float64
+		for k, pt := range c.Light {
+			if pt.Filter == f {
+				fl, er = append(fl, c.fluxes[k]), append(er, c.errs[k])
+			}
+		}
+		if len(fl) >= minFilterSubs {
+			if fs := perSub(fl, er); fs.reason == "" {
+				return c, fs
+			}
+		}
+	}
+	return c, st
 }
 
 // residual says why a change on reference light is the light's

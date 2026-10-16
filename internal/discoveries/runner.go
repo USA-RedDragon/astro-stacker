@@ -1339,6 +1339,11 @@ func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, in saveInput) 
 	run.Candidates, run.Tracks, run.KnownTracks, run.BodiesInField, run.SubDetections = len(in.labelled), len(in.tracks), known, inField, res.SubDetections
 	run.MoverNullTracks, run.MoverNullHits = res.MoverNull.Tracks, res.MoverNull.MaxHits
 	run.ChangeNullSubs, run.ChangeNullFound, run.ChangeNullSNR = res.ChangeNull.Subs, res.ChangeNull.Found, res.ChangeNull.MaxSNR
+	run.ChangeNullFilterFound, run.ChangeNullFilterSNR = 0, 0
+	for f, n := range res.ChangeNull.FilterFound {
+		run.ChangeNullFilterFound += n
+		run.ChangeNullFilterSNR = math.Max(run.ChangeNullFilterSNR, res.ChangeNull.FilterMaxSNR[f])
+	}
 	run.FinishedAt, run.Seconds = &now, now.Sub(in.start).Seconds()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var vetted []app.DiscoveryCandidate

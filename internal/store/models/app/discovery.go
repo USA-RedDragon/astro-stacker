@@ -52,10 +52,14 @@ type DiscoveryRun struct {
 	ChangeNullSubs  int
 	ChangeNullFound int
 	ChangeNullSNR   float64
-	Seconds         float64
-	StartedAt       *time.Time
-	FinishedAt      *time.Time
-	UpdatedAt       time.Time
+	// ChangeNullFilterFound and ChangeNullFilterSNR are the same over the
+	// filters' own comparisons, each SNR in its filter's noise.
+	ChangeNullFilterFound int
+	ChangeNullFilterSNR   float64
+	Seconds               float64
+	StartedAt             *time.Time
+	FinishedAt            *time.Time
+	UpdatedAt             time.Time
 }
 
 const (
