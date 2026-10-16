@@ -3,6 +3,7 @@ package discoveries
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -327,6 +328,24 @@ func TestRequestedRerunKeepsVetting(t *testing.T) {
 	fx.db.Where("vetting <> ''").Find(&vetted)
 	if len(vetted) != 1 || vetted[0].VetNote != vetChecked || vetted[0].RunID != run.ID {
 		t.Errorf("vetting not kept over a rerun: %+v", vetted)
+	}
+}
+
+func TestARequestedRunIsTakenOnce(t *testing.T) {
+	t.Parallel()
+	db := testDB(t)
+	r := New(db, nil, &memStore{m: map[string][]byte{}}, &Catalogs{}, Options{BackfillDays: 1, Threads: 1})
+	night := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
+	if err := db.Create(&app.DiscoveryRun{Object: synthObject, Night: night, Group: GroupBroadband, State: app.DiscoveryQueued, Requested: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	j := Job{Object: synthObject, Night: night, Group: GroupBroadband, Requested: true}
+	if _, err := r.startRun(context.Background(), j); err != nil {
+		t.Fatal(err)
+	}
+	db.Model(&app.DiscoveryRun{}).Where("1 = 1").Update("state", app.DiscoveryDone)
+	if _, err := r.startRun(context.Background(), j); !errors.Is(err, errDoneElsewhere) {
+		t.Errorf("a second runner holding the same request ran it again: %v", err)
 	}
 }
 

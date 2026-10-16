@@ -699,7 +699,9 @@ var errClaimed = errors.New("running elsewhere")
 // errDoneElsewhere is a run another runner finished by this method since
 // the pass that found it due began: the server's runner and a backfill job
 // each list the due nights at their pass's start, and without it each
-// redid every night the other had done meanwhile.
+// redid every night the other had done meanwhile. A requested run another
+// runner has taken since is done elsewhere too: four backfill pods each
+// redid all 27 nights requested of them on 2026-10-16.
 var errDoneElsewhere = errors.New("done elsewhere")
 
 const claimFor = 10 * time.Minute
@@ -719,6 +721,9 @@ func (r *Runner) startRun(ctx context.Context, j Job) (*app.DiscoveryRun, error)
 			return nil, errClaimed
 		}
 		if !j.Requested && !j.Since.IsZero() && run.Method == Method && settledRun(run, r.now()) && run.FinishedAt != nil && run.FinishedAt.After(j.Since) {
+			return nil, errDoneElsewhere
+		}
+		if j.Requested && run.State != app.DiscoveryQueued {
 			return nil, errDoneElsewhere
 		}
 	}
