@@ -73,8 +73,11 @@ func (s *Service) now() time.Time {
 }
 
 // Run vets every source due, one target at a time, while it holds the
-// vetting lock; with another run going it returns ErrBusy. Sources a
-// stopped run left behind go last.
+// vetting lock; with another run going it returns ErrBusy. Sources asked
+// for by hand go first, in the order asked, and sources a stopped run
+// left behind go last. Past the budget no new target starts, and a
+// target under way starts no new source after its first; the rest wait
+// for the next run.
 func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 	unlock, err := Lock(ctx, s.App)
 	if err != nil {
@@ -93,37 +96,91 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 	if err != nil {
 		return Stats{}, err
 	}
-	byObject := map[string][]Due{}
-	retry := map[string]bool{}
-	var objects []string
-	for _, d := range dues {
-		obj := d.Summary.Source.Object
-		if byObject[obj] == nil {
-			objects = append(objects, obj)
-		}
-		byObject[obj] = append(byObject[obj], d)
-		if stale[d.Summary.Source.ID] {
-			retry[obj] = true
-		}
+	var stop time.Time
+	if o.Budget > 0 {
+		stop = start.Add(o.Budget)
 	}
-	sort.SliceStable(objects, func(i, j int) bool { return !retry[objects[i]] && retry[objects[j]] })
+	bs := batches(dues, stale)
 	var st Stats
-	for i, obj := range objects {
-		s.Report.Queue(len(objects)-i-1, "targets")
+	for i, b := range bs {
+		s.Report.Queue(len(bs)-i-1, "targets")
 		if ctx.Err() != nil {
 			return st, ctx.Err()
 		}
-		if o.Budget > 0 && s.now().Sub(start) > o.Budget {
-			slog.Info("Vetting budget used up", "targets_left", len(objects))
+		if !stop.IsZero() && s.now().After(stop) {
+			slog.Info("Vetting budget used up", "targets_left", len(bs)-i)
 			break
 		}
 		s.Mem.Step()
-		done, failed := s.vetObject(ctx, obj, byObject[obj])
-		st.Sources += len(byObject[obj])
+		done, failed := s.vetObject(ctx, b.object, b.dues, stop)
+		st.Sources += done + failed
 		st.Done += done
 		st.Failed += failed
 	}
 	return st, nil
+}
+
+// batch is the sources of one target a run vets together.
+type batch struct {
+	object string
+	dues   []Due
+	rank   int
+	asked  time.Time
+}
+
+const (
+	rankAsked = iota
+	rankDue
+	rankStale
+)
+
+// batches groups the sources due by target, one batch per target so its
+// subs are read once, and those a stopped run left in a batch of their
+// own. Targets with a source asked for by hand go first, earliest asked
+// first, and inside a batch those sources go first; then the other
+// targets, then what stopped runs left.
+func batches(dues []Due, stale map[int]bool) []batch {
+	type key struct {
+		object string
+		stale  bool
+	}
+	at := map[key]int{}
+	var out []batch
+	for _, d := range dues {
+		k := key{d.Summary.Source.Object, stale[d.Summary.Source.ID]}
+		i, ok := at[k]
+		if !ok {
+			i = len(out)
+			at[k] = i
+			out = append(out, batch{object: k.object, rank: rankDue})
+			if k.stale {
+				out[i].rank = rankStale
+			}
+		}
+		out[i].dues = append(out[i].dues, d)
+		if !k.stale && d.AskedAt != nil {
+			out[i].rank = rankAsked
+			if out[i].asked.IsZero() || d.AskedAt.Before(out[i].asked) {
+				out[i].asked = *d.AskedAt
+			}
+		}
+	}
+	for _, b := range out {
+		sort.SliceStable(b.dues, func(i, j int) bool {
+			a, c := b.dues[i].AskedAt, b.dues[j].AskedAt
+			return a != nil && (c == nil || a.Before(*c))
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].rank != out[j].rank {
+			return out[i].rank < out[j].rank
+		}
+		if out[i].rank == rankAsked {
+			return out[i].asked.Before(out[j].asked)
+		}
+		return false
+	})
+	return out
 }
 
 // Spot is a position to vet by hand, with no stored source.
@@ -200,7 +257,7 @@ func Slug(object string) string {
 	return strings.TrimSuffix(b.String(), "-")
 }
 
-func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int, int) {
+func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop time.Time) (int, int) {
 	ids := make([]int, len(dues))
 	for i, d := range dues {
 		ids[i] = d.Summary.Source.ID
@@ -270,6 +327,17 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due) (int
 	for i, d := range dues {
 		s.Report.Set(object+": checking sources", int64(i), int64(len(dues)), "sources")
 		if ctx.Err() != nil {
+			return done, failed
+		}
+		if i > 0 && !stop.IsZero() && s.now().After(stop) {
+			left := make([]int, 0, len(dues)-i)
+			for _, r := range dues[i:] {
+				left = append(left, r.Summary.Source.ID)
+			}
+			if err := release(ctx, s.App, left, s.now()); err != nil {
+				slog.Error("Could not hand back the sources left", "object", object, "error", err)
+			}
+			slog.Info("Vetting budget used up part way through a target", "object", object, "sources_left", len(left))
 			return done, failed
 		}
 		id := d.Summary.Source.ID

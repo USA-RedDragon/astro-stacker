@@ -82,10 +82,12 @@ func Request(ctx context.Context, db *gorm.DB, id int, now time.Time) (Status, e
 	return Load(ctx, db, id)
 }
 
-// Due is a source the job should vet now, with the hash of what it saw.
+// Due is a source the job should vet now, with the hash of what it saw
+// and, when it was asked for by hand, when.
 type Due struct {
 	Summary discoverysource.Summary
 	Hash    string
+	AskedAt *time.Time
 }
 
 // retryAfter is how long a failed run waits, and pendingAfter how long a
@@ -131,7 +133,11 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 		h := hashOf(s)
 		v, seen := vets[s.Source.ID]
 		if forced[s.Source.ID] || due(s, h, v, seen, now) {
-			out = append(out, Due{Summary: s, Hash: h})
+			d := Due{Summary: s, Hash: h}
+			if seen && asked(v) {
+				d.AskedAt = v.RequestedAt
+			}
+			out = append(out, d)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -143,8 +149,13 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 	return out, nil
 }
 
+// asked says the source was asked for by hand since its last run started.
+func asked(v app.DiscoveryVet) bool {
+	return v.RequestedAt != nil && (v.StartedAt == nil || v.RequestedAt.After(*v.StartedAt))
+}
+
 func due(s discoverysource.Summary, hash string, v app.DiscoveryVet, seen bool, now time.Time) bool {
-	if seen && v.RequestedAt != nil && (v.StartedAt == nil || v.RequestedAt.After(*v.StartedAt)) {
+	if seen && asked(v) {
 		return true
 	}
 	if !discoveries.IsNew(s.Class) || s.Source.Vetting != "" {
