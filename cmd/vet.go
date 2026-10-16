@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/activity"
@@ -70,6 +71,7 @@ func newVetCommand() *cobra.Command {
 			}
 			cat := tnsCatalogs(cfg.Discoveries)
 			cat.Local = smallBodies(cfg, appStore)
+			cat.Local.Site = siteOnce(cat.Local.Site)
 			prefix := cfg.Vetting.CachePrefix
 			fetcher := &surveys.Fetcher{Store: surveys.MinioStore{Client: s3, Bucket: cfg.S3.ProcessedBucket}, Prefix: prefix,
 				HTTP: &http.Client{Timeout: 10 * time.Minute}, ATLASToken: cfg.Vetting.ATLASToken, WorkDir: cfg.Vetting.WorkDir, Now: time.Now}
@@ -155,6 +157,26 @@ func vetSpot(cmd *cobra.Command, svc *vetting.Service, spot, nights, group strin
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(rep)
+}
+
+// siteOnce keeps the first site that site reads, so a run reads the
+// observatory site from a light's header once; a failed read is tried
+// again on the next call.
+func siteOnce(site func(context.Context) (float64, float64, float64, bool)) func(context.Context) (float64, float64, float64, bool) {
+	if site == nil {
+		return nil
+	}
+	var mu sync.Mutex
+	var lat, lon, h float64
+	var have bool
+	return func(ctx context.Context) (float64, float64, float64, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !have {
+			lat, lon, h, have = site(ctx)
+		}
+		return lat, lon, h, have
+	}
 }
 
 // dbReporter writes a Job's progress as the job_progress row of kind and
