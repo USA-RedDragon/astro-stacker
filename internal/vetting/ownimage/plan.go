@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
 const (
@@ -32,6 +33,7 @@ const (
 	shapeFaintest  = 15.0
 	shapeLonely    = 8.0
 	shapeNbMag     = 4.0
+	tileSize       = 600.0
 )
 
 // refSet is the reference a comparison of one night stacked for one
@@ -51,7 +53,7 @@ type spotPlan struct {
 	star     *Star
 	target   *starModel
 	comps    []*starModel
-	shape    []*starModel
+	tile     *tile
 	flagged  map[string]bool
 	groups   map[string]string
 	sets     []refSet
@@ -171,9 +173,103 @@ func refSets(subs []Sub, sp *spotPlan, refSubs int) {
 	}
 }
 
-// planSpot places the spot and picks its comparison stars.
-func planSpot(ctx context.Context, d Data, w *discoveries.WCS, width, height int, subs []Sub, s Spot, refSubs int) (*spotPlan, error) {
-	sp := &spotPlan{spot: s, flagged: map[string]bool{}, groups: map[string]string{}, recs: make([]*rec, len(subs)), fadeSign: 0}
+// field is a target's Gaia stars, read once, placed on its frame, with
+// one model per star shared by every spot that fits it.
+type field struct {
+	w             *discoveries.WCS
+	width, height int
+	pl            []placed
+	grid          *discoveries.Grid
+	models        map[int]*starModel
+	tiles         map[[2]int]*tile
+}
+
+// tile is a patch of the frame whose spots share one star width and shift
+// per sub.
+type tile struct {
+	shape  []*starModel
+	sx, sy float64
+	n      int
+}
+
+// newField reads the Gaia stars around every spot in one cone.
+func newField(ctx context.Context, d Data, w *discoveries.WCS, width, height int, spots []*spotPlan) (*field, error) {
+	f := &field{w: w, width: width, height: height, models: map[int]*starModel{}, tiles: map[[2]int]*tile{}}
+	var in []*spotPlan
+	for _, sp := range spots {
+		if sp.inFrame {
+			in = append(in, sp)
+		}
+	}
+	if len(in) == 0 {
+		return f, nil
+	}
+	var vx, vy, vz float64
+	for _, sp := range in {
+		r, d := sp.spot.RA*math.Pi/180, sp.spot.Dec*math.Pi/180
+		vx, vy, vz = vx+math.Cos(d)*math.Cos(r), vy+math.Cos(d)*math.Sin(r), vz+math.Sin(d)
+	}
+	ra := math.Mod(math.Atan2(vy, vx)*180/math.Pi+360, 360)
+	dec := math.Atan2(vz, math.Hypot(vx, vy)) * 180 / math.Pi
+	var reach float64
+	for _, sp := range in {
+		reach = math.Max(reach, discoveries.Separation(ra, dec, sp.spot.RA, sp.spot.Dec))
+	}
+	stars, err := d.Stars(ctx, ra, dec, reach+compWide+0.01)
+	if err != nil {
+		return nil, err
+	}
+	pts := make([][2]float64, 0, len(stars))
+	for _, s := range stars {
+		x, y, ok := w.PixelOf(s.RA, s.Dec)
+		if !ok || !finite(s.G) || s.G > nbFaintest {
+			continue
+		}
+		near := false
+		for _, sp := range in {
+			if discoveries.Separation(s.RA, s.Dec, sp.spot.RA, sp.spot.Dec) <= compWide+0.01 {
+				near = true
+				break
+			}
+		}
+		if near {
+			f.pl = append(f.pl, placed{s, x, y})
+			pts = append(pts, [2]float64{x, y})
+		}
+	}
+	f.grid = discoveries.NewGrid(pts, fitReach)
+	return f, nil
+}
+
+// model is the shared fit model of placed star i.
+func (f *field) model(i int) *starModel {
+	if m, ok := f.models[i]; ok {
+		return m
+	}
+	m := f.modelAt(f.pl[i].x, f.pl[i].y)
+	f.models[i] = m
+	return m
+}
+
+func (f *field) modelAt(x, y float64) *starModel {
+	m := &starModel{x: x, y: y, self: -1}
+	best := math.Inf(1)
+	for _, i := range f.grid.Within(x, y, fitReach) {
+		m.nbs = append(m.nbs, [2]float64{f.pl[i].x, f.pl[i].y})
+		if d := math.Hypot(f.pl[i].x-x, f.pl[i].y-y); d < best {
+			best, m.self = d, len(m.nbs)-1
+		}
+	}
+	if m.self < 0 || best > 0.5 {
+		m.nbs = append(m.nbs, [2]float64{x, y})
+		m.self = len(m.nbs) - 1
+	}
+	return m
+}
+
+// newSpotPlan places the spot and rebuilds its references.
+func newSpotPlan(w *discoveries.WCS, width, height int, subs []Sub, s Spot, refSubs int) *spotPlan {
+	sp := &spotPlan{spot: s, flagged: map[string]bool{}, groups: map[string]string{}}
 	for _, n := range s.Nights {
 		sp.flagged[nightKey(n.Night)] = true
 		sp.groups[nightKey(n.Night)+"\x00"+n.Group] = n.Group
@@ -181,25 +277,17 @@ func planSpot(ctx context.Context, d Data, w *discoveries.WCS, width, height int
 			sp.fadeSign = n.Sign
 		}
 	}
+	if s.Kind == app.DiscoveryKindMover {
+		return sp
+	}
 	x, y, ok := w.PixelOf(s.RA, s.Dec)
 	if !ok || x < 0 || y < 0 || x >= float64(width) || y >= float64(height) {
-		return sp, nil
+		return sp
 	}
 	sp.x, sp.y, sp.inFrame = x, y, true
+	sp.recs = make([]*rec, len(subs))
 	refSets(subs, sp, refSubs)
-	stars, err := d.Stars(ctx, s.RA, s.Dec, compRadius+0.01)
-	if err != nil {
-		return nil, err
-	}
-	pickComps(sp, w, width, height, stars)
-	if len(sp.comps) < minComps {
-		wide, err := d.Stars(ctx, s.RA, s.Dec, compWide+0.01)
-		if err != nil {
-			return nil, err
-		}
-		pickComps(sp, w, width, height, wide)
-	}
-	return sp, nil
+	return sp
 }
 
 type placed struct {
@@ -207,72 +295,74 @@ type placed struct {
 	x, y float64
 }
 
-func pickComps(sp *spotPlan, w *discoveries.WCS, width, height int, stars []Star) {
-	pl := make([]placed, 0, len(stars))
-	pts := make([][2]float64, 0, len(stars))
-	for _, s := range stars {
-		x, y, ok := w.PixelOf(s.RA, s.Dec)
-		if !ok || !finite(s.G) || s.G > nbFaintest {
-			continue
-		}
-		pl = append(pl, placed{s, x, y})
-		pts = append(pts, [2]float64{x, y})
-	}
-	grid := discoveries.NewGrid(pts, fitReach)
-	model := func(x, y float64) *starModel {
-		m := &starModel{x: x, y: y, self: -1}
-		best := math.Inf(1)
-		for _, i := range grid.Within(x, y, fitReach) {
-			m.nbs = append(m.nbs, [2]float64{pl[i].x, pl[i].y})
-			if d := math.Hypot(pl[i].x-x, pl[i].y-y); d < best {
-				best, m.self = d, len(m.nbs)-1
-			}
-		}
-		if m.self < 0 || best > 0.5 {
-			m.nbs = append(m.nbs, [2]float64{x, y})
-			m.self = len(m.nbs) - 1
-		}
-		return m
-	}
-	star := matchStar(pl, grid, sp, w.PixelScale())
+// pickComps matches the spot's star and picks its comparison stars.
+func (f *field) pickComps(sp *spotPlan) {
+	pl, grid := f.pl, f.grid
+	star := matchStar(pl, grid, sp, f.w.PixelScale())
 	tg, tc := noGaiaG, math.NaN()
-	if star != nil {
-		s := star.Star
+	if star >= 0 {
+		s := pl[star].Star
 		sp.star = &s
 		tg, tc = s.G, s.BPRP
-		sp.target = model(star.x, star.y)
+		sp.target = f.model(star)
 	} else {
 		if sp.spot.GaiaG != nil {
 			tg = *sp.spot.GaiaG
 		}
-		sp.target = model(sp.x, sp.y)
+		sp.target = f.modelAt(sp.x, sp.y)
 	}
+	for _, radius := range []float64{compRadius, compWide} {
+		sp.comps = f.comps(sp, tg, tc, radius)
+		if len(sp.comps) >= minComps {
+			break
+		}
+	}
+	key := [2]int{int(sp.x / tileSize), int(sp.y / tileSize)}
+	t := f.tiles[key]
+	if t == nil {
+		t = &tile{}
+		f.tiles[key] = t
+	}
+	t.sx, t.sy, t.n = t.sx+sp.x, t.sy+sp.y, t.n+1
+	sp.tile = t
+}
+
+// shapes picks each tile's width stars near the middle of its spots.
+func (f *field) shapes(spots []*spotPlan) {
+	for _, t := range f.tiles {
+		t.shape = f.shapeStars(t.sx/float64(t.n), t.sy/float64(t.n))
+	}
+	for _, sp := range spots {
+		if sp.tile != nil && len(sp.tile.shape) == 0 {
+			bright := append([]*starModel(nil), sp.comps...)
+			sp.tile.shape = bright[:min(shapeBright, len(bright))]
+		}
+	}
+}
+
+func (f *field) comps(sp *spotPlan, tg, tc, radius float64) []*starModel {
+	pl, grid := f.pl, f.grid
+	limit := radius * 3600 / f.w.PixelScale()
 	type cand struct {
-		p placed
+		i int
 		d float64
 	}
 	var cands []cand
-	for _, c := range pl {
+	for i, c := range pl {
 		d := math.Hypot(c.x-sp.x, c.y-sp.y)
-		if d >= compMargin && compOK(c, tg, tc, width, height) && !crowded(pl, grid, c) {
-			cands = append(cands, cand{c, d})
+		if d >= compMargin && d <= limit && compOK(c, tg, tc, f.width, f.height) && !crowded(pl, grid, c) {
+			cands = append(cands, cand{i, d})
 		}
 	}
 	sort.Slice(cands, func(a, b int) bool { return cands[a].d < cands[b].d })
 	if len(cands) > maxComps {
 		cands = cands[:maxComps]
 	}
-	sp.comps = sp.comps[:0]
+	out := make([]*starModel, 0, len(cands))
 	for _, c := range cands {
-		sp.comps = append(sp.comps, model(c.p.x, c.p.y))
+		out = append(out, f.model(c.i))
 	}
-	sp.shape = shapeStars(pl, grid, sp, model)
-	if len(sp.shape) == 0 {
-		sort.SliceStable(cands, func(a, b int) bool { return cands[a].p.G < cands[b].p.G })
-		for _, c := range cands[:min(shapeBright, len(cands))] {
-			sp.shape = append(sp.shape, model(c.p.x, c.p.y))
-		}
-	}
+	return out
 }
 
 // compOK says whether a star is like the target in brightness and color,
@@ -303,8 +393,8 @@ func crowded(pl []placed, grid *discoveries.Grid, c placed) bool {
 // when the detection named its star's magnitude, the nearest within 4"
 // that matches it, as a spot found in a difference image can sit a pixel
 // off the star it belongs to.
-func matchStar(pl []placed, grid *discoveries.Grid, sp *spotPlan, scale float64) *placed {
-	var star *placed
+func matchStar(pl []placed, grid *discoveries.Grid, sp *spotPlan, scale float64) int {
+	star := -1
 	best := math.Inf(1)
 	for _, i := range grid.Within(sp.x, sp.y, matchWide/scale) {
 		d := math.Hypot(pl[i].x-sp.x, pl[i].y-sp.y) * scale
@@ -314,40 +404,41 @@ func matchStar(pl []placed, grid *discoveries.Grid, sp *spotPlan, scale float64)
 			ok = math.Abs(pl[i].G-*g) <= matchMag
 		}
 		if ok && d < best {
-			best, star = d, &pl[i]
+			best, star = d, i
 		}
 	}
 	return star
 }
 
-// shapeStars are the nearest bright, unsaturated, isolated stars, to
-// measure each sub's star width and shift around the spot.
-func shapeStars(pl []placed, grid *discoveries.Grid, sp *spotPlan, model func(x, y float64) *starModel) []*starModel {
+// shapeStars are the bright, unsaturated, isolated stars nearest a
+// place, to measure each sub's star width and shift there.
+func (f *field) shapeStars(x, y float64) []*starModel {
+	pl, grid := f.pl, f.grid
 	type cand struct {
-		p placed
+		i int
 		d float64
 	}
 	var cands []cand
-	for _, c := range pl {
+	for i, c := range pl {
 		if c.G < shapeBrightest || c.G > shapeFaintest {
 			continue
 		}
 		lonely := true
-		for _, i := range grid.Within(c.x, c.y, shapeLonely) {
-			o := pl[i]
+		for _, j := range grid.Within(c.x, c.y, shapeLonely) {
+			o := pl[j]
 			if (o.x != c.x || o.y != c.y) && o.G < c.G+shapeNbMag {
 				lonely = false
 				break
 			}
 		}
 		if lonely {
-			cands = append(cands, cand{c, math.Hypot(c.x-sp.x, c.y-sp.y)})
+			cands = append(cands, cand{i, math.Hypot(c.x-x, c.y-y)})
 		}
 	}
 	sort.Slice(cands, func(a, b int) bool { return cands[a].d < cands[b].d })
 	out := make([]*starModel, 0, min(shapeBright, len(cands)))
 	for _, c := range cands[:min(shapeBright, len(cands))] {
-		out = append(out, model(c.p.x, c.p.y))
+		out = append(out, f.model(c.i))
 	}
 	return out
 }
