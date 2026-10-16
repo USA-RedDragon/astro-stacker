@@ -359,14 +359,15 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	var fx fetches
 	if s.Surveys != nil && sum.Source.Kind != kindMover {
 		fx.ztf = s.Surveys.ZTF(ctx, f, st.target)
-		fx.neowise = s.Surveys.NEOWISE(ctx, f, st.target)
 		if !artifact && known.Listed == "" && worthMore(fx.ztf, curve, sum) {
+			fx.neowise = s.Surveys.NEOWISE(ctx, f, st.target)
 			fx.atlas = s.Surveys.ATLAS(ctx, f, st.target)
 			fx.tess = s.Surveys.TESS(ctx, f, st.target)
 		} else {
 			why := "Not fetched: the checks above already explain the spot."
-			fx.atlas = surveys.Fetch{Survey: lc.ATLAS, State: "", Note: why}
-			fx.tess = surveys.Fetch{Survey: lc.TESS, State: "", Note: why}
+			fx.neowise = surveys.Fetch{Survey: lc.NEOWISE, Note: why}
+			fx.atlas = surveys.Fetch{Survey: lc.ATLAS, Note: why}
+			fx.tess = surveys.Fetch{Survey: lc.TESS, Note: why}
 		}
 	}
 	var series []lc.Series
