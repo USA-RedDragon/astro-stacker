@@ -42,7 +42,7 @@ scipy==1.17.1
 seaborn==0.13.2
 secretstorage==3.5.0
 six==1.17.0
-soupsieve==2.10
+soupsieve==3.0.3
 tglc==0.8.1
 threadpoolctl==3.7.0
 tqdm==4.70.1
