@@ -11,5 +11,6 @@ const (
 	styleDot     = "dot"
 	unitDMag     = "dmag"
 	colUpdatedAt = "updated_at"
+	colState     = "state"
 	aVariable    = "a variable star"
 )
