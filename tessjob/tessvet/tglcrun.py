@@ -141,6 +141,9 @@ def run(spec: dict) -> dict:
                    key=os.path.getmtime)
     result["epsf"] = found[-1] if found else None
     result["camera"], result["ccd"] = int(src.camera), int(src.ccd)
+    index = {str(d).split()[-1]: i for i, d in enumerate(src.gaia["DESIGNATION"])}
+    xs, ys = src.gaia[f"sector_{src.sector}_x"], src.gaia[f"sector_{src.sector}_y"]
+    result["positions"] = {g: [float(xs[index[g]]), float(ys[index[g]])] for g in result["lcs"] if g in index}
     log(f"done: {len(result['lcs'])} light curves, errors {result['errors']}")
     return result
 
