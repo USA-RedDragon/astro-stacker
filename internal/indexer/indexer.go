@@ -530,8 +530,8 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 			continue
 		}
 		stats.Seen++
-		if stats.Seen%250 == 0 {
-			ix.ScanTask.SetProgress(int64(stats.Seen), max(int64(stats.Seen), int64(len(etags))))
+		if stats.Seen%250 == 0 && stats.Seen < len(etags) {
+			ix.ScanTask.SetProgress(int64(stats.Seen), int64(len(etags)))
 		}
 		present[obj.Key] = true
 		if etags[obj.Key] == obj.ETag {
@@ -548,7 +548,8 @@ func (ix *Indexer) IndexOnce(ctx context.Context) (Stats, error) {
 	}
 	close(work)
 	wg.Wait()
-	ix.ScanTask.SetProgress(int64(stats.Seen), int64(stats.Seen))
+	ix.ScanTask.SetProgress(0, 0)
+	ix.ScanTask.SetCurrent("indexing new frames")
 	if listErr != nil {
 		// A partial listing must not be mistaken for deletions.
 		return stats, fmt.Errorf("list bucket: %w", listErr)

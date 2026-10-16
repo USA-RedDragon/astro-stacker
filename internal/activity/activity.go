@@ -62,6 +62,10 @@ type Broadcaster interface {
 	Broadcast(typ string, v any, sticky bool)
 }
 
+// Resend is how often an unchanged snapshot is sent again, so listeners can
+// tell a current one from one left over by a stacker that stopped.
+const Resend = time.Minute
+
 // EventType is the event the snapshot is sent as.
 const EventType = "activity"
 
@@ -204,13 +208,14 @@ func (r *Registry) Run(ctx context.Context, out Broadcaster) {
 		go r.poll(ctx, s)
 	}
 	var last []byte
+	var sent time.Time
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
 		snap := r.Snapshot()
 		key, err := json.Marshal(snap.Items)
-		if err == nil && !bytes.Equal(key, last) {
-			last = key
+		if err == nil && (!bytes.Equal(key, last) || time.Since(sent) >= Resend) {
+			last, sent = key, time.Now()
 			out.Broadcast(EventType, snap, true)
 		}
 		select {
@@ -243,6 +248,9 @@ func (r *Registry) poll(ctx context.Context, s *sourceState) {
 		if err != nil {
 			if s.err == nil || s.err.Error() != err.Error() {
 				slog.Warn("Reading background activity failed", "source", s.Name, "error", err)
+			}
+			if r.now().Sub(s.read) > 3*every {
+				s.items = nil
 			}
 		} else {
 			s.items = items

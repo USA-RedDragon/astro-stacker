@@ -89,14 +89,23 @@ func TestActivityFromTheDatabase(t *testing.T) {
 	if err := db.Create(&runs).Error; err != nil {
 		t.Fatal(err)
 	}
-	src := &activitySources{DB: db}
+	src := &activitySources{DB: db, BackfillDays: 3650}
 	items, err := src.discoveries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it := items[0]; it.Queued != 1 || it.Warning != "1 night failed every attempt" {
+		t.Fatalf("within the window %+v", it)
+	}
+	src.BackfillDays = 1
+	items, err = src.discoveries(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	it := items[0]
 	if it.Label != "Discoveries re-check" || it.Done != 2 || it.Total != 4 || it.Unit != "nights" || it.State != activity.StateRunning ||
-		it.Queued != 1 || it.Current != "M 13, night of 3 Sep 2026: measured sub 6 of 57" || it.Warning != "1 night failed every attempt" {
+		it.Queued != 0 || it.Current != "M 13, night of 3 Sep 2026: measured sub 6 of 57" ||
+		it.Warning != "1 night failed every attempt; 1 older night waits for an archive re-check" {
 		t.Fatalf("discoveries %+v", it)
 	}
 	vetChecks(t, db, now)

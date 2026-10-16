@@ -72,12 +72,15 @@ type activitySources struct {
 	Jobs        *activity.Jobs
 	Discoveries func() discoveries.Live
 	Monitor     *observatory.Monitor
-	SmallBodies string
-	HTTP        *http.Client
-	Now         func() time.Time
+	// BackfillDays is the server runner's backfill window.
+	BackfillDays int
+	SmallBodies  string
+	HTTP         *http.Client
+	Now          func() time.Time
 
 	pickMu   sync.Mutex
 	pickAt   time.Time
+	pickKey  string
 	pickObjs []string
 }
 
@@ -109,7 +112,12 @@ func nightText(t time.Time) string { return t.UTC().Format("2 Jan 2006") }
 
 func (a *activitySources) discoveries(ctx context.Context) ([]activity.Item, error) {
 	now := a.now()
-	p, err := discoveries.ReadProgress(ctx, a.DB, now)
+	days := a.BackfillDays
+	if days <= 0 {
+		days = 30
+	}
+	since := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -days)
+	p, err := discoveries.ReadProgress(ctx, a.DB, now, since)
 	if err != nil {
 		return nil, err
 	}
@@ -130,27 +138,41 @@ func (a *activitySources) discoveries(ctx context.Context) ([]activity.Item, err
 		if r.Stage != "" {
 			it.Current += ": " + r.Stage
 		}
-		if len(running) > 1 {
-			it.Current += fmt.Sprintf(" (%d nights at once)", len(running))
+		if p.RunningNights > 1 {
+			it.Current += fmt.Sprintf(" (%d nights at once)", p.RunningNights)
 		}
 	} else if live.State == "running" {
 		it.State = activity.StateRunning
-		it.Current = live.Object + ", night of " + live.Night
+		night := live.Night
+		if t, err := time.Parse(time.DateOnly, live.Night); err == nil {
+			night = nightText(t)
+		}
+		it.Current = live.Object + ", night of " + night
 		if live.Stage != "" {
 			it.Current += ": " + live.Stage
 		}
 	}
-	left := p.Nights - p.Settled - int64(len(running))
+	info := a.Jobs.Info(activity.KindDiscoveries)
+	unsettled := p.Nights - p.Settled - p.RunningNights
+	left := max(p.Due-p.RunningNights, 0)
+	if info.Running {
+		left = unsettled
+	}
 	if left > 0 {
 		it.Queued = int(left)
 		if it.State == activity.StateIdle {
 			it.State = activity.StateQueued
 		}
 	}
+	var warn []string
 	if p.GaveUp > 0 {
-		it.Warning = fmt.Sprintf("%d %s failed every attempt", p.GaveUp, plural(int(p.GaveUp), "night", "nights"))
+		warn = append(warn, fmt.Sprintf("%d %s failed every attempt", p.GaveUp, plural(int(p.GaveUp), "night", "nights")))
 	}
-	a.Jobs.Info(activity.KindDiscoveries).Apply(&it)
+	if rest := unsettled - left; rest > 0 && !info.Running {
+		warn = append(warn, fmt.Sprintf("%d older %s for an archive re-check", rest, plural(int(rest), "night waits", "nights wait")))
+	}
+	it.Warning = strings.Join(warn, "; ")
+	info.Apply(&it)
 	return []activity.Item{it}, nil
 }
 
@@ -218,7 +240,7 @@ func (a *activitySources) vetting(ctx context.Context) ([]activity.Item, error) 
 			it.State = activity.StateRunning
 			it.Current = g.Object + ": checking sources"
 			if g.Done == 0 {
-				it.Current = g.Object + ": reading our own subs"
+				it.Current = g.Object + ": getting ready"
 			}
 			it.Done, it.Total, it.Unit = g.Done, g.Total, "sources"
 			st := g.Started
@@ -268,10 +290,23 @@ func (a *activitySources) vetQueue(ctx context.Context, now time.Time) ([]string
 	if !a.pickAt.IsZero() && now.Sub(a.pickAt) < 2*time.Minute {
 		return a.pickObjs, nil
 	}
+	var key string
+	if err := a.DB.WithContext(ctx).Raw(`SELECT concat_ws('|',
+		(SELECT count(*) FROM discovery_sources), (SELECT max(updated_at) FROM discovery_sources),
+		(SELECT count(*) FROM discovery_vets), (SELECT max(updated_at) FROM discovery_vets),
+		(SELECT count(*) FROM discovery_candidates))`).Row().Scan(&key); err != nil {
+		return nil, err
+	}
+	if key == a.pickKey && now.Sub(a.pickAt) < 30*time.Minute {
+		a.pickAt = now
+		return a.pickObjs, nil
+	}
+	a.pickAt = now
 	dues, err := vetting.Pick(ctx, a.DB, now, nil, nil)
 	if err != nil {
 		return nil, err
 	}
+	a.pickKey = key
 	seen := map[string]bool{}
 	var objs []string
 	for _, d := range dues {
