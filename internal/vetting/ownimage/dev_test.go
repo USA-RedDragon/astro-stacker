@@ -156,6 +156,14 @@ func (d *devData) Subs(ctx context.Context, object string) ([]Sub, error) {
 		}
 		out = append(out, s)
 	}
+	if m, _ := strconv.Atoi(os.Getenv("OWNIMAGE_MAXSUBS")); m > 0 && len(out) > m {
+		step := len(out) / m
+		thin := make([]Sub, 0, m)
+		for i := 0; i < len(out); i += step {
+			thin = append(thin, out[i])
+		}
+		out = thin
+	}
 	return out, nil
 }
 
@@ -410,6 +418,9 @@ func TestDevMultiSpot(t *testing.T) {
 			line = append(line, c.ID+"="+string(c.Status))
 		}
 		t.Logf("source %d G=%v %s", spots[i].SourceID, spots[i].GaiaG != nil, strings.Join(line, " "))
+	}
+	if b, err := json.MarshalIndent(res, "", " "); err == nil {
+		_ = os.WriteFile(filepath.Join(home(), "work/vetting/ownimage", fmt.Sprintf("multi-%d.json", len(spots))), b, 0o600)
 	}
 	t.Logf("spots %d, subs read %d, %.1f MB, wall %.1fs, %.3fs per sub, max RSS %d MB", len(spots), d.loads, float64(d.bytes)/1e6, el.Seconds(), el.Seconds()/float64(max(d.loads, 1)), maxRSS()/1024)
 }
