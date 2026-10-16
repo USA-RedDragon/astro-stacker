@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
+	"github.com/USA-RedDragon/astro-stacker/internal/memwatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -96,6 +97,8 @@ func newVetCommand() *cobra.Command {
 				}
 				ids = append(ids, id)
 			}
+			svc.Mem = memwatch.Start(100 * time.Millisecond)
+			defer svc.Mem.Stop()
 			svc.Report = dbReporter(appStore.DB(), activity.KindVetting)
 			svc.Report.Start(cmd.Context())
 			st, err := svc.Run(cmd.Context(), vetting.RunOptions{Objects: objects, IDs: ids, Budget: budget})
@@ -103,7 +106,7 @@ func newVetCommand() *cobra.Command {
 			if host, herr := os.Hostname(); herr == nil {
 				appStore.DB().Where("kind = ? AND worker = ?", activity.KindVetting, host).Delete(&app.JobProgress{})
 			}
-			slog.Info("Vetting done", "sources", st.Sources, "done", st.Done, "failed", st.Failed)
+			slog.Info("Vetting done", "sources", st.Sources, "done", st.Done, "failed", st.Failed, "peak_mib", memwatch.MiB(svc.Mem.Peak()))
 			return err
 		},
 	}
