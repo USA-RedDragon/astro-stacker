@@ -283,19 +283,6 @@ func TestRunnerComparesSettledNight(t *testing.T) {
 	if len(fx.finished) != 1 {
 		t.Errorf("a night another runner finished since the pass began was compared again")
 	}
-	fx.r.now = func() time.Time { return time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC) }
-	fx.r.Request(synthObject, fx.f.Nights[len(fx.f.Nights)-1], "")
-	if err := fx.r.Pass(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(fx.finished) != 2 {
-		t.Errorf("a requested run did not run")
-	}
-	var vetted []app.DiscoveryCandidate
-	fx.db.Where("vetting <> ''").Find(&vetted)
-	if len(vetted) != 1 || vetted[0].VetNote != "checked" {
-		t.Errorf("vetting not kept over a rerun: %+v", vetted)
-	}
 	n := 0
 	for k := range fx.store.m {
 		if strings.HasPrefix(k, keyPrefix+"cache/") {
@@ -304,6 +291,40 @@ func TestRunnerComparesSettledNight(t *testing.T) {
 	}
 	if n != 3 {
 		t.Errorf("want the Gaia, VSX and SIMBAD caches, have %d cache objects", n)
+	}
+}
+
+// TestRequestedRerunKeepsVetting reruns a night compared before, its new
+// find vetted, on request: the vetting stays with the find. It is apart
+// from TestRunnerComparesSettledNight so each compares the synthetic night
+// once, as under the race detector a comparison takes minutes.
+func TestRequestedRerunKeepsVetting(t *testing.T) {
+	t.Parallel()
+	fx := newRunnerFixture(t)
+	ctx := context.Background()
+	f := fx.f
+	night := f.Nights[len(f.Nights)-1]
+	finished := fx.r.now()
+	run := app.DiscoveryRun{Object: synthObject, Night: night, Group: GroupBroadband, Method: Method, State: app.DiscoveryDone, FinishedAt: &finished}
+	if err := fx.db.Create(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	nra, ndec := f.WCS.SkyOf(f.NewX, f.NewY)
+	if err := fx.db.Create(&app.DiscoveryCandidate{RunID: run.ID, Object: synthObject, Night: night, Group: GroupBroadband, Kind: app.DiscoveryKindChange,
+		Class: ClassNewVariable, X: f.NewX, Y: f.NewY, RA: nra, Dec: ndec, Sign: 1, SNR: 100, Matches: "[]", Vetting: app.VetReal, VetNote: "checked"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	fx.r.Request(synthObject, night, "")
+	if err := fx.r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(fx.finished) != 1 {
+		t.Errorf("a requested run did not run")
+	}
+	var vetted []app.DiscoveryCandidate
+	fx.db.Where("vetting <> ''").Find(&vetted)
+	if len(vetted) != 1 || vetted[0].VetNote != "checked" || vetted[0].RunID != run.ID {
+		t.Errorf("vetting not kept over a rerun: %+v", vetted)
 	}
 }
 

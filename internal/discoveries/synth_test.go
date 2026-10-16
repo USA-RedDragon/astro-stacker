@@ -342,6 +342,9 @@ func TestRunFindsSyntheticChanges(t *testing.T) {
 // Panel 2's 2025-12-17: two L subs and one each of R, G and B.
 func TestRunComparesANightOfOneSubPerFilter(t *testing.T) {
 	t.Parallel()
+	if underRace {
+		t.Skip("a synthetic night takes ten minutes under the race detector; TestRunFindsSyntheticChanges runs the same code there")
+	}
 	f := newField(t)
 	in := f.input(t)
 	all := in.Filters[0]
@@ -392,6 +395,9 @@ func TestRunComparesANightOfOneSubPerFilter(t *testing.T) {
 // one pixel, and is held at low confidence as a new source.
 func TestRunHoldsADefectPixel(t *testing.T) {
 	t.Parallel()
+	if underRace {
+		t.Skip("a synthetic night takes ten minutes under the race detector; TestRunFindsSyntheticChanges runs the same code there")
+	}
 	f := newField(t)
 	f.hot = true
 	f.HotX, f.HotY = f.emptySpot(t, 1400, 900)
