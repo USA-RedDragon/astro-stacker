@@ -7,6 +7,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/cmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
+	"github.com/USA-RedDragon/astro-stacker/internal/memlimit"
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	cpflag "github.com/USA-RedDragon/configulator/v2/flags/pflag"
 	"github.com/goccy/go-yaml"
@@ -21,6 +22,9 @@ var (
 )
 
 func main() {
+	if l := memlimit.Set(); l > 0 {
+		slog.Info("Go memory limit set from the container's", "bytes", l)
+	}
 	rootCmd := cmd.NewCommand(version, commit)
 
 	c := configulator.New(config.ConfigSchema()).
