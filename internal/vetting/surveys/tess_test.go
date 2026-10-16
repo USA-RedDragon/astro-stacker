@@ -61,7 +61,7 @@ func TestTESSContract(t *testing.T) {
 	if err := st.Put(ctx, "vetting/cache/ic-1396-panel-1/tess/2179309875368546432/s0016.csv.zst", z, "application/zstd"); err != nil {
 		t.Fatal(err)
 	}
-	putStatus(t, st, TESSStatus{GaiaID: star.GaiaID, SectorsAvailable: []int{16, 17, 56}, SectorsDone: []int{16}})
+	putStatus(t, st, TESSStatus{GaiaID: GaiaID(star.GaiaID), SectorsAvailable: []int{16, 17, 56}, SectorsDone: []int{16}})
 	fe = f.TESS(ctx, field, star)
 	if fe.State != Pending || len(fe.Series) != 1 || len(fe.Sectors) != 1 || fe.Sectors[0] != 16 {
 		t.Fatalf("partial %+v", fe)
@@ -74,14 +74,36 @@ func TestTESSContract(t *testing.T) {
 		t.Errorf("dip %v", s.Points[2].Mag)
 	}
 
-	putStatus(t, st, TESSStatus{GaiaID: star.GaiaID, SectorsAvailable: []int{16, 17, 56}, SectorsDone: []int{16}, SectorsFailed: map[string]string{"17": "no data", "56": "fit failed"}})
+	putStatus(t, st, TESSStatus{GaiaID: GaiaID(star.GaiaID), SectorsAvailable: []int{16, 17, 56}, SectorsDone: []int{16}, SectorsFailed: map[string]string{"17": "no data", "56": "fit failed"}})
 	fe = f.TESS(ctx, field, star)
 	if fe.State != Done || !strings.Contains(fe.Note, "sector 56 failed: fit failed") {
 		t.Fatalf("complete %+v", fe)
 	}
 
-	putStatus(t, st, TESSStatus{GaiaID: star.GaiaID})
+	putStatus(t, st, TESSStatus{GaiaID: GaiaID(star.GaiaID)})
 	if fe := f.TESS(ctx, field, star); fe.State != Uncovered {
 		t.Fatalf("no sectors %+v", fe)
+	}
+}
+
+func TestTESSStatusFromJob(t *testing.T) {
+	t.Parallel()
+	f, st := testFetcher(t, http.NotFoundHandler())
+	ctx := t.Context()
+	field := Field{Slug: "test-and"}
+	star := Target{GaiaID: 381299950937609856}
+	job := `{
+ "gaia_id": "381299950937609856",
+ "sectors_available": [17, 57, 84],
+ "sectors_done": [17],
+ "sectors_failed": {},
+ "updated_at": "2026-10-15T23:27:03Z"
+}`
+	if err := st.Put(ctx, "vetting/cache/test-and/tess/381299950937609856/status.json", []byte(job), "application/json"); err != nil {
+		t.Fatal(err)
+	}
+	fe := f.TESS(ctx, field, star)
+	if fe.State != Pending || !strings.Contains(fe.Note, "sector 17 is marked done but its light curve is missing") {
+		t.Fatalf("%+v", fe)
 	}
 }

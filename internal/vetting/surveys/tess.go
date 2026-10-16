@@ -34,24 +34,39 @@ type TESSRequest struct {
 	RequestedAt time.Time   `json:"requested_at"`
 }
 
+// GaiaID is a Gaia source id that reads from a JSON number or string.
+type GaiaID int64
+
+// UnmarshalJSON takes 123 or "123".
+func (g *GaiaID) UnmarshalJSON(b []byte) error {
+	v, err := strconv.ParseInt(strings.Trim(string(b), `"`), 10, 64)
+	if err != nil {
+		return fmt.Errorf("gaia_id %s: %w", b, err)
+	}
+	*g = GaiaID(v)
+	return nil
+}
+
 // TESSStatus is the TESS job's progress on one star.
 type TESSStatus struct {
-	GaiaID           int64             `json:"gaia_id"`
+	GaiaID           GaiaID            `json:"gaia_id"`
 	SectorsAvailable []int             `json:"sectors_available"`
 	SectorsDone      []int             `json:"sectors_done"`
 	SectorsFailed    map[string]string `json:"sectors_failed"`
 	UpdatedAt        time.Time         `json:"updated_at"`
 }
 
-func (f *Fetcher) tessDir(field Field, t Target) string {
-	return fmt.Sprintf("%s%d/", f.dir(field, "tess"), t.GaiaID)
+// tessDir is where the TESS job writes a star's results. The job's
+// layout is fixed under DefaultPrefix, whatever Prefix says.
+func tessDir(field Field, t Target) string {
+	return fmt.Sprintf("%s%s/tess/%d/", DefaultPrefix, FieldSlug(field), t.GaiaID)
 }
 
 func (f *Fetcher) tess(ctx context.Context, field Field, t Target) Fetch {
 	if t.GaiaID == 0 {
 		return failed(lc.TESS, "the TESS job needs a Gaia source")
 	}
-	b, err := f.Store.Get(ctx, f.tessDir(field, t)+"status.json")
+	b, err := f.Store.Get(ctx, tessDir(field, t)+"status.json")
 	if isNotFound(err) {
 		if err := f.tessRequest(ctx, field, t); err != nil {
 			return failed(lc.TESS, "could not queue the star for the TESS job: %v", err)
@@ -72,16 +87,23 @@ func (f *Fetcher) tess(ctx context.Context, field Field, t Target) Fetch {
 	done := append([]int(nil), st.SectorsDone...)
 	sort.Ints(done)
 	var notes []string
+	var missingFiles []int
 	for _, s := range done {
 		ser, err := f.tessSector(ctx, field, t, s)
-		if err != nil {
-			notes = append(notes, fmt.Sprintf("sector %d unreadable: %v", s, err))
+		if isNotFound(err) {
+			missingFiles = append(missingFiles, s)
 			continue
+		}
+		if err != nil {
+			return failed(lc.TESS, "could not read TESS sector %d: %v", s, err)
 		}
 		fe.Sectors = append(fe.Sectors, s)
 		if len(ser.Points) > 0 {
 			fe.Series = append(fe.Series, ser)
 		}
+	}
+	for _, s := range missingFiles {
+		notes = append(notes, fmt.Sprintf("sector %d is marked done but its light curve is missing", s))
 	}
 	missing := 0
 	for _, s := range st.SectorsAvailable {
@@ -99,6 +121,7 @@ func (f *Fetcher) tess(ctx context.Context, field Field, t Target) Fetch {
 	for _, k := range failedKeys {
 		notes = append(notes, fmt.Sprintf("sector %s failed: %s", k, st.SectorsFailed[k]))
 	}
+	missing += len(missingFiles)
 	if missing > 0 {
 		fe.State = Pending
 		notes = append([]string{fmt.Sprintf("%d of %d sectors still with the TESS job", missing, len(st.SectorsAvailable))}, notes...)
@@ -148,7 +171,7 @@ func (f *Fetcher) tessRequest(ctx context.Context, field Field, t Target) error 
 
 func (f *Fetcher) tessSector(ctx context.Context, field Field, t Target, sector int) (lc.Series, error) {
 	ser := lc.Series{Survey: lc.TESS, Band: fmt.Sprintf("S%d", sector), Relative: true, Dilution: 1, Deblended: true}
-	raw, err := f.getZ(ctx, fmt.Sprintf("%ss%04d.csv.zst", f.tessDir(field, t), sector))
+	raw, err := f.getZ(ctx, fmt.Sprintf("%ss%04d.csv.zst", tessDir(field, t), sector))
 	if err != nil {
 		return ser, err
 	}
