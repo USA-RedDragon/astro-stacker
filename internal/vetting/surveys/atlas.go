@@ -28,30 +28,40 @@ const (
 	// ATLASRetryFailed is how long a failed ATLAS task is left before the
 	// star is queued again.
 	ATLASRetryFailed = 7 * 24 * time.Hour
+	// ATLASTaskMaxAge is how long a task may wait at ATLAS before it is
+	// given up and the star queued again later.
+	ATLASTaskMaxAge = 7 * 24 * time.Hour
 	// DefaultATLASGap is the least time between two requests to ATLAS.
 	DefaultATLASGap = 5 * time.Second
 	maxATLASResult  = 64 << 20
 	maxATLASJSON    = 4 << 20
 	atlasMinRel     = 0.05
 	fluxToMagErr    = 1.0857
+	putTries        = 3
+	atlasListPage   = 100
 )
 
 // ATLASTemplateMJD are the dates ATLAS changed its reference templates;
 // difference fluxes are put on one level separately in each span.
 func ATLASTemplateMJD() []float64 { return []float64{58417, 58882} }
 
-// ATLASTask is what the cache keeps of a queued ATLAS task.
+// ATLASTask is what the cache keeps of a queued ATLAS task. Unsure is set
+// when the queue request got no clear answer, so the task may exist at
+// ATLAS without its URL known here.
 type ATLASTask struct {
 	URL      string    `json:"task_url"`
+	Comment  string    `json:"comment"`
 	Queued   time.Time `json:"queued_at"`
 	RA       float64   `json:"ra"`
 	Dec      float64   `json:"dec"`
+	Unsure   bool      `json:"unsure,omitempty"`
 	Error    string    `json:"error,omitempty"`
 	FailedAt time.Time `json:"failed_at"`
 }
 
 type atlasTaskStatus struct {
 	URL       string  `json:"url"`
+	Comment   *string `json:"comment"`
 	Finish    *string `json:"finishtimestamp"`
 	Start     *string `json:"starttimestamp"`
 	ResultURL *string `json:"result_url"`
@@ -70,10 +80,9 @@ func (f *Fetcher) atlasKey(field Field, t Target) string {
 	return f.dir(field, "atlas") + starKey(t)
 }
 
+func atlasComment(t Target) string { return "astro-stacker vetting " + starKey(t) }
+
 func (f *Fetcher) atlas(ctx context.Context, field Field, t Target) Fetch {
-	if f.ATLASToken == "" {
-		return failed(lc.ATLAS, "no ATLAS token")
-	}
 	base := f.atlasKey(field, t)
 	raw, err := f.getZ(ctx, base+".txt.zst")
 	if err == nil {
@@ -82,6 +91,11 @@ func (f *Fetcher) atlas(ctx context.Context, field Field, t Target) Fetch {
 	if !isNotFound(err) {
 		return failed(lc.ATLAS, "could not read the ATLAS cache: %v", err)
 	}
+	if f.ATLASToken == "" {
+		return failed(lc.ATLAS, "no ATLAS token")
+	}
+	f.atlasMu.Lock()
+	defer f.atlasMu.Unlock()
 	tj, err := f.getZ(ctx, base+".task.json.zst")
 	if err != nil && !isNotFound(err) {
 		return failed(lc.ATLAS, "could not read the ATLAS task: %v", err)
@@ -91,37 +105,35 @@ func (f *Fetcher) atlas(ctx context.Context, field Field, t Target) Fetch {
 		if err := json.Unmarshal(tj, &task); err != nil {
 			return failed(lc.ATLAS, "damaged ATLAS task record: %v", err)
 		}
-		if task.Error == "" {
+		switch {
+		case task.Unsure:
+			return f.atlasFind(ctx, field, t, task)
+		case task.Error == "":
 			return f.atlasPoll(ctx, field, t, task)
-		}
-		if f.now().Sub(task.FailedAt) < ATLASRetryFailed {
+		case f.now().Sub(task.FailedAt) < ATLASRetryFailed:
 			return failed(lc.ATLAS, "the ATLAS task failed: %s", task.Error)
 		}
 	}
 	return f.atlasQueue(ctx, field, t)
 }
 
+// atlasWait keeps DefaultATLASGap between requests; callers hold atlasMu.
 func (f *Fetcher) atlasWait(ctx context.Context) error {
 	gap := f.atlasGap
 	if gap == 0 {
 		gap = DefaultATLASGap
 	}
-	f.mu.Lock()
-	wait := gap - f.now().Sub(f.lastATLAS)
-	f.mu.Unlock()
-	if gap > 0 && wait > 0 {
+	if wait := gap - f.now().Sub(f.lastATLAS); gap > 0 && wait > 0 {
 		if err := sleepCtx(ctx, wait); err != nil {
 			return err
 		}
 	}
-	f.mu.Lock()
 	f.lastATLAS = f.now()
-	f.mu.Unlock()
 	return nil
 }
 
 func (f *Fetcher) atlasRequest(ctx context.Context, method, u string, form url.Values, out any) error {
-	return f.do(ctx, func() (*http.Request, error) {
+	return f.send(ctx, method != http.MethodPost, func() (*http.Request, error) {
 		if err := f.atlasWait(ctx); err != nil {
 			return nil, err
 		}
@@ -143,7 +155,7 @@ func (f *Fetcher) atlasRequest(ctx context.Context, method, u string, form url.V
 		if out == nil {
 			return nil
 		}
-		b, err := io.ReadAll(io.LimitReader(r.Body, maxATLASJSON))
+		b, err := readAll(r.Body, maxATLASJSON)
 		if err != nil {
 			return err
 		}
@@ -177,19 +189,51 @@ func (f *Fetcher) atlasQueue(ctx context.Context, field Field, t Target) Fetch {
 	form.Set("mjd_min", strconv.FormatFloat(ATLASMJDMin, 'f', 1, 64))
 	form.Set("use_reduced", "false")
 	form.Set("send_email", "false")
-	form.Set("comment", "astro-stacker vetting "+starKey(t))
+	form.Set("comment", atlasComment(t))
+	task := ATLASTask{Comment: atlasComment(t), Queued: f.now().UTC(), RA: t.RA, Dec: t.Dec}
 	var st atlasTaskStatus
-	if err := f.atlasRequest(ctx, http.MethodPost, f.atlasBase()+"/queue/", form, &st); err != nil {
+	err := f.atlasRequest(ctx, http.MethodPost, f.atlasBase()+"/queue/", form, &st)
+	if errors.Is(err, errUnsure) {
+		task.Unsure = true
+		if perr := f.putTask(ctx, field, t, task); perr != nil {
+			return failed(lc.ATLAS, "the ATLAS queue request got no clear answer (%v) and could not be recorded: %v", err, perr)
+		}
+		return Fetch{Survey: lc.ATLAS, State: Pending, Note: "the ATLAS queue request got no clear answer; looked up on the next run"}
+	}
+	if err != nil {
 		return f.atlasError("could not queue the ATLAS task", err)
 	}
 	if st.URL == "" {
 		return failed(lc.ATLAS, "ATLAS queued the task but gave no task URL")
 	}
-	task := ATLASTask{URL: st.URL, Queued: f.now().UTC(), RA: t.RA, Dec: t.Dec}
+	task.URL = st.URL
 	if err := f.putTask(ctx, field, t, task); err != nil {
-		return failed(lc.ATLAS, "queued ATLAS task %s but could not record it: %v", st.URL, err)
+		_ = f.atlasRequest(ctx, http.MethodDelete, st.URL, nil, nil)
+		return failed(lc.ATLAS, "could not record the ATLAS task, so it was taken back: %v", err)
 	}
 	return Fetch{Survey: lc.ATLAS, State: Pending, Note: "queued at ATLAS"}
+}
+
+// atlasFind looks for a task whose queue request got no clear answer
+// among our newest tasks at ATLAS, by its comment.
+func (f *Fetcher) atlasFind(ctx context.Context, field Field, t Target, task ATLASTask) Fetch {
+	var page struct {
+		Results []atlasTaskStatus `json:"results"`
+	}
+	u := fmt.Sprintf("%s/queue/?format=json&ordering=-timestamp&pagesize=%d", f.atlasBase(), atlasListPage)
+	if err := f.atlasRequest(ctx, http.MethodGet, u, nil, &page); err != nil {
+		return f.atlasError("could not list our ATLAS tasks", err)
+	}
+	for _, r := range page.Results {
+		if r.Comment != nil && *r.Comment == task.Comment && r.URL != "" {
+			task.URL, task.Unsure = r.URL, false
+			if err := f.putTask(ctx, field, t, task); err != nil {
+				return failed(lc.ATLAS, "found the ATLAS task but could not record it: %v", err)
+			}
+			return f.atlasPoll(ctx, field, t, task)
+		}
+	}
+	return f.atlasQueue(ctx, field, t)
 }
 
 func (f *Fetcher) atlasError(what string, err error) Fetch {
@@ -205,7 +249,25 @@ func (f *Fetcher) putTask(ctx context.Context, field Field, t Target, task ATLAS
 	if err != nil {
 		return err
 	}
-	return f.putZ(ctx, f.atlasKey(field, t)+".task.json.zst", raw)
+	for try := 1; ; try++ {
+		err = f.putZ(ctx, f.atlasKey(field, t)+".task.json.zst", raw)
+		if err == nil || try == putTries {
+			return err
+		}
+		if err := sleepCtx(ctx, time.Duration(try)*time.Second); err != nil {
+			return err
+		}
+	}
+}
+
+// atlasGiveUp records a task as failed, takes it off ATLAS and says why.
+func (f *Fetcher) atlasGiveUp(ctx context.Context, field Field, t Target, task ATLASTask, why string) Fetch {
+	task.Error, task.FailedAt = why, f.now().UTC()
+	if err := f.putTask(ctx, field, t, task); err != nil {
+		return failed(lc.ATLAS, "the ATLAS task failed (%s) and could not be recorded: %v", why, err)
+	}
+	_ = f.atlasRequest(ctx, http.MethodDelete, task.URL, nil, nil)
+	return failed(lc.ATLAS, "the ATLAS task failed: %s; queued again after %s", why, ATLASRetryFailed)
 }
 
 func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATLASTask) Fetch {
@@ -213,13 +275,14 @@ func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATL
 	if err := f.atlasRequest(ctx, http.MethodGet, task.URL, nil, &st); err != nil {
 		var he *httpError
 		if errors.As(err, &he) && he.Status == http.StatusNotFound {
-			task.Error, task.FailedAt = "ATLAS no longer has the task", f.now().UTC()
-			_ = f.putTask(ctx, field, t, task)
-			return failed(lc.ATLAS, "ATLAS lost the task; queued again after %s", ATLASRetryFailed)
+			return f.atlasGiveUp(ctx, field, t, task, "ATLAS no longer has the task")
 		}
 		return f.atlasError("could not read the ATLAS task", err)
 	}
 	if st.Finish == nil || *st.Finish == "" {
+		if f.now().Sub(task.Queued) > ATLASTaskMaxAge {
+			return f.atlasGiveUp(ctx, field, t, task, fmt.Sprintf("not finished after %s", ATLASTaskMaxAge))
+		}
 		note := "waiting in the ATLAS queue"
 		if st.Start != nil && *st.Start != "" {
 			note = "ATLAS is running the task"
@@ -228,17 +291,11 @@ func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATL
 		}
 		return Fetch{Survey: lc.ATLAS, State: Pending, Note: note}
 	}
-	if (st.ErrorMsg != nil && *st.ErrorMsg != "") || st.ResultURL == nil || *st.ResultURL == "" {
-		msg := "no result"
-		if st.ErrorMsg != nil && *st.ErrorMsg != "" {
-			msg = *st.ErrorMsg
-		}
-		task.Error, task.FailedAt = msg, f.now().UTC()
-		if err := f.putTask(ctx, field, t, task); err != nil {
-			return failed(lc.ATLAS, "the ATLAS task failed (%s) and could not be recorded: %v", msg, err)
-		}
-		_ = f.atlasRequest(ctx, http.MethodDelete, task.URL, nil, nil)
-		return failed(lc.ATLAS, "the ATLAS task failed: %s", msg)
+	if st.ErrorMsg != nil && *st.ErrorMsg != "" {
+		return f.atlasGiveUp(ctx, field, t, task, *st.ErrorMsg)
+	}
+	if st.ResultURL == nil || *st.ResultURL == "" {
+		return f.atlasGiveUp(ctx, field, t, task, "finished with no result")
 	}
 	var text []byte
 	err := f.do(ctx, func() (*http.Request, error) {
@@ -252,15 +309,19 @@ func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATL
 		req.Header.Set("Authorization", "Token "+f.ATLASToken)
 		return req, nil
 	}, func(r *http.Response) error {
-		b, err := io.ReadAll(io.LimitReader(r.Body, maxATLASResult))
+		b, err := readAll(r.Body, maxATLASResult)
 		text = b
 		return err
 	})
+	var he *httpError
+	if errors.As(err, &he) && (he.Status == http.StatusNotFound || he.Status == http.StatusGone) {
+		return f.atlasGiveUp(ctx, field, t, task, "the result is gone")
+	}
 	if err != nil {
 		return f.atlasError("could not download the ATLAS result", err)
 	}
 	if _, err := parseATLAS(text); err != nil {
-		return failed(lc.ATLAS, "could not read the ATLAS result: %v", err)
+		return f.atlasGiveUp(ctx, field, t, task, "unreadable result: "+err.Error())
 	}
 	if err := f.putZ(ctx, f.atlasKey(field, t)+".txt.zst", text); err != nil {
 		return failed(lc.ATLAS, "could not store the ATLAS result: %v", err)
@@ -354,9 +415,10 @@ func templateSpan(mjd float64) int {
 	return n
 }
 
-// atlasFetch turns an ATLAS result into one relative series per filter.
-// Difference fluxes are put on one level per camera unit and template
-// span (their median taken as the normal level) and scaled by the light
+// atlasFetch turns an ATLAS result into one relative series per filter
+// and camera unit, since each unit has its own reference images.
+// Difference fluxes are put on one level per template span (their median
+// taken as the normal level) and scaled by the light
 // of the star and its Gaia neighbours within ATLASDilutionRadius, from
 // their G magnitudes, since ATLAS cannot split them.
 func atlasFetch(t Target, text []byte) Fetch {
@@ -370,47 +432,69 @@ func atlasFetch(t Target, text []byte) Fetch {
 		return failed(lc.ATLAS, "no Gaia G magnitude to scale the ATLAS fluxes by")
 	}
 	f0 := math.Pow(10, -0.4*(t.G-23.9)) / d
+	cams := map[string]bool{}
+	for _, r := range rows {
+		if len(r.Obs) >= 3 {
+			cams[r.Obs[:3]] = true
+		}
+	}
+	camList := make([]string, 0, len(cams))
+	for c := range cams {
+		camList = append(camList, c)
+	}
+	sort.Strings(camList)
 	for _, band := range []string{"c", "o"} {
-		groups := map[string][]float64{}
-		var good []ATLASRow
-		for _, r := range rows {
-			if r.Filter != band || !r.Good() || math.IsNaN(r.UJy) || len(r.Obs) < 3 {
-				continue
+		for _, cam := range camList {
+			if s, ok := atlasSeries(t, rows, band, cam, f0, d, n); ok {
+				fe.Series = append(fe.Series, s)
 			}
-			k := r.Obs[:3] + "/" + strconv.Itoa(templateSpan(r.MJD))
-			groups[k] = append(groups[k], r.UJy)
-			good = append(good, r)
 		}
-		base := map[string]float64{}
-		for k, v := range groups {
-			base[k] = median(v)
-		}
-		var pts []lc.Point
-		for _, r := range good {
-			rel := 1 + (r.UJy-base[r.Obs[:3]+"/"+strconv.Itoa(templateSpan(r.MJD))])/f0
-			if rel <= atlasMinRel {
-				continue
-			}
-			pts = append(pts, lc.Point{
-				BJD: lc.BJD(lc.MJDTime(r.MJD), t.RA, t.Dec),
-				Mag: -2.5 * math.Log10(rel),
-				Err: fluxToMagErr * r.DUJy / f0,
-			})
-		}
-		if len(pts) == 0 {
-			continue
-		}
-		sort.Slice(pts, func(i, j int) bool { return pts[i].BJD < pts[j].BJD })
-		note := "flux scale from Gaia G"
-		if n > 0 {
-			note = joinNotes(note, blendNote(d, n, ATLASDilutionRadius, "ATLAS"))
-		}
-		fe.Series = append(fe.Series, lc.Series{Survey: lc.ATLAS, Band: band, Points: pts, Relative: true, Dilution: d, Note: note})
 	}
 	if len(fe.Series) == 0 {
 		fe.Note = "ATLAS has no epochs passing the quality cuts"
 	}
 	return fe
+}
+
+// atlasStart is how much later than the MJD ATLAS gives (the exposure
+// start) the middle of its 30 s exposures is, in days.
+const atlasStart = 15.0 / 86400
+
+func atlasSeries(t Target, rows []ATLASRow, band, cam string, f0, d float64, n int) (lc.Series, bool) {
+	groups := map[int][]float64{}
+	var good []ATLASRow
+	for _, r := range rows {
+		if r.Filter != band || !r.Good() || math.IsNaN(r.UJy) || len(r.Obs) < 3 || r.Obs[:3] != cam {
+			continue
+		}
+		groups[templateSpan(r.MJD)] = append(groups[templateSpan(r.MJD)], r.UJy)
+		good = append(good, r)
+	}
+	base := map[int]float64{}
+	for k, v := range groups {
+		base[k] = median(v)
+	}
+	var pts []lc.Point
+	for _, r := range good {
+		rel := 1 + (r.UJy-base[templateSpan(r.MJD)])/f0
+		if rel <= atlasMinRel {
+			continue
+		}
+		pts = append(pts, lc.Point{
+			BJD: lc.BJD(lc.MJDTime(r.MJD+atlasStart), t.RA, t.Dec),
+			Mag: -2.5 * math.Log10(rel),
+			Err: fluxToMagErr * r.DUJy / (rel * f0),
+		})
+	}
+	if len(pts) == 0 {
+		return lc.Series{}, false
+	}
+	sort.Slice(pts, func(i, j int) bool { return pts[i].BJD < pts[j].BJD })
+	note := "camera " + cam + "; flux scale from Gaia G"
+	if n > 0 {
+		note = joinNotes(note, blendNote(d, n, ATLASDilutionRadius, "ATLAS"))
+	}
+	return lc.Series{Survey: lc.ATLAS, Band: band, Points: pts, Relative: true, Dilution: d, Note: note}, true
 }
 
 func median(v []float64) float64 {

@@ -7,21 +7,30 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 )
 
+const (
+	testToken = "secret-token"
+	keyURL    = "url"
+)
+
 type atlasFake struct {
-	mu        sync.Mutex
-	t         *testing.T
-	url       string
-	queued    int
-	throttle  int
-	polls     int
-	finishAt  int
-	deleted   bool
-	positions map[string]int
-	form      map[string]string
+	mu         sync.Mutex
+	t          *testing.T
+	url        string
+	queued     int
+	throttle   int
+	polls      int
+	finishAt   int
+	deleted    bool
+	positions  map[string]int
+	form       map[string]string
+	postFail   int
+	listed     bool
+	resultGone bool
 }
 
 func (a *atlasFake) writeJSON(w http.ResponseWriter, v any) {
@@ -33,7 +42,7 @@ func (a *atlasFake) writeJSON(w http.ResponseWriter, v any) {
 func (a *atlasFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if r.Header.Get("Authorization") != "Token secret-token" {
+	if r.Header.Get("Authorization") != "Token "+testToken {
 		http.Error(w, `{"detail":"no token"}`, http.StatusUnauthorized)
 		return
 	}
@@ -52,16 +61,28 @@ func (a *atlasFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			a.t.Error(err)
 		}
+		if a.postFail > 0 {
+			a.postFail--
+			a.queued++
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
 		a.form = map[string]string{}
 		for k := range r.PostForm {
 			a.form[k] = r.PostForm.Get(k)
 		}
 		a.queued++
 		w.WriteHeader(http.StatusCreated)
-		a.writeJSON(w, map[string]any{"url": a.url + "/forcedphot/queue/5193733/", "finishtimestamp": nil})
+		a.writeJSON(w, map[string]any{keyURL: a.url + "/forcedphot/queue/5193733/", "finishtimestamp": nil})
+	case r.URL.Path == "/forcedphot/queue/" && r.Method == http.MethodGet:
+		a.listed = true
+		a.writeJSON(w, map[string]any{"results": []map[string]any{
+			{keyURL: a.url + "/forcedphot/queue/1/", "comment": "someone else"},
+			{keyURL: a.url + "/forcedphot/queue/5193733/", "comment": "astro-stacker vetting 2179309875368546432"},
+		}})
 	case r.URL.Path == "/forcedphot/queue/5193733/" && r.Method == http.MethodGet:
 		a.polls++
-		st := map[string]any{"url": a.url + "/forcedphot/queue/5193733/", "starttimestamp": nil, "finishtimestamp": nil, "result_url": nil, "error_msg": nil, "queuepos": 3}
+		st := map[string]any{keyURL: a.url + "/forcedphot/queue/5193733/", "starttimestamp": nil, "finishtimestamp": nil, "result_url": nil, "error_msg": nil, "queuepos": 3}
 		if a.polls >= a.finishAt {
 			st["starttimestamp"] = "2026-10-15T20:43:00Z"
 			st["finishtimestamp"] = "2026-10-15T20:58:10Z"
@@ -71,6 +92,8 @@ func (a *atlasFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/forcedphot/queue/5193733/" && r.Method == http.MethodDelete:
 		a.deleted = true
 		w.WriteHeader(http.StatusNoContent)
+	case r.URL.Path == "/forcedphot/static/results/job5193733.txt" && a.resultGone:
+		http.NotFound(w, r)
 	case r.URL.Path == "/forcedphot/static/results/job5193733.txt":
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write(readFixture(a.t, "atlas_ic1396.txt"))
@@ -84,7 +107,7 @@ func TestATLASQueuePollAndRead(t *testing.T) {
 	fake := &atlasFake{t: t, finishAt: 2, throttle: 1, positions: map[string]int{}}
 	f, st := testFetcher(t, fake)
 	fake.url = f.IRSAURL
-	f.ATLASToken = "secret-token"
+	f.ATLASToken = testToken
 	ctx := t.Context()
 	field, star := ic1396Field(), ic1396Star()
 
@@ -115,7 +138,7 @@ func TestATLASQueuePollAndRead(t *testing.T) {
 	if again.State != Done || fake.polls != polls {
 		t.Fatalf("cached call %+v asked ATLAS again", again)
 	}
-	if len(fe.Series) != 2 {
+	if len(fe.Series) != 4 || !strings.HasPrefix(fe.Series[0].Note, "camera 01a") || fe.Series[0].Band != "c" {
 		t.Fatalf("series %+v", fe.Series)
 	}
 	wantD := 1 / (1 + math.Pow(10, -0.4*(14.498565-14.846538)))
@@ -141,7 +164,7 @@ func TestATLASQueueFull(t *testing.T) {
 	fake := &atlasFake{t: t, positions: map[string]int{"1": 0, "2": 1}}
 	f, _ := testFetcher(t, fake)
 	fake.url = f.IRSAURL
-	f.ATLASToken = "secret-token"
+	f.ATLASToken = testToken
 	f.ATLASMaxQueued = 2
 	fe := f.ATLAS(t.Context(), ic1396Field(), ic1396Star())
 	if fe.State != Pending || fake.queued != 0 || !strings.Contains(fe.Note, "waiting for room") {
@@ -182,5 +205,62 @@ func TestATLASCuts(t *testing.T) {
 	}
 	if templateSpan(58416.9) != 0 || templateSpan(58417) != 1 || templateSpan(60000) != 2 {
 		t.Error("template spans")
+	}
+}
+
+func TestATLASUnsurePostIsFoundNotRequeued(t *testing.T) {
+	t.Parallel()
+	fake := &atlasFake{t: t, finishAt: 1, postFail: 1, positions: map[string]int{}}
+	f, _ := testFetcher(t, fake)
+	fake.url = f.IRSAURL
+	f.ATLASToken = testToken
+	ctx := t.Context()
+	fe := f.ATLAS(ctx, ic1396Field(), ic1396Star())
+	if fe.State != Pending || fake.queued != 1 || !strings.Contains(fe.Note, "no clear answer") {
+		t.Fatalf("first %+v queued %d", fe, fake.queued)
+	}
+	fe = f.ATLAS(ctx, ic1396Field(), ic1396Star())
+	if fe.State != Done || !fake.listed || fake.queued != 1 {
+		t.Fatalf("second %+v listed %v queued %d", fe, fake.listed, fake.queued)
+	}
+}
+
+func TestATLASResultGone(t *testing.T) {
+	t.Parallel()
+	fake := &atlasFake{t: t, finishAt: 1, resultGone: true, positions: map[string]int{}}
+	f, _ := testFetcher(t, fake)
+	fake.url = f.IRSAURL
+	f.ATLASToken = testToken
+	ctx := t.Context()
+	_ = f.ATLAS(ctx, ic1396Field(), ic1396Star())
+	fe := f.ATLAS(ctx, ic1396Field(), ic1396Star())
+	if fe.State != Failed || !fake.deleted || !strings.Contains(fe.Note, "result is gone") {
+		t.Fatalf("%+v deleted %v", fe, fake.deleted)
+	}
+	fe = f.ATLAS(ctx, ic1396Field(), ic1396Star())
+	if fe.State != Failed || fake.queued != 1 {
+		t.Fatalf("retried too soon: %+v", fe)
+	}
+	now := f.Now()
+	f.Now = func() time.Time { return now.Add(ATLASRetryFailed + time.Hour) }
+	fake.resultGone = false
+	if fe = f.ATLAS(ctx, ic1396Field(), ic1396Star()); fe.State != Pending || fake.queued != 2 {
+		t.Fatalf("not queued again after the wait: %+v", fe)
+	}
+}
+
+func TestATLASStaleTask(t *testing.T) {
+	t.Parallel()
+	fake := &atlasFake{t: t, finishAt: 1000, positions: map[string]int{}}
+	f, _ := testFetcher(t, fake)
+	fake.url = f.IRSAURL
+	f.ATLASToken = testToken
+	ctx := t.Context()
+	_ = f.ATLAS(ctx, ic1396Field(), ic1396Star())
+	now := f.Now()
+	f.Now = func() time.Time { return now.Add(ATLASTaskMaxAge + time.Hour) }
+	fe := f.ATLAS(ctx, ic1396Field(), ic1396Star())
+	if fe.State != Failed || !fake.deleted {
+		t.Fatalf("%+v", fe)
 	}
 }
