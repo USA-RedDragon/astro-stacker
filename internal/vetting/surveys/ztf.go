@@ -297,11 +297,11 @@ func (f *Fetcher) download(ctx context.Context, u string) (*os.File, int64, erro
 			return err
 		})
 		var he *httpError
-		if err == nil || errors.As(err, &he) || ctx.Err() != nil {
+		if err == nil || (errors.As(err, &he) && he.Status < 500) || ctx.Err() != nil || try == httpTries-1 {
 			break
 		}
-		slog.Warn("ZTF download broke off; trying again", "url", u, "try", try+1, "error", err)
-		if err := sleepCtx(ctx, time.Duration(try+1)*10*time.Second); err != nil {
+		slog.Warn("ZTF download failed; trying again", "url", u, "try", try+1, "error", err)
+		if err := sleepCtx(ctx, time.Duration(try+1)*time.Minute); err != nil {
 			break
 		}
 	}
