@@ -113,7 +113,8 @@ func newVetCommand() *cobra.Command {
 			if host, herr := os.Hostname(); herr == nil {
 				appStore.DB().Where("kind = ? AND worker = ?", activity.KindVetting, host).Delete(&app.JobProgress{})
 			}
-			slog.Info("Vetting done", "sources", st.Sources, "done", st.Done, "failed", st.Failed, "peak_mib", memwatch.MiB(svc.Mem.Peak()))
+			pk := svc.Mem.Peak()
+			slog.Info("Vetting done", "sources", st.Sources, "done", st.Done, "failed", st.Failed, "rss_peak_mib", memwatch.MiB(pk.RSS), "live_peak_mib", memwatch.MiB(pk.Live))
 			return err
 		},
 	}
