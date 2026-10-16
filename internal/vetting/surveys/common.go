@@ -185,9 +185,18 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // do sends a request built by mk, retrying on throttling and server
 // errors with backoff, and hands an OK response to read.
 func (f *Fetcher) do(ctx context.Context, mk func() (*http.Request, error), read func(*http.Response) error) error {
-	var last error
+	return f.send(ctx, true, mk, read)
+}
+
+// errUnsure says a request may or may not have taken effect: it broke
+// off or the server failed after it was sent.
+var errUnsure = errors.New("no clear answer")
+
+// send is do; with retry false it only retries throttling, which the
+// server answers before acting, and wraps other failures in errUnsure.
+func (f *Fetcher) send(ctx context.Context, retry bool, mk func() (*http.Request, error), read func(*http.Response) error) error {
 	wait := 5 * time.Second
-	for range httpTries {
+	for try := 1; ; try++ {
 		req, err := mk()
 		if err != nil {
 			return err
@@ -198,7 +207,12 @@ func (f *Fetcher) do(ctx context.Context, mk func() (*http.Request, error), read
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			last = err
+			if !retry {
+				return fmt.Errorf("%w: %w", errUnsure, err)
+			}
+			if try == httpTries {
+				return err
+			}
 			if err := sleepCtx(ctx, wait); err != nil {
 				return err
 			}
@@ -213,11 +227,12 @@ func (f *Fetcher) do(ctx context.Context, mk func() (*http.Request, error), read
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		resp.Body.Close()
 		he := &httpError{Status: resp.StatusCode, Body: strings.TrimSpace(string(body)), Retry: retryAfter(resp.Header, wait)}
-		if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500 {
+		switch {
+		case resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500:
 			return he
-		}
-		last = he
-		if he.Retry > maxRetryWait {
+		case resp.StatusCode != http.StatusTooManyRequests && !retry:
+			return fmt.Errorf("%w: %w", errUnsure, he)
+		case try == httpTries || he.Retry > maxRetryWait:
 			return he
 		}
 		if err := sleepCtx(ctx, he.Retry); err != nil {
@@ -225,7 +240,18 @@ func (f *Fetcher) do(ctx context.Context, mk func() (*http.Request, error), read
 		}
 		wait *= 2
 	}
-	return last
+}
+
+// readAll reads a body of at most limit bytes.
+func readAll(r io.Reader, limit int64) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > limit {
+		return nil, fmt.Errorf("answer over %d bytes", limit)
+	}
+	return b, nil
 }
 
 func (f *Fetcher) getBytes(ctx context.Context, url string, limit int64) ([]byte, error) {
@@ -233,15 +259,9 @@ func (f *Fetcher) getBytes(ctx context.Context, url string, limit int64) ([]byte
 	err := f.do(ctx, func() (*http.Request, error) {
 		return http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	}, func(r *http.Response) error {
-		b, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
-		if err != nil {
-			return err
-		}
-		if int64(len(b)) > limit {
-			return fmt.Errorf("%s: answer over %d bytes", url, limit)
-		}
+		b, err := readAll(r.Body, limit)
 		out = b
-		return nil
+		return err
 	})
 	return out, err
 }

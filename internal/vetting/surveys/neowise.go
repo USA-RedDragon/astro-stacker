@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -76,7 +75,7 @@ func (f *Fetcher) tapQuery(ctx context.Context, adql string) ([]byte, error) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		return req, nil
 	}, func(r *http.Response) error {
-		b, err := io.ReadAll(io.LimitReader(r.Body, maxTAP))
+		b, err := readAll(r.Body, maxTAP)
 		out = b
 		return err
 	})
