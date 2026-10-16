@@ -19,6 +19,10 @@ type ChangeNull struct {
 	Found   int
 	MaxSNR  float64
 	Changes []NullChange
+	// FilterFound and FilterMaxSNR are the same for each filter's own
+	// comparison, its SNR in that filter's full comparison's noise.
+	FilterFound  map[string]int
+	FilterMaxSNR map[string]float64
 }
 
 // NullChange is one change the null test found, its SNR in the full
@@ -29,6 +33,7 @@ type NullChange struct {
 	DeltaMag     *float64 `json:",omitempty"`
 	Star         bool     `json:",omitempty"`
 	LowConf      bool     `json:",omitempty"`
+	Filter       string   `json:",omitempty"`
 }
 
 // DropKnown leaves out of the null test the changes on known variable
@@ -36,7 +41,7 @@ type NullChange struct {
 // rise): in Barnard's E's field, rich in them, most of the null test's
 // changes were catalogued variables.
 func (n *ChangeNull) DropKnown(vars []Variable) {
-	n.Found, n.MaxSNR = 0, 0
+	n.Found, n.MaxSNR, n.FilterFound, n.FilterMaxSNR = 0, 0, nil, nil
 	for _, c := range n.Changes {
 		if c.LowConf {
 			continue
@@ -53,10 +58,31 @@ func (n *ChangeNull) DropKnown(vars []Variable) {
 			}
 		}
 		if !known {
-			n.Found++
-			n.MaxSNR = math.Max(n.MaxSNR, c.SNR)
+			n.count(c)
 		}
 	}
+}
+
+func (n *ChangeNull) count(c NullChange) {
+	if c.Filter == "" {
+		n.Found++
+		n.MaxSNR = math.Max(n.MaxSNR, c.SNR)
+		return
+	}
+	if n.FilterFound == nil {
+		n.FilterFound, n.FilterMaxSNR = map[string]int{}, map[string]float64{}
+	}
+	n.FilterFound[c.Filter]++
+	n.FilterMaxSNR[c.Filter] = math.Max(n.FilterMaxSNR[c.Filter], c.SNR)
+}
+
+// Bar is the SNR a change must beat: the strongest the null test found in
+// the comparison it came from.
+func (n ChangeNull) Bar(filter string) float64 {
+	if filter == "" {
+		return n.MaxSNR
+	}
+	return n.FilterMaxSNR[filter]
 }
 
 // nullMinSubs is the fewest subs a filter needs on the night to be split.
@@ -64,7 +90,7 @@ const nullMinSubs = 4
 
 // nullChanges runs the change null test. Halves too poor to match star
 // profiles give no test, not a failed comparison.
-func (in *Input) nullChanges(ctx context.Context, stacks []*filterStacks, edge, bmask []bool, res *Result, threads int) (ChangeNull, error) {
+func (in *Input) nullChanges(ctx context.Context, stacks []*filterStacks, edge, bmask []bool, res *Result, threads int, own map[string]float64) (ChangeNull, error) {
 	var out ChangeNull
 	var halves []*filterStacks
 	for _, fs := range stacks {
@@ -120,6 +146,16 @@ func (in *Input) nullChanges(ctx context.Context, stacks []*filterStacks, edge, 
 		return out, nil
 	}
 	cands := in.findChanges(D, dmesh.RMSPlane(), refB, edge, bmask, r0)
+	var fds []filterDiff
+	if len(own) > 0 {
+		fds = in.filterChanges(halves, cands, valid, edge, bmask, r0, threads, nullMinSubs/2, own)
+	}
+	for _, h := range halves {
+		h.night = nil
+	}
+	for _, fd := range fds {
+		cands = append(cands, fd.cands...)
+	}
 	for _, h := range halves {
 		for _, s := range h.f.Night {
 			p, _, err := h.load(ctx, s)
@@ -147,15 +183,21 @@ func (in *Input) nullChanges(ctx context.Context, stacks []*filterStacks, edge, 
 			}
 		}
 	}
+	combined, per := splitByFilter(cands, fds)
 	local := in.localResiduals(refB, D, edge, r0)
-	for _, c := range in.cut(cands, refB, D, local, r0) {
-		snr := c.SNR * r0.ApSigma / res.ApSigma
-		out.Changes = append(out.Changes, NullChange{RA: c.RA, Dec: c.Dec, SNR: snr, DeltaMag: c.DeltaMag, Star: c.GaiaG != nil, LowConf: c.LowConf})
-		if c.LowConf {
-			continue
+	add := func(cs []Candidate, scale float64) {
+		for _, c := range cs {
+			nc := NullChange{RA: c.RA, Dec: c.Dec, SNR: c.SNR * scale, DeltaMag: c.DeltaMag, Star: c.GaiaG != nil, LowConf: c.LowConf, Filter: c.Filter}
+			out.Changes = append(out.Changes, nc)
+			if !c.LowConf {
+				out.count(nc)
+			}
 		}
-		out.Found++
-		out.MaxSNR = math.Max(out.MaxSNR, snr)
+	}
+	add(in.cut(combined, refB, D, local, r0), r0.ApSigma/res.ApSigma)
+	for i, fd := range fds {
+		lf := in.localResiduals(fd.fs.ref, fd.diff, edge, fd.res)
+		add(in.cut(per[i], fd.fs.ref, fd.diff, lf, fd.res), fd.res.ApSigma/own[fd.fs.f.Filter])
 	}
 	return out, nil
 }

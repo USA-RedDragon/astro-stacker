@@ -153,7 +153,7 @@ func confirmByZTF(ctx context.Context, l *Labelled, res *Result, lookup ZTFLooku
 	if l.Class != ClassNewVariable && !heldForConfirmation(*l) {
 		return checked, failed
 	}
-	if l.SNR <= res.ChangeNull.MaxSNR {
+	if l.SNR <= res.ChangeNull.Bar(l.Filter) {
 		l.Class = ClassLowConfidence
 		return checked, failed
 	}
@@ -345,6 +345,9 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		}
 		l.Matches = append(l.Matches, placeMatches(c, k)...)
 		l.Class = classOf(l)
+		if c.Filter != "" {
+			l.Matches = append(l.Matches, Match{Catalog: catalogFilter, Name: c.Filter, Note: fmt.Sprintf("found in %s's own comparison; under the threshold in the filters combined", c.Filter)})
+		}
 		checked, failed = confirmByZTF(ctx, &l, res, k.ZTF, &ztfAsked, checked, failed)
 		if c.GaiaG == nil && c.Sign > 0 && c.SubSharp > maxSubSharpness {
 			l.Matches = append(l.Matches, Match{Catalog: catalogDefect, Name: "sharp in its subs", Note: fmt.Sprintf("%.1f times a star's sharpness in its subs; held as a likely defect pixel", c.SubSharp)})
@@ -367,6 +370,10 @@ const maxNewSources = 10
 // catalogDefect is the match of a new source held for being far sharper
 // than a star in its subs.
 const catalogDefect = "defect"
+
+// catalogFilter is the match of a change only one filter's own
+// comparison found.
+const catalogFilter = "filter"
 
 // catalogMany is the match of a new source held because its night held too
 // many.

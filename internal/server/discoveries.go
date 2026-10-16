@@ -138,6 +138,10 @@ type ChangeNull struct {
 	Subs   int     `json:"subs"`
 	Found  int     `json:"found"`
 	MaxSNR float64 `json:"max_snr"`
+	// FilterFound and FilterMaxSNR are the same over the filters' own
+	// comparisons.
+	FilterFound  int     `json:"filter_found"`
+	FilterMaxSNR float64 `json:"filter_max_snr"`
 }
 
 // DiscoveryCutouts link a candidate's night, reference and difference
@@ -163,7 +167,7 @@ func runOf(r app.DiscoveryRun, n runCount) DiscoveryRun {
 		Candidates: r.Candidates, New: r.NewCandidates, Tracks: r.Tracks, KnownTracks: r.KnownTracks, BodiesInField: r.BodiesInField,
 		Checked: splitList(r.Checked), Failed: splitList(r.Failed), Classes: n.classes, Vetted: n.vetted, Look: n.look, HeldMany: n.heldMany, HeldDefects: n.heldDefects, MidTime: r.MidTime, FinishedAt: r.FinishedAt, Seconds: r.Seconds,
 		MoverNull:  MoverNull{Tracks: r.MoverNullTracks, MaxHits: r.MoverNullHits},
-		ChangeNull: ChangeNull{Subs: r.ChangeNullSubs, Found: r.ChangeNullFound, MaxSNR: r.ChangeNullSNR}}
+		ChangeNull: ChangeNull{Subs: r.ChangeNullSubs, Found: r.ChangeNullFound, MaxSNR: r.ChangeNullSNR, FilterFound: r.ChangeNullFilterFound, FilterMaxSNR: r.ChangeNullFilterSNR}}
 	if out.Classes == nil {
 		out.Classes = map[string]int{}
 	}
