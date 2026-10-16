@@ -15,6 +15,7 @@ import zstandard
 
 from . import catalog, core, grid, verify
 from .orbits import Orbits
+from .progress import Progress
 from .store import Store
 
 EPHEMERIDES = {
@@ -101,14 +102,22 @@ def ensure_ephemerides(store: Store | None, directory: str) -> dict[str, str]:
     return paths
 
 
-def mirror_sources(store: Store, date: str, workdir: str) -> dict:
+def mirror_sources(store: Store, date: str, workdir: str, prog: Progress | None = None) -> dict:
     """Download today's MPC and JPL orbits and store them, as fetched, under sources/<date>/."""
     out = {}
+
+    def step(n: int) -> None:
+        if prog is not None:
+            prog.set("downloading the orbit lists", n, 5, "files")
+
+    step(0)
     log("fetching MPCORB.DAT.gz")
     out["MPCORB.DAT"] = catalog.fetch_mpcorb()
+    step(1)
     log("fetching CometEls.txt")
     out["CometEls.txt"] = catalog.fetch_cometels()
-    for name, args in (("sbdb-numbered.json", ("a", True)), ("sbdb-unnumbered.json", ("a", False)), ("sbdb-comets.json", ("c", None))):
+    for i, (name, args) in enumerate((("sbdb-numbered.json", ("a", True)), ("sbdb-unnumbered.json", ("a", False)), ("sbdb-comets.json", ("c", None)))):
+        step(2 + i)
         log(f"fetching SBDB {name}")
         out[name] = json.dumps(catalog.fetch_sbdb(*args)).encode()
     for name, data in out.items():
@@ -133,13 +142,25 @@ def build_catalog(raw: dict) -> tuple[Orbits, np.ndarray]:
 
 
 def run(store: Store, workdir: str, grid_start: str, ahead_days: float, retain_days: int, workers: int) -> None:
+    prog = Progress(store).start()
+    try:
+        _run(store, workdir, grid_start, ahead_days, retain_days, workers, prog)
+    except BaseException as ex:
+        prog.finish(ex)
+        raise
+    prog.finish()
+
+
+def _run(store: Store, workdir: str, grid_start: str, ahead_days: float, retain_days: int, workers: int, prog: Progress) -> None:
     now = dt.datetime.now(dt.timezone.utc)
     today = now.date()
     date = today.isoformat()
     build = now.strftime("%Y-%m-%dT%H%M%SZ")
     os.makedirs(workdir, exist_ok=True)
+    prog.set("checking the planet ephemerides")
     eph = ensure_ephemerides(store, os.path.join(workdir, "ephemeris"))
-    raw = mirror_sources(store, date, workdir)
+    raw = mirror_sources(store, date, workdir, prog)
+    prog.set("merging the catalogue")
     cat, src = build_catalog(raw)
     del raw
     path = os.path.join(workdir, "catalog.npz.zst")
@@ -153,7 +174,12 @@ def run(store: Store, workdir: str, grid_start: str, ahead_days: float, retain_d
     times = grid.times_between(start, end)
     t0 = time.time()
     total = 0
-    for t, states in grid.build(cat, eph[PLANETS], eph[ASTEROIDS], times, os.path.join(workdir, "grid"), workers=workers, log=log):
+    prog.set("working out the orbits", 0, len(cat), "objects")
+    stored = 0
+    for t, states in grid.build(cat, eph[PLANETS], eph[ASTEROIDS], times, os.path.join(workdir, "grid"), workers=workers, log=log,
+                                progress=prog.advance):
+        prog.set("storing the positions", stored, len(times), "dates")
+        stored += 1
         blob = grid.encode(states)
         total += len(blob)
         store.put(f"grid/{build}/{grid.epoch_name(t)}.zst", blob, "application/zstd")
@@ -172,6 +198,7 @@ def run(store: Store, workdir: str, grid_start: str, ahead_days: float, retain_d
     store.put_json(f"grid/{build}/meta.json", meta)
     store.put_json("grid/latest.json", meta)
     log(f"grid {build}: {len(times)} epochs, {total / 1e9:.2f} GB, built and stored in {build_s:.0f}s")
+    prog.set("removing old copies")
     prune(store, today, retain_days)
 
 

@@ -33,7 +33,7 @@ def _grid_job(args):
     return core.propagate_grid(eph, epoch, states, times, nongrav=nongrav, comet=comet).astype(np.float32)
 
 
-def _run(pool, jobs, fn, sink, window, log, label):
+def _run(pool, jobs, fn, sink, window, log, label, progress=None):
     t0 = last = time.time()
     done = 0
     total = sum(len(j[0]) for j in jobs)
@@ -47,6 +47,8 @@ def _run(pool, jobs, fn, sink, window, log, label):
             key = pending.pop(fut)
             sink(key, fut.result())
             done += len(key)
+            if progress is not None:
+                progress(done, total)
             nxt = next(it, None)
             if nxt is not None:
                 pending[pool.submit(fn, nxt[1])] = nxt[0]
@@ -56,7 +58,7 @@ def _run(pool, jobs, fn, sink, window, log, label):
     log(f"{label}: {total} objects in {time.time() - t0:.0f}s")
 
 
-def build(cat: Orbits, planets: str, asteroids: str, times: np.ndarray, directory: str, workers: int = 4, log=print):
+def build(cat: Orbits, planets: str, asteroids: str, times: np.ndarray, directory: str, workers: int = 4, log=print, progress=None):
     """Integrate the whole catalogue to the grid epochs; yields (epoch, N x 6 float32 states).
 
     Objects with the same orbit epoch share simulations (see
@@ -104,7 +106,7 @@ def build(cat: Orbits, planets: str, asteroids: str, times: np.ndarray, director
     del states
     jobs.sort(key=lambda j: -len(j[0]))
     with ProcessPoolExecutor(workers) as pool:
-        _run(pool, jobs, _grid_job, sink, workers * 4, log, "grid")
+        _run(pool, jobs, _grid_job, sink, workers * 4, log, "grid", progress)
     for fh in files:
         fh.close()
     idx = np.concatenate(order)
