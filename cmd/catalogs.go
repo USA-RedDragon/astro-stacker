@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/minio/minio-go/v7"
@@ -52,8 +53,13 @@ func newCatalogMirrorCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return run(cmd.Context(), starcat.MirrorOptions{Bucket: b, Prefix: f.prefix, BaseURL: f.baseURL, Workers: f.workers,
-					Limit: f.limit, Verify: f.verify, Limiter: starcat.NewLimiter(f.rateMB * 1e6)})
+				ctx := cmd.Context()
+				rep := &activity.Reporter{Put: func(ctx context.Context, data []byte) error { return b.Put(ctx, mirrorProgressKey(use), data) }}
+				rep.Start(ctx)
+				err = run(ctx, starcat.MirrorOptions{Bucket: b, Prefix: f.prefix, BaseURL: f.baseURL, Workers: f.workers,
+					Limit: f.limit, Verify: f.verify, Limiter: starcat.NewLimiter(f.rateMB * 1e6), Report: rep})
+				rep.Finish(ctx, err)
+				return err
 			},
 		}
 		sc.Flags().StringVar(&f.endpoint, "s3-endpoint", "minio.minio.svc:9000", "S3 endpoint host")
@@ -71,6 +77,12 @@ func newCatalogMirrorCommand() *cobra.Command {
 	add("vsx", "Mirror CDS's copy of VSX (B/vsx) when it has a new version", "catalogs/vsx", vsxSourceURL, starcat.MirrorVSX)
 	addVariableMirrors(add)
 	return c
+}
+
+// mirrorProgressKey is where the catalog-mirror command named use writes
+// its progress in the survey bucket.
+func mirrorProgressKey(use string) string {
+	return "progress/catalog-mirror-" + use + ".json"
 }
 
 // catalogMirrors returns the Gaia DR3 and VSX mirror readers, or nils

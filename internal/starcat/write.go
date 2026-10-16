@@ -57,7 +57,7 @@ func writeAll[T any](ctx context.Context, b Bucket, prefix, catalog string, orde
 			m.Bytes += pc.Bytes
 		}
 	}
-	bad, err := verifyPieces(ctx, b, s, order, m.Pieces)
+	bad, err := verifyPieces(ctx, b, s, order, m.Pieces, nil)
 	if err != nil {
 		return err
 	}
