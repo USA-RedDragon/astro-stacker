@@ -253,26 +253,34 @@ const (
 )
 
 // perSub checks that the night's subs agree with the stack: the change is
-// over 1 sigma in at least half of them, no sub holds half the flux, their
-// mean is over 2 sigma and their median at least 0.4 of their mean.
+// over 1 sigma in at least half of them, no sub holds half of the summed
+// significance, their mean is over 2 sigma and their median significance
+// at least 0.4 of the mean. Shares are of significance, not flux, so a few
+// noisy subs do not outweigh the rest: AT 2025xtl, a nova in M 31's bulge
+// in H-a on 2025-10-15, was in 10 of 12 subs at 16 sigma, but the two
+// subs of twilight, five times as noisy, held 0.078 and 0.060 of its flux
+// against 0.002 to 0.009 in the others.
 func perSub(fluxes, errs []float64) perSubStats {
 	st := perSubStats{n: len(fluxes)}
-	var pos, sum, varSum float64
+	var pos, sum, varSum, sigSum float64
+	sigs := make([]float64, len(fluxes))
 	for k, v := range fluxes {
 		sum += v
 		varSum += errs[k] * errs[k]
+		sigs[k] = v / math.Max(errs[k], 1e-12)
+		sigSum += sigs[k]
 		if v > presenceSigma*errs[k] {
 			st.present++
 		}
-		if v > 0 {
-			pos += v
-			st.top = math.Max(st.top, v)
+		if sigs[k] > 0 {
+			pos += sigs[k]
+			st.top = math.Max(st.top, sigs[k])
 		}
 	}
 	st.top /= math.Max(pos, 1e-12)
 	st.meanSigma = sum / math.Max(math.Sqrt(varSum), 1e-12)
-	mean := sum / math.Max(float64(len(fluxes)), 1)
-	med := median64(fluxes)
+	mean := sigSum / math.Max(float64(len(fluxes)), 1)
+	med := median64(sigs)
 	if mean > 0 {
 		st.medianShare = med / mean
 	}
