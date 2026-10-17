@@ -144,4 +144,22 @@ func starsOf(rows []starcat.GaiaStar, year float64) []Star {
 	return out
 }
 
-var _ Data = DBData{}
+// Masters names each filter's master of the target.
+func (d DBData) Masters(ctx context.Context, object string) (map[string]string, error) {
+	var rows []app.Stack
+	if err := d.App.WithContext(ctx).Where("object = ? AND master_key IS NOT NULL", object).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load masters: %w", err)
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		if r.MasterKey != nil && *r.MasterKey != "" {
+			out[r.Filter] = *r.MasterKey
+		}
+	}
+	return out, nil
+}
+
+var (
+	_ Data    = DBData{}
+	_ Masters = DBData{}
+)

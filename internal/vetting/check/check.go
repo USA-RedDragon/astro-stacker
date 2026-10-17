@@ -30,6 +30,8 @@ const (
 	GroupSurveys = "surveys"
 	GroupCatalog = "catalogs"
 	GroupMoving  = "moving"
+	// GroupMover holds a moving object's own checks along its track.
+	GroupMover = "mover"
 )
 
 // Check IDs. The group a check belongs to is in Groups.
@@ -57,6 +59,15 @@ const (
 	TNS       = "tns"
 	SIMBAD    = "simbad"
 	Stays     = "stays"
+
+	MoverFrames = "mover_frames"
+	MoverLine   = "mover_line"
+	MoverSensor = "mover_sensor"
+	MoverShape  = "mover_shape"
+	MoverSteady = "mover_steady"
+	MoverKnown  = "mover_known"
+	MoverMotion = "mover_motion"
+	MoverNights = "mover_nights"
 )
 
 // Names are the row titles the panel shows for each check ID.
@@ -85,6 +96,15 @@ func Names() map[string]string {
 		TNS:       "Transient reports (TNS)",
 		SIMBAD:    "SIMBAD",
 		Stays:     "Stays in place",
+
+		MoverFrames: "Seen in enough frames",
+		MoverLine:   "Moves in a straight line at a steady speed",
+		MoverSensor: "Moves across the sky, not with the camera",
+		MoverShape:  "Star-shaped for its speed",
+		MoverSteady: "Steady from frame to frame, not a flash",
+		MoverKnown:  "Known asteroid or comet",
+		MoverMotion: "Moves like the asteroids around it",
+		MoverNights: "Seen on other nights",
 	}
 }
 
