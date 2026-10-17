@@ -19,6 +19,31 @@
             "matchFileNames": ["tessjob/requirements.txt"],
             "matchPackageNames": ["astroquery"],
             "enabled": false
+        },
+        {
+            "matchFileNames": ["tessjob/requirements.txt"],
+            "matchPackageNames": ["astropy"],
+            "allowedVersions": "<6.2"
+        },
+        {
+            "matchFileNames": ["tessjob/requirements.txt"],
+            "matchPackageNames": ["scipy"],
+            "allowedVersions": "<1.18"
+        },
+        {
+            "matchFileNames": ["tessjob/requirements.txt"],
+            "matchPackageNames": ["wotan"],
+            "allowedVersions": "<2"
+        },
+        {
+            "matchFileNames": ["tessjob/Dockerfile", ".github/workflows/tess.yaml"],
+            "matchPackageNames": ["python", "actions/python-versions"],
+            "allowedVersions": "<3.13"
+        },
+        {
+            "matchFileNames": ["smallbodies/requirements.txt"],
+            "matchPackageNames": ["rebound"],
+            "allowedVersions": "<5"
         }
     ]
 }

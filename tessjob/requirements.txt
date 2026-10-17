@@ -10,7 +10,7 @@ charset-normalizer==3.5.2
 contourpy==1.3.3
 cryptography==50.0.2
 cycler==0.12.1
-fonttools==4.66.1
+fonttools==4.67.0
 html5lib==1.1
 idna==3.20
 importlib-resources==7.1.0
@@ -30,8 +30,8 @@ oauthlib==4.0.0
 packaging==26.3
 pandas==3.0.6
 pillow==12.3.0
-pycparser==3.0
-pycryptodome==3.24.1
+pycparser==3.11
+pycryptodome==4.0.0
 pyerfa==2.0.1.5
 pyparsing==3.3.3
 python-dateutil==2.9.0.post0
@@ -42,7 +42,7 @@ scipy==1.17.1
 seaborn==0.13.2
 secretstorage==3.5.0
 six==1.17.0
-soupsieve==2.10
+soupsieve==3.0.3
 tglc==0.8.1
 threadpoolctl==3.7.0
 tqdm==4.70.1
