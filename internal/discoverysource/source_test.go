@@ -95,7 +95,7 @@ func open(t *testing.T) *gorm.DB {
 
 func prepare(t *testing.T, db *gorm.DB) *gorm.DB {
 	t.Helper()
-	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}); err != nil {
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}); err != nil {
 		t.Fatal(err)
 	}
 	runs := realRuns()
@@ -190,6 +190,29 @@ func checkRealSourcesMerge(t *testing.T, db *gorm.DB) {
 	nova := by[18554]
 	if len(nova.Members) != 1 || nova.Class != discoveries.ClassNova || nova.Seen != 1 || nova.Compared != 1 {
 		t.Errorf("M 31 nova: %d members, %s, seen %d of %d", len(nova.Members), nova.Class, nova.Seen, nova.Compared)
+	}
+}
+
+func TestACatalogListedSourceIsKnown(t *testing.T) {
+	t.Parallel()
+	checkACatalogListedSourceIsKnown(t, open(t))
+}
+
+func checkACatalogListedSourceIsKnown(t *testing.T, db *gorm.DB) {
+	store(t, db, realRows())
+	id := all(t, db)[15111].Source.ID
+	if err := db.Create(&app.DiscoveryVet{SourceID: id, State: "done", Suggested: app.VetKnown, Confidence: "high"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	cyg := all(t, db)[15111]
+	if cyg.Look() || !cyg.In(discoverysource.ViewKnown) {
+		t.Errorf("listed source look %v known %v", cyg.Look(), cyg.In(discoverysource.ViewKnown))
+	}
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", "medium").Error; err != nil {
+		t.Fatal(err)
+	}
+	if cyg := all(t, db)[15111]; !cyg.Look() {
+		t.Error("a medium-confidence match took the source out of needs a look")
 	}
 }
 
@@ -470,10 +493,11 @@ func TestOnPostgres(t *testing.T) { //nolint:tparallel
 		"many":    checkGatheringManyCandidatesGivesEachItsOwnSource,
 		"join":    checkACandidateLinkingTwoSourcesJoinsThem,
 		"earlier": checkARangeCountsTheEarlierSourcesThatNeedALook,
+		"listed":  checkACatalogListedSourceIsKnown,
 	} {
 		t.Run(name, func(t *testing.T) {
 			db := pg.Session(&gorm.Session{NewDB: true})
-			if err := db.Migrator().DropTable(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}); err != nil {
+			if err := db.Migrator().DropTable(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}); err != nil {
 				t.Fatal(err)
 			}
 			check(t, prepare(t, db))

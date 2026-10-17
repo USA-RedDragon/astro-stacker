@@ -60,10 +60,15 @@ type Summary struct {
 	// and those that failed every time.
 	Checked []string
 	Failed  []string
+	// Listed is whether vetting found it with high confidence in a catalog
+	// of known objects.
+	Listed bool
 }
 
 // Look says whether a source is new and not vetted.
-func (s Summary) Look() bool { return discoveries.IsNew(s.Class) && s.Source.Vetting == "" }
+func (s Summary) Look() bool {
+	return discoveries.IsNew(s.Class) && s.Source.Vetting == "" && !s.Listed
+}
 
 // In says whether a source belongs to a view.
 func (s Summary) In(view string) bool {
@@ -72,7 +77,7 @@ func (s Summary) In(view string) bool {
 	case ViewLook:
 		return s.Look()
 	case ViewKnown:
-		return change && s.Source.Vetting == "" && strings.HasPrefix(s.Class, "known_")
+		return change && s.Source.Vetting == "" && (strings.HasPrefix(s.Class, "known_") || s.Listed)
 	case ViewMovers:
 		return !change
 	case ViewLow:
@@ -259,12 +264,19 @@ func summaries(db *gorm.DB, pick func(*gorm.DB) *gorm.DB) ([]Summary, error) {
 	if err != nil {
 		return nil, err
 	}
+	var listed []int
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id IN (?) AND suggested = ? AND confidence = ?",
+		pick(db.Model(&app.DiscoverySource{})).Select("id"), app.VetKnown, "high").Pluck("source_id", &listed).Error; err != nil {
+		return nil, err
+	}
 	out := make([]Summary, 0, len(sources))
 	for _, s := range sources {
 		if len(members[s.ID]) == 0 {
 			continue
 		}
-		out = append(out, summarize(s, members[s.ID], runs, compared[s.Object]))
+		sum := summarize(s, members[s.ID], runs, compared[s.Object])
+		sum.Listed = slices.Contains(listed, s.ID)
+		out = append(out, sum)
 	}
 	return out, nil
 }
