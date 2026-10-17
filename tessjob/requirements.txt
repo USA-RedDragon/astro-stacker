@@ -30,7 +30,7 @@ oauthlib==4.0.0
 packaging==26.3
 pandas==3.0.6
 pillow==12.3.0
-pycparser==3.0
+pycparser==3.11
 pycryptodome==3.24.1
 pyerfa==2.0.1.5
 pyparsing==3.3.3
