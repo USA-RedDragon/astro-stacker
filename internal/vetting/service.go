@@ -40,9 +40,12 @@ type Service struct {
 	Surveys *surveys.Fetcher
 	// PS1 lists Pan-STARRS sources and Alerts ZTF alert objects, for new
 	// light where no star was.
-	PS1     PS1
-	Alerts  Alerts
-	Threads int
+	PS1    PS1
+	Alerts Alerts
+	// ReadOnly leaves the field caches as they are: a preview pulls no
+	// survey fields.
+	ReadOnly bool
+	Threads  int
 	// WorkDir holds the own image checks' stamps on disk; empty keeps
 	// them in memory.
 	WorkDir string
@@ -346,7 +349,7 @@ func (s *Service) prepare(ctx context.Context, object string, dues []Due) (*obje
 	}
 	w := &objectWork{object: object, f: f, own: map[int]*ownimage.Result{}, tracks: map[int]*ownimage.TrackResult{}}
 	s.Report.Set(object+": pulling survey data", 0, 0, "")
-	if s.Surveys != nil {
+	if s.Surveys != nil && !s.ReadOnly {
 		if err := s.Surveys.PrefetchProgress(ctx, f, func(done, total int) {
 			s.Report.Set(object+": pulling survey data", int64(done), int64(total), "files")
 		}); err != nil {
@@ -423,6 +426,40 @@ func (s *Service) checkSource(ctx context.Context, w *objectWork, sum discoverys
 		rep.SourceID = id
 	}
 	return rep, err
+}
+
+// Preview vets the sources ids as a run would and hands each report to
+// each as it is ready, writing nothing to the database.
+func (s *Service) Preview(ctx context.Context, ids []int, each func(*Report) error) error {
+	list, err := summaries(ctx, s.App, nil, ids)
+	if err != nil {
+		return err
+	}
+	byObject := map[string][]Due{}
+	var objects []string
+	for _, sum := range list {
+		o := sum.Source.Object
+		if _, ok := byObject[o]; !ok {
+			objects = append(objects, o)
+		}
+		byObject[o] = append(byObject[o], Due{Summary: sum, Hash: hashOf(sum)})
+	}
+	for _, o := range objects {
+		w, err := s.prepare(ctx, o, byObject[o])
+		if err != nil {
+			return fmt.Errorf("%s: %w", o, err)
+		}
+		for _, d := range byObject[o] {
+			rep, err := s.checkSource(ctx, w, d.Summary)
+			if err != nil {
+				return fmt.Errorf("source %d: %w", d.Summary.Source.ID, err)
+			}
+			if err := each(rep); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Service) runs(ctx context.Context, ids map[int]bool) (map[int]app.DiscoveryRun, error) {
