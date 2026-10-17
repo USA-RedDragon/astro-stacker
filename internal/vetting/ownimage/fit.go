@@ -28,6 +28,8 @@ type starModel struct {
 	x, y float64
 	nbs  [][2]float64
 	self int
+	// g is the star's Gaia G, 0 for a spot with no star.
+	g float64
 }
 
 type fitOut struct {

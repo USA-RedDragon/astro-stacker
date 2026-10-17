@@ -62,6 +62,10 @@ type spotPlan struct {
 	recs     []*rec
 	stamps   *stamps
 	fadeSign int
+	// masters are each filter's master around a spot with no star, and
+	// mSigma their star widths.
+	masters map[string][]float32
+	mSigma  map[string]float64
 }
 
 func nightKey(t time.Time) string { return t.UTC().Format(dateLayout) }
@@ -246,6 +250,7 @@ func (f *field) model(i int) *starModel {
 		return m
 	}
 	m := f.modelAt(f.pl[i].x, f.pl[i].y, f.pl[i].G+nbDepth)
+	m.g = f.pl[i].G
 	f.models[i] = m
 	return m
 }
