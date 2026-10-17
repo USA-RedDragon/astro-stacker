@@ -47,14 +47,18 @@ func TestAnOldRunNoPassTakesIsRetired(t *testing.T) {
 	seedSubs(t, db, object, "SII", day(24))
 	next := r.now().Add(-time.Hour)
 	orphan := app.DiscoveryRun{Object: object, Night: day(28), Group: testNarrowband, Method: 3, State: app.DiscoverySkipped, Error: new("too few subs to compare"), Attempts: 1, NextTry: &next, Requested: true}
-	few := app.DiscoveryRun{Object: object, Night: day(24), Group: "SII", Method: 3, State: app.DiscoverySkipped}
+	few := app.DiscoveryRun{Object: object, Night: day(24), Group: "SII", Method: 3, State: app.DiscoverySkipped, SubsHash: "h:n1"}
 	kept := app.DiscoveryRun{Object: object, Night: day(19), Group: testNarrowband, Method: 3, State: app.DiscoveryDone}
-	for _, run := range []*app.DiscoveryRun{&orphan, &few, &kept} {
+	done := app.DiscoveryRun{Object: object, Night: day(20), Group: testNarrowband, Method: 3, State: app.DiscoveryDone}
+	stale := app.DiscoveryRun{Object: object, Night: day(21), Group: testNarrowband, Method: 3, State: app.DiscoveryRunning}
+	asked := app.DiscoveryRun{Object: object, Night: day(22), Group: testNarrowband, Method: 3, State: app.DiscoveryQueued, Requested: true}
+	for _, run := range []*app.DiscoveryRun{&orphan, &few, &kept, &done, &stale, &asked} {
 		if err := db.Create(run).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
 	ctx := context.Background()
+	db.Model(&app.DiscoveryRun{}).Where("id = ?", stale.ID).UpdateColumn("updated_at", r.now().Add(-time.Hour))
 	if _, err := r.due(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -63,11 +67,20 @@ func TestAnOldRunNoPassTakesIsRetired(t *testing.T) {
 	if got[0].Method != Method || got[0].State != app.DiscoverySkipped || got[0].Requested || *got[0].Error != noSubsReason {
 		t.Errorf("orphan run not retired: %+v", got[0])
 	}
-	if got[1].Method != Method || *got[1].Error != errNotEligible.Error() {
+	if got[1].Method != Method || *got[1].Error != errNotEligible.Error() || got[1].SubsHash != "" {
 		t.Errorf("run of a group with too few nights not retired: %+v", got[1])
 	}
 	if got[2].Method != 3 {
 		t.Errorf("a run a pass takes again was retired: %+v", got[2])
+	}
+	if got[3].Method != 3 || got[3].State != app.DiscoveryDone {
+		t.Errorf("a done run whose subs are away was retired, hiding its finds: %+v", got[3])
+	}
+	if got[4].Method != Method || got[4].State != app.DiscoverySkipped {
+		t.Errorf("a run left running by a dead runner was not retired: %+v", got[4])
+	}
+	if got[5].Method != 3 || got[5].State != app.DiscoveryQueued || !got[5].Requested {
+		t.Errorf("a queued request was retired before the requests took it: %+v", got[5])
 	}
 	r.Request(object, day(28), "")
 	var runs []app.DiscoveryRun

@@ -19,7 +19,7 @@ type Progress struct {
 	// GaveUp is the nights with a group that failed every attempt.
 	GaveUp int64
 	// Due is the unsettled nights the server's runner takes: within the
-	// backfill window or requested.
+	// backfill window, or requested and still queued.
 	Due int64
 	// RunningNights counts the distinct nights in Running.
 	RunningNights int64
@@ -48,10 +48,10 @@ func ReadProgress(ctx context.Context, db *gorm.DB, now, since time.Time) (Progr
 			bool_and(`+settled+`) AS ok,
 			bool_or(method < ?) AS old,
 			bool_or(state = ? AND attempts >= ?) AS gave_up,
-			bool_or(requested) AS requested
+			bool_or(requested AND state = ?) AS requested
 			FROM discovery_runs GROUP BY object, night) t`,
 		since, Method, app.DiscoveryDone, app.DiscoverySkipped, app.DiscoveryFailed, maxAttempts, now,
-		Method, app.DiscoveryFailed, maxAttempts).Row().Scan(&p.Nights, &p.Settled, &p.Old, &p.GaveUp, &p.Due)
+		Method, app.DiscoveryFailed, maxAttempts, app.DiscoveryQueued).Row().Scan(&p.Nights, &p.Settled, &p.Old, &p.GaveUp, &p.Due)
 	if err != nil {
 		return p, err
 	}
