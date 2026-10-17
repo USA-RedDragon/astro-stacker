@@ -388,6 +388,7 @@ func (p *Pipeline) reference(ctx context.Context, object string, sets []calmatch
 	err := p.db.WithContext(ctx).Where("object = ?", object).First(&tr).Error
 	if err == nil {
 		if _, err := os.Stat(local); err == nil {
+			touchCached(local)
 			return local, tr, nil
 		}
 		return local, tr, p.download(ctx, p.dest, tr.ObjectKey, local)

@@ -94,6 +94,8 @@ func (p *Pipeline) nightReference(ctx context.Context, stack *app.Stack, night s
 			if err := p.download(ctx, p.dest, nr.ObjectKey, local); err != nil {
 				return "", nr, err
 			}
+		} else {
+			touchCached(local)
 		}
 		p.solveNightReference(ctx, stack, &nr, local)
 		return local, nr, nil
