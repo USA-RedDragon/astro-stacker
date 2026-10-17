@@ -228,8 +228,10 @@ func (r *Runner) Request(object string, night time.Time, group string) {
 			return
 		}
 		groups = groups[:0]
-		for g := range byGroup(rows)[object] {
-			groups = append(groups, g)
+		for g, nights := range byGroup(rows)[object] {
+			if _, ok := nights[dateOnly(night)]; ok {
+				groups = append(groups, g)
+			}
 		}
 	}
 	night = dateOnly(night)
@@ -560,6 +562,9 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 	for _, run := range runs {
 		have[Job{Object: run.Object, Group: run.Group, Night: dateOnly(run.Night)}.key()] = run
 	}
+	if err := r.retireOrphans(ctx, groups, stored, runs); err != nil {
+		return nil, err
+	}
 	since := dateOnly(r.now()).AddDate(0, 0, -r.opts.BackfillDays)
 	settled, err := r.settled(ctx, since)
 	if err != nil {
@@ -608,6 +613,37 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 		asked[j.key()] = true
 	}
 	return append(req, slices.DeleteFunc(jobs, func(j Job) bool { return asked[j.key()] })...), nil
+}
+
+const noSubsReason = "no accepted subs in this filter group on this night"
+
+// retireOrphans stamps the current method on settled runs of an older
+// method that no pass would take again: their target, group and night has
+// no accepted subs, or the group too few nights, so the progress count
+// does not wait on them forever. Moving targets keep theirs.
+func (r *Runner) retireOrphans(ctx context.Context, groups map[string]map[string]groupNights, stored map[string]bodies.Target, runs []app.DiscoveryRun) error {
+	now := r.now()
+	for _, run := range runs {
+		if run.Method >= Method || !settledRun(run, now) {
+			continue
+		}
+		if _, own := bodies.OwnBody(stored, run.Object); own {
+			continue
+		}
+		reason := noSubsReason
+		nights := groups[run.Object][run.Group]
+		if _, ok := nights[dateOnly(run.Night)]; ok {
+			if len(nights) >= MinNights {
+				continue
+			}
+			reason = errNotEligible.Error()
+		}
+		if err := r.db.WithContext(ctx).Model(&app.DiscoveryRun{}).Where("id = ? AND method = ?", run.ID, run.Method).
+			Select("Method", "State", "Error", "Requested").Updates(&app.DiscoveryRun{Method: Method, State: app.DiscoverySkipped, Error: &reason}).Error; err != nil {
+			return fmt.Errorf("retire discovery run %d: %w", run.ID, err)
+		}
+	}
+	return nil
 }
 
 func (r *Runner) runOne(ctx context.Context, j Job) {
