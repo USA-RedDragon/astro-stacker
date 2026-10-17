@@ -32,6 +32,8 @@ const (
 	GroupMoving  = "moving"
 	// GroupMover holds a moving object's own checks along its track.
 	GroupMover = "mover"
+	// GroupTransient holds the checks of new light where no star was.
+	GroupTransient = "transient"
 )
 
 // Check IDs. The group a check belongs to is in Groups.
@@ -68,6 +70,12 @@ const (
 	MoverKnown  = "mover_known"
 	MoverMotion = "mover_motion"
 	MoverNights = "mover_nights"
+	TransFlux   = "trans_flux"
+	TransNights = "trans_nights"
+	TransBefore = "trans_before"
+	TransATLAS  = "trans_atlas"
+	TransZTF    = "trans_ztf"
+	TransHost   = "trans_host"
 )
 
 // Names are the row titles the panel shows for each check ID.
@@ -105,6 +113,12 @@ func Names() map[string]string {
 		MoverKnown:  "Known asteroid or comet",
 		MoverMotion: "Moves like the asteroids around it",
 		MoverNights: "Seen on other nights",
+		TransFlux:   "Your own brightness at the spot",
+		TransNights: "Rise and fade across nights",
+		TransBefore: "What was at the spot before",
+		TransATLAS:  "ATLAS on the same dates",
+		TransZTF:    "ZTF alerts on the same dates",
+		TransHost:   "Host galaxy",
 	}
 }
 

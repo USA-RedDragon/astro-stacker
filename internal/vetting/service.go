@@ -38,6 +38,10 @@ type Service struct {
 	Simbad  Simbad
 	Bodies  Bodies
 	Surveys *surveys.Fetcher
+	// PS1 lists Pan-STARRS sources and Alerts ZTF alert objects, for new
+	// light where no star was.
+	PS1     PS1
+	Alerts  Alerts
 	Threads int
 	// WorkDir holds the own image checks' stamps on disk; empty keeps
 	// them in memory.
@@ -537,6 +541,10 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	var ownChecks []check.Check
 	if own != nil {
 		flags, curve, ownChecks = own.Flags, own.Curve, own.Checks
+	}
+	if !st.found && isTransient(sum) {
+		s.vetTransient(ctx, f, sum, rep, own, ownChecks, known, s.movingCheck(ctx, sum, runs, surveys.Fetch{}), flags)
+		return rep, nil
 	}
 	artifact := flags.HotPixel || flags.RefContaminated || flags.Trail || flags.Edge
 	var fx fetches

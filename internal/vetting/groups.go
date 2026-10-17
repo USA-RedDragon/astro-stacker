@@ -15,12 +15,13 @@ import (
 
 func groupNames() map[string]string {
 	return map[string]string{
-		check.GroupImage:   "Image checks",
-		check.GroupOwn:     "Your own measurements",
-		check.GroupSurveys: "Survey history",
-		check.GroupCatalog: "Catalogs",
-		check.GroupMoving:  "Moving object check",
-		check.GroupMover:   "Moving object",
+		check.GroupImage:     "Image checks",
+		check.GroupOwn:       "Your own measurements",
+		check.GroupSurveys:   "Survey history",
+		check.GroupCatalog:   "Catalogs",
+		check.GroupMoving:    "Moving object check",
+		check.GroupMover:     "Moving object",
+		check.GroupTransient: "New light at the spot",
 	}
 }
 
