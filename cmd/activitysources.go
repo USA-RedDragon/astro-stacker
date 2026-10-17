@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/activity"
+	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -66,6 +67,7 @@ func jobWatches() []activity.Watch {
 // discoveries runner and observatory calibration inside it.
 type activitySources struct {
 	DB          *gorm.DB
+	Sched       *gorm.DB
 	S3          *minio.Client
 	Processed   string
 	Survey      string
@@ -117,7 +119,14 @@ func (a *activitySources) discoveries(ctx context.Context) ([]activity.Item, err
 		days = 30
 	}
 	since := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -days)
-	p, err := discoveries.ReadProgress(ctx, a.DB, now, since)
+	var stored map[string]bodies.Target
+	if a.Sched != nil {
+		var err error
+		if stored, err = bodies.TargetsByName(ctx, a.Sched); err != nil {
+			slog.Warn("Could not load the moving-body targets for the discoveries progress", "error", err)
+		}
+	}
+	p, err := discoveries.ReadProgress(ctx, a.DB, now, since, stored)
 	if err != nil {
 		return nil, err
 	}
@@ -154,9 +163,9 @@ func (a *activitySources) discoveries(ctx context.Context) ([]activity.Item, err
 	}
 	info := a.Jobs.Info(activity.KindDiscoveries)
 	unsettled := p.Nights - p.Settled - p.RunningNights
-	left := max(p.Due-p.RunningNights, 0)
+	left, settling := p.Due, p.Settling
 	if info.Running {
-		left = unsettled
+		left, settling = unsettled, 0
 	}
 	if left > 0 {
 		it.Queued = int(left)
@@ -168,7 +177,17 @@ func (a *activitySources) discoveries(ctx context.Context) ([]activity.Item, err
 	if p.GaveUp > 0 {
 		warn = append(warn, fmt.Sprintf("%d %s failed every attempt", p.GaveUp, plural(int(p.GaveUp), "night", "nights")))
 	}
-	if rest := unsettled - left; rest > 0 && !info.Running {
+	if settling > 0 {
+		warn = append(warn, fmt.Sprintf("%d %s for stacking to settle", settling, plural(int(settling), "night waits", "nights wait")))
+	}
+	noSubs := p.NoSubs
+	if info.Running {
+		noSubs = 0
+	}
+	if noSubs > 0 {
+		warn = append(warn, fmt.Sprintf("%d %s no accepted subs to compare", noSubs, plural(int(noSubs), "night has", "nights have")))
+	}
+	if rest := unsettled - left - settling - noSubs; rest > 0 && !info.Running {
 		warn = append(warn, fmt.Sprintf("%d older %s for an archive re-check", rest, plural(int(rest), "night waits", "nights wait")))
 	}
 	it.Warning = strings.Join(warn, "; ")

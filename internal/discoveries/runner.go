@@ -432,12 +432,18 @@ type subRow struct {
 	Exposure float64
 }
 
-func (r *Runner) subRows(ctx context.Context, object string) ([]subRow, error) {
-	q := r.db.WithContext(ctx).Table("stack_frames sf").
-		Select("s.object, s.filter, f.night, f.id AS frame_id, sf.registered_key AS key, sf.weight, f.date_obs, f.exposure").
+// acceptedSubs is the subs a comparison may use: added to a stack,
+// registered, weighted, with a night, a start and an exposure.
+func acceptedSubs(ctx context.Context, db *gorm.DB) *gorm.DB {
+	return db.WithContext(ctx).Table("stack_frames sf").
 		Joins("JOIN frames f ON f.id = sf.frame_id").
 		Joins("JOIN stacks s ON s.id = sf.stack_id").
 		Where("sf.status = ? AND sf.registered_key IS NOT NULL AND sf.weight > 0 AND f.night IS NOT NULL AND f.date_obs IS NOT NULL AND f.exposure > 0", app.StackStatusAdded)
+}
+
+func (r *Runner) subRows(ctx context.Context, object string) ([]subRow, error) {
+	q := acceptedSubs(ctx, r.db).
+		Select("s.object, s.filter, f.night, f.id AS frame_id, sf.registered_key AS key, sf.weight, f.date_obs, f.exposure")
 	if object != "" {
 		q = q.Where("s.object = ?", object)
 	}
@@ -491,18 +497,18 @@ type settleRow struct {
 	Processed *time.Time
 }
 
-// settled says which target nights are done: imaging ended two hours ago,
-// every light has a stacking verdict and none came in the last 20 minutes.
-func (r *Runner) settled(ctx context.Context, since time.Time) (map[string]bool, error) {
+// settledNights says which target nights from since on are done: imaging
+// ended two hours ago, every light has a stacking verdict and none came in
+// the last 20 minutes. A night with no lights is not in the map.
+func settledNights(ctx context.Context, db *gorm.DB, now, since time.Time) (map[string]bool, error) {
 	var rows []settleRow
-	if err := r.db.WithContext(ctx).Table("frames f").
+	if err := db.WithContext(ctx).Table("frames f").
 		Select("f.object, f.night, f.date_obs, sf.id AS stack_id, sf.processed_at AS processed").
 		Joins("LEFT JOIN stack_frames sf ON sf.frame_id = f.id").
 		Where("f.type = ? AND f.night >= ? AND f.object IS NOT NULL", "LIGHT", since).
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("check settled nights: %w", err)
 	}
-	now := r.now()
 	out := map[string]bool{}
 	for _, s := range rows {
 		k := s.Object + "\x00" + dateOnly(s.Night).Format(time.DateOnly)
@@ -566,7 +572,7 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 		return nil, err
 	}
 	since := dateOnly(r.now()).AddDate(0, 0, -r.opts.BackfillDays)
-	settled, err := r.settled(ctx, since)
+	settled, err := settledNights(ctx, r.db, r.now(), since)
 	if err != nil {
 		return nil, err
 	}

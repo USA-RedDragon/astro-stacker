@@ -17,7 +17,7 @@ import (
 
 // startActivity reads the outside work and sends the snapshot to the event
 // stream.
-func startActivity(ctx context.Context, reg *activity.Registry, cfg *config.Config, appStore store.Store, broker *events.Broker, backfill func() goals.BackfillLive,
+func startActivity(ctx context.Context, reg *activity.Registry, cfg *config.Config, appStore, schedStore store.Store, broker *events.Broker, backfill func() goals.BackfillLive,
 	discoveriesLive func() discoveries.Live, monitor *observatory.Monitor) {
 	jobs := &activity.Jobs{Watches: jobWatches()}
 	if k, err := activity.InCluster(); err == nil {
@@ -28,7 +28,7 @@ func startActivity(ctx context.Context, reg *activity.Registry, cfg *config.Conf
 	} else {
 		slog.Info("Batch Jobs not shown: no Kubernetes service account", "error", err)
 	}
-	src := &activitySources{DB: appStore.DB(), Jobs: jobs, Discoveries: discoveriesLive, Monitor: monitor,
+	src := &activitySources{DB: appStore.DB(), Sched: schedStore.DB(), Jobs: jobs, Discoveries: discoveriesLive, Monitor: monitor,
 		SmallBodies: cfg.Discoveries.SmallBodiesURL, Processed: cfg.S3.ProcessedBucket, BackfillDays: cfg.Discoveries.BackfillDays}
 	if cfg.Discover.CatalogMirror {
 		src.Survey = cfg.Discover.SurveyBucket

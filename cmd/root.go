@@ -287,7 +287,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 
 	extras.Activity = reg
-	startActivity(indexCtx, reg, cfg, appStore, broker, backfill, nights.live, monitor)
+	startActivity(indexCtx, reg, cfg, appStore, schedulerDBStore, broker, backfill, nights.live, monitor)
 
 	startMorningReport(indexCtx, cfg, appStore, schedulerDBStore, reg.Task(activity.KindMorning, "Morning report"))
 	startDiscoverySources(indexCtx, appStore, broker)
