@@ -54,6 +54,7 @@ type smallBodiesResponse struct {
 		V      *float64 `json:"v"`
 		DRA    *float64 `json:"dra"`
 		DDec   *float64 `json:"ddec"`
+		U      *int     `json:"u"`
 	} `json:"bodies"`
 }
 
@@ -137,7 +138,7 @@ func ParseSmallBodies(b []byte) ([]Body, error) {
 		if r.Kind == "planet" {
 			continue
 		}
-		bd := Body{Number: r.Number, Name: r.Name, Class: r.Class, RA: r.RA, Dec: r.Dec}
+		bd := Body{Number: r.Number, Name: r.Name, Class: r.Class, RA: r.RA, Dec: r.Dec, Kind: r.Kind, U: r.U}
 		if r.V != nil {
 			bd.V = *r.V
 		}
