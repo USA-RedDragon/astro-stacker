@@ -41,21 +41,27 @@ func seedLights(t *testing.T, db *gorm.DB, object string, night time.Time, proce
 
 // TestProgressCountsOnlyNightsARunnerTakes: a night still settling, an old
 // run of a moving target and a night with no accepted subs are not due, as
-// no pass takes them.
+// no pass takes them, and a run whose ZTF queries failed is due again once
+// its wait is over if its night still has subs to compare.
 func TestProgressCountsOnlyNightsARunnerTakes(t *testing.T) {
 	t.Parallel()
 	db := progressDB(t)
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	since := now.AddDate(0, 0, -30)
 	night := func(m time.Month, d int) time.Time { return time.Date(2026, m, d, 0, 0, 0, 0, time.UTC) }
-	const settling, comet, rejected, due = "Settling Field", "C/2025 R2 (SWAN)", "Rejected Field", "Due Field"
+	const settling, comet, recheck, waiting, gone, rejected, due = "Settling Field", "C/2025 R2 (SWAN)", "Recheck Field", "Waiting Field", "Gone Field", "Rejected Field", "Due Field"
 	seedLights(t, db, settling, night(10, 10), now.Add(-5*time.Minute), app.StackStatusAdded)
 	seedLights(t, db, comet, night(10, 11), now.Add(-48*time.Hour), app.StackStatusAdded)
 	seedLights(t, db, rejected, night(10, 12), now.Add(-48*time.Hour), "rejected")
+	seedSubs(t, db, recheck, broadbandClear, night(1, 5), night(1, 6), night(1, 7))
 	seedSubs(t, db, due, broadbandClear, night(10, 1), night(10, 2), night(10, 3))
+	past, later := now.Add(-time.Hour), now.Add(time.Hour)
 	runs := []app.DiscoveryRun{
 		{Object: settling, Night: night(10, 10), Group: GroupBroadband, Method: Method - 1, State: app.DiscoveryDone},
 		{Object: comet, Night: night(10, 11), Group: GroupBroadband, Method: Method - 1, State: app.DiscoveryDone},
+		{Object: recheck, Night: night(1, 5), Group: GroupBroadband, Method: Method, State: app.DiscoveryDone, Failed: catalogZTF, ZTFFailures: 1, NextTry: &past},
+		{Object: waiting, Night: night(1, 6), Group: GroupBroadband, Method: Method, State: app.DiscoveryDone, Failed: catalogZTF, ZTFFailures: 1, NextTry: &later},
+		{Object: gone, Night: night(1, 8), Group: GroupBroadband, Method: Method, State: app.DiscoveryDone, Failed: catalogZTF, ZTFFailures: 1, NextTry: &past},
 		{Object: rejected, Night: night(10, 12), Group: GroupBroadband, Method: Method - 1, State: app.DiscoveryDone},
 		{Object: due, Night: night(10, 1), Group: GroupBroadband, Method: Method - 1, State: app.DiscoveryDone},
 	}
@@ -66,7 +72,7 @@ func TestProgressCountsOnlyNightsARunnerTakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Nights != 4 || p.Settled != 1 || p.Old != 3 || p.Due != 1 || p.Settling != 1 || p.NoSubs != 1 {
-		t.Fatalf("progress %+v, want 4 nights, 1 settled, 3 old, 1 due, 1 settling and 1 with no subs", p)
+	if p.Nights != 7 || p.Settled != 3 || p.Old != 3 || p.Due != 2 || p.Settling != 1 || p.NoSubs != 1 {
+		t.Fatalf("progress %+v, want 7 nights, 3 settled, 3 old, 2 due, 1 settling and 1 with no subs", p)
 	}
 }

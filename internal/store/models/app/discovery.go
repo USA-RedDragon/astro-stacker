@@ -56,10 +56,14 @@ type DiscoveryRun struct {
 	// filters' own comparisons, each SNR in its filter's noise.
 	ChangeNullFilterFound int
 	ChangeNullFilterSNR   float64
-	Seconds               float64
-	StartedAt             *time.Time
-	FinishedAt            *time.Time
-	UpdatedAt             time.Time
+	// ZTFFailures counts the runs in a row of this night whose ZTF light
+	// curve queries failed; a done run with failures is redone after
+	// NextTry, until ZTF answers or too many runs failed.
+	ZTFFailures int `gorm:"not null;default:0"`
+	Seconds     float64
+	StartedAt   *time.Time
+	FinishedAt  *time.Time
+	UpdatedAt   time.Time
 }
 
 const (

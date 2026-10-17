@@ -246,7 +246,7 @@ func (r *Runner) Request(object string, night time.Time, group string) {
 		if len(found) > 0 {
 			run = found[0]
 		}
-		run.State, run.Requested, run.Attempts, run.NextTry = app.DiscoveryQueued, true, 0, nil
+		run.State, run.Requested, run.Attempts, run.NextTry, run.ZTFFailures = app.DiscoveryQueued, true, 0, nil, 0
 		if err := r.db.WithContext(ctx).Save(&run).Error; err != nil {
 			slog.Warn("Could not queue a discovery request", "object", object, "error", err)
 			return
@@ -561,7 +561,7 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 		}
 	}
 	var runs []app.DiscoveryRun
-	if err := r.db.WithContext(ctx).Select("id, object, night, filter_group, method, subs_hash, state, attempts, next_try, requested, updated_at").Find(&runs).Error; err != nil {
+	if err := r.db.WithContext(ctx).Select("id, object, night, filter_group, method, subs_hash, state, attempts, next_try, requested, failed, ztf_failures, updated_at").Find(&runs).Error; err != nil {
 		return nil, fmt.Errorf("load discovery runs: %w", err)
 	}
 	have := map[string]app.DiscoveryRun{}
@@ -587,11 +587,16 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 				continue
 			}
 			for night, subs := range nights {
-				if night.Before(since) || !settled[object+"\x00"+night.Format(time.DateOnly)] {
+				j := Job{Object: object, Group: g, Night: night, Since: now}
+				run, ok := have[j.key()]
+				recheck := ok && ztfRecheck(run, now)
+				if night.Before(since) && !recheck {
 					continue
 				}
-				j := Job{Object: object, Group: g, Night: night, Since: now}
-				if run, ok := have[j.key()]; ok {
+				if !night.Before(since) && !settled[object+"\x00"+night.Format(time.DateOnly)] {
+					continue
+				}
+				if ok && !recheck {
 					want := subsHash(subs)
 					if run.State == app.DiscoverySkipped {
 						want = skippedHash(want, len(nights))
@@ -730,6 +735,34 @@ func (r *Runner) runOne(ctx context.Context, j Job) {
 	}
 }
 
+const (
+	ztfRecheckAfter = failureBackoff
+	maxZTFRuns      = 3
+)
+
+// noteZTF counts a finished run whose ZTF light curve queries failed and
+// sets when it is redone, or clears the count once ZTF answered. A run
+// failed before the count was kept counts as one.
+func noteZTF(run *app.DiscoveryRun, failed []string, now time.Time) {
+	if !slices.Contains(failed, catalogZTF) {
+		run.ZTFFailures, run.NextTry = 0, nil
+		return
+	}
+	n := run.ZTFFailures
+	if n == 0 && slices.Contains(strings.Split(run.Failed, ","), catalogZTF) {
+		n = 1
+	}
+	next := now.Add(ztfRecheckAfter)
+	run.ZTFFailures, run.NextTry = n+1, &next
+}
+
+// ztfRecheck says whether a done run's ZTF queries failed and it is time
+// to redo it, so its changes are put to ZTF again.
+func ztfRecheck(run app.DiscoveryRun, now time.Time) bool {
+	return run.Method == Method && run.State == app.DiscoveryDone && run.ZTFFailures < maxZTFRuns &&
+		slices.Contains(strings.Split(run.Failed, ","), catalogZTF) && (run.NextTry == nil || !run.NextTry.After(now))
+}
+
 // skippedHash marks a skipped run's subs with the group's night count, so
 // the night is tried again once more nights could make its reference.
 func skippedHash(hash string, nights int) string {
@@ -786,6 +819,9 @@ func (r *Runner) startRun(ctx context.Context, j Job) (*app.DiscoveryRun, error)
 		}
 	}
 	now := r.now()
+	if run.Method != Method {
+		run.ZTFFailures, run.Failed = 0, ""
+	}
 	run.State, run.Stage, run.Method, run.StartedAt, run.Error = app.DiscoveryRunning, "starting", Method, &now, nil
 	run.Requested = run.Requested || j.Requested
 	if err := r.db.WithContext(ctx).Save(&run).Error; err != nil {
@@ -1387,7 +1423,8 @@ func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, in saveInput) 
 	}
 	now := r.now()
 	mid := res.MidTime
-	run.State, run.Stage, run.Error, run.Attempts, run.NextTry = app.DiscoveryDone, "", nil, 0, nil
+	run.State, run.Stage, run.Error, run.Attempts = app.DiscoveryDone, "", nil, 0
+	noteZTF(run, in.failed, now)
 	run.Filters = strings.Join(res.Filters, ",")
 	run.NightSubs, run.RefSubs, run.RefNights = res.NightSubs, res.RefSubs, res.RefNights
 	run.HFRNight, run.HFRRef, run.Convolved, run.ApSigma = res.HFRNight, res.HFRRef, res.Convolved, res.ApSigma

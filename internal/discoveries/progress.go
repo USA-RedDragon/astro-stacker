@@ -22,7 +22,7 @@ type Progress struct {
 	GaveUp int64
 	// Due is the unsettled nights the server's runner takes now and no
 	// runner holds: within the backfill window once their stacking settled,
-	// or requested and still queued.
+	// requested and still queued, or waiting to ask ZTF again.
 	Due int64
 	// Settling is the unsettled nights within the backfill window that wait
 	// for their imaging and stacking to settle.
@@ -84,7 +84,8 @@ func (pr *progressRules) note(n *nightState, run app.DiscoveryRun, key string) (
 		return live
 	}
 	eligible := pr.eligible(run)
-	if run.Method == Method && settledRun(run, pr.now) {
+	recheck := ztfRecheck(run, pr.now) && eligible
+	if run.Method == Method && settledRun(run, pr.now) && !recheck {
 		return live
 	}
 	n.ok = false
@@ -96,7 +97,7 @@ func (pr *progressRules) note(n *nightState, run app.DiscoveryRun, key string) (
 	case mover:
 	case !eligible:
 		n.noSubs = true
-	case inWindow && pr.settled[key]:
+	case (recheck && !inWindow) || (inWindow && pr.settled[key]):
 		n.due = true
 	}
 	return live
@@ -134,8 +135,8 @@ func (p *Progress) tally(n *nightState, settled map[string]bool, key string) {
 func ReadProgress(ctx context.Context, db *gorm.DB, now, since time.Time, stored map[string]bodies.Target) (Progress, error) {
 	var p Progress
 	var runs []app.DiscoveryRun
-	if err := db.WithContext(ctx).Select("object", "night", "filter_group", "method", "state", "stage", "attempts", "next_try", "requested",
-		"updated_at").Order("updated_at DESC").Find(&runs).Error; err != nil {
+	if err := db.WithContext(ctx).Select("object", "night", "filter_group", "method", "state", "stage", "attempts", "next_try", "requested", "failed",
+		"ztf_failures", "updated_at").Order("updated_at DESC").Find(&runs).Error; err != nil {
 		return p, err
 	}
 	settled, err := settledNights(ctx, db, now, since)
