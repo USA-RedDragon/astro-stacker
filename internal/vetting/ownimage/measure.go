@@ -143,7 +143,7 @@ func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits 
 			}
 		}
 	}
-	if sp.night[si] || sp.ref[si] {
+	if sp.night[si] || sp.ref[si] || sp.star == nil {
 		bg, _ := annulus(p, sp.x, sp.y)
 		st := make([]float32, stampSide*stampSide)
 		for j := range stampSide {

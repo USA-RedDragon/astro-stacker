@@ -61,6 +61,9 @@ func measure(ctx context.Context, d Data, object string, spots []Spot, opts Opti
 	if err := stream(ctx, d, subs, plans, opts.Threads, opts.Progress); err != nil {
 		return nil, err
 	}
+	if err := bareMasters(ctx, d, object, subs, plans); err != nil {
+		return nil, err
+	}
 	evs := make([]*spotEval, len(plans))
 	need := map[darkPos]bool{}
 	for i, sp := range plans {
@@ -91,6 +94,7 @@ type spotEval struct {
 	ncs   []*nightChange
 	darks []darkPos
 	curve *Curve
+	flux  *FluxCurve
 }
 
 func prepare(ctx context.Context, subs []Sub, sp *spotPlan, need map[darkPos]bool) *spotEval {
@@ -102,6 +106,9 @@ func prepare(ctx context.Context, subs []Sub, sp *spotPlan, need map[darkPos]boo
 	if sp.star != nil && len(ev.e.kept) >= minPresent {
 		ev.curve = buildCurve(subs, sp, ev.e)
 		summarize(ev.curve, sp)
+	}
+	if sp.star == nil && len(ev.e.kept) >= minPresent {
+		ev.flux = buildFluxCurve(subs, sp, ev.e)
 	}
 	var evals []refEval
 	ev.ref, evals = refClean(ctx, subs, sp, ev.e, sp.star != nil && !ownChanged(sp, ev.curve))
@@ -140,7 +147,7 @@ func finish(ctx context.Context, d Data, subs []Sub, ev *spotEval, levels map[da
 		}
 	}
 	e, c := ev.e, ev.curve
-	res.Curve = c
+	res.Curve, res.Flux = c, ev.flux
 	res.Checks = append(res.Checks, hotPixel(ev.ncs, z, zok), ev.ref, trail(subs, sp, e, ev.ncs), psf(ctx, d, sp, e), edge(sp))
 	if sp.star == nil {
 		for _, id := range []string{check.OwnLC, check.OwnChange, check.OwnQuiet} {

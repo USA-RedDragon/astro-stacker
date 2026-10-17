@@ -146,6 +146,8 @@ type Result struct {
 	Checks   []check.Check `json:"checks"`
 	Flags    Flags         `json:"flags"`
 	Curve    *Curve        `json:"curve,omitempty"`
+	// Flux is the light at a spot with no catalogued star.
+	Flux *FluxCurve `json:"flux,omitempty"`
 }
 
 // Options bound the work.
