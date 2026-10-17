@@ -34,8 +34,6 @@ GAIA_ROW_CAP = 50000
 SOCKET_TIMEOUT = 600
 PROGRESS_SECONDS = 300
 OFF_FRAME = -(10 ** 6)
-EPSF_BATCH = 256
-_FORK = None
 
 
 class Permanent(Exception):
@@ -59,14 +57,6 @@ class Clock:
             raise OutOfTime("time budget used")
 
 
-def _fit_cadence(j):
-    from threadpoolctl import threadpool_limits
-
-    fit, a, kw = _FORK
-    with threadpool_limits(1):
-        return fit(*a, time=j, **kw)
-
-
 def _ids(source):
     return [str(d).split()[-1] for d in source.gaia["DESIGNATION"]]
 
@@ -75,15 +65,11 @@ class Guards:
     """Wraps tglc's per-cadence and per-star fits to check the clock, count light curves and skip stars.
 
     While inside is (margin, size), stars closer than margin pixels to the cutout edge are skipped too.
-    With workers above 1, the per-cadence ePSF fits run EPSF_BATCH cadences at a time in forked workers.
     """
 
-    def __init__(self, clock, log, workers=1):
+    def __init__(self, clock, log):
         self.clock = clock
         self.log = log
-        self.workers = workers
-        self.fits = {}
-        self.fits_for = None
         self.skip = set()
         self.inside = None
         self.fitted = 0
@@ -94,15 +80,7 @@ class Guards:
 
         def guarded_fit_psf(*a, **kw):
             self.clock.check()
-            j = kw.get("time")
-            if self.workers <= 1 or j is None or len(a) < 2:
-                return fit_psf(*a, **kw)
-            key = (id(a[0]), id(a[1]))
-            if key != self.fits_for:
-                self.fits, self.fits_for = {}, key
-            if j not in self.fits:
-                self.fits = self._fit_batch(fit_psf, a, kw, j)
-            return self.fits.pop(j)
+            return fit_psf(*a, **kw)
 
         def guarded_fit_lc(*a, **kw):
             self.clock.check()
@@ -129,23 +107,6 @@ class Guards:
             return A, star_info, over_size, np.where(hide, OFF_FRAME, x_round), y_round
 
         tl.fit_psf, tl.fit_lc, tl.get_psf = guarded_fit_psf, guarded_fit_lc, guarded_get_psf
-
-
-    def _fit_batch(self, fit_psf, a, kw, j):
-        global _FORK
-        import multiprocessing
-
-        import numpy as np
-
-        times = np.asarray(a[1].time)
-        todo = [j] + [k for k in range(j + 1, min(len(times), j + EPSF_BATCH)) if np.isfinite(times[k])]
-        _FORK = (fit_psf, a, {k: v for k, v in kw.items() if k != "time"})
-        try:
-            with multiprocessing.get_context("fork").Pool(self.workers) as pool:
-                rows = pool.map(_fit_cadence, todo, chunksize=max(1, len(todo) // (self.workers * 4)))
-        finally:
-            _FORK = None
-        return dict(zip(todo, rows))
 
 
 class _Lines:
@@ -240,7 +201,7 @@ def run(spec: dict, clock: Clock | None = None) -> dict:
         print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), msg, flush=True)
 
     clock = clock or Clock(spec.get("deadline"))
-    guards = Guards(clock, log, workers=int(spec.get("workers") or 1))
+    guards = Guards(clock, log)
     guards.install(tl)
     t0 = time.time()
     result = {"lcs": {}, "errors": {}, "epsf": None, "timings": {}, "stopped": False,
