@@ -555,7 +555,7 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 		}
 	}
 	var runs []app.DiscoveryRun
-	if err := r.db.WithContext(ctx).Select("id, object, night, filter_group, method, subs_hash, state, attempts, next_try").Find(&runs).Error; err != nil {
+	if err := r.db.WithContext(ctx).Select("id, object, night, filter_group, method, subs_hash, state, attempts, next_try, requested, updated_at").Find(&runs).Error; err != nil {
 		return nil, fmt.Errorf("load discovery runs: %w", err)
 	}
 	have := map[string]app.DiscoveryRun{}
@@ -617,14 +617,16 @@ func (r *Runner) due(ctx context.Context) ([]Job, error) {
 
 const noSubsReason = "no accepted subs in this filter group on this night"
 
-// retireOrphans stamps the current method on settled runs of an older
-// method that no pass would take again: their target, group and night has
-// no accepted subs, or the group too few nights, so the progress count
-// does not wait on them forever. Moving targets keep theirs.
+// retireOrphans stamps the current method on runs of an older method that
+// no pass would take again: their target, group and night has no accepted
+// subs, or the group too few nights, so the progress count does not wait on
+// them forever. A done run keeps its finds, as its subs may only be away
+// for a restack; a requested run still queued is left to the requests;
+// moving targets keep theirs.
 func (r *Runner) retireOrphans(ctx context.Context, groups map[string]map[string]groupNights, stored map[string]bodies.Target, runs []app.DiscoveryRun) error {
 	now := r.now()
 	for _, run := range runs {
-		if run.Method >= Method || !settledRun(run, now) {
+		if run.Method >= Method || !retirable(run, now) {
 			continue
 		}
 		if _, own := bodies.OwnBody(stored, run.Object); own {
@@ -638,12 +640,26 @@ func (r *Runner) retireOrphans(ctx context.Context, groups map[string]map[string
 			}
 			reason = errNotEligible.Error()
 		}
-		if err := r.db.WithContext(ctx).Model(&app.DiscoveryRun{}).Where("id = ? AND method = ?", run.ID, run.Method).
-			Select("Method", "State", "Error", "Requested").Updates(&app.DiscoveryRun{Method: Method, State: app.DiscoverySkipped, Error: &reason}).Error; err != nil {
+		if err := r.db.WithContext(ctx).Model(&app.DiscoveryRun{}).
+			Where("id = ? AND method = ? AND state = ? AND requested = ?", run.ID, run.Method, run.State, run.Requested).
+			Select("Method", "State", "Error", "Requested", "SubsHash").
+			Updates(&app.DiscoveryRun{Method: Method, State: app.DiscoverySkipped, Error: &reason}).Error; err != nil {
 			return fmt.Errorf("retire discovery run %d: %w", run.ID, err)
 		}
 	}
 	return nil
+}
+
+func retirable(run app.DiscoveryRun, now time.Time) bool {
+	switch run.State {
+	case app.DiscoverySkipped, app.DiscoveryFailed:
+		return true
+	case app.DiscoveryQueued:
+		return !run.Requested
+	case app.DiscoveryRunning:
+		return now.Sub(run.UpdatedAt) >= claimFor
+	}
+	return false
 }
 
 func (r *Runner) runOne(ctx context.Context, j Job) {
