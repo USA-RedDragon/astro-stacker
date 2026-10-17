@@ -357,6 +357,11 @@ type Body struct {
 	// DRA (RA·cos Dec) and DDec in arcsec per hour.
 	DRA  float64 `json:"dra"`
 	DDec float64 `json:"ddec"`
+	// Kind is "asteroid" or "comet" when the local service says.
+	Kind string `json:"kind,omitempty"`
+	// U is the orbit's uncertainty parameter, 0 for a well known orbit to
+	// 9 for a barely known one, when the local service gives it.
+	U *int `json:"u,omitempty"`
 }
 
 // At is the body's position dt from the epoch, moving at its rates.
