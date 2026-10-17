@@ -274,56 +274,17 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 		}
 		return 0, len(dues)
 	}
-	f, _, err := s.field(ctx, object)
+	w, err := s.prepare(ctx, object, dues)
 	if err != nil {
 		return fail(err)
 	}
-	s.Report.Set(object+": pulling survey data", 0, 0, "")
-	if s.Surveys != nil {
-		if err := s.Surveys.PrefetchProgress(ctx, f, func(done, total int) {
-			s.Report.Set(object+": pulling survey data", int64(done), int64(total), "files")
-		}); err != nil {
-			slog.Warn("Could not pull the field's survey data; reading per star", "object", object, "error", err)
-		}
-	}
-	var cands []app.DiscoveryCandidate
-	if err := s.App.WithContext(ctx).Where("source_id IN ?", ids).Find(&cands).Error; err != nil {
-		return fail(err)
-	}
-	byID := map[int][]app.DiscoveryCandidate{}
-	runIDs := map[int]bool{}
-	for _, c := range cands {
-		byID[*c.SourceID] = append(byID[*c.SourceID], c)
-		runIDs[c.RunID] = true
-	}
-	runs, err := s.runs(ctx, runIDs)
-	if err != nil {
-		return fail(err)
-	}
-	spots := make([]ownimage.Spot, 0, len(dues))
-	for _, d := range dues {
-		spots = append(spots, spotOf(d.Summary, byID[d.Summary.Source.ID], runs, s.now()))
-	}
-	pulled := s.Mem.Step()
-	slog.Info("Vetting a target", "object", object, "sources", len(dues))
-	own, err := ownimage.Measure(ctx, s.Data, object, spots, ownimage.Options{Threads: s.threads(), WorkDir: s.WorkDir, Progress: func(done, total int) {
-		s.Report.Set(object+": reading our own subs", int64(done), int64(total), "subs")
-	}})
-	if err != nil {
-		slog.Warn("Own image checks failed", "object", object, "error", err)
-	}
-	ownBy := map[int]*ownimage.Result{}
-	for i := range own {
-		ownBy[own[i].SourceID] = &own[i]
-	}
-	measured := s.Mem.Step()
 	done, failed := 0, 0
 	defer func() {
 		if s.Mem != nil {
 			checked := s.Mem.Step()
 			slog.Info("Target vetted", "object", object, "done", done, "failed", failed,
-				"pull_rss_mib", memwatch.MiB(pulled.RSS), "pull_live_mib", memwatch.MiB(pulled.Live),
-				"own_images_rss_mib", memwatch.MiB(measured.RSS), "own_images_live_mib", memwatch.MiB(measured.Live),
+				"pull_rss_mib", memwatch.MiB(w.pulled.RSS), "pull_live_mib", memwatch.MiB(w.pulled.Live),
+				"own_images_rss_mib", memwatch.MiB(w.measured.RSS), "own_images_live_mib", memwatch.MiB(w.measured.Live),
 				"sources_rss_mib", memwatch.MiB(checked.RSS), "sources_live_mib", memwatch.MiB(checked.Live))
 		}
 	}()
@@ -344,10 +305,7 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 			return done, failed
 		}
 		id := d.Summary.Source.ID
-		rep, err := s.vetSource(ctx, f, d.Summary, runs, ownBy[id])
-		if rep != nil {
-			rep.SourceID = id
-		}
+		rep, err := s.checkSource(ctx, w, d.Summary)
 		if err != nil {
 			failed++
 			slog.Warn("Vetting failed", "source", id, "error", err)
@@ -359,6 +317,108 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 		}
 	}
 	return done, failed
+}
+
+// objectWork is what one target's sources are checked from: their
+// candidates, runs and own image measurements.
+type objectWork struct {
+	object   string
+	f        surveys.Field
+	byID     map[int][]app.DiscoveryCandidate
+	runs     map[int]app.DiscoveryRun
+	own      map[int]*ownimage.Result
+	tracks   map[int]*ownimage.TrackResult
+	pulled   memwatch.Peaks
+	measured memwatch.Peaks
+}
+
+// prepare pulls the target's survey data and measures its sources in
+// its own subs: changes at their spots, moving objects along their
+// tracks.
+func (s *Service) prepare(ctx context.Context, object string, dues []Due) (*objectWork, error) {
+	f, _, err := s.field(ctx, object)
+	if err != nil {
+		return nil, err
+	}
+	w := &objectWork{object: object, f: f, own: map[int]*ownimage.Result{}, tracks: map[int]*ownimage.TrackResult{}}
+	s.Report.Set(object+": pulling survey data", 0, 0, "")
+	if s.Surveys != nil {
+		if err := s.Surveys.PrefetchProgress(ctx, f, func(done, total int) {
+			s.Report.Set(object+": pulling survey data", int64(done), int64(total), "files")
+		}); err != nil {
+			slog.Warn("Could not pull the field's survey data; reading per star", "object", object, "error", err)
+		}
+	}
+	ids := make([]int, len(dues))
+	for i, d := range dues {
+		ids[i] = d.Summary.Source.ID
+	}
+	var cands []app.DiscoveryCandidate
+	if err := s.App.WithContext(ctx).Where("source_id IN ?", ids).Find(&cands).Error; err != nil {
+		return nil, err
+	}
+	w.byID = map[int][]app.DiscoveryCandidate{}
+	runIDs := map[int]bool{}
+	for _, c := range cands {
+		w.byID[*c.SourceID] = append(w.byID[*c.SourceID], c)
+		runIDs[c.RunID] = true
+	}
+	if w.runs, err = s.runs(ctx, runIDs); err != nil {
+		return nil, err
+	}
+	spots := make([]ownimage.Spot, 0, len(dues))
+	var tracks []ownimage.TrackSpot
+	for _, d := range dues {
+		if d.Summary.Source.Kind == kindMover {
+			if t, ok := trackSpotOf(d.Summary.Source.ID, w.byID[d.Summary.Source.ID]); ok {
+				tracks = append(tracks, t)
+			}
+			continue
+		}
+		spots = append(spots, spotOf(d.Summary, w.byID[d.Summary.Source.ID], w.runs, s.now()))
+	}
+	w.pulled = s.Mem.Step()
+	slog.Info("Vetting a target", "object", object, "sources", len(dues), "moving", len(tracks))
+	if len(spots) > 0 {
+		own, err := ownimage.Measure(ctx, s.Data, object, spots, ownimage.Options{Threads: s.threads(), WorkDir: s.WorkDir, Progress: func(done, total int) {
+			s.Report.Set(object+": reading our own subs", int64(done), int64(total), "subs")
+		}})
+		if err != nil {
+			slog.Warn("Own image checks failed", "object", object, "error", err)
+		}
+		for i := range own {
+			w.own[own[i].SourceID] = &own[i]
+		}
+	}
+	if len(tracks) > 0 {
+		res, err := ownimage.MeasureTracks(ctx, s.Data, object, tracks, ownimage.Options{Threads: s.threads(), Progress: func(done, total int) {
+			s.Report.Set(object+": reading the frames along moving objects", int64(done), int64(total), "images")
+		}})
+		if err != nil {
+			slog.Warn("Moving object image checks failed", "object", object, "error", err)
+		}
+		for i := range res {
+			w.tracks[res[i].SourceID] = &res[i]
+		}
+	}
+	w.measured = s.Mem.Step()
+	return w, nil
+}
+
+// checkSource vets one source of a prepared target.
+func (s *Service) checkSource(ctx context.Context, w *objectWork, sum discoverysource.Summary) (*Report, error) {
+	id := sum.Source.ID
+	var rep *Report
+	var err error
+	if sum.Source.Kind == kindMover {
+		rep = s.vetMover(ctx, sum, w.byID[id], w.runs, w.tracks[id])
+	} else {
+		rep, err = s.vetSource(ctx, w.f, sum, w.runs, w.own[id])
+	}
+	if rep != nil {
+		rep.SourceID = id
+	}
+	return rep, err
 }
 
 func (s *Service) runs(ctx context.Context, ids map[int]bool) (map[int]app.DiscoveryRun, error) {

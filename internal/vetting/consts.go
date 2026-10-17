@@ -13,4 +13,11 @@ const (
 	colUpdatedAt = "updated_at"
 	colState     = "state"
 	aVariable    = "a variable star"
+	unitHours    = "hours"
+	unitMag      = "mag"
+	labelMag     = "Magnitude"
+	kindComet    = "comet"
+	kindPlanet   = "planet"
+	sayNotStar   = "Artifact: not shaped like a star"
+	sayNotSure   = "Not sure"
 )
