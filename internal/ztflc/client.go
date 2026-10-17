@@ -27,6 +27,20 @@ const (
 	maxBody        = 64 << 20
 )
 
+// StatusError is an answer other than 200 OK.
+type StatusError struct {
+	Code   int
+	Status string
+}
+
+func (e *StatusError) Error() string { return "ztf light curves: " + e.Status }
+
+// Retryable says whether the same query may be answered later: a server
+// error or a request to slow down, not a refused query.
+func (e *StatusError) Retryable() bool {
+	return e.Code >= http.StatusInternalServerError || e.Code == http.StatusTooManyRequests || e.Code == http.StatusRequestTimeout
+}
+
 // Client queries the IRSA ZTF light curve API.
 type Client struct {
 	// BaseURL overrides DefaultURL.
@@ -72,7 +86,7 @@ func (c *Client) Fetch(ctx context.Context, ra, dec float64) ([]Point, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ztf light curves: %s", resp.Status)
+		return nil, &StatusError{Code: resp.StatusCode, Status: resp.Status}
 	}
 	pts, err := Parse(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
