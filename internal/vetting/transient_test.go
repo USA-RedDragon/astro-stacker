@@ -1,0 +1,161 @@
+package vetting
+
+import (
+	"math"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/surveys"
+)
+
+const (
+	novaNight = "2026-07-19"
+	lum       = "Luminance"
+)
+
+func fluxNight(night string, flux float64, flagged bool) ownimage.FluxNight {
+	const err = 40.0
+	zp := 25.0
+	n := ownimage.FluxNight{Night: night, Filter: lum, N: 10, Flux: flux, Err: err, Flagged: flagged, Limit: zp - 2.5*math.Log10(3*err)}
+	if flux >= 3*err {
+		n.Mag = zp - 2.5*math.Log10(flux)
+	}
+	return n
+}
+
+func novaCurve(earlier float64) *ownimage.FluxCurve {
+	peakFlux := math.Pow(10, -0.4*(17.0-25))
+	return &ownimage.FluxCurve{Comps: 9, Zero: map[string]float64{lum: 25}, Nights: []ownimage.FluxNight{
+		fluxNight("2026-07-10", earlier, false),
+		fluxNight("2026-07-14", earlier, false),
+		fluxNight(novaNight, peakFlux, true),
+		fluxNight("2026-07-22", peakFlux*math.Pow(10, -0.4*0.6), false),
+	}}
+}
+
+func TestOwnLightAtTheSpot(t *testing.T) {
+	t.Parallel()
+	fc := novaCurve(0)
+	c := fluxCheck(fc)
+	if c.Status != check.Pass || !strings.Contains(c.Evidence, "magnitude 17.0 in Luminance") {
+		t.Errorf("flux: %s %s", c.Status, c.Evidence)
+	}
+	c = nightsCheckTransient(fc)
+	if c.Status != check.Pass || !strings.Contains(c.Evidence, "nothing on 2026-07-14") || !strings.Contains(c.Evidence, "faded 0.6 mag") {
+		t.Errorf("nights: %s %s", c.Status, c.Evidence)
+	}
+	c = nightsCheckTransient(novaCurve(math.Pow(10, -0.4*(17.1-25))))
+	if c.Status != check.Fail {
+		t.Errorf("already there before: %s %s", c.Status, c.Evidence)
+	}
+	dark := &ownimage.FluxCurve{Comps: 9, Zero: map[string]float64{lum: 25}, Nights: []ownimage.FluxNight{fluxNight(novaNight, 20, true)}}
+	if c := fluxCheck(dark); c.Status != check.Fail || !strings.Contains(c.Evidence, "no new light") {
+		t.Errorf("no light: %s %s", c.Status, c.Evidence)
+	}
+}
+
+func TestQuiescentCounterpartSetsTheAmplitude(t *testing.T) {
+	t.Parallel()
+	fx := transientFacts{flux: novaCurve(0)}
+	c := beforeCheck(fx)
+	if c.Status != check.Pass || !strings.Contains(c.Evidence, "rose at least 5.0 mag") {
+		t.Errorf("nothing there: %s %s", c.Status, c.Evidence)
+	}
+	fx.ps1Objs = []PS1Object{{R: 21.3, G: 21.8, SepArcsec: 0.4}}
+	if c := beforeCheck(fx); c.Status != check.Pass || !strings.Contains(c.Evidence, "4.3 mag brighter") {
+		t.Errorf("faint source: %s %s", c.Status, c.Evidence)
+	}
+	fx.gaia = []counterpart{{g: 17.2, sep: 0.3}}
+	if c := beforeCheck(fx); c.Status != check.Fail {
+		t.Errorf("a star as bright: %s %s", c.Status, c.Evidence)
+	}
+}
+
+func atlasRows(nightFlux float64) []surveys.ATLASRow {
+	rows := make([]surveys.ATLASRow, 0, 120)
+	start := mjdOf(time.Date(2026, 5, 1, 6, 0, 0, 0, time.UTC))
+	for d := range 120 {
+		mjd := start + float64(d)
+		flux := 3 * math.Sin(float64(d))
+		if math.Abs(mjd-mjdOf(nightDate(novaNight).Add(nightMid))) < 0.6 {
+			flux = nightFlux
+		}
+		rows = append(rows, surveys.ATLASRow{MJD: mjd, UJy: flux, DUJy: 15, Filter: "o", Obs: "01a59123o0123o"})
+	}
+	return rows
+}
+
+func TestATLASConfirmsOrContradicts(t *testing.T) {
+	t.Parallel()
+	night := []time.Time{nightDate(novaNight)}
+	peakUJy := math.Pow(10, -0.4*(17.0-atlasZero))
+	fx := transientFacts{flux: novaCurve(0), flagged: night, atlas: surveys.Fetch{State: surveys.Done}, rows: atlasRows(peakUJy)}
+	if c := atlasCheckTransient(fx); c.Status != check.Pass || !strings.Contains(c.Evidence, "magnitude 17.0 in its orange band") {
+		t.Errorf("ATLAS saw it: %s %s", c.Status, c.Evidence)
+	}
+	fx.rows = atlasRows(1)
+	if c := atlasCheckTransient(fx); c.Status != check.Fail {
+		t.Errorf("ATLAS saw nothing: %s %s", c.Status, c.Evidence)
+	}
+	fx.atlas = surveys.Fetch{State: surveys.Pending}
+	if c := atlasCheckTransient(fx); c.Status != check.NotRun || !strings.Contains(c.Evidence, "queued") {
+		t.Errorf("pending: %s %s", c.Status, c.Evidence)
+	}
+}
+
+func TestZTFAlerts(t *testing.T) {
+	t.Parallel()
+	night := []time.Time{nightDate(novaNight)}
+	at := mjdOf(nightDate(novaNight).Add(nightMid))
+	fx := transientFacts{flagged: night, ztfAsked: true, ztf: []ZTFObject{{OID: "ZTF26aaaaaaa", SepArcsec: 0.5, Detections: []ZTFDetection{{MJD: at + 1, Band: "r", Mag: 17.4, Positive: true}}}}}
+	if c := ztfCheckTransient(fx); c.Status != check.Pass || !strings.Contains(c.Evidence, "magnitude 17.4 in r") {
+		t.Errorf("alerted: %s %s", c.Status, c.Evidence)
+	}
+	fx.ztf[0].Detections[0].MJD = at - 400
+	if c := ztfCheckTransient(fx); c.Status != check.Fail {
+		t.Errorf("alerted long before: %s %s", c.Status, c.Evidence)
+	}
+	fx.ztf = nil
+	if c := ztfCheckTransient(fx); c.Status != check.NotRun {
+		t.Errorf("no alert: %s %s", c.Status, c.Evidence)
+	}
+}
+
+func transientGroups(statuses map[string]check.Status) []Group {
+	ids := []string{check.TransFlux, check.TransNights, check.TransBefore, check.TransATLAS, check.TransZTF, check.TransHost}
+	cs := make([]check.Check, 0, len(ids))
+	for _, id := range ids {
+		st, ok := statuses[id]
+		if !ok {
+			st = check.NotRun
+		}
+		cs = append(cs, check.New(id, st, id+" evidence."))
+	}
+	return []Group{{ID: check.GroupTransient, Checks: cs}}
+}
+
+func TestTransientSuggestions(t *testing.T) {
+	t.Parallel()
+	nova := transientFacts{class: discoveries.ClassNova}
+	s := transientSuggest(transientGroups(map[string]check.Status{check.TransFlux: check.Pass, check.TransATLAS: check.Pass}), nova)
+	if s.State != app.VetReal || s.Confidence != High || s.Say != "Looks like a nova, seen by a survey too" {
+		t.Errorf("confirmed: %+v", s)
+	}
+	s = transientSuggest(transientGroups(map[string]check.Status{check.TransFlux: check.Pass, check.TransNights: check.Pass, check.TransBefore: check.Pass}), nova)
+	if s.State != app.VetReal || s.Confidence != Medium {
+		t.Errorf("own nights only: %+v", s)
+	}
+	s = transientSuggest(transientGroups(map[string]check.Status{check.TransFlux: check.Pass, check.TransATLAS: check.Fail}), nova)
+	if s.State != app.VetArtifact {
+		t.Errorf("ATLAS saw nothing: %+v", s)
+	}
+	s = transientSuggest(transientGroups(map[string]check.Status{check.TransFlux: check.Pass}), transientFacts{atlas: surveys.Fetch{State: surveys.Pending}})
+	if s.State != app.VetUnsure || !strings.Contains(s.Why, "ATLAS data still being fetched") {
+		t.Errorf("open: %+v", s)
+	}
+}

@@ -81,6 +81,8 @@ func newVetCommand() *cobra.Command {
 				Gaia:    gaia,
 				Mirrors: mirrors,
 				Simbad:  vetting.SimbadTAP(nil, "", processed, prefix, time.Now),
+				PS1:     vetting.VizierPS1(nil, "", processed, prefix, time.Now),
+				Alerts:  vetting.AlerceZTF(nil, "", processed, prefix, time.Now),
 				Bodies:  cat.KnownBodies,
 				Surveys: fetcher,
 				Threads: cfg.Vetting.Threads,
