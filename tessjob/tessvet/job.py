@@ -293,7 +293,7 @@ class Job:
             catalog = os.path.join(work, "catalog.pkl")
             spec = {"workdir": work, "cutout": cutout, "catalog": catalog, "sector": n, "size": CUTOUT_SIZE,
                     "limit_mag": LIMIT_MAG, "factor": EPSF_FACTOR, "names": names, "edge_margin": EDGE_MARGIN,
-                    "deadline": self.child_deadline()}
+                    "deadline": self.child_deadline(), "workers": self.cfg.threads}
             prefix = self.find_cutout(req, n)
             meta = None
             if prefix:
