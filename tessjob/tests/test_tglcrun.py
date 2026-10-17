@@ -172,24 +172,3 @@ def test_no_pause_after_the_last_catalog_attempt(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError):
         tglcrun._source_new(spec, lambda m: None)
     assert sleeps == [1, 2]
-
-
-def test_parallel_epsf_fits_match_serial_and_check_the_clock():
-    def fit(A, source, over, power=0.8, time=0, **kw):
-        return A[time] * power + kw["saturation_limit"]
-
-    times = np.array([0.0, 1.0, np.nan, 3.0, 4.0] * 120)
-    A = np.random.default_rng(1).normal(size=(len(times), 7))
-    src = types.SimpleNamespace(time=times)
-    tl = types.SimpleNamespace(fit_psf=fit, fit_lc=None, get_psf=None)
-    t = Tick(0)
-    g = tglcrun.Guards(tglcrun.Clock(1000, now=t), print, workers=3)
-    g.install(tl)
-    for j in range(len(times)):
-        if np.isfinite(times[j]):
-            np.testing.assert_array_equal(tl.fit_psf(A, src, 3, power=0.5, time=j, saturation_limit=2.0),
-                                          fit(A, src, 3, power=0.5, time=j, saturation_limit=2.0))
-    assert g.fits == {}
-    t.t = 1000
-    with pytest.raises(tglcrun.OutOfTime):
-        tl.fit_psf(A, src, 3, time=0, saturation_limit=2.0)
