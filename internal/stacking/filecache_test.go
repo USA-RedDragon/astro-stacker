@@ -8,6 +8,7 @@ import (
 )
 
 func TestTrimFileCacheDeletesOldestUnused(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write := func(name string, age time.Duration) string {
 		f := filepath.Join(dir, name)

@@ -10,10 +10,6 @@ import (
 	"time"
 )
 
-// fileCacheDirs hold masters and references copied from the bucket; any file
-// in them is downloaded again when it is next needed.
-var fileCacheDirs = []string{"masters", "references"}
-
 // fileCacheInUse is how recently a cached file was used for it to be kept.
 const fileCacheInUse = 2 * time.Hour
 
@@ -44,9 +40,12 @@ func (p *Pipeline) trimFileCache() {
 		used time.Time
 	}
 	var files []cached
-	for _, d := range fileCacheDirs {
+	for _, d := range []string{"masters", "references"} {
 		_ = filepath.WalkDir(filepath.Join(p.workDir, d), func(path string, e fs.DirEntry, err error) error {
-			if err != nil || e.IsDir() {
+			if err != nil {
+				return fs.SkipDir
+			}
+			if e.IsDir() {
 				return nil
 			}
 			if info, err := e.Info(); err == nil {
