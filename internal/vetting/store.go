@@ -97,12 +97,32 @@ const (
 	pendingAfter = time.Hour
 )
 
+// Pipeline versions of the sources with checks of their own: a source
+// whose pipeline changes gets a new input hash and is vetted again.
+const (
+	moverPipeline     = "mover:2"
+	transientPipeline = "transient:2"
+)
+
+func pipelineOf(s discoverysource.Summary) string {
+	switch {
+	case s.Source.Kind == kindMover:
+		return moverPipeline
+	case isTransient(s):
+		return transientPipeline
+	}
+	return ""
+}
+
 func hashOf(s discoverysource.Summary) string {
-	parts := make([]string, 0, len(s.Members))
+	parts := make([]string, 0, len(s.Members)+1)
 	for _, m := range s.Members {
 		parts = append(parts, fmt.Sprintf("%d:%s", m.ID, m.Class))
 	}
 	sort.Strings(parts)
+	if p := pipelineOf(s); p != "" {
+		parts = append(parts, p)
+	}
 	h := sha256.Sum256([]byte(strings.Join(parts, ",")))
 	return hex.EncodeToString(h[:8])
 }
