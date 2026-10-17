@@ -1378,6 +1378,12 @@ func trackCandidate(run *app.DiscoveryRun, i int, t LabelledTrack, res *Result, 
 	return c
 }
 
+// filterNull is one filter's own change null test of a run.
+type filterNull struct {
+	Found  int     `json:"found"`
+	MaxSNR float64 `json:"max_snr"`
+}
+
 func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, in saveInput) error {
 	res, w := in.res, in.wcs
 	var old []app.DiscoveryCandidate
@@ -1435,9 +1441,15 @@ func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, in saveInput) 
 	run.MoverNullTracks, run.MoverNullHits = res.MoverNull.Tracks, res.MoverNull.MaxHits
 	run.ChangeNullSubs, run.ChangeNullFound, run.ChangeNullSNR = res.ChangeNull.Subs, res.ChangeNull.Found, res.ChangeNull.MaxSNR
 	run.ChangeNullFilterFound, run.ChangeNullFilterSNR = 0, 0
+	split := map[string]filterNull{}
 	for f, n := range res.ChangeNull.FilterFound {
 		run.ChangeNullFilterFound += n
 		run.ChangeNullFilterSNR = math.Max(run.ChangeNullFilterSNR, res.ChangeNull.FilterMaxSNR[f])
+		split[f] = filterNull{Found: n, MaxSNR: res.ChangeNull.FilterMaxSNR[f]}
+	}
+	run.ChangeNullFilters = ""
+	if len(split) > 0 {
+		run.ChangeNullFilters = jsonString(split)
 	}
 	run.FinishedAt, run.Seconds = &now, now.Sub(in.start).Seconds()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

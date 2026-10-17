@@ -56,6 +56,9 @@ type DiscoveryRun struct {
 	// filters' own comparisons, each SNR in its filter's noise.
 	ChangeNullFilterFound int
 	ChangeNullFilterSNR   float64
+	// ChangeNullFilters is each filter's own change null test as JSON: the
+	// changes it found and the strongest of them, by filter name.
+	ChangeNullFilters string `gorm:"type:text"`
 	// ZTFFailures counts the runs in a row of this night whose ZTF light
 	// curve queries failed; a done run with failures is redone after
 	// NextTry, until ZTF answers or too many runs failed.
