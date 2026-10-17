@@ -1,5 +1,5 @@
 cmd/activity.go	27	8
-cmd/activitysources.go	332	151
+cmd/activitysources.go	344	157
 cmd/catalogs.go	243	18
 cmd/discover.go	53	0
 cmd/discoveries.go	22	0
@@ -20,7 +20,7 @@ cmd/tnsmirror.go	28	4
 cmd/triggers.go	24	24
 cmd/variablecatalogs.go	5	4
 cmd/vet.go	106	5
-internal/activity/activity.go	140	111
+internal/activity/activity.go	140	109
 internal/activity/jobs.go	150	109
 internal/activity/kube.go	66	47
 internal/activity/report.go	91	76
@@ -98,9 +98,9 @@ internal/discoveries/mirror.go	32	26
 internal/discoveries/movers.go	254	247
 internal/discoveries/newlight.go	12	11
 internal/discoveries/null.go	106	90
-internal/discoveries/progress.go	14	13
+internal/discoveries/progress.go	77	72
 internal/discoveries/refnights.go	181	168
-internal/discoveries/runner.go	717	548
+internal/discoveries/runner.go	761	589
 internal/discoveries/sensor.go	72	70
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -165,7 +165,7 @@ internal/horizonsurvey/nina.go	101	82
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
-internal/horizonsurvey/runner.go	451	350
+internal/horizonsurvey/runner.go	451	351
 internal/horizonsurvey/segment.go	96	94
 internal/horizonsurvey/sim/sim.go	267	240
 internal/horizonsurvey/skyline.go	119	113
@@ -179,7 +179,7 @@ internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/memlimit/memlimit.go	15	7
-internal/memwatch/memwatch.go	58	44
+internal/memwatch/memwatch.go	58	49
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -463,7 +463,7 @@ internal/vetting/surveys/ztftile.go	176	159
 internal/vetting/verdict.go	107	61
 internal/vetting/zstd.go	10	0
 internal/wake/wake.go	14	14
-internal/ztflc/checker.go	55	48
-internal/ztflc/client.go	69	61
+internal/ztflc/checker.go	69	59
+internal/ztflc/client.go	71	63
 internal/ztflc/judge.go	96	91
 main.go	9	0
