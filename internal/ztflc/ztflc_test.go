@@ -221,7 +221,7 @@ func TestChecker(t *testing.T) {
 
 	now := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
 	store := &memStore{m: map[string][]byte{}}
-	c := &ztflc.Checker{Client: &ztflc.Client{BaseURL: srv.URL}, Store: store, Now: func() time.Time { return now }}
+	c := &ztflc.Checker{Client: &ztflc.Client{BaseURL: srv.URL}, Store: store, Now: func() time.Time { return now }, RetryWait: []time.Duration{time.Millisecond, time.Millisecond}}
 	ctx := context.Background()
 
 	v, err := c.Check(ctx, 189.30888, 14.44217, 0.4)
@@ -237,11 +237,11 @@ func TestChecker(t *testing.T) {
 
 	now = now.Add(31 * 24 * time.Hour)
 	fail.Store(true)
-	if _, err := c.Check(ctx, 189.30888, 14.44217, 0.4); err == nil || hits.Load() != 2 {
+	if _, err := c.Check(ctx, 189.30888, 14.44217, 0.4); err == nil || hits.Load() != 4 {
 		t.Fatalf("expired cache: %v, %d queries", err, hits.Load())
 	}
 	fail.Store(false)
-	if _, err := c.Check(ctx, 189.30888, 14.44217, 0.4); !errors.Is(err, ztflc.ErrDown) || hits.Load() != 2 {
+	if _, err := c.Check(ctx, 189.30888, 14.44217, 0.4); !errors.Is(err, ztflc.ErrDown) || hits.Load() != 4 {
 		t.Fatalf("after a failure: %v, %d queries", err, hits.Load())
 	}
 }
@@ -257,7 +257,7 @@ func TestCheckerTimeout(t *testing.T) {
 	}))
 	defer srv.Close()
 	defer close(release)
-	c := &ztflc.Checker{Client: &ztflc.Client{BaseURL: srv.URL}, Timeout: 50 * time.Millisecond}
+	c := &ztflc.Checker{Client: &ztflc.Client{BaseURL: srv.URL}, Timeout: 50 * time.Millisecond, RetryWait: []time.Duration{time.Millisecond}}
 	if _, err := c.Check(context.Background(), 10, 20, 0.5); err == nil || errors.Is(err, ztflc.ErrDown) {
 		t.Fatalf("got %v, want a timeout", err)
 	}
@@ -279,5 +279,35 @@ func TestCacheKey(t *testing.T) {
 		if got := ztflc.CacheKey(c.ra, c.dec); got != c.want {
 			t.Errorf("CacheKey(%v, %v) = %s, want %s", c.ra, c.dec, got, c.want)
 		}
+	}
+}
+
+func TestCheckerRetriesAFailedQuery(t *testing.T) {
+	t.Parallel()
+	body, err := os.ReadFile(filepath.Join("testdata", "ii_com.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		switch {
+		case strings.Contains(r.URL.RawQuery, "CIRCLE%2010.000000"):
+			http.Error(w, "bad position", http.StatusBadRequest)
+		case n <= 2:
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+		default:
+			_, _ = w.Write(body)
+		}
+	}))
+	defer srv.Close()
+	c := &ztflc.Checker{Client: &ztflc.Client{BaseURL: srv.URL}, RetryWait: []time.Duration{time.Millisecond, time.Millisecond}}
+	ctx := context.Background()
+	v, err := c.Check(ctx, 189.30888, 14.44217, 0.4)
+	if err != nil || v.Kind != ztflc.Variable || hits.Load() != 3 {
+		t.Fatalf("after two busy answers: %+v, %v, %d queries", v, err, hits.Load())
+	}
+	if _, err := c.Check(ctx, 10, 20, 0.4); err == nil || errors.Is(err, ztflc.ErrDown) || hits.Load() != 4 {
+		t.Fatalf("a refused query was asked again: %v, %d queries", err, hits.Load())
 	}
 }

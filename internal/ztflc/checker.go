@@ -20,9 +20,14 @@ const (
 	CacheTTL = 30 * 24 * time.Hour
 )
 
-// ErrDown is returned for every check after one query fails, so a
-// service that is down costs one timeout per run.
+// ErrDown is returned for every check after one query fails all its
+// tries, so a service that is down costs one query's tries per run.
 var ErrDown = errors.New("ztf light curves: gave up after an earlier failure")
+
+// DefaultRetryWait is the wait before each retry of a failed query. Of the
+// method 15 runs of October 2026, 45 of 679 lost every ZTF check to one
+// failed query.
+func DefaultRetryWait() []time.Duration { return []time.Duration{5 * time.Second, 20 * time.Second} }
 
 // Store reads and writes the object store; discoveries.MinioStore fits.
 // Any Get error is taken as a cache miss.
@@ -42,6 +47,9 @@ type Checker struct {
 	Timeout time.Duration
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// RetryWait is the wait before each retry of a failed query; nil is
+	// DefaultRetryWait.
+	RetryWait []time.Duration
 
 	mu   sync.Mutex
 	down bool
@@ -90,19 +98,13 @@ func (c *Checker) Points(ctx context.Context, ra, dec float64) ([]Point, error) 
 	if c.down {
 		return nil, ErrDown
 	}
-	timeout := c.Timeout
-	if timeout <= 0 {
-		timeout = DefaultTimeout
-	}
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cl := c.Client
-	if cl == nil {
-		cl = &Client{}
-	}
-	pts, err := cl.Fetch(cctx, ra, dec)
+	pts, err := c.fetch(ctx, ra, dec)
 	if err != nil {
-		c.down = true
+		var se *StatusError
+		if !errors.As(err, &se) || se.Retryable() {
+			c.down = true
+		}
+		slog.Warn("ZTF light curve query failed", "ra", ra, "dec", dec, "error", err)
 		return nil, err
 	}
 	if c.Store != nil {
@@ -111,6 +113,35 @@ func (c *Checker) Points(ctx context.Context, ra, dec float64) ([]Point, error) 
 		}
 	}
 	return pts, nil
+}
+
+func (c *Checker) fetch(ctx context.Context, ra, dec float64) ([]Point, error) {
+	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	cl := c.Client
+	if cl == nil {
+		cl = &Client{}
+	}
+	waits := c.RetryWait
+	if waits == nil {
+		waits = DefaultRetryWait()
+	}
+	for try := 0; ; try++ {
+		cctx, cancel := context.WithTimeout(ctx, timeout)
+		pts, err := cl.Fetch(cctx, ra, dec)
+		cancel()
+		var se *StatusError
+		if err == nil || try >= len(waits) || ctx.Err() != nil || (errors.As(err, &se) && !se.Retryable()) {
+			return pts, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(waits[try]):
+		}
+	}
 }
 
 func (c *Checker) cached(ctx context.Context, key string) (cacheEntry, bool) {
