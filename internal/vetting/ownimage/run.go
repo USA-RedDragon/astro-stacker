@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
@@ -65,7 +66,7 @@ func measure(ctx context.Context, d Data, object string, spots []Spot, opts Opti
 	for i, sp := range plans {
 		evs[i] = prepare(ctx, subs, sp, need)
 	}
-	levels := darkLevels(ctx, d, need)
+	levels, _ := darkLevels(ctx, d, need)
 	for i, ev := range evs {
 		out[i] = finish(ctx, d, subs, ev, levels)
 	}
@@ -181,13 +182,15 @@ type darkPos struct {
 
 // darkLevels reads each master dark under the flagged nights' subs once
 // and returns each needed pixel's excess over the dark's typical level, in
-// its spreads.
-func darkLevels(ctx context.Context, d Data, need map[darkPos]bool) map[darkPos]float64 {
+// its spreads, and for each dark the excess only one pixel in a thousand
+// passes.
+func darkLevels(ctx context.Context, d Data, need map[darkPos]bool) (map[darkPos]float64, map[string]float64) {
 	byKey := map[string][]darkPos{}
 	for p := range need {
 		byKey[p.key] = append(byKey[p.key], p)
 	}
 	out := map[darkPos]float64{}
+	tails := map[string]float64{}
 	for key, ps := range byKey {
 		b, err := d.Get(ctx, key)
 		if err != nil {
@@ -209,13 +212,15 @@ func darkLevels(ctx context.Context, d Data, need map[darkPos]bool) map[darkPos]
 		if !(spread > 0) {
 			continue
 		}
+		slices.Sort(sample)
+		tails[key] = (sample[len(sample)-1-len(sample)/1000] - med) / spread
 		for _, q := range ps {
 			if v := p.At(q.x, q.y); !isNaN32(v) {
 				out[q] = (float64(v) - med) / spread
 			}
 		}
 	}
-	return out
+	return out, tails
 }
 
 // darkNeeds are the master dark pixels under the spot in the subs where

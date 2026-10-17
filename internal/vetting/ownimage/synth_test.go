@@ -46,6 +46,10 @@ type synthSub struct {
 	streak     float64
 	transient  float64
 	seed       uint64
+	// extra are more point sources, x, y and flux, and quiet cuts the
+	// noise to a fifth, as in a deep master.
+	extra [][3]float64
+	quiet bool
 }
 
 type synthField struct {
@@ -114,8 +118,15 @@ func flux(g float64) float64 { return math.Pow(10, -0.4*(g-15)) }
 func (f *synthField) render(s synthSub) *discoveries.Plane {
 	r := rand.New(rand.NewPCG(s.seed, 99))
 	p := discoveries.NewPlane(synthW, synthH)
+	noise := synthNoise
+	if s.quiet {
+		noise /= 5
+	}
 	for i := range p.Data {
-		p.Data[i] = float32(synthSky + synthNoise*r.NormFloat64())
+		p.Data[i] = float32(synthSky + noise*r.NormFloat64())
+	}
+	for _, e := range s.extra {
+		gaussian(p, e[0], e[1], s.sigma, e[2]*s.tr)
 	}
 	for k, st := range f.stars {
 		fl := flux(st.g) * s.tr

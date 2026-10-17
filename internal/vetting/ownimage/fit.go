@@ -341,10 +341,11 @@ func fitShape(p *discoveries.Plane, bright []*starModel) (sigma, sx, sy float64,
 	return best[0], best[1], best[2], true
 }
 
-// gauss2D is an elliptical Gaussian fitted to a stamp.
+// gauss2D is an elliptical Gaussian fitted to a stamp; sa is its width
+// along the direction th radians from +x toward +y, sb across it.
 type gauss2D struct {
-	x, y, sa, sb, amp float64
-	ok                bool
+	x, y, sa, sb, th, amp float64
+	ok                    bool
 }
 
 func (g gauss2D) width() float64 { return math.Sqrt(g.sa * g.sb) }
@@ -414,5 +415,5 @@ func fitGauss2D(st []float64, n int, cx, cy, r float64) gauss2D {
 		return gauss2D{}
 	}
 	amp, _ := solve(best)
-	return gauss2D{x: best[0], y: best[1], sa: best[2], sb: best[3], amp: amp, ok: true}
+	return gauss2D{x: best[0], y: best[1], sa: best[2], sb: best[3], th: best[4], amp: amp, ok: true}
 }
