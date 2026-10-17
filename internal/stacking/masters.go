@@ -60,6 +60,8 @@ func (p *Pipeline) masterFor(ctx context.Context, set calmatch.Set, all []calmat
 			if err := p.download(ctx, p.dest, cm.ObjectKey, local); err != nil {
 				return "", "", err
 			}
+		} else {
+			touchCached(local)
 		}
 		if cm.Type == frameTypeBias && cm.MedianADU == nil {
 			p.recordBiasMedian(ctx, cm.ID, local)
@@ -141,6 +143,7 @@ func (p *Pipeline) importedMaster(ctx context.Context, set calmatch.Set, all []c
 	defer p.lockKey(key)()
 	local := filepath.Join(p.workDir, "masters", key+".fit")
 	if _, err := os.Stat(local); err == nil {
+		touchCached(local)
 		return local, key, nil
 	}
 	file, err := p.importMaster(ctx, set, all, local)

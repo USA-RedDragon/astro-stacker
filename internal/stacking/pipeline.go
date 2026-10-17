@@ -92,6 +92,9 @@ type PipelineOptions struct {
 	// RebuildCacheFree the space they leave free on it.
 	RebuildCache     int64
 	RebuildCacheFree int64
+	// FileCacheFree is the space cached masters and references leave free
+	// on the work volume (trimFileCache).
+	FileCacheFree int64
 
 	// DustCheck checks settled flat sets and nights of lights for dust
 	// changes (runDust).
@@ -125,6 +128,7 @@ func DefaultPipelineOptions() PipelineOptions {
 
 		RebuildCache:     8 << 30,
 		RebuildCacheFree: 6 << 30,
+		FileCacheFree:    12 << 30,
 
 		RegisteredGrace:        24 * time.Hour,
 		RegisteredDeletePause:  200 * time.Millisecond,
@@ -388,6 +392,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		}
 	})
 	wg.Go(func() { p.runRegisteredGC(ctx) })
+	wg.Go(func() { p.runFileCacheTrim(ctx) })
 	if p.opts.DustCheck {
 		wg.Go(func() { p.runDust(ctx) })
 	}
