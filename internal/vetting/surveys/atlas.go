@@ -82,11 +82,11 @@ func (f *Fetcher) atlasKey(field Field, t Target) string {
 
 func atlasComment(t Target) string { return "astro-stacker vetting " + starKey(t) }
 
-func (f *Fetcher) atlas(ctx context.Context, field Field, t Target) Fetch {
+func (f *Fetcher) atlas(ctx context.Context, field Field, t Target, done func([]byte) Fetch) Fetch {
 	base := f.atlasKey(field, t)
 	raw, err := f.getZ(ctx, base+".txt.zst")
 	if err == nil {
-		return atlasFetch(t, raw)
+		return done(raw)
 	}
 	if !isNotFound(err) {
 		return failed(lc.ATLAS, "could not read the ATLAS cache: %v", err)
@@ -107,9 +107,9 @@ func (f *Fetcher) atlas(ctx context.Context, field Field, t Target) Fetch {
 		}
 		switch {
 		case task.Unsure:
-			return f.atlasFind(ctx, field, t, task)
+			return f.atlasFind(ctx, field, t, task, done)
 		case task.Error == "":
-			return f.atlasPoll(ctx, field, t, task)
+			return f.atlasPoll(ctx, field, t, task, done)
 		case f.now().Sub(task.FailedAt) < ATLASRetryFailed:
 			return failed(lc.ATLAS, "the ATLAS task failed: %s", task.Error)
 		}
@@ -216,7 +216,7 @@ func (f *Fetcher) atlasQueue(ctx context.Context, field Field, t Target) Fetch {
 
 // atlasFind looks for a task whose queue request got no clear answer
 // among our newest tasks at ATLAS, by its comment.
-func (f *Fetcher) atlasFind(ctx context.Context, field Field, t Target, task ATLASTask) Fetch {
+func (f *Fetcher) atlasFind(ctx context.Context, field Field, t Target, task ATLASTask, done func([]byte) Fetch) Fetch {
 	var page struct {
 		Results []atlasTaskStatus `json:"results"`
 	}
@@ -230,7 +230,7 @@ func (f *Fetcher) atlasFind(ctx context.Context, field Field, t Target, task ATL
 			if err := f.putTask(ctx, field, t, task); err != nil {
 				return failed(lc.ATLAS, "found the ATLAS task but could not record it: %v", err)
 			}
-			return f.atlasPoll(ctx, field, t, task)
+			return f.atlasPoll(ctx, field, t, task, done)
 		}
 	}
 	return f.atlasQueue(ctx, field, t)
@@ -270,7 +270,7 @@ func (f *Fetcher) atlasGiveUp(ctx context.Context, field Field, t Target, task A
 	return failed(lc.ATLAS, "the ATLAS task failed: %s; queued again after %s", why, ATLASRetryFailed)
 }
 
-func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATLASTask) Fetch {
+func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATLASTask, done func([]byte) Fetch) Fetch {
 	var st atlasTaskStatus
 	if err := f.atlasRequest(ctx, http.MethodGet, task.URL, nil, &st); err != nil {
 		var he *httpError
@@ -327,7 +327,7 @@ func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATL
 		return failed(lc.ATLAS, "could not store the ATLAS result: %v", err)
 	}
 	_ = f.atlasRequest(ctx, http.MethodDelete, task.URL, nil, nil)
-	return atlasFetch(t, text)
+	return done(text)
 }
 
 // ATLASRow is one line of an ATLAS forced photometry result.

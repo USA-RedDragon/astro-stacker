@@ -5,6 +5,7 @@ package surveys
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -117,7 +118,27 @@ func (f *Fetcher) ZTF(ctx context.Context, field Field, t Target) Fetch { return
 
 // ATLAS is the star's ATLAS forced photometry, queued on first use.
 func (f *Fetcher) ATLAS(ctx context.Context, field Field, t Target) Fetch {
-	return f.atlas(ctx, field, t)
+	return f.atlas(ctx, field, t, func(text []byte) Fetch { return atlasFetch(t, text) })
+}
+
+// ATLASRows is ATLAS forced photometry at a position, queued on first use
+// like ATLAS, as the rows passing the quality cuts: for a spot with no
+// star to scale the fluxes by.
+func (f *Fetcher) ATLASRows(ctx context.Context, field Field, t Target) (Fetch, []ATLASRow) {
+	var rows []ATLASRow
+	fe := f.atlas(ctx, field, t, func(text []byte) Fetch {
+		all, err := parseATLAS(text)
+		if err != nil {
+			return failed(lc.ATLAS, "could not read the ATLAS result: %v", err)
+		}
+		for _, r := range all {
+			if r.Good() && !math.IsNaN(r.UJy) && !math.IsNaN(r.DUJy) {
+				rows = append(rows, r)
+			}
+		}
+		return Fetch{Survey: lc.ATLAS, State: Done}
+	})
+	return fe, rows
 }
 
 // TESS is the star's TESS light curves, fitted apart from its neighbours,
