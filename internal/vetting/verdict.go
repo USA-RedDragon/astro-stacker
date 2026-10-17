@@ -73,7 +73,7 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		return periodic(sum, pr, timing, groups, curve)
 	}
 	if flags.NotStar {
-		return Suggestion{State: app.VetArtifact, Say: "Artifact: not shaped like a star", Confidence: Medium, Why: evidence(groups, check.PSF)}
+		return Suggestion{State: app.VetArtifact, Say: sayNotStar, Confidence: Medium, Why: evidence(groups, check.PSF)}
 	}
 	if ownFlat && ztfFlat {
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: the star did not change", Confidence: Medium,
@@ -93,7 +93,7 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: no survey saw it change", Confidence: Low,
 			Why: joinSentences(evidence(groups, check.ZTF), "Your own measurements show a change, so it may be new or brief.") + pending}
 	}
-	return Suggestion{State: app.VetUnsure, Say: "Not sure", Confidence: Low, Why: "The checks found nothing against it, and nothing that confirms it." + pending}
+	return Suggestion{State: app.VetUnsure, Say: sayNotSure, Confidence: Low, Why: "The checks found nothing against it, and nothing that confirms it." + pending}
 }
 
 func notChanged(ownFlat bool, c change) string {

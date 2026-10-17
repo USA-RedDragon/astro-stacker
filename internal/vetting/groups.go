@@ -20,6 +20,7 @@ func groupNames() map[string]string {
 		check.GroupSurveys: "Survey history",
 		check.GroupCatalog: "Catalogs",
 		check.GroupMoving:  "Moving object check",
+		check.GroupMover:   "Moving object",
 	}
 }
 
