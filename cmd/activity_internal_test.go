@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -91,12 +92,28 @@ func TestGoalsItem(t *testing.T) {
 func TestActivityFromTheDatabase(t *testing.T) {
 	t.Parallel()
 	db := testdb.Postgres(t, "activity", "activity")
-	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.JobProgress{}); err != nil {
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.JobProgress{},
+		&app.Frame{}, &app.Stack{}, &app.StackFrame{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
 	night := func(d int) time.Time { return time.Date(2026, 9, d, 0, 0, 0, 0, time.UTC) }
+	stack := app.Stack{Object: objM13, Filter: "Red"}
+	if err := db.Create(&stack).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []int{1, 2, 5} {
+		obs, exp, key := night(d).Add(4*time.Hour), 300.0, fmt.Sprintf("registered/m13-%d", d)
+		light := app.Frame{Key: key, Type: "LIGHT", Object: objM13, Filter: stack.Filter, Night: new(night(d)), DateObs: &obs, Exposure: &exp, LastModified: obs}
+		if err := db.Create(&light).Error; err != nil {
+			t.Fatal(err)
+		}
+		sf := app.StackFrame{FrameID: light.ID, StackID: &stack.ID, Status: app.StackStatusAdded, Weight: 1, Exposure: exp, RegisteredKey: &key, ProcessedAt: obs}
+		if err := db.Create(&sf).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	runs := []app.DiscoveryRun{
 		{Object: objM13, Night: night(1), Group: discoveries.GroupBroadband, Method: discoveries.Method, State: app.DiscoveryDone},
 		{Object: objM13, Night: night(1), Group: groupHa, Method: discoveries.Method, State: app.DiscoverySkipped},
