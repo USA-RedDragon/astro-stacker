@@ -72,6 +72,10 @@ const (
 	MoverKnown  = "mover_known"
 	MoverMotion = "mover_motion"
 	MoverNights = "mover_nights"
+	// MoverStack and TransStack stack the frames along the motion, or at
+	// the spot, against fakes of the same light and controls.
+	MoverStack  = "mover_stack"
+	TransStack  = "trans_stack"
 	TransFlux   = "trans_flux"
 	TransNights = "trans_nights"
 	TransBefore = "trans_before"
@@ -127,6 +131,8 @@ func Names() map[string]string {
 		MoverKnown:  "Known asteroid or comet",
 		MoverMotion: "Moves like the asteroids around it",
 		MoverNights: "Seen on other nights",
+		MoverStack:  "Shows when its frames are stacked along its motion",
+		TransStack:  "Shows when its frames are stacked at the spot",
 		TransFlux:   "Your own brightness at the spot",
 		TransNights: "Rise and fade across nights",
 		TransBefore: "What was at the spot before",
