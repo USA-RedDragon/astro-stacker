@@ -52,3 +52,36 @@ func bjd(t time.Time, ra, dec float64) float64 {
 	n := [3]float64{math.Cos(d) * math.Cos(r), math.Cos(d) * math.Sin(r), math.Sin(d)}
 	return jdTDB + (p[0]*n[0]+p[1]*n[1]+p[2]*n[2])/lightKmPerDay
 }
+
+// HJD is the heliocentric Julian date, on the UTC scale as VSX and most
+// observers give it, of a UTC instant seen from Earth's centre toward ra,
+// dec in degrees.
+func HJD(t time.Time, ra, dec float64) float64 {
+	jd := unixJD + float64(t.UTC().UnixNano())/1e9/86400
+	e, err := earth()
+	if err != nil {
+		return jd
+	}
+	et := ephem.ET(t)
+	pe, err := e.Barycentric(ephem.Earth, et)
+	if err != nil {
+		return jd
+	}
+	ps, err := e.Barycentric(ephem.Sun, et)
+	if err != nil {
+		return jd
+	}
+	r, d := ra*math.Pi/180, dec*math.Pi/180
+	n := [3]float64{math.Cos(d) * math.Cos(r), math.Cos(d) * math.Sin(r), math.Sin(d)}
+	return jd + ((pe[0]-ps[0])*n[0]+(pe[1]-ps[1])*n[1]+(pe[2]-ps[2])*n[2])/lightKmPerDay
+}
+
+// UTCOfBJD is the UTC instant at Earth's centre whose barycentric Julian
+// date in TDB toward ra, dec is b.
+func UTCOfBJD(b, ra, dec float64) time.Time {
+	t := time.Unix(0, int64((b-unixJD)*86400e9)).UTC()
+	for range 4 {
+		t = t.Add(time.Duration((b - BJD(t, ra, dec)) * 86400e9))
+	}
+	return t
+}
