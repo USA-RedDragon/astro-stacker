@@ -21,7 +21,7 @@ import (
 
 // FactsVersion is the version of the rules that work out Facts; facts
 // from an older one are worked out again.
-const FactsVersion = 1
+const FactsVersion = 2
 
 // GaiaFacts is the Gaia DR3 star at the spot, at epoch 2016.0.
 type GaiaFacts struct {

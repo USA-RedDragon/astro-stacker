@@ -749,7 +749,7 @@ func worthMore(ztf surveys.Fetch, curve *ownimage.Curve, sum discoverysource.Sum
 }
 
 func ztfVaries(ss []lc.Series) bool {
-	for _, s := range ss {
+	for _, s := range period.AlignSrc(ss, nil) {
 		if len(s.Points) < 20 {
 			continue
 		}

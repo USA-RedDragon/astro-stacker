@@ -28,7 +28,7 @@ func chartsOf(sum discoverysource.Summary, curve *ownimage.Curve, fx fetches, pr
 	for _, f := range survey {
 		all = append(all, f.Series...)
 	}
-	s, ok := chartSeries(all)
+	s, ok := chartSeries(period.AlignSrc(all, e))
 	if !ok {
 		return out
 	}
