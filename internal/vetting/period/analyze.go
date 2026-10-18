@@ -30,16 +30,20 @@ type analysis struct {
 	flatOff   []float64
 	eph       *Ephemeris
 	kind      Kind
+	own       []lc.Series
+	bandCache []*band
+	bandsDone bool
+	rob       *Robust
 }
 
-func analyzeSeries(d *data, opts Options) (*Result, error) {
+func analyzeSeries(d *data, own []lc.Series, opts Options, at *Ephemeris) (*Result, error) {
 	if opts.MinPeriod <= 0 {
 		opts.MinPeriod = 0.2
 	}
 	if opts.MaxPeriod <= 0 {
 		opts.MaxPeriod = 60
 	}
-	a := &analysis{d: d, opts: opts}
+	a := &analysis{d: d, opts: opts, own: own}
 	res := &Result{Fits: []SurveyFit{}}
 	if len(d.series) == 0 {
 		res.Checks = noDataChecks()
@@ -49,9 +53,54 @@ func analyzeSeries(d *data, opts Options) (*Result, error) {
 	a.flatOff, a.flatScore = flatFit(a.f)
 	span := d.t1 - d.t0
 	maxP := math.Min(opts.MaxPeriod, span/2)
-	if maxP > opts.MinPeriod && span > 2 {
+	switch {
+	case at != nil && at.Period > 0:
+		a.fitAt(at)
+	case maxP > opts.MinPeriod && span > 2:
 		a.search(opts.MinPeriod, maxP)
 	}
+	a.settle()
+	res.Fits = a.surveyFits()
+	if (a.ecl != nil || a.sine != nil) && !a.supported() {
+		a.ecl, a.sine = nil, nil
+		a.settle()
+		res.Fits = a.surveyFits()
+	}
+	res.Ephemeris = a.eph
+	if a.kind == KindEclipsing || a.kind == KindSinusoidal {
+		var comps [][]lc.Series
+		if opts.Comparisons != nil {
+			comps = opts.Comparisons()
+		}
+		a.rob = a.robust(comps)
+		res.Robust = a.rob
+	}
+	res.Checks = a.checks(res.Fits)
+	if a.kind == KindFlat || a.kind == KindIrregular {
+		return res, ErrNoPeriod
+	}
+	return res, nil
+}
+
+// fitAt fits the model of a given ephemeris, its period and epoch free
+// to move a little.
+func (a *analysis) fitAt(e *Ephemeris) {
+	switch e.Kind {
+	case KindEclipsing:
+		dips := make([]dipP, len(e.Eclipses))
+		for i, ec := range e.Eclipses {
+			dips[i] = dipP{ec.Phase, ec.Width, ec.Shape}
+		}
+		if len(dips) > 0 {
+			a.ecl = fitEclipse(a.f, a.d, ecInit{P: e.Period, T0: e.T0 - a.f.tref, dips: dips, freeP: true})
+		}
+	case KindSinusoidal:
+		a.sine = fitSine(a.f, e.Period, true)
+	case KindFlat, KindIrregular:
+	}
+}
+
+func (a *analysis) settle() {
 	switch {
 	case a.ecl != nil:
 		a.kind = KindEclipsing
@@ -63,13 +112,29 @@ func analyzeSeries(d *data, opts Options) (*Result, error) {
 		a.kind = a.noPeriodKind()
 		a.eph = &Ephemeris{Kind: a.kind, Eclipses: []Eclipse{}}
 	}
-	res.Ephemeris = a.eph
-	res.Fits = a.surveyFits()
-	res.Checks = a.checks(res.Fits)
-	if a.kind == KindFlat || a.kind == KindIrregular {
-		return res, ErrNoPeriod
+}
+
+// supported says a survey other than NEOWISE, whose few visits a year
+// cannot show a period alone, sees the found cycle on its own.
+func (a *analysis) supported() bool {
+	for g, gr := range a.d.groups {
+		if gr.survey == lc.NEOWISE {
+			continue
+		}
+		switch {
+		case a.ecl != nil:
+			for k := range a.ecl.dips {
+				if a.ecl.active[g][k] && a.ecl.depth[g][k] >= 3*a.ecl.depthSigma(g, k) {
+					return true
+				}
+			}
+		case a.sine != nil:
+			if a.sine.amp[g] > 3*a.sine.res.sigma(2+g) {
+				return true
+			}
+		}
 	}
-	return res, nil
+	return false
 }
 
 func (a *analysis) nPoints() float64 { return float64(len(a.f.t)) }
@@ -351,7 +416,30 @@ func (a *analysis) eclipseSignificant(m *ecFit) bool {
 			cycles[int(math.Round((a.f.t[i]-m.T0)/m.P-u))] = true
 		}
 	}
-	return len(cycles) >= 3
+	if len(cycles) < 3 {
+		return false
+	}
+	if n, s := a.dipEpochs(m); n < dipNights || s < dipSeasons {
+		return false
+	}
+	return a.boxHolds(m)
+}
+
+// boxHolds says a box shaped dip at one of m's dips stands out at boxMinZ
+// on at least boxMinNights nights in a band with the slow changes removed
+// and no night counting for more than a few points; true when no band has
+// enough points to test.
+func (a *analysis) boxHolds(m *ecFit) bool {
+	tested := false
+	where := a.dipWhere(m)
+	for _, b := range a.bands() {
+		tested = true
+		bx := boxSearch(b.hp, m.P, b.weight, where)
+		if bx.snr >= boxMinZ && boxNights(b.hp, m.P, bx) >= boxMinNights {
+			return true
+		}
+	}
+	return !tested
 }
 
 func (a *analysis) sineSignificant(s *sineFit) bool {
@@ -413,6 +501,12 @@ func noDataChecks() []check.Check {
 	}
 }
 
-func analyze(series []lc.Series, opts Options) (*Result, error) {
-	return analyzeSeries(prepare(series), opts)
+func analyze(series []lc.Series, opts Options, at *Ephemeris) (*Result, error) {
+	var own []lc.Series
+	for _, s := range series {
+		if s.Survey == lc.Own {
+			own = append(own, s)
+		}
+	}
+	return analyzeSeries(prepare(series), own, opts, at)
 }

@@ -78,19 +78,25 @@ type Result struct {
 	Ephemeris *Ephemeris  `json:"ephemeris,omitempty"`
 	Fits      []SurveyFit `json:"fits"`
 	// Checks has the survey history rows: Period (when no period was
-	// found), Fold, Half, Double, and the per survey rows ZTF, TESS,
-	// ATLAS and NEOWISE.
+	// found), Fold, Half, Double, Echo, Comparison, and the per survey
+	// rows ZTF, TESS, ATLAS and NEOWISE.
 	Checks []check.Check `json:"checks"`
+	// Robust is how the period stands up to the tests for false periods,
+	// when one was found.
+	Robust *Robust `json:"robust,omitempty"`
 }
 
 // Options bound the search. MinPeriod and MaxPeriod are in days, 0.2
 // and 60 when zero. ChangeMag is the change the user reported, in
 // magnitudes, positive for a fade; a flat survey light curve is checked
-// against it.
+// against it. Comparisons, when set, gives the ZTF light curves of nearby
+// steady stars of the same brightness, asked for only once a period is
+// found.
 type Options struct {
-	MinPeriod float64
-	MaxPeriod float64
-	ChangeMag float64
+	MinPeriod   float64
+	MaxPeriod   float64
+	ChangeMag   float64
+	Comparisons func() [][]lc.Series
 }
 
 // Analyze searches series for a period and tests it. series holds every
@@ -106,7 +112,14 @@ type Options struct {
 // there were survey points its Ephemeris has Kind flat or irregular and
 // no period.
 func Analyze(series []lc.Series, opts Options) (*Result, error) {
-	return analyze(series, opts)
+	return analyze(series, opts, nil)
+}
+
+// AnalyzeAt tests a known ephemeris as Analyze tests the one it finds:
+// the model is fitted from e's kind, period, epoch and dips, and every
+// check and test for false periods runs on it.
+func AnalyzeAt(series []lc.Series, e *Ephemeris, opts Options) (*Result, error) {
+	return analyze(series, opts, e)
 }
 
 // Timing is the user's own minimum against the ephemeris: Offset in
