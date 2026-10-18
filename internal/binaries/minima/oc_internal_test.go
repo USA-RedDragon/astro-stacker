@@ -46,15 +46,11 @@ func timings(r *rng, n int, years float64, errMin float64, withSec bool, tr tren
 	return out
 }
 
-func prior() Prior {
-	return Prior{Period: ocPeriod, T0Err: 0.8 * minuteDay, PeriodErr: 2e-6}
-}
-
 func TestTooFewTimingsNeverFlag(t *testing.T) {
 	t.Parallel()
 	r := &rng{s: 1}
 	for n := range 3 {
-		a := Analyze(timings(r, n, 1, 1, true, trend{offset: 30 * minuteDay}), prior())
+		a := Analyze(timings(r, n, 1, 1, true, trend{offset: 30 * minuteDay}))
 		for _, x := range []Test{a.Ephemeris, a.Period, a.Orbit, a.Third} {
 			if x.State != StateNeed || x.Need == "" {
 				t.Errorf("%d timings: %+v", n, x)
@@ -69,7 +65,7 @@ func TestNoFlagsOnNoise(t *testing.T) {
 	flags := map[string]int{}
 	trials := 400
 	for range trials {
-		a := Analyze(timings(r, 14, 2.6, 1.5, true, trend{}), prior())
+		a := Analyze(timings(r, 14, 2.6, 1.5, true, trend{}))
 		for id, x := range map[string]Test{TrendEphemeris: a.Ephemeris, TrendPeriod: a.Period, TrendOrbit: a.Orbit} {
 			if x.State == StateFlag {
 				flags[id]++
@@ -92,7 +88,7 @@ func TestNoWaveOnNoise(t *testing.T) {
 	flagged := 0
 	trials := 25
 	for range trials {
-		a := Analyze(timings(r, 24, 5, 1.2, true, trend{}), prior())
+		a := Analyze(timings(r, 24, 5, 1.2, true, trend{}))
 		if a.Third.State == StateNeed {
 			t.Fatal("no wave search on 24 timings over 5 years")
 		}
@@ -108,7 +104,7 @@ func TestNoWaveOnNoise(t *testing.T) {
 func TestEphemerisOffsetFlagged(t *testing.T) {
 	t.Parallel()
 	r := &rng{s: 4}
-	a := Analyze(timings(r, 4, 0.3, 0.8, false, trend{offset: 6 * minuteDay}), prior())
+	a := Analyze(timings(r, 4, 0.3, 0.8, false, trend{offset: 6 * minuteDay}))
 	if a.Ephemeris.State != StateFlag {
 		t.Fatalf("a 6 minute offset with 0.8 minute timings was not flagged: %+v", a.Ephemeris)
 	}
@@ -123,11 +119,11 @@ func TestEphemerisOffsetFlagged(t *testing.T) {
 func TestPeriodChangeFlagged(t *testing.T) {
 	t.Parallel()
 	r := &rng{s: 5}
-	cycles := (ocStart + 4*365.25) / ocPeriod
-	c := 20 * minuteDay / (cycles * cycles)
+	cycles := 4 * 365.25 / ocPeriod
+	c := 50 * minuteDay / (cycles * cycles)
 	hits := 0
 	for range 20 {
-		a := Analyze(timings(r, 16, 4, 1.2, true, trend{curve: c}), prior())
+		a := Analyze(timings(r, 16, 4, 1.2, true, trend{curve: c}))
 		if a.Period.State == StateFlag {
 			hits++
 			if a.Period.Value <= 0 {
@@ -151,7 +147,7 @@ func TestOrbitTurningFlagged(t *testing.T) {
 	hits := 0
 	for range 20 {
 		ts := timings(r, 21, 3, 1, true, trend{primSlope: s, secSlope: -s})
-		a := Analyze(ts, prior())
+		a := Analyze(ts)
 		if a.Orbit.State == StateFlag {
 			hits++
 			if a.Orbit.Value <= 0 {
@@ -169,7 +165,7 @@ func TestThirdStarFlagged(t *testing.T) {
 	r := &rng{s: 8}
 	hits := 0
 	for range 6 {
-		a := Analyze(timings(r, 40, 6, 1, false, trend{waveAmp: 5 * minuteDay, wavePeriod: 700}), prior())
+		a := Analyze(timings(r, 40, 6, 1, false, trend{waveAmp: 5 * minuteDay, wavePeriod: 700}))
 		if a.Third.State == StateFlag {
 			hits++
 			if math.Abs(a.Third.Period-700) > 120 {
@@ -182,12 +178,50 @@ func TestThirdStarFlagged(t *testing.T) {
 	}
 }
 
+func TestLoneSeasonTimingKept(t *testing.T) {
+	t.Parallel()
+	r := &rng{s: 12}
+	slope := 8 * minuteDay / (365.25 / ocPeriod)
+	ts := timings(r, 6, 0.5, 0.5, false, trend{primSlope: slope})
+	day := ocStart + 400
+	e := math.Round(day / ocPeriod)
+	ts = append(ts, Timing{Cycle: e, Day: day, OC: slope*e + 0.5*minuteDay*r.normal(), Err: 0.5 * minuteDay})
+	a := Analyze(ts)
+	if !a.Used[len(ts)-1] {
+		t.Error("the only timing of its season was left out")
+	}
+}
+
+func TestNoFlagsWhenErrorsTooSmall(t *testing.T) {
+	t.Parallel()
+	r := &rng{s: 14}
+	flags := map[string]int{}
+	trials := 500
+	for i := range trials {
+		ts := timings(r, 6+i%10, 2.2, 1, true, trend{})
+		for j := range ts {
+			ts[j].OC *= 1.5
+		}
+		a := Analyze(ts)
+		for id, x := range map[string]Test{TrendEphemeris: a.Ephemeris, TrendPeriod: a.Period, TrendOrbit: a.Orbit} {
+			if x.State == StateFlag {
+				flags[id]++
+			}
+		}
+	}
+	for id, n := range flags {
+		if float64(n)/float64(trials) > 0.01 {
+			t.Errorf("%s flagged on %d of %d noise-only records with errors 1.5 times too small", id, n, trials)
+		}
+	}
+}
+
 func TestOutlierLeftOut(t *testing.T) {
 	t.Parallel()
 	r := &rng{s: 10}
 	ts := timings(r, 8, 1, 1, false, trend{})
 	ts[3].OC += 60 * minuteDay
-	a := Analyze(ts, prior())
+	a := Analyze(ts)
 	if a.Used[3] {
 		t.Error("an hour-off timing was used")
 	}

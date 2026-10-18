@@ -137,7 +137,7 @@ func place(rows []app.EclipseTiming, e *period.Ephemeris, g *GaiaFacts) []timed 
 }
 
 // analyse reads the trends in the good timings.
-func analyse(ts []timed, e *period.Ephemeris) (minima.Analysis, []int) {
+func analyse(ts []timed) (minima.Analysis, []int) {
 	var in []minima.Timing
 	var idx []int
 	for i, t := range ts {
@@ -147,7 +147,7 @@ func analyse(ts []timed, e *period.Ephemeris) (minima.Analysis, []int) {
 		in = append(in, minima.Timing{Cycle: t.cycle, Second: t.second, OC: t.oc, Err: t.row.Err, Day: t.row.BJD})
 		idx = append(idx, i)
 	}
-	return minima.Analyze(in, minima.Prior{Period: e.Period, T0Err: e.T0Err, PeriodErr: e.PeriodErr}), idx
+	return minima.Analyze(in), idx
 }
 
 // Record is s's timing record.
@@ -165,7 +165,7 @@ func (s Star) Record(loc *time.Location) TimingRecord {
 	out.EpochHJD = lc.HJD(lc.UTCOfBJD(e.T0, ra, dec), ra, dec)
 	deep := s.deeper()
 	ts := place(s.Timings, e, s.Facts.Gaia)
-	a, idx := analyse(ts, e)
+	a, idx := analyse(ts)
 	used := map[int]bool{}
 	for j, i := range idx {
 		used[i] = a.Used[j]
@@ -197,7 +197,7 @@ func (s Star) Summary() TimingSummary {
 		return TimingSummary{Text: "No timings yet.", Flags: []string{}}
 	}
 	ts := place(s.Timings, e, s.Facts.Gaia)
-	a, _ := analyse(ts, e)
+	a, _ := analyse(ts)
 	out := TimingSummary{Count: a.N, Text: summary(a, len(ts)), Flags: []string{}}
 	for _, t := range trends(a, e, s.deeper()) {
 		if t.State == minima.StateFlag {
@@ -339,7 +339,7 @@ func trends(a minima.Analysis, e *period.Ephemeris, deep int) []TrendView {
 	case minima.StateFlag:
 		t.Why = fmt.Sprintf("Your eclipses now come %s, give or take %.1f minutes, against the predicted times.", earlyLate(a.Now*1440), a.NowErr*1440)
 		if a.Fit.Model == minima.ModelLine || a.Fit.Model == minima.ModelCurve {
-			t.Why += fmt.Sprintf(" The timings fit a period of %s days.", periodText(e.Period+a.Fit.Slope, a.Fit.SlopeErr))
+			t.Why += fmt.Sprintf(" The timings fit a period of %s days.", periodText(e.Period+a.Rate, a.RateErr))
 		}
 		t.Basis = basis + chance(a.Ephemeris.Prob)
 	default:
@@ -410,7 +410,7 @@ func trends(a minima.Analysis, e *period.Ephemeris, deep int) []TrendView {
 func updated(a minima.Analysis, e *period.Ephemeris) *Updated {
 	p, pe := e.Period, e.PeriodErr
 	if a.Fit.Model == minima.ModelLine || a.Fit.Model == minima.ModelCurve {
-		p, pe = e.Period+a.Fit.Slope, a.Fit.SlopeErr
+		p, pe = e.Period+a.Rate, a.RateErr
 	}
-	return &Updated{PeriodText: periodText(p, pe), Period: p, PeriodErr: pe, EpochBJD: e.T0 + a.Fit.Primary}
+	return &Updated{PeriodText: periodText(p, pe), Period: p, PeriodErr: pe, EpochBJD: e.T0 + a.RefCycle*e.Period + a.Now}
 }

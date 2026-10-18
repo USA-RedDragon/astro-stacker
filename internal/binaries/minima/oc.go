@@ -17,14 +17,6 @@ type Timing struct {
 	Day    float64
 }
 
-// Prior is what the survey ephemeris itself says at its epoch, in days:
-// the epoch's error and the period's error, from the survey fit.
-type Prior struct {
-	Period    float64
-	T0Err     float64
-	PeriodErr float64
-}
-
 // Trend states.
 const (
 	StateFlag  = "flag"
@@ -95,27 +87,31 @@ type Analysis struct {
 	Seasons   int     `json:"seasons"`
 	Used      []bool  `json:"used"`
 	Fit       Fit     `json:"fit"`
-	// Now is the fitted offset at the latest timing and NowErr its error.
-	Now       float64 `json:"now"`
-	NowErr    float64 `json:"now_err"`
-	Ephemeris Test    `json:"ephemeris"`
-	Period    Test    `json:"period"`
-	Orbit     Test    `json:"orbit"`
-	Third     Test    `json:"third"`
+	// Now is the fitted offset of the epoch's eclipse at RefCycle, the
+	// whole cycle of the latest timing, with its error, and Rate the
+	// fitted change per cycle there, with its error: the local linear
+	// ephemeris the timings call for.
+	Now      float64 `json:"now"`
+	NowErr   float64 `json:"now_err"`
+	RefCycle float64 `json:"ref_cycle"`
+	Rate     float64 `json:"rate"`
+	RateErr  float64 `json:"rate_err"`
+
+	Ephemeris Test `json:"ephemeris"`
+	Period    Test `json:"period"`
+	Orbit     Test `json:"orbit"`
+	Third     Test `json:"third"`
 }
 
 const (
 	// Alpha is the chance level below which a trend is flagged.
 	Alpha = 0.001
-	// priorInflate widens the survey's own errors, as fitted errors of
-	// sparse survey light curves often come out too small.
-	priorInflate = 2.0
 	// seasonGap is the gap in days that starts a new observing season.
 	seasonGap = 120.0
 	// outlierZ is how far, in robust spreads, a timing may sit from the
-	// others before it is left out.
+	// others of its eclipse and season before it is left out.
 	outlierZ = 5.0
-	// minOffsetN is the fewest timings, on minOffsetNights cycles, to
+	// minOffsetN is the fewest timings, on minOffsetCycles cycles, to
 	// test for an offset.
 	minOffsetN      = 3
 	minOffsetCycles = 2
@@ -138,12 +134,12 @@ const (
 	waveCycles  = 1.5
 	waveMinDays = 100.0
 	waveTrials  = 300
-	waveSims    = 500
+	waveSims    = 2000
 	// minShiftDays is the smallest offset now worth an ephemeris update,
 	// one minute.
 	minShiftDays = 1.0 / 1440
-	// residDOF is the fewest degrees of freedom left in the timings
-	// alone for a richer model.
+	// residDOF is the fewest degrees of freedom left in the timings for
+	// a richer model.
 	residDOF = 2
 )
 
@@ -152,7 +148,6 @@ type spec struct {
 	slope       bool
 	split       bool
 	curve       bool
-	slopePrior  bool
 	scaleCycles float64
 }
 
@@ -187,17 +182,14 @@ type solved struct {
 	cov  [][]float64
 	chi  float64
 	rows int
-	own  int
 	ok   bool
 }
 
-// solve fits s to the used timings with the survey's priors as extra
-// rows: the primary's offset is 0 within the epoch's error, and with
-// slopePrior the drift is 0 within the period's error.
-func solve(ts []Timing, used []bool, s spec, pr Prior) solved {
+// solve fits s to the used timings, the user's own alone: the survey's
+// errors are not trusted to anchor the fit.
+func solve(ts []Timing, used []bool, s spec) solved {
 	var rows [][]float64
 	var y, sig []float64
-	own := 0
 	for i, t := range ts {
 		if !used[i] {
 			continue
@@ -205,58 +197,38 @@ func solve(ts []Timing, used []bool, s spec, pr Prior) solved {
 		rows = append(rows, s.cols(t))
 		y = append(y, t.OC)
 		sig = append(sig, t.Err)
-		own++
 	}
-	k := s.k()
-	if k == 0 {
+	if s.k() == 0 {
 		var chi float64
-		for i, t := range ts {
-			if used[i] {
-				chi += (t.OC / t.Err) * (t.OC / t.Err)
-			}
+		for i := range y {
+			chi += (y[i] / sig[i]) * (y[i] / sig[i])
 		}
-		return solved{spec: s, chi: chi, rows: own, own: own, ok: true}
-	}
-	if s.prim && pr.T0Err > 0 {
-		r := make([]float64, k)
-		r[0] = 1
-		rows = append(rows, r)
-		y = append(y, 0)
-		sig = append(sig, priorInflate*pr.T0Err)
-	}
-	if s.slope && s.slopePrior && !s.split && pr.PeriodErr > 0 {
-		r := make([]float64, k)
-		r[b2i(s.prim)+b2i(s.sec)] = 1
-		rows = append(rows, r)
-		y = append(y, 0)
-		sig = append(sig, priorInflate*pr.PeriodErr*s.scaleCycles)
+		return solved{spec: s, chi: chi, rows: len(rows), ok: true}
 	}
 	beta, cov, chi, ok := LSQ(rows, y, sig)
-	return solved{spec: s, beta: beta, cov: cov, chi: chi, rows: len(rows), own: own, ok: ok}
+	return solved{spec: s, beta: beta, cov: cov, chi: chi, rows: len(rows), ok: ok}
 }
 
 func (m solved) dof() int { return m.rows - m.k() }
 
-// compare is the chance that rich improves on simple this much by noise:
-// an F test when rich leaves more scatter than the errors allow, else a
-// chi-square test on the errors as given.
-func compare(simple, rich solved) float64 {
-	dk := float64(rich.k() - simple.k())
-	if !simple.ok || !rich.ok || dk <= 0 || rich.dof() < 1 {
-		return 1
-	}
-	d := simple.chi - rich.chi
-	red := rich.chi / float64(rich.dof())
-	if red > 1 {
-		return FProb(d/dk/red, dk, float64(rich.dof()))
-	}
-	return ChiProb(d, dk)
+func (m solved) red() float64 {
+	return math.Max(1, m.chi/math.Max(1, float64(m.dof())))
 }
 
-// Analyze reads the trends in ts against an ephemeris with prior pr.
-// Each trend is tested only when the timings are enough for it, and
-// otherwise says what it needs.
-func Analyze(ts []Timing, pr Prior) Analysis {
+// compare is the chance that rich improves on simple this much by noise,
+// by an F test: it judges the improvement against the scatter left, so
+// timing errors that are too small do not make noise look significant.
+func compare(simple, rich solved) float64 {
+	dk := float64(rich.k() - simple.k())
+	if !simple.ok || !rich.ok || dk <= 0 || rich.dof() < 1 || !(rich.chi > 0) {
+		return 1
+	}
+	return FProb((simple.chi-rich.chi)/dk/(rich.chi/float64(rich.dof())), dk, float64(rich.dof()))
+}
+
+// Analyze reads the trends in ts. Each trend is tested only when the
+// timings are enough for it, and otherwise says what it needs.
+func Analyze(ts []Timing) Analysis {
 	a := Analysis{N: len(ts), Used: make([]bool, len(ts))}
 	for i := range ts {
 		a.Used[i] = ts[i].Err > 0 && finite(ts[i].OC)
@@ -271,48 +243,43 @@ func Analyze(ts []Timing, pr Prior) Analysis {
 	}
 	hasP, hasS := a.Primary > 0, a.Secondary > 0
 	base := spec{prim: hasP, sec: hasS, scaleCycles: scale}
-	none := solve(ts, a.Used, spec{scaleCycles: scale}, Prior{})
-	off := solve(ts, a.Used, base, Prior{})
+	none := solve(ts, a.Used, spec{scaleCycles: scale})
+	off := solve(ts, a.Used, base)
 	line := base
 	line.slope = true
-	ln := solve(ts, a.Used, line, Prior{})
-	anchored := line
-	anchored.slopePrior = true
-	curve := anchored
+	ln := solve(ts, a.Used, line)
+	curve := line
 	curve.curve = true
-	lnA := solve(ts, a.Used, anchored, pr)
-	cvA := solve(ts, a.Used, curve, pr)
+	cv := solve(ts, a.Used, curve)
 	n := len(used)
 	cycles := distinctCycles(used)
 
 	best := none
 	a.Ephemeris = Test{State: StateNeed, Need: needText(n, minOffsetN, "timed eclipses", cycles, minOffsetCycles)}
-	canOffset := n >= minOffsetN && cycles >= minOffsetCycles && off.own-off.k() >= 1
-	canLine := canOffset && n >= minLineN && a.SpanDays >= minLineDays && ln.own-ln.k() >= residDOF
-	canCurve := canLine && n >= minCurveN && a.SpanDays >= minCurveDays && a.Seasons >= minCurveSeasons && cvA.own-cvA.k() >= residDOF
+	canOffset := n >= minOffsetN && cycles >= minOffsetCycles && off.dof() >= 1
+	canLine := canOffset && n >= minLineN && a.SpanDays >= minLineDays && ln.dof() >= residDOF
+	canCurve := canLine && n >= minCurveN && a.SpanDays >= minCurveDays && a.Seasons >= minCurveSeasons && cv.dof() >= residDOF
 	if canOffset {
-		if p := compare(none, off); p < Alpha {
+		if compare(none, off) < Alpha {
 			best = off
 		}
-		if canLine {
-			if p := compare(best, ln); p < Alpha {
-				best = ln
-			}
+		if canLine && compare(best, ln) < Alpha {
+			best = ln
 		}
 	}
 	shift := best
 	a.Period = Test{State: StateNeed, Need: curveNeed(n, a.SpanDays, a.Seasons)}
 	if canCurve {
-		p := compare(lnA, cvA)
-		c, ce := coef(cvA, cvA.k()-1, scale*scale)
+		p := compare(ln, cv)
+		c, ce := coef(cv, cv.k()-1, scale*scale)
 		a.Period = Test{State: StateClear, Value: c, Err: ce, Prob: p}
 		if p < Alpha {
-			best = cvA
+			best = cv
 			a.Period.State = StateFlag
 		}
 	}
 	a.Fit = fitOf(best, scale, hasS)
-	a.Fit.Scale = math.Sqrt(math.Max(1, best.chi/math.Max(1, float64(best.dof()))))
+	a.Fit.Scale = math.Sqrt(best.red())
 	if n > 0 {
 		last := used[0]
 		for _, t := range used {
@@ -320,18 +287,22 @@ func Analyze(ts []Timing, pr Prior) Analysis {
 				last = t
 			}
 		}
-		a.Now = a.Fit.At(last.Cycle, false)
-		a.NowErr = nowErr(best, last)
+		a.RefCycle = math.Round(last.Cycle)
+		a.Now, a.NowErr = local(best, a.RefCycle, false)
+		a.Rate, a.RateErr = local(best, a.RefCycle, true)
+		if a.NowErr == 0 {
+			a.NowErr = last.Err
+		}
 	}
 	if canOffset {
 		p := compare(none, pickRicher(off, shift))
 		a.Ephemeris = Test{State: StateClear, Value: a.Now, Err: a.NowErr, Prob: p}
-		if (shift.k() > 0 || best.curve) && p < Alpha && math.Abs(a.Now) >= minShiftDays {
+		if shift.k() > 0 && p < Alpha && math.Abs(a.Now) >= minShiftDays {
 			a.Ephemeris.State = StateFlag
 		}
 	}
-	a.Orbit = orbit(ts, a.Used, used, best, pr, scale)
-	a.Third = third(ts, a.Used, used, best, pr, a.SpanDays)
+	a.Orbit = orbit(ts, a.Used, used, best, scale)
+	a.Third = third(ts, a.Used, used, best, a.SpanDays)
 	return a
 }
 
@@ -342,10 +313,56 @@ func pickRicher(a, b solved) solved {
 	return a
 }
 
+// local is the fitted offset of the epoch's eclipse at cycle e, or with
+// rate its change per cycle there, with its error from the fit's
+// covariance scaled by its reduced chi-square.
+func local(m solved, e float64, rate bool) (float64, float64) {
+	if m.k() == 0 || !m.ok {
+		return 0, 0
+	}
+	g := make([]float64, m.k())
+	i := 0
+	if m.prim {
+		if !rate {
+			g[i] = 1
+		}
+		i++
+	}
+	if m.sec {
+		if !rate && !m.prim {
+			g[i] = 1
+		}
+		i++
+	}
+	x := e / m.scaleCycles
+	if m.slope {
+		if rate {
+			g[i] = 1 / m.scaleCycles
+		} else {
+			g[i] = x
+		}
+		i++
+	}
+	if m.curve {
+		if rate {
+			g[i] = 2 * x / m.scaleCycles
+		} else {
+			g[i] = x * x
+		}
+	}
+	var v, val float64
+	for p := range g {
+		val += g[p] * m.beta[p]
+		for q := range g {
+			v += g[p] * m.cov[p][q] * g[q]
+		}
+	}
+	return val, math.Sqrt(v * m.red())
+}
+
 // orbit tests whether the two eclipses drift apart: separate drifts for
-// each against one shared, with no prior on the drift, as a turning orbit
-// moves the eclipses opposite ways about the survey's mean period.
-func orbit(ts []Timing, use []bool, used []Timing, best solved, pr Prior, scale float64) Test {
+// each against one shared.
+func orbit(ts []Timing, use []bool, used []Timing, best solved, scale float64) Test {
 	var p, s []Timing
 	for _, t := range used {
 		if t.Second {
@@ -364,15 +381,14 @@ func orbit(ts []Timing, use []bool, used []Timing, best solved, pr Prior, scale 
 	shared := spec{prim: true, sec: true, slope: true, curve: best.curve, scaleCycles: scale}
 	apart := shared
 	apart.split = true
-	a, b := solve(ts, use, shared, pr), solve(ts, use, apart, pr)
-	if !a.ok || !b.ok || b.own-b.k() < residDOF {
+	a, b := solve(ts, use, shared), solve(ts, use, apart)
+	if !a.ok || !b.ok || b.dof() < residDOF {
 		return Test{State: StateNeed, Need: "Needs more timings than the fit has terms."}
 	}
 	prob := compare(a, b)
 	i, j := 2, 3
-	red := math.Max(1, b.chi/float64(b.dof()))
 	diff := (b.beta[i] - b.beta[j]) / scale
-	v := (b.cov[i][i] + b.cov[j][j] - 2*b.cov[i][j]) * red / (scale * scale)
+	v := (b.cov[i][i] + b.cov[j][j] - 2*b.cov[i][j]) * b.red() / (scale * scale)
 	t := Test{State: StateClear, Value: diff, Err: math.Sqrt(v), Prob: prob}
 	if prob < Alpha {
 		t.State = StateFlag
@@ -380,10 +396,12 @@ func orbit(ts []Timing, use []bool, used []Timing, best solved, pr Prior, scale 
 	return t
 }
 
-// third looks for a wave in what the adopted fit leaves: a sine at each
-// trial period, its best improvement judged against the best improvements
-// noise alone gives the same timings.
-func third(ts []Timing, use []bool, used []Timing, best solved, pr Prior, span float64) Test {
+// third looks for a wave in what the adopted fit leaves: at each trial
+// period a sine's chi-square drop over the chi-square it leaves, a
+// measure that does not depend on how big the timing errors are, its
+// best judged against the best that noise alone gives the same timings
+// under the same fit.
+func third(ts []Timing, use []bool, used []Timing, best solved, span float64) Test {
 	if len(used) < minWaveN || span < minWaveDays {
 		return Test{State: StateNeed, Need: "Needs at least 15 timings over 3 years or more; has " + plural(len(used), "timing") + " over " + daysText(span) + "."}
 	}
@@ -393,28 +411,31 @@ func third(ts []Timing, use []bool, used []Timing, best solved, pr Prior, span f
 		days = append(days, t.Day)
 	}
 	periods := wavePeriods(span)
-	obs, per, amp, ampErr := bestWave(days, res, sig, periods)
+	dof := float64(len(used) - best.k() - 2)
+	if dof < 1 {
+		return Test{State: StateNeed, Need: "Needs more timings than the fit has terms."}
+	}
+	obs, per, amp, ampErr := bestWave(days, res, sig, periods, dof)
 	r := &rng{s: uint64(len(used))*2654435761 + 1}
 	exceed := 0
 	sim := make([]Timing, len(ts))
 	copy(sim, ts)
-	scale := math.Sqrt(math.Max(1, best.chi/math.Max(1, float64(best.dof()))))
 	for range waveSims {
 		for i := range sim {
-			sim[i].OC = fitted(best, ts[i]) + scale*ts[i].Err*r.normal()
+			sim[i].OC = fitted(best, ts[i]) + ts[i].Err*r.normal()
 		}
-		sb := solve(sim, use, best.spec, pr)
+		sb := solve(sim, use, best.spec)
 		if !sb.ok && best.k() > 0 {
 			continue
 		}
 		sr, ss := residuals(sim, use, sb)
-		if v, _, _, _ := bestWave(days, sr, ss, periods); v >= obs {
+		if v, _, _, _ := bestWave(days, sr, ss, periods, dof); v >= obs {
 			exceed++
 		}
 	}
 	prob := float64(exceed+1) / float64(waveSims+1)
 	t := Test{State: StateClear, Value: amp, Err: ampErr, Prob: prob, Period: per}
-	if prob < 2.0/float64(waveSims) && amp > 3*ampErr {
+	if prob < Alpha && amp > 3*ampErr {
 		t.State = StateFlag
 	}
 	return t
@@ -453,14 +474,15 @@ func fitted(m solved, t Timing) float64 {
 	return v
 }
 
-// bestWave is the largest chi-square drop a sine of any trial period
-// gives the residuals, with that period, its amplitude and error.
-func bestWave(days, res, sig, periods []float64) (float64, float64, float64, float64) {
+// bestWave is the largest power a sine of any trial period gives the
+// residuals, its chi-square drop over the chi-square left per degree of
+// freedom, with that period, its amplitude and error.
+func bestWave(days, res, sig, periods []float64, dof float64) (float64, float64, float64, float64) {
 	var chi0 float64
 	for i := range res {
 		chi0 += (res[i] / sig[i]) * (res[i] / sig[i])
 	}
-	bestD, bestP, bestA, bestE := 0.0, 0.0, 0.0, 0.0
+	bestF, bestP, bestA, bestE := 0.0, 0.0, 0.0, 0.0
 	rows := make([][]float64, len(res))
 	for _, p := range periods {
 		for i, d := range days {
@@ -468,38 +490,21 @@ func bestWave(days, res, sig, periods []float64) (float64, float64, float64, flo
 			rows[i] = []float64{math.Sin(w), math.Cos(w)}
 		}
 		beta, cov, chi, ok := LSQ(rows, res, sig)
-		if !ok {
+		if !ok || !(chi > 0) {
 			continue
 		}
-		if d := chi0 - chi; d > bestD {
+		red := chi / dof
+		if f := (chi0 - chi) / red; f > bestF {
 			amp := math.Hypot(beta[0], beta[1])
 			var v float64
 			if amp > 0 {
 				g0, g1 := beta[0]/amp, beta[1]/amp
-				v = g0*g0*cov[0][0] + g1*g1*cov[1][1] + 2*g0*g1*cov[0][1]
+				v = (g0*g0*cov[0][0] + g1*g1*cov[1][1] + 2*g0*g1*cov[0][1]) * math.Max(1, red)
 			}
-			bestD, bestP, bestA, bestE = d, p, amp, math.Sqrt(v)
+			bestF, bestP, bestA, bestE = f, p, amp, math.Sqrt(v)
 		}
 	}
-	return bestD, bestP, bestA, bestE
-}
-
-func nowErr(m solved, t Timing) float64 {
-	if m.k() == 0 || !m.ok {
-		return t.Err
-	}
-	g := m.cols(Timing{Cycle: t.Cycle, Second: false})
-	if !m.prim {
-		g = m.cols(Timing{Cycle: t.Cycle, Second: true})
-	}
-	var v float64
-	for i := range g {
-		for j := range g {
-			v += g[i] * m.cov[i][j] * g[j]
-		}
-	}
-	red := math.Max(1, m.chi/math.Max(1, float64(m.dof())))
-	return math.Sqrt(v * red)
+	return bestF, bestP, bestA, bestE
 }
 
 func fitOf(m solved, scale float64, hasS bool) Fit {
@@ -539,39 +544,39 @@ func coef(m solved, i int, scale float64) (float64, float64) {
 	if !m.ok || i >= len(m.beta) {
 		return 0, 0
 	}
-	red := math.Max(1, m.chi/math.Max(1, float64(m.dof())))
-	return m.beta[i] / scale, math.Sqrt(m.cov[i][i]*red) / scale
+	return m.beta[i] / scale, math.Sqrt(m.cov[i][i]*m.red()) / scale
 }
 
-// dropOutliers leaves out timings far from the rest of their eclipse,
-// by the median and robust spread of their offsets in errors, when there
-// are five or more; at most a fifth of them.
+// dropOutliers leaves out timings far from the others of their eclipse
+// in the same season, by the median and robust spread of their offsets,
+// when the group has five or more; at most a fifth of the group. A
+// timing alone in its season is never left out, as a real drift shows
+// there first.
 func dropOutliers(ts []Timing, used []bool) {
-	n := 0
-	for _, u := range used {
-		if u {
-			n++
+	type key struct {
+		second bool
+		season int
+	}
+	seasons := seasonIndex(ts, used)
+	groups := map[key][]int{}
+	for i, t := range ts {
+		if used[i] {
+			k := key{t.Second, seasons[i]}
+			groups[k] = append(groups[k], i)
 		}
 	}
-	if n < 5 {
-		return
-	}
-	for _, second := range []bool{false, true} {
-		var idx []int
-		var z []float64
-		for i, t := range ts {
-			if used[i] && t.Second == second {
-				idx = append(idx, i)
-				z = append(z, t.OC)
-			}
-		}
+	for _, idx := range groups {
 		if len(idx) < 5 {
 			continue
 		}
+		z := make([]float64, len(idx))
+		for k, i := range idx {
+			z[k] = ts[i].OC
+		}
 		m := median(z)
 		dev := make([]float64, len(z))
-		for i, v := range z {
-			dev[i] = math.Abs(v - m)
+		for k, v := range z {
+			dev[k] = math.Abs(v - m)
 		}
 		spread := 1.4826 * median(dev)
 		type cand struct {
@@ -593,6 +598,26 @@ func dropOutliers(ts []Timing, used []bool) {
 			used[c.i] = false
 		}
 	}
+}
+
+// seasonIndex numbers the seasons of the used timings in time order.
+func seasonIndex(ts []Timing, used []bool) []int {
+	var order []int
+	for i := range ts {
+		if used[i] {
+			order = append(order, i)
+		}
+	}
+	slices.SortFunc(order, func(a, b int) int { return cmpF(ts[a].Day, ts[b].Day) })
+	out := make([]int, len(ts))
+	s := 0
+	for k, i := range order {
+		if k > 0 && ts[i].Day-ts[order[k-1]].Day > seasonGap {
+			s++
+		}
+		out[i] = s
+	}
+	return out
 }
 
 func filter(ts []Timing, used []bool) []Timing {
@@ -644,13 +669,6 @@ func spanOf(ts []Timing) (float64, int) {
 }
 
 func b2f(b bool) float64 {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func b2i(b bool) int {
 	if b {
 		return 1
 	}
