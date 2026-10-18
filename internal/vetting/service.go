@@ -512,12 +512,67 @@ type star struct {
 	neighbours []surveys.Neighbour
 }
 
+// Star matching: a spot takes the nearest Gaia star within starArcsec
+// whose G is within starMagMatch of the spot's reference magnitude, and
+// without a reference magnitude the nearest star within closeArcsec
+// unless one there is over a magnitude brighter. Difference image
+// centroids of blended stars sit a pixel or more off the star.
 const (
-	starArcsec      = 2.0
+	starArcsec      = 4.0
+	closeArcsec     = 2.0
+	starMagMatch    = 1.5
 	neighbourArcsec = 10.0
 )
 
-func (s *Service) identify(ctx context.Context, ra, dec float64) (star, error) {
+// pickStar is the index in stars, nearest first, of the star the vet
+// takes for the spot at ra, dec in year, or -1.
+func pickStar(stars []starcat.GaiaStar, ra, dec, year, refMag float64) int {
+	best := -1
+	if !math.IsNaN(refMag) {
+		bestSep := math.Inf(1)
+		for i, g := range stars {
+			gra, gdec := g.At(year)
+			sep := arcsec(ra, dec, gra, gdec)
+			if sep > starArcsec || math.Abs(float64(g.G)-refMag) > starMagMatch {
+				continue
+			}
+			if sep < bestSep {
+				best, bestSep = i, sep
+			}
+		}
+		if best >= 0 {
+			return best
+		}
+	}
+	for i, g := range stars {
+		gra, gdec := g.At(year)
+		if arcsec(ra, dec, gra, gdec) <= closeArcsec && (best < 0 || g.G < stars[best].G-1) {
+			best = i
+		}
+	}
+	return best
+}
+
+// refMagOf is the median reference magnitude of a source's changes, NaN
+// when none has one.
+func refMagOf(members []app.DiscoveryCandidate) float64 {
+	var v []float64
+	for _, m := range members {
+		if m.RefMag != nil && !math.IsNaN(*m.RefMag) && m.Kind == app.DiscoveryKindChange {
+			v = append(v, *m.RefMag)
+		}
+	}
+	if len(v) == 0 {
+		return math.NaN()
+	}
+	sort.Float64s(v)
+	if len(v)%2 == 1 {
+		return v[len(v)/2]
+	}
+	return (v[len(v)/2-1] + v[len(v)/2]) / 2
+}
+
+func (s *Service) identify(ctx context.Context, ra, dec, refMag float64) (star, error) {
 	out := star{target: surveys.Target{RA: ra, Dec: dec}}
 	if s.Gaia == nil {
 		return out, nil
@@ -529,15 +584,7 @@ func (s *Service) identify(ctx context.Context, ra, dec float64) (star, error) {
 	sort.Slice(stars, func(i, j int) bool {
 		return arcsec(ra, dec, stars[i].RA, stars[i].Dec) < arcsec(ra, dec, stars[j].RA, stars[j].Dec)
 	})
-	best := -1
-	for i, g := range stars {
-		gra, gdec := g.At(epochYear(s.now()))
-		if arcsec(ra, dec, gra, gdec) <= starArcsec {
-			if best < 0 || g.G < stars[best].G-1 {
-				best = i
-			}
-		}
-	}
+	best := pickStar(stars, ra, dec, epochYear(s.now()), refMag)
 	if best < 0 {
 		return out, nil
 	}
@@ -568,11 +615,15 @@ func (f fetches) all() []surveys.Fetch { return []surveys.Fetch{f.ztf, f.atlas, 
 
 func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverysource.Summary, runs map[int]app.DiscoveryRun, own *ownimage.Result) (*Report, error) {
 	ra, dec := sum.Source.RA, sum.Source.Dec
-	st, err := s.identify(ctx, ra, dec)
+	st, err := s.identify(ctx, ra, dec, refMagOf(sum.Members))
 	if err != nil {
 		slog.Warn("Could not read Gaia at the spot", "error", err)
 	}
-	known := catalogChecks(ctx, s.Mirrors, s.Simbad, ra, dec, st.target.GaiaID)
+	cra, cdec := ra, dec
+	if st.found {
+		cra, cdec = starcat.Propagate(st.target.RA, st.target.Dec, st.target.PMRA, st.target.PMDec, epochYear(s.now())-starcat.GaiaEpoch)
+	}
+	known := catalogChecks(ctx, s.Mirrors, s.Simbad, cra, cdec, st.target.GaiaID)
 	rep := &Report{Version: Version, SourceID: sum.Source.ID, RanAt: s.now(), Star: starLine(known.Name, st)}
 	flags := ownimage.Flags{}
 	var curve *ownimage.Curve
