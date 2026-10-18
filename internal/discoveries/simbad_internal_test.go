@@ -56,6 +56,28 @@ func TestSIMBADVariableMakesAChangeKnown(t *testing.T) {
 	}
 }
 
+// TestSIMBADMatchRadius replays 57613 (Triangulum, 2025-12-12), 2.12"
+// from the Mira M33SSS J013357.42+303958.7, and the real nova AT 2025jub,
+// 2.90" from the pulsating star [MSH2004] 33064.
+func TestSIMBADMatchRadius(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, typ string
+		sep       float64
+		known     bool
+	}{
+		{"M33SSS J013357.42+303958.7", "Mi*", 2.12, true},
+		{"[MSH2004] 33064", "Pu*", 2.90, false},
+	} {
+		v := Variable{Catalog: catalogSIMBAD, Name: tc.name, Type: tc.typ, RA: 23.4892, Dec: 30.6663 + tc.sep/3600}
+		res := &Result{Candidates: []Candidate{{RA: 23.4892, Dec: 30.6663, Sign: 1, SNR: 9, PresentIn: 8, SubsTested: 8}}}
+		ls := classifyChanges(context.Background(), t, res, Known{Variables: []Variable{v}})
+		if known := ls[0].Class == ClassKnownVariable; known != tc.known {
+			t.Errorf("%s %.2f\" away: %s %+v", tc.name, tc.sep, ls[0].Class, ls[0].Matches)
+		}
+	}
+}
+
 func TestSIMBADErrorsAndCache(t *testing.T) {
 	t.Parallel()
 	if _, err := ParseSIMBAD([]byte(`<VOTABLE><RESOURCE><INFO name="QUERY_STATUS" value="ERROR">Incorrect ADQL query</INFO></RESOURCE></VOTABLE>`)); err == nil || !strings.Contains(err.Error(), "Incorrect ADQL query") {
