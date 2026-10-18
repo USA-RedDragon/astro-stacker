@@ -149,9 +149,10 @@ func (r reported) snr(fc *ownimage.FluxCurve, n ownimage.FluxNight) (float64, bo
 	return f / n.Err, true
 }
 
-// reportedLights is the new light the detection reported in each filter
-// group, on the group's strongest brightening: light reported in H-a
-// says little of what broadband frames show.
+// reportedLights is the new light the detection reported, by filter group
+// and night, on the strongest brightening of each: light reported in H-a
+// says little of what broadband frames show, and AT 2025adss's faint
+// first sighting of 2025-10-15 little of its 2025-11-21 peak.
 func reportedLights(sum discoverysource.Summary) map[string]reported {
 	out := map[string]reported{}
 	best := map[string]float64{}
@@ -160,22 +161,35 @@ func reportedLights(sum discoverysource.Summary) map[string]reported {
 		if m.Sign <= 0 || nl == nil {
 			continue
 		}
-		if s, ok := best[m.Group]; !ok || m.SNR > s {
-			best[m.Group] = m.SNR
-			out[m.Group] = reported{mag: *nl, ok: true}
+		k := m.Group + "\x00" + m.Night.UTC().Format(time.DateOnly)
+		if s, ok := best[k]; !ok || m.SNR > s {
+			best[k] = m.SNR
+			out[k] = reported{mag: *nl, ok: true}
 		}
 	}
 	return out
 }
 
-// reportedFor is the reported light of a filter's group; all filters
-// combined stand for the broadband group.
-func reportedFor(reps map[string]reported, filter string) reported {
+// reportedFor is the reported light of a filter's group on a night; all
+// filters combined stand for the broadband group.
+func reportedFor(reps map[string]reported, filter, night string) reported {
 	g := discoveries.GroupOf(filter)
 	if filter == ownimage.AllFilters {
 		g = discoveries.GroupBroadband
 	}
-	return reps[g]
+	return reps[g+"\x00"+night]
+}
+
+// reportedBroad is the brightest new light the detection reported in
+// broadband on any night.
+func reportedBroad(reps map[string]reported) reported {
+	var out reported
+	for k, r := range reps {
+		if strings.HasPrefix(k, discoveries.GroupBroadband+"\x00") && (!out.ok || r.mag < out.mag) {
+			out = r
+		}
+	}
+	return out
 }
 
 // transientFacts is what the transient checks read.
@@ -238,7 +252,7 @@ func fluxCheck(fc *ownimage.FluxCurve, reps map[string]reported) check.Check {
 		basis += " The noise is the spread of the same measurement at places around the spot."
 	}
 	z := p.SNR()
-	rep := reportedFor(reps, p.Filter)
+	rep := reportedFor(reps, p.Filter, p.Night)
 	inj, injOK := rep.snr(fc, p)
 	switch {
 	case z >= seenSNR && p.Mag > 0:
@@ -380,9 +394,9 @@ func trend(ns []ownimage.FluxNight, first string) string {
 }
 
 // nextCheck looks for the light on the nights 1 to followDays days after
-// the first flagged one, each with three subs or more, in the peak's
-// filter. Earlier nights are not judged: a nova caught on the rise is
-// rightly absent before.
+// the night it was claimed brightest on, each with three subs or more, in
+// that night's filter. Earlier nights are not judged: a nova caught on
+// the rise is rightly absent before.
 func nextCheck(fc *ownimage.FluxCurve, reps map[string]reported) check.Check {
 	if fc == nil {
 		return check.Skipped(check.TransNext, "Not measured yet. The spot's own light could not be measured.")
@@ -392,8 +406,8 @@ func nextCheck(fc *ownimage.FluxCurve, reps map[string]reported) check.Check {
 		return check.Skipped(check.TransNext, "Not measured yet. None of your frames from the flagged nights could be measured at the spot.")
 	}
 	ns := inFilter(fc, p.Filter)
-	first := firstFlagged(ns)
-	rep := reportedFor(reps, p.Filter)
+	first := p.Night
+	rep := reportedFor(reps, p.Filter, p.Night)
 	var looked []ownimage.FluxNight
 	for _, n := range ns {
 		if d := daysBetween(first, n.Night); d >= 1 && d <= followDays && !n.Thin {
@@ -676,7 +690,7 @@ func ztfImagesCheck(fx transientFacts, alerted bool) check.Check {
 		return check.Skipped(check.TransZTFImages, fmt.Sprintf("Not judged: ALeRCE lists ZTF object %s here.", fx.ztf[0].OID))
 	}
 	light, what := broadLight(fx.flux), "the new light in your broadband frames"
-	if rep := fx.reps[discoveries.GroupBroadband]; light == 0 && rep.ok {
+	if rep := reportedBroad(fx.reps); light == 0 && rep.ok {
 		light, what = rep.mag, "the new light the detection reported in broadband"
 	}
 	if light == 0 {

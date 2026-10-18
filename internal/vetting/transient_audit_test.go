@@ -33,29 +33,29 @@ func curveOf(nights ...ownimage.FluxNight) *ownimage.FluxCurve {
 
 // lightAt is the reported light that gives signal to noise z on an error
 // of 10 at zero point 25.
-func lightAt(z float64) map[string]reported {
-	return map[string]reported{discoveries.GroupBroadband: {mag: 25 - 2.5*math.Log10(z*10), ok: true}}
+func lightAt(z float64, night string) map[string]reported {
+	return map[string]reported{discoveries.GroupBroadband + "\x00" + night: {mag: 25 - 2.5*math.Log10(z*10), ok: true}}
 }
 
 func TestReportedLightIsInjected(t *testing.T) {
 	t.Parallel()
 	// AT 2026acsi (source 182), a real nova: 6.2 at the spot, 12.0 with its
 	// reported light added.
-	c := fluxCheck(curveOf(zNight("2026-10-11", lum, 6.2, 12, true)), lightAt(5.8))
+	c := fluxCheck(curveOf(zNight("2026-10-11", lum, 6.2, 12, true)), lightAt(5.8, "2026-10-11"))
 	if c.Status != check.Pass {
 		t.Errorf("AT 2026acsi: %s %s", c.Status, c.Evidence)
 	}
 	// 60465 in M 31's bulge: 0.4, and 7.0 with the light reported.
-	c = fluxCheck(curveOf(zNight("2025-10-26", lum, 0.4, 12, true)), lightAt(6.6))
+	c = fluxCheck(curveOf(zNight("2025-10-26", lum, 0.4, 12, true)), lightAt(6.6, "2025-10-26"))
 	if c.Status != check.Fail || !strings.Contains(c.Evidence, "would show at 7") {
 		t.Errorf("60465: %s %s", c.Status, c.Evidence)
 	}
 	// 36597: 2.6 against 7.0, not ruled out by itself.
-	if c := fluxCheck(curveOf(zNight("2025-10-17", lum, 2.6, 12, true)), lightAt(4.4)); c.Status != check.NotRun {
+	if c := fluxCheck(curveOf(zNight("2025-10-17", lum, 2.6, 12, true)), lightAt(4.4, "2025-10-17")); c.Status != check.NotRun {
 		t.Errorf("36597: %s %s", c.Status, c.Evidence)
 	}
 	// 60670: 2.0 against 4.4: the light reported is too faint to rule out.
-	if c := fluxCheck(curveOf(zNight("2025-10-15", lum, 1.9, 12, true)), lightAt(2.4)); c.Status != check.NotRun || !strings.Contains(c.Evidence, "too faint") {
+	if c := fluxCheck(curveOf(zNight("2025-10-15", lum, 1.9, 12, true)), lightAt(2.4, "2025-10-15")); c.Status != check.NotRun || !strings.Contains(c.Evidence, "too faint") {
 		t.Errorf("60670: %s %s", c.Status, c.Evidence)
 	}
 }
@@ -65,7 +65,7 @@ func TestGoneTheNextNight(t *testing.T) {
 	// 17751: 3.4 on 2026-07-19, then -0.8 on 07-20 where its reported light
 	// would add 3.5.
 	fc := curveOf(zNight("2026-07-18", lum, 0.3, 8, false), zNight("2026-07-19", lum, 3.4, 10, true), zNight("2026-07-20", lum, -0.8, 9, false))
-	if c := nextCheck(fc, lightAt(3.5)); c.Status != check.Fail {
+	if c := nextCheck(fc, lightAt(3.5, "2026-07-19")); c.Status != check.Fail {
 		t.Errorf("17751: %s %s", c.Status, c.Evidence)
 	}
 	s := transientSuggest(transientGroups(map[string]check.Status{check.TransFlux: check.NotRun, check.TransNext: check.Fail}), transientFacts{})
@@ -74,13 +74,26 @@ func TestGoneTheNextNight(t *testing.T) {
 	}
 	// A nova caught rising: nothing the night before, still there after.
 	fc = curveOf(zNight("2025-11-10", lum, 0.1, 8, false), zNight("2025-11-11", lum, 7, 10, true), zNight("2025-11-12", lum, 9, 10, false))
-	if c := nextCheck(fc, lightAt(7)); c.Status != check.Pass {
+	if c := nextCheck(fc, lightAt(7, "2025-11-11")); c.Status != check.Pass {
 		t.Errorf("rising nova: %s %s", c.Status, c.Evidence)
 	}
 	// Two frames the next night do not judge it.
 	fc = curveOf(zNight("2025-11-11", lum, 7, 10, true), zNight("2025-11-12", lum, 0, 2, false))
-	if c := nextCheck(fc, lightAt(7)); c.Status != check.NotRun {
+	if c := nextCheck(fc, lightAt(7, "2025-11-11")); c.Status != check.NotRun {
 		t.Errorf("thin next night: %s %s", c.Status, c.Evidence)
+	}
+	// AT 2025adss: a faint first sighting on 2025-10-15 with nothing on the
+	// next nights, and its peak on 2025-11-21 still there the night after.
+	fc = curveOf(zNight("2025-10-15", lum, 4, 8, true), zNight("2025-10-17", lum, 0.2, 8, false), zNight("2025-11-21", lum, 20, 12, true), zNight("2025-11-22", lum, 15, 10, false))
+	reps := map[string]reported{}
+	for k, v := range lightAt(4, "2025-10-15") {
+		reps[k] = v
+	}
+	for k, v := range lightAt(20, "2025-11-21") {
+		reps[k] = v
+	}
+	if c := nextCheck(fc, reps); c.Status != check.Pass {
+		t.Errorf("AT 2025adss: %s %s", c.Status, c.Evidence)
 	}
 }
 
@@ -310,19 +323,23 @@ func TestSurveyConfirmedTransientsStayReal(t *testing.T) {
 func TestReportedLightComesFromTheStrongestBrightening(t *testing.T) {
 	t.Parallel()
 	nm, rm, hm := 18.06, 18.49, 16.0
+	night := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
 	sum := discoverysource.Summary{Best: app.DiscoveryCandidate{Sign: 1}, Members: []app.DiscoveryCandidate{
-		{Sign: 1, SNR: 8, Group: discoveries.GroupBroadband, NightMag: &nm, RefMag: &rm},
-		{Sign: 1, SNR: 20, Group: ha, NightMag: &hm},
-		{Sign: -1, SNR: 12, Group: discoveries.GroupBroadband, NightMag: &rm},
+		{Sign: 1, SNR: 8, Night: night, Group: discoveries.GroupBroadband, NightMag: &nm, RefMag: &rm},
+		{Sign: 1, SNR: 20, Night: night, Group: ha, NightMag: &hm},
+		{Sign: -1, SNR: 12, Night: night, Group: discoveries.GroupBroadband, NightMag: &rm},
 	}}
 	reps := reportedLights(sum)
-	if r := reportedFor(reps, lum); !r.ok || math.Abs(r.mag-19.26) > 0.02 {
+	if r := reportedFor(reps, lum, "2026-10-11"); !r.ok || math.Abs(r.mag-19.26) > 0.02 {
 		t.Errorf("AT 2026acsi's new light %+v, want 19.26", r)
 	}
-	if r := reportedFor(reps, ownimage.AllFilters); math.Abs(r.mag-19.26) > 0.02 {
+	if r := reportedFor(reps, ownimage.AllFilters, "2026-10-11"); math.Abs(r.mag-19.26) > 0.02 {
 		t.Errorf("all filters take the broadband light: %+v", r)
 	}
-	if r := reportedFor(reps, ha); r.mag != 16 {
+	if r := reportedFor(reps, ha, "2026-10-11"); r.mag != 16 {
 		t.Errorf("H-a takes its own: %+v", r)
+	}
+	if r := reportedFor(reps, lum, "2026-10-12"); r.ok {
+		t.Errorf("another night's light: %+v", r)
 	}
 }
