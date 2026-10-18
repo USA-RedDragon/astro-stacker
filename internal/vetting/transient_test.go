@@ -177,7 +177,7 @@ func TestTransientWithItsShapeUnmeasuredIsNotReal(t *testing.T) {
 		t.Errorf("own frames, shape unmeasured: %+v", s)
 	}
 	skipped[check.TransATLAS] = check.Pass
-	if s := transientSuggest(transientGroups(skipped), transientFacts{}); s.State == app.VetReal {
+	if s := transientSuggest(transientGroups(skipped), transientFacts{}); s.State != app.VetReal {
 		t.Errorf("seen by ATLAS, shape unmeasured: %+v", s)
 	}
 }

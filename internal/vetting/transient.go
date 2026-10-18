@@ -543,8 +543,8 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 }
 
 // transientSuggest turns the transient checks into a suggestion, after
-// the image checks and catalogs have had their say. It never says real
-// while the light's shape is unmeasured: 67045 on Sombrero Galaxy's
+// the image checks and catalogs have had their say. Unless ATLAS or ZTF saw
+// it too, it never says real while the light's shape is unmeasured: 67045 on Sombrero Galaxy's
 // 2025-12-29, diffuse light near a corner of the frame, was taken for a
 // transient with its shape and hot pixel checks skipped.
 func transientSuggest(groups []Group, fx transientFacts) Suggestion {
@@ -568,7 +568,7 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: a catalogued source sits there at that brightness", Confidence: Low, Why: ev(check.TransBefore)}
 	case st(check.TransZTF) == check.Fail:
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: ZTF saw this spot brighten before", Confidence: Low, Why: ev(check.TransZTF)}
-	case st(check.PSF) != check.Pass:
+	case st(check.PSF) != check.Pass && st(check.TransATLAS) != check.Pass && st(check.TransZTF) != check.Pass:
 		why := joinSentences(ev(check.PSF), "Diffuse light, not a star, can show as new light at a spot until its shape is measured.")
 		if fx.atlas.State == surveys.Pending {
 			why += " ATLAS data still being fetched may settle it."
