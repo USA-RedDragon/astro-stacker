@@ -19,6 +19,11 @@ type Point struct {
 	BJD float64 `json:"bjd"`
 	Mag float64 `json:"mag"`
 	Err float64 `json:"err"`
+	// Src names the light curve the point comes from when a series merges
+	// several that each have their own zero point: for ZTF the object id,
+	// one per field, CCD quadrant and filter. Zero when the series has one
+	// zero point.
+	Src int64 `json:"src,omitempty"`
 }
 
 // Series is one survey's light curve of the star in one band.
