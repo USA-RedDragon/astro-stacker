@@ -795,7 +795,8 @@ func (in *Input) linkTracks(subs []nightSub, dets [][]moverDet, times []time.Tim
 	}
 	links, transient := linkMovers(times, dets, res.PixelScale, validArea(edge))
 	res.MoverNull = nullMovers(times, dets, links, res.PixelScale, validArea(edge))
-	bright := in.brightStars()
+	maxG, starR := residualStars(res)
+	bright := in.brightStars(maxG)
 	astroPx := 0.1
 	if res.AstroRMSArcsec != nil {
 		astroPx = *res.AstroRMSArcsec / res.PixelScale
@@ -806,7 +807,7 @@ func (in *Input) linkTracks(subs []nightSub, dets [][]moverDet, times []time.Tim
 		}
 		tr := in.track(hs, subs, dets, times)
 		tr.Chi = trackChi(tr, res.HFRNight/hfrToSigma, astroPx)
-		if !onBrightStars(tr, bright) && tr.Chi <= maxTrackChi && movedClearly(tr, 2*res.HFRNight, astroPx) {
+		if !onBrightStars(tr, bright, starR) && tr.Chi <= maxTrackChi && movedClearly(tr, 2*res.HFRNight, astroPx) {
 			res.Tracks = append(res.Tracks, tr)
 		}
 	}
@@ -1454,10 +1455,10 @@ func (c *cand) residual(ref *Plane, local localFrac, res *Result) string {
 
 // brightStars indexes the pixel positions, at the night's epoch, of the
 // Gaia stars bright enough to leave subtraction residuals.
-func (in *Input) brightStars() *Grid {
+func (in *Input) brightStars(maxG float64) *Grid {
 	var pts [][2]float64
 	for _, s := range in.gaiaNight {
-		if s.G > starResidualG {
+		if s.G > maxG {
 			continue
 		}
 		if x, y, ok := in.WCS.PixelOf(s.RA, s.Dec); ok {
