@@ -215,6 +215,9 @@ type transientFacts struct {
 	matches  []discoveries.Match
 	class    string
 	reps     map[string]reported
+	// stack is the stack to confirm, and stackV its verdict.
+	stack  check.Check
+	stackV ownimage.StackVerdict
 }
 
 type counterpart struct {
@@ -1030,6 +1033,7 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 	if own != nil {
 		fx.flux = own.Flux
 	}
+	fx.stack, fx.stackV = transientStack(fx.flux, fx.reps)
 	seen := map[string]bool{}
 	groups := map[string]bool{}
 	for _, m := range sum.Members {
@@ -1102,13 +1106,15 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 
 // transientSuggest turns the transient checks into a suggestion, after
 // the image checks and catalogs have had their say. ATLAS or ZTF seeing
-// it makes it real even with its shape unmeasured. The user's own frames
-// alone never make it real unless the light stood out on two nights in
-// frames the detection did not use, its shape was measured, the asteroid
-// check ran, and nothing else left it open: the 36 own-frame transients
-// vetted real in 2025, each on one night of the frames that found it,
-// were all artifacts, and 67045 on Sombrero Galaxy's 2025-12-29 was
-// diffuse light near a frame corner with its shape unmeasured.
+// it makes it real even with its shape unmeasured, unless the user's own
+// frames stacked at the spot do not show it. The user's own frames alone
+// never make it real unless the light stood out on two nights in frames
+// the detection did not use, its stack confirmed it, its shape was
+// measured, the asteroid check ran, and nothing else left it open: the 36
+// own-frame transients vetted real in 2025, each on one night of the
+// frames that found it, were all artifacts, and 67045 on Sombrero
+// Galaxy's 2025-12-29 was diffuse light near a frame corner with its
+// shape unmeasured.
 func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 	ev := func(id string) string { return evidence(groups, id) }
 	st := func(id string) check.Status { return status(groups, id) }
@@ -1136,6 +1142,10 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: ZTF saw this spot brighten before", Confidence: Low, Why: ev(check.TransZTF)}
 	}
 	if st(check.TransATLAS) == check.Pass || st(check.TransZTF) == check.Pass {
+		if fx.stackV == ownimage.StackRefuted {
+			return Suggestion{State: app.VetUnsure, Say: "Not sure: a survey saw it, but your frames stacked at the spot do not show it", Confidence: Low,
+				Why: joinSentences(ev(check.TransStack), ev(check.TransATLAS), ev(check.TransZTF))}
+		}
 		conf := Medium
 		if st(check.TransFlux) == check.Pass {
 			conf = High
@@ -1148,12 +1158,12 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		}
 		return Suggestion{State: app.VetReal, Say: "Looks like " + what + ", seen by a survey too", Confidence: conf, Why: joinSentences(why...)}
 	}
-	return ownFramesSuggest(groups, what, pendingNote)
+	return ownFramesSuggest(groups, what, pendingNote, fx.stackV)
 }
 
 // ownFramesSuggest is the suggestion for new light no survey has seen,
 // from the user's own frames alone.
-func ownFramesSuggest(groups []Group, what, pendingNote string) Suggestion {
+func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.StackVerdict) Suggestion {
 	ev := func(id string) string { return evidence(groups, id) }
 	st := func(id string) check.Status { return status(groups, id) }
 	has := func(id string) bool {
@@ -1161,6 +1171,8 @@ func ownFramesSuggest(groups []Group, what, pendingNote string) Suggestion {
 		return ok
 	}
 	switch {
+	case stack == ownimage.StackRefuted:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: not there when your frames are stacked at the spot", Confidence: Medium, Why: ev(check.TransStack)}
 	case st(check.TransNext) == check.Fail:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: gone the next night", Confidence: Medium, Why: ev(check.TransNext)}
 	case st(check.TransColor) == check.Fail:
@@ -1183,12 +1195,15 @@ func ownFramesSuggest(groups []Group, what, pendingNote string) Suggestion {
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: not checked against known asteroids", Confidence: Low,
 			Why: joinSentences(ev(check.Stays), "A known asteroid passing on one night looks just like this.") + pendingNote}
 	}
-	if st(check.TransFlux) == check.Pass && st(check.TransNights) == check.Pass && st(check.TransBefore) == check.Pass && st(check.TransFresh) == check.Pass {
+	if stack == ownimage.StackDoubtful {
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: your frames stacked at the spot do not confirm it", Confidence: Low, Why: ev(check.TransStack) + pendingNote}
+	}
+	if stack == ownimage.StackConfirmed && st(check.TransFlux) == check.Pass && st(check.TransNights) == check.Pass && st(check.TransBefore) == check.Pass && st(check.TransFresh) == check.Pass {
 		return Suggestion{State: app.VetReal, Say: "Looks like " + what + " in your own frames", Confidence: Medium,
-			Why: joinSentences(ev(check.TransFlux), ev(check.TransFresh), ev(check.TransNights), ev(check.TransBefore), "No survey has confirmed it yet.")}
+			Why: joinSentences(ev(check.TransFlux), ev(check.TransStack), ev(check.TransFresh), ev(check.TransNights), ev(check.TransBefore), "No survey has confirmed it yet.")}
 	}
 	var missing []string
-	for _, id := range []string{check.TransFlux, check.TransFresh, check.TransNights, check.TransBefore, check.TransATLAS, check.TransZTF} {
+	for _, id := range []string{check.TransFlux, check.TransStack, check.TransFresh, check.TransNights, check.TransBefore, check.TransATLAS, check.TransZTF} {
 		if st(id) != check.Pass {
 			missing = append(missing, lowerFirst(check.Names()[id]))
 		}
@@ -1246,7 +1261,11 @@ func transientChart(fc *ownimage.FluxCurve) Chart {
 }
 
 func transientGroup(fx transientFacts) []check.Check {
-	cs := []check.Check{fluxCheck(fx.flux, fx.reps), nightsCheckTransient(fx.flux), nextCheck(fx.flux, fx.reps), freshCheck(fx.flux), colorCheck(fx.flux)}
+	stack := fx.stack
+	if stack.ID == "" {
+		stack, _ = transientStack(fx.flux, fx.reps)
+	}
+	cs := []check.Check{fluxCheck(fx.flux, fx.reps), stack, nightsCheckTransient(fx.flux), nextCheck(fx.flux, fx.reps), freshCheck(fx.flux), colorCheck(fx.flux)}
 	if fx.class == discoveries.ClassSupernova {
 		cs = append(cs, broadCheck(fx.flux, fx.groups))
 	}

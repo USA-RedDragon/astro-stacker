@@ -498,8 +498,12 @@ func depthWords(tr track, run app.DiscoveryRun) string {
 
 // moverSuggest turns the moving object checks into a suggestion. A known
 // object that fits where and how it moves settles it first: nothing else
-// lands on a known orbit by chance.
-func moverSuggest(groups []Group, flags ownimage.TrackFlags, known *knownBody) Suggestion {
+// lands on a known orbit by chance. With stack nil it suggests from the
+// cheaper checks alone; with it, a stack that finds the object absent
+// makes it an artifact, and only a stack that confirms it lets it be
+// real: the ten unknown movers of 2025 and 2026 audited on 2026-10-17
+// were all artifacts.
+func moverSuggest(groups []Group, flags ownimage.TrackFlags, known *knownBody, stack *ownimage.StackVerdict) Suggestion {
 	ev := func(id string) string { return evidence(groups, id) }
 	st := func(id string) check.Status { return status(groups, id) }
 	if known != nil {
@@ -522,11 +526,16 @@ func moverSuggest(groups []Group, flags ownimage.TrackFlags, known *knownBody) S
 		return Suggestion{State: app.VetArtifact, Say: sayNotStar, Confidence: Medium, Why: ev(check.MoverShape)}
 	case flags.Faint:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: not there when measured again", Confidence: Medium, Why: ev(check.MoverFrames)}
+	case stack != nil && *stack == ownimage.StackRefuted:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: not there when its frames are stacked along its motion", Confidence: Medium, Why: ev(check.MoverStack)}
 	}
 	if st(check.MoverLine) == check.Fail {
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: it does not keep to a straight, steady path", Confidence: Low, Why: ev(check.MoverLine)}
 	}
 	core := []string{check.MoverFrames, check.MoverLine, check.MoverSensor, check.MoverShape, check.MoverSteady, check.MoverKnown}
+	if stack != nil && *stack == ownimage.StackDoubtful {
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: its frames stacked along its motion do not confirm it", Confidence: Low, Why: ev(check.MoverStack)}
+	}
 	var missing []string
 	for _, id := range core {
 		if st(id) != check.Pass {
@@ -536,6 +545,10 @@ func moverSuggest(groups []Group, flags ownimage.TrackFlags, known *knownBody) S
 	if len(missing) > 0 {
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: some checks could not be made", Confidence: Low,
 			Why: fmt.Sprintf("Nothing found against it, but these could not be checked: %s.", joinWords(missing))}
+	}
+	if stack != nil && *stack != ownimage.StackConfirmed {
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: its frames have not been stacked to confirm it", Confidence: Low,
+			Why: joinSentences(ev(check.MoverStack), "Every other check passed, but an object found in your frames alone needs its stack to confirm it.")}
 	}
 	if st(check.MoverMotion) == check.Fail {
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: it moves unlike the asteroids around it", Confidence: Low,

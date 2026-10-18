@@ -149,35 +149,61 @@ func moverGroups(statuses map[string]check.Status) []Group {
 
 func TestMoverSuggestions(t *testing.T) {
 	t.Parallel()
-	s := moverSuggest(moverGroups(nil), ownimage.TrackFlags{}, nil)
+	conf := ownimage.StackConfirmed
+	s := moverSuggest(moverGroups(nil), ownimage.TrackFlags{}, nil, &conf)
 	if s.State != app.VetReal || !strings.Contains(s.Say, "Minor Planet Center") || s.Confidence != High {
 		t.Errorf("all pass: %+v", s)
 	}
-	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverSensor: check.Fail, check.MoverShape: check.Fail}), ownimage.TrackFlags{HotPixel: true, NotStar: true}, nil)
+	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverSensor: check.Fail, check.MoverShape: check.Fail}), ownimage.TrackFlags{HotPixel: true, NotStar: true}, nil, &conf)
 	if s.State != app.VetArtifact || s.Confidence != High || !strings.Contains(s.Say, "hot pixel") {
 		t.Errorf("hot pixel: %+v", s)
 	}
-	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverSteady: check.Fail}), ownimage.TrackFlags{Flash: true}, nil)
+	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverSteady: check.Fail}), ownimage.TrackFlags{Flash: true}, nil, &conf)
 	if s.State != app.VetArtifact || !strings.Contains(s.Say, "flash") {
 		t.Errorf("flash: %+v", s)
 	}
 	kb := &knownBody{body: discoveries.Body{Number: "433", Name: "Eros"}, offset: 2}
-	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverKnown: check.Fail}), ownimage.TrackFlags{}, kb)
+	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverKnown: check.Fail}), ownimage.TrackFlags{}, kb, &conf)
 	if s.State != app.VetKnown || s.Say != "Known asteroid or comet: (433) Eros" || s.Confidence != High {
 		t.Errorf("known: %+v", s)
 	}
-	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverShape: check.NotRun}), ownimage.TrackFlags{}, nil)
+	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverShape: check.NotRun}), ownimage.TrackFlags{}, nil, &conf)
 	if s.State != app.VetUnsure || !strings.Contains(s.Why, "star-shaped for its speed") {
 		t.Errorf("shape not measured: %+v", s)
 	}
-	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverNights: check.NotRun}), ownimage.TrackFlags{}, nil)
+	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverNights: check.NotRun}), ownimage.TrackFlags{}, nil, &conf)
 	if s.State != app.VetReal || s.Confidence != Medium {
 		t.Errorf("no other night to look on: %+v", s)
 	}
 	g := moverGroups(map[string]check.Status{check.MoverNights: check.NotRun})
 	g[0].Checks[len(g[0].Checks)-1].Evidence = notSeen + " Your frames of 2026-03-02 cover where it would have been."
-	s = moverSuggest(g, ownimage.TrackFlags{}, nil)
+	s = moverSuggest(g, ownimage.TrackFlags{}, nil, &conf)
 	if s.State != app.VetReal || s.Confidence != Low || !strings.Contains(s.Why, "2026-03-02") {
 		t.Errorf("not seen where another night covered it: %+v", s)
+	}
+}
+
+func TestMoverStackSuggestions(t *testing.T) {
+	t.Parallel()
+	if s := moverSuggest(moverGroups(nil), ownimage.TrackFlags{}, nil, nil); s.State != app.VetReal {
+		t.Errorf("the cheaper checks alone: %+v", s)
+	}
+	refuted, doubtful, untested := ownimage.StackRefuted, ownimage.StackDoubtful, ownimage.StackUntested
+	s := moverSuggest(moverGroups(map[string]check.Status{check.MoverStack: check.Fail}), ownimage.TrackFlags{}, nil, &refuted)
+	if s.State != app.VetArtifact || !strings.Contains(s.Say, "stacked along its motion") || s.Why != "mover_stack evidence." {
+		t.Errorf("refuted: %+v", s)
+	}
+	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverStack: check.Fail}), ownimage.TrackFlags{}, nil, &doubtful)
+	if s.State != app.VetUnsure || !strings.Contains(s.Say, "do not confirm") {
+		t.Errorf("doubtful: %+v", s)
+	}
+	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverStack: check.NotRun}), ownimage.TrackFlags{}, nil, &untested)
+	if s.State != app.VetUnsure || !strings.Contains(s.Say, "not been stacked") {
+		t.Errorf("not stacked: %+v", s)
+	}
+	kb := &knownBody{body: discoveries.Body{Number: "58453", Name: "known"}, offset: 2}
+	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverKnown: check.Fail, check.MoverStack: check.Fail}), ownimage.TrackFlags{}, kb, &refuted)
+	if s.State != app.VetKnown {
+		t.Errorf("a known asteroid stays known: %+v", s)
 	}
 }

@@ -1,0 +1,166 @@
+package vetting
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
+)
+
+// stackPerRun is how many moving objects a run stacks along their motion
+// by default: each reads its night's frames again.
+const stackPerRun = 12
+
+const (
+	stackSettled = "Not run: the other checks already settle it."
+	stackLater   = "Not run yet: this run stacked its share of moving objects, and a later run stacks this one."
+	stackUnread  = "Not measured yet. Its frames or the stars near it could not be read; a later run tries again."
+	// stackPending names the stack in a report's list of what a later run
+	// fills in.
+	stackPending = "its frames stacked along its motion"
+)
+
+func (s *Service) stackCap() int {
+	if s.StackCap > 0 {
+		return s.StackCap
+	}
+	return stackPerRun
+}
+
+// stackMovers vets the target's moving objects with the cheaper checks
+// and stacks along their motion the frames of those the checks leave real
+// or unsure, up to the run's share; with all, every one asked for.
+func (s *Service) stackMovers(ctx context.Context, w *objectWork, dues []Due, all bool) {
+	var pick []ownimage.TrackSpot
+	for _, d := range dues {
+		sum := d.Summary
+		if sum.Source.Kind != kindMover {
+			continue
+		}
+		id := sum.Source.ID
+		mv := s.vetMover(ctx, sum, w.byID[id], w.runs, w.tracks[id])
+		w.movers[id] = mv
+		if st := mv.rep.Suggestion.State; mv.final || (!all && st != app.VetReal && st != app.VetUnsure) {
+			continue
+		}
+		t, ok := trackSpotOf(id, w.byID[id])
+		if !ok {
+			continue
+		}
+		if !all && s.stacked >= s.stackCap() {
+			w.stackLater[id] = true
+			continue
+		}
+		s.stacked++
+		w.stackAsked[id] = true
+		pick = append(pick, t)
+	}
+	if len(pick) == 0 {
+		return
+	}
+	label := w.object + ": stacking moving objects to confirm them"
+	s.Report.Set(label, 0, 0, "")
+	res, err := ownimage.StackTracks(ctx, s.Data, w.object, pick, ownimage.Options{Threads: s.threads(), Progress: func(done, total int) {
+		s.Report.Set(label, int64(done), int64(total), "images")
+	}})
+	if err != nil {
+		slog.Warn("Stacking moving objects failed", "object", w.object, "error", err)
+		return
+	}
+	for i := range res {
+		w.stacks[res[i].SourceID] = &res[i]
+	}
+}
+
+// moverReport is a moving object's final report, with its stack judged.
+func (s *Service) moverReport(ctx context.Context, w *objectWork, sum discoverysource.Summary) *Report {
+	id := sum.Source.ID
+	mv := w.movers[id]
+	if mv == nil {
+		mv = s.vetMover(ctx, sum, w.byID[id], w.runs, w.tracks[id])
+	}
+	switch {
+	case w.stacks[id] != nil:
+		c, v := ownimage.StackCheck(w.stacks[id])
+		return mv.stacked(c, v)
+	case w.stackLater[id]:
+		mv.rep.Pending = append(mv.rep.Pending, stackPending)
+		return mv.stacked(check.Skipped(check.MoverStack, stackLater), ownimage.StackUntested)
+	case w.stackAsked[id]:
+		mv.rep.Pending = append(mv.rep.Pending, stackPending)
+		return mv.stacked(check.Skipped(check.MoverStack, stackUnread), ownimage.StackUntested)
+	}
+	return mv.rep
+}
+
+// transientStack judges the spot's frames stacked on its brightest
+// flagged night against a fake of the light the detection reported, the
+// same frames at empty places around it, and the frames the detection did
+// not use: those of the same night, which must show it when the fake
+// does, and those of the nights after. With a bright star's wing fitted
+// at the spot, the wing fit's light stands for the stack: 66053 and the
+// nine spots of Andromeda's 2025-01-21 showed light in a plain fit and
+// none in the wing fit.
+func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Check, ownimage.StackVerdict) {
+	if fc == nil {
+		return check.Skipped(check.TransStack, "Not measured yet. The spot's own light could not be measured."), ownimage.StackUntested
+	}
+	p, ok := peak(fc)
+	if !ok {
+		return check.Skipped(check.TransStack, "Not measured yet. None of your frames from the flagged nights could be measured at the spot."), ownimage.StackUntested
+	}
+	rep := reportedFor(reps, p.Filter, p.Night)
+	lf, ok := rep.flux(fc, p.Filter)
+	if !ok || !(p.Err > 0) {
+		return check.Skipped(check.TransStack, fmt.Sprintf("Not measured. The detection reported no new light in %s on %s to put a fake of in the frames.", p.Filter, p.Night)), ownimage.StackUntested
+	}
+	fake := lf * fc.RespOf(p.Filter)
+	f := ownimage.StackFacts{Obs: p.SNR(), Peak: p.SNR(), Inj: fake / p.Err}
+	if p.Empty99 > 0 {
+		f.HasControl, f.Control99 = true, p.Empty99/p.Err
+	}
+	lead := fmt.Sprintf("Stacked over its %s of %s in %s it shows at signal to noise %.1f; a fake of the light the detection reported (magnitude %.1f) shows at %.1f in the same frames.",
+		ownimage.FrameWord(p.N), p.Night, p.Filter, f.Obs, rep.mag, f.Inj)
+	if w := fc.Wing; w != nil && w.Measured && w.Err > 0 {
+		wrep := reportedFor(reps, w.Filter, w.Night)
+		if wl, wok := wrep.flux(fc, w.Filter); wok {
+			f.Obs, f.Peak, f.Inj = w.Sigma, w.Sigma, wl*fc.RespOf(w.Filter)/w.Err
+			lead = fmt.Sprintf("Fitted beside a star of magnitude %.1f %.1f px away with each frame's own star shape, its frames of %s in %s show it %.1f times its error above its level on far nights; a fake of the light the detection reported (magnitude %.1f) shows at %.1f.",
+				w.G, w.SepPx, w.Night, w.Filter, w.Sigma, wrep.mag, f.Inj)
+		}
+	}
+	var words []string
+	if f.HasControl {
+		words = append(words, fmt.Sprintf("At empty places around it the same frames give under %.1f in 99 of 100.", f.Control99))
+	}
+	if p.FreshErr > 0 {
+		u := ownimage.StackUnused{SNR: p.FreshSNR(), Inj: fake / p.FreshErr, Required: true}
+		f.Unused = append(f.Unused, u)
+		words = append(words, fmt.Sprintf("In %s of that night the detection did not use it shows at %.1f, where the fake shows at %.1f.", ownimage.FrameWord(p.FreshN), u.SNR, u.Inj))
+	}
+	for _, n := range inFilter(fc, p.Filter) {
+		if d := daysBetween(p.Night, n.Night); d < 1 || d > followDays || n.Thin || !(n.Err > 0) {
+			continue
+		}
+		u := ownimage.StackUnused{SNR: n.SNR(), Inj: fake / n.Err}
+		f.Unused = append(f.Unused, u)
+		words = append(words, fmt.Sprintf("On %s it shows at %.1f, where the fake shows at %.1f.", n.Night, u.SNR, u.Inj))
+	}
+	ev := strings.Join(append([]string{lead}, words...), " ")
+	v, why := ownimage.JudgeStack(f)
+	switch v {
+	case ownimage.StackUntested:
+		return check.Skipped(check.TransStack, fmt.Sprintf("Not clear. The fake shows at only %.1f, too faint for your frames to tell. ", f.Inj)+ev), v
+	case ownimage.StackRefuted:
+		return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the frames the detection did not use show nothing clear (signal to noise under 2)."), v
+	case ownimage.StackDoubtful:
+		return check.New(check.TransStack, check.Fail, ev+" Not confirmed: "+why+"."), v
+	case ownimage.StackConfirmed:
+	}
+	return check.New(check.TransStack, check.Pass, ev+" It shows as new light of the brightness reported would, above 99 of 100 empty places."), v
+}

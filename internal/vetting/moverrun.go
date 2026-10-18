@@ -35,7 +35,11 @@ func trackSpotOf(id int, members []app.DiscoveryCandidate) (ownimage.TrackSpot, 
 	}
 	s := ownimage.TrackSpot{SourceID: id, Night: t.cand.Night.UTC(), Group: t.cand.Group}
 	for _, p := range t.points {
-		s.Points = append(s.Points, ownimage.TrackPoint{FrameID: p.FrameID, Time: p.Time, X: p.X, Y: p.Y, SNR: p.SNR})
+		tp := ownimage.TrackPoint{FrameID: p.FrameID, Filter: p.Filter, Time: p.Time, X: p.X, Y: p.Y, SNR: p.SNR, Flux: p.Flux}
+		if p.Mag != nil {
+			tp.Mag = *p.Mag
+		}
+		s.Points = append(s.Points, tp)
 	}
 	return s, true
 }
@@ -58,9 +62,35 @@ func frameAngle(pts []discoveries.TrackPoint) float64 {
 	return math.Atan2(vy, vx) * 180 / math.Pi
 }
 
+// moverVet is a moving object's report before its stack along its motion
+// is judged, with what its suggestion reads.
+type moverVet struct {
+	rep   *Report
+	flags ownimage.TrackFlags
+	known *knownBody
+	final bool
+}
+
+// stacked puts the stack check in the report and suggests again with it.
+func (mv *moverVet) stacked(c check.Check, v ownimage.StackVerdict) *Report {
+	for gi := range mv.rep.Groups {
+		for ci := range mv.rep.Groups[gi].Checks {
+			if mv.rep.Groups[gi].Checks[ci].ID == check.MoverStack {
+				mv.rep.Groups[gi].Checks[ci] = c
+			}
+		}
+	}
+	if !mv.final {
+		mv.rep.Suggestion = moverSuggest(mv.rep.Groups, mv.flags, mv.known, &v)
+	}
+	return mv.rep
+}
+
+// vetMover runs a moving object's checks, all but its stack along its
+// motion, and suggests from them alone.
 func (s *Service) vetMover(ctx context.Context, sum discoverysource.Summary, members []app.DiscoveryCandidate, runs map[int]app.DiscoveryRun,
 	tr *ownimage.TrackResult,
-) *Report {
+) *moverVet {
 	rep := &Report{Version: Version, SourceID: sum.Source.ID, RanAt: s.now(), Star: "Moving object"}
 	t, ok := trackOf(members)
 	if !ok {
@@ -71,7 +101,7 @@ func (s *Service) vetMover(ctx context.Context, sum discoverysource.Summary, mem
 		}
 		rep.Groups = []Group{{ID: check.GroupMover, Name: groupNames()[check.GroupMover], Checks: cs}}
 		rep.Suggestion = Suggestion{State: app.VetUnsure, Say: sayNotSure, Confidence: Low, Why: "The track's detections are not stored, so nothing could be checked."}
-		return rep
+		return &moverVet{rep: rep, final: true}
 	}
 	if t.cand.NightMag != nil {
 		rep.Star = fmt.Sprintf("Moving object · magnitude %.1f", *t.cand.NightMag)
@@ -97,15 +127,16 @@ func (s *Service) vetMover(ctx context.Context, sum discoverysource.Summary, mem
 		motion = motionCheck(t, bodies, radius)
 	}
 	nights := nightsCheck(s.otherNights(ctx, sum.Source.Object, t))
-	checks := []check.Check{img[0], lineCheck(t), img[1], img[2], img[3], known, motion, nights}
+	stack := check.Skipped(check.MoverStack, stackSettled)
+	checks := []check.Check{img[0], lineCheck(t), img[1], img[2], img[3], stack, known, motion, nights}
 	rep.Groups = []Group{{ID: check.GroupMover, Name: groupNames()[check.GroupMover], Checks: checks}}
 	rep.Charts = []Chart{trackChart(t)}
-	rep.Suggestion = moverSuggest(rep.Groups, flags, kb)
-	return rep
+	rep.Suggestion = moverSuggest(rep.Groups, flags, kb, nil)
+	return &moverVet{rep: rep, flags: flags, known: kb}
 }
 
 func moverIDs() []string {
-	return []string{check.MoverFrames, check.MoverLine, check.MoverSensor, check.MoverShape, check.MoverSteady, check.MoverKnown, check.MoverMotion, check.MoverNights}
+	return []string{check.MoverFrames, check.MoverLine, check.MoverSensor, check.MoverShape, check.MoverSteady, check.MoverStack, check.MoverKnown, check.MoverMotion, check.MoverNights}
 }
 
 func asteroidCount(bs []discoveries.Body) int {
