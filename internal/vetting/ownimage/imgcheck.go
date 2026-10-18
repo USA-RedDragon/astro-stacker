@@ -197,7 +197,85 @@ func hotPixel(ncs []*nightChange, darkZ float64, darkOK bool) check.Check {
 	return check.Skipped(check.HotPixel, fmt.Sprintf("Not measured yet. On %s the change shows in only %d of %d frames, too unevenly to tell.", nc.night, nc.agree, len(nc.d))+darkNote)
 }
 
+const (
+	// lightShareMax is the most of a night's detection, on squared signal
+	// to noise, its two strongest subs may hold, and lightShareSubs the
+	// fewest subs that judges it alone. Single-sub flashes, trails and hot
+	// pixels of 2025 (37624, 37720, 37746, 37760, 38312, 41941, 42970) held
+	// 0.82 to 0.93; the TNS transients with six subs or more 0.15 to 0.62
+	// and fakes injected at the reported light up to 0.73.
+	lightShareMax  = 0.75
+	lightShareSubs = 6
+	// lightSeen is the signal to noise the rest of the night must keep
+	// without its two strongest subs for the light to be steady: a
+	// satellite crossing one sub of a nova's night leaves the nova there.
+	lightSeen = 5.0
+)
+
+// lightShare is the share of a night's detection its two strongest subs
+// hold, on squared signal to noise from the detection's own per-sub
+// light, with the night's signal to noise and the rest's without them.
+func lightShare(n Night) (share, all, rest float64, subs int) {
+	var sq, top1, top2, sum, v2 float64
+	var tops [2]struct{ f, v float64 }
+	for _, l := range n.Light {
+		if !(l.FluxErr > 0) {
+			continue
+		}
+		subs++
+		f := float64(n.Sign) * l.Flux
+		sum += f
+		v2 += l.FluxErr * l.FluxErr
+		z := math.Max(f/l.FluxErr, 0)
+		sq += z * z
+		switch {
+		case z*z > top1:
+			top1, top2 = z*z, top1
+			tops[1], tops[0] = tops[0], struct{ f, v float64 }{f, l.FluxErr * l.FluxErr}
+		case z*z > top2:
+			top2 = z * z
+			tops[1] = struct{ f, v float64 }{f, l.FluxErr * l.FluxErr}
+		}
+	}
+	if subs == 0 || !(sq > 0) || !(v2 > 0) {
+		return 0, 0, 0, subs
+	}
+	if rv := v2 - tops[0].v - tops[1].v; rv > 0 {
+		rest = (sum - tops[0].f - tops[1].f) / math.Sqrt(rv)
+	}
+	return (top1 + top2) / sq, sum / math.Sqrt(v2), rest, subs
+}
+
+// fewFrames finds new light where no star was whose strongest flagged
+// brightening is carried by one or two of its subs. A star's change is
+// left alone: an eclipse caught in egress late in a night rightly sits in
+// its last subs.
+func fewFrames(sp *spotPlan) (check.Check, bool) {
+	if sp.star != nil {
+		return check.Check{}, false
+	}
+	var best Night
+	bestAll := math.Inf(-1)
+	for _, n := range sp.spot.Nights {
+		if n.Sign <= 0 {
+			continue
+		}
+		if _, all, _, _ := lightShare(n); all > bestAll {
+			best, bestAll = n, all
+		}
+	}
+	share, _, rest, k := lightShare(best)
+	if k < lightShareSubs || share <= lightShareMax || rest >= lightSeen {
+		return check.Check{}, false
+	}
+	return check.New(check.Trail, check.Fail, fmt.Sprintf("On %s the two strongest of its %d frames hold %.0f%% of the detection, so the light came in one or two frames: a passing satellite, a flash or a defect, not a steady source.",
+		nightKey(best.Night), k, 100*share)), true
+}
+
 func trail(subs []Sub, sp *spotPlan, e *ensemble, ncs []*nightChange) check.Check {
+	if c, ok := fewFrames(sp); ok {
+		return c
+	}
 	var up []*nightChange
 	for _, nc := range ncs {
 		if nc.dir < 0 {
