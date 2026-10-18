@@ -126,6 +126,8 @@ func TestZTFAlerts(t *testing.T) {
 	}
 }
 
+// transientGroups are the transient checks at statuses, not run where
+// not given, and the shape check, passed unless given.
 func transientGroups(statuses map[string]check.Status) []Group {
 	ids := []string{check.TransFlux, check.TransNights, check.TransBefore, check.TransATLAS, check.TransZTF, check.TransHost}
 	cs := make([]check.Check, 0, len(ids))
@@ -136,7 +138,11 @@ func transientGroups(statuses map[string]check.Status) []Group {
 		}
 		cs = append(cs, check.New(id, st, id+" evidence."))
 	}
-	return []Group{{ID: check.GroupTransient, Checks: cs}}
+	psf, ok := statuses[check.PSF]
+	if !ok {
+		psf = check.Pass
+	}
+	return []Group{{ID: check.GroupImage, Checks: []check.Check{check.New(check.PSF, psf, "psf evidence.")}}, {ID: check.GroupTransient, Checks: cs}}
 }
 
 func TestTransientSuggestions(t *testing.T) {
@@ -157,5 +163,21 @@ func TestTransientSuggestions(t *testing.T) {
 	s = transientSuggest(transientGroups(map[string]check.Status{check.TransFlux: check.Pass}), transientFacts{atlas: surveys.Fetch{State: surveys.Pending}})
 	if s.State != app.VetUnsure || !strings.Contains(s.Why, "ATLAS data still being fetched") {
 		t.Errorf("open: %+v", s)
+	}
+}
+
+func TestTransientWithItsShapeUnmeasuredIsNotReal(t *testing.T) {
+	t.Parallel()
+	// 67045 on Sombrero Galaxy's 2025-12-29 had new light at signal to noise
+	// 5 on one night only and nothing catalogued there, its shape too faint
+	// to measure: "real, medium", for diffuse light near a frame corner.
+	skipped := map[string]check.Status{check.TransFlux: check.Pass, check.TransNights: check.Pass, check.TransBefore: check.Pass, check.PSF: check.NotRun}
+	s := transientSuggest(transientGroups(skipped), transientFacts{})
+	if s.State != app.VetUnsure || !strings.Contains(s.Say, "shape") || !strings.Contains(s.Why, "psf evidence.") {
+		t.Errorf("own frames, shape unmeasured: %+v", s)
+	}
+	skipped[check.TransATLAS] = check.Pass
+	if s := transientSuggest(transientGroups(skipped), transientFacts{}); s.State == app.VetReal {
+		t.Errorf("seen by ATLAS, shape unmeasured: %+v", s)
 	}
 }
