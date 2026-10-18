@@ -339,7 +339,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 				l.Matches = append(l.Matches, Match{Catalog: "SkyBoT", Name: bodyName(b), Type: b.Class, SepArcsec: sep, Mag: &v})
 			}
 		}
-		if alerts != nil && looked < maxAlertCandidates && !explained(l.Matches) && (!c.LowConf || mayBeHeld(c)) {
+		if alerts != nil && looked < maxAlertCandidates && !explained(l.Matches) && (!c.LowConf || mayBeHeld(c) || c.locallyFaint()) {
 			looked++
 			as, ch, fl := alerts(ctx, c.RA, c.Dec, alertMatchArcsec)
 			checked, failed = union(checked, ch), union(failed, fl)
