@@ -207,6 +207,9 @@ func (f *Fetcher) send(ctx context.Context, retry bool, mk func() (*http.Request
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			if errors.Is(err, ErrOffline) {
+				return ErrOffline
+			}
 			if !retry {
 				return fmt.Errorf("%w: %w", errUnsure, err)
 			}
