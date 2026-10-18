@@ -411,25 +411,63 @@ const catalogFilter = "filter"
 // many.
 const catalogMany = "many"
 
-// holdMany holds a night's new sources at low confidence when there are
-// more than maxNewSources of them, all but those that moved with the sky
-// across the night's dithers: a defect pixel moves with the sensor. One
+const (
+	// clusterPx and minCluster: a new source with minCluster or more
+	// brightenings where no star was within clusterPx, itself included and
+	// of any class, is part of a pattern of the night. In the audit of
+	// October 2026, 55 of the 82 nova candidates on M 31's bulge had 4 to
+	// 23 (21 on 2025-10-27, 17 on 10-26, 14 on 10-17), all subtraction
+	// residuals fixed on the sky, while all 45 of the app's sightings of
+	// real M 31 novae had 1 or 2, AT 2026acsi and AT 2026abeq 7.6 px apart.
+	clusterPx  = 64.0
+	minCluster = 4
+	// maxNoStarChanges is the most brightenings where no star was, of any
+	// class, one night may hold before all its new sources are held: IC
+	// 1396's 2025-08-03, 8 subs, had 1,628 and sent 8 artifacts to
+	// vetting.
+	maxNoStarChanges = 100
+)
+
+// holdMany holds a night's new sources at low confidence where they look
+// like a pattern of the night rather than finds: in a cluster of
+// brightenings where no star was, on a night of more than
+// maxNoStarChanges such brightenings, or on one of more than maxNewSources
+// new sources. A source that moved with the sky across the night's
+// dithers is held too: M 31's bulge leaves residuals fixed on the sky. One
 // that is sharp in its subs is already held.
 func holdMany(ls []Labelled) {
+	isNew := func(l Labelled) bool {
+		return l.GaiaG == nil && (l.Class == ClassNewVariable || l.Class == ClassNova || l.Class == ClassSupernova)
+	}
+	var pts [][2]float64
+	var at []int
 	n := 0
-	for _, l := range ls {
-		if l.GaiaG == nil && (l.Class == ClassNewVariable || l.Class == ClassNova || l.Class == ClassSupernova) {
+	for i, l := range ls {
+		if l.GaiaG == nil && l.Sign > 0 {
+			pts = append(pts, [2]float64{l.X, l.Y})
+			at = append(at, i)
+		}
+		if isNew(l) {
 			n++
 		}
 	}
-	if n <= maxNewSources {
-		return
+	hold := func(l *Labelled, name, note string) {
+		l.Class = ClassLowConfidence
+		l.Matches = append(l.Matches, Match{Catalog: catalogMany, Name: name, Note: note})
+	}
+	grid := NewGrid(pts, clusterPx)
+	for k, i := range at {
+		if c := len(grid.Within(pts[k][0], pts[k][1], clusterPx)); isNew(ls[i]) && c >= minCluster {
+			hold(&ls[i], fmt.Sprintf("cluster: %d new sources within %.0f px", c, clusterPx), "held as a likely pattern of the night")
+		}
 	}
 	for i := range ls {
-		l := &ls[i]
-		if l.GaiaG == nil && (l.Class == ClassNewVariable || l.Class == ClassNova || l.Class == ClassSupernova) && !l.SkyFixed {
-			l.Class = ClassLowConfidence
-			l.Matches = append(l.Matches, Match{Catalog: catalogMany, Name: fmt.Sprintf("night had %d new sources", n), Note: "held as likely defects"})
+		switch {
+		case !isNew(ls[i]):
+		case len(pts) > maxNoStarChanges:
+			hold(&ls[i], fmt.Sprintf("night had %d brightenings where no star was", len(pts)), "held as a noisy night")
+		case n > maxNewSources:
+			hold(&ls[i], fmt.Sprintf("night had %d new sources", n), "held as likely defects")
 		}
 	}
 }
