@@ -63,8 +63,13 @@ type Service struct {
 	Loc      *time.Location
 	Now      func() time.Time
 	// Task shows the background work in the processing indicator.
-	Task     *activity.Task
-	Interval time.Duration
+	Task *activity.Task
+	// Photometry measures the stars in the user's own frames to time
+	// their eclipses, shown in the indicator by TimingTask; nil leaves
+	// eclipses untimed.
+	Photometry Photometry
+	TimingTask *activity.Task
+	Interval   time.Duration
 
 	kick     *trigger.Debouncer
 	kickOnce sync.Once
@@ -146,6 +151,14 @@ func (s *Service) load(ctx context.Context, ids []int) ([]Star, error) {
 	if err := db.Where("source_id IN ?", idList).Find(&shares).Error; err != nil {
 		return nil, err
 	}
+	var timings []app.EclipseTiming
+	if err := db.Where("source_id IN ?", idList).Order("predicted").Find(&timings).Error; err != nil {
+		return nil, err
+	}
+	tm := map[int][]app.EclipseTiming{}
+	for _, t := range timings {
+		tm[t.SourceID] = append(tm[t.SourceID], t)
+	}
 	reports := map[int]*vetting.Report{}
 	for _, v := range vets {
 		if v.Report == "" {
@@ -170,7 +183,7 @@ func (s *Service) load(ctx context.Context, ids []int) ([]Star, error) {
 	}
 	var out []Star
 	for _, src := range srcs {
-		st := Star{Source: src, Report: reports[src.ID], Row: rows[src.ID], Book: bk[src.ID], Share: sh[src.ID]}
+		st := Star{Source: src, Report: reports[src.ID], Row: rows[src.ID], Book: bk[src.ID], Share: sh[src.ID], Timings: tm[src.ID]}
 		if st.Book.SourceID == 0 {
 			st.Book.SourceID = src.ID
 		}
@@ -356,7 +369,19 @@ func (s *Service) Tick(ctx context.Context) error {
 	if err := s.followRequests(ctx); err != nil {
 		errs = append(errs, err)
 	}
+	if err := s.timingWork(ctx, stars); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
+}
+
+// Timings is one binary's timing record.
+func (s *Service) Timings(ctx context.Context, id int) (TimingRecord, error) {
+	st, err := s.Binary(ctx, id)
+	if err != nil {
+		return TimingRecord{}, err
+	}
+	return st.Record(s.loc()), nil
 }
 
 // vsxRadius is how far around a star the VSX copy is read, in arcseconds.
