@@ -1,5 +1,5 @@
 cmd/activity.go	27	8
-cmd/activitysources.go	344	157
+cmd/activitysources.go	398	213
 cmd/catalogs.go	243	18
 cmd/discover.go	53	0
 cmd/discoveries.go	22	0
@@ -21,7 +21,7 @@ cmd/triggers.go	24	24
 cmd/variablecatalogs.go	5	4
 cmd/vet.go	127	5
 internal/activity/activity.go	140	111
-internal/activity/jobs.go	150	109
+internal/activity/jobs.go	150	112
 internal/activity/kube.go	66	47
 internal/activity/report.go	91	76
 internal/astrometry/index.go	86	69
@@ -100,7 +100,7 @@ internal/discoveries/newlight.go	12	11
 internal/discoveries/null.go	106	90
 internal/discoveries/progress.go	77	72
 internal/discoveries/refnights.go	181	168
-internal/discoveries/runner.go	761	588
+internal/discoveries/runner.go	761	589
 internal/discoveries/sensor.go	212	205
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -411,7 +411,7 @@ internal/tnsmirror/csv.go	137	119
 internal/tnsmirror/fetch.go	110	80
 internal/tnsmirror/index.go	27	24
 internal/tnsmirror/mirror.go	209	171
-internal/trigger/trigger.go	81	79
+internal/trigger/trigger.go	81	80
 internal/tslink/tslink.go	179	156
 internal/tsmigration/tsmigration.go	13	11
 internal/vetting/catalogs.go	152	15
@@ -463,7 +463,7 @@ internal/vetting/surveys/neowise.go	119	103
 internal/vetting/surveys/prefetch.go	16	13
 internal/vetting/surveys/store.go	59	32
 internal/vetting/surveys/surveys.go	16	6
-internal/vetting/surveys/tess.go	112	98
+internal/vetting/surveys/tess.go	113	99
 internal/vetting/surveys/ztf.go	346	283
 internal/vetting/surveys/ztfspill.go	64	49
 internal/vetting/surveys/ztftile.go	176	159
