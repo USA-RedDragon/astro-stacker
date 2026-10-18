@@ -37,3 +37,8 @@ func StoreGaiaFile(ctx context.Context, o MirrorOptions, name, md5 string) error
 	_, err := o.gaiaFileOnce(ctx, gaiaFile{Name: name, MD5: md5}, &n)
 	return err
 }
+
+func WithFlushRows(c *VarCatalog, n int64) *VarCatalog {
+	c.flushRows = n
+	return c
+}

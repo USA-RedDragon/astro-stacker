@@ -52,6 +52,7 @@ func catalogMirrorJobs() []catalogMirror {
 		{"ztf-sus", "ztf-sus-mirror", "ZTF suspected variables mirror"},
 		{"tess-rot", "tess-rot-mirror", "TESS rotation periods mirror"},
 		{"gcvs-evs", "gcvs-evs-mirror", "GCVS extragalactic variables mirror"},
+		{"maiz-var", "maiz-var-mirror", "Gaia photometric scatter mirror"},
 	}
 }
 

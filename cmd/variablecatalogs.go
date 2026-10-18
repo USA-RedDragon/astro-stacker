@@ -36,6 +36,7 @@ func addVariableMirrors(add func(use, short, prefix, base string, run func(conte
 		{"ztf-sus", "Mirror the ZTF catalog of suspected variable stars (J/ApJS/249/18 table3)", starcat.ZTFSuspected()},
 		{"tess-rot", "Mirror the TESS rotation periods of young stars (J/AJ/164/137)", starcat.TESSRotation()},
 		{"gcvs-evs", "Mirror the GCVS catalog of variable stars in other galaxies (B/gcvs/evs_cat)", starcat.GCVSExtragalactic()},
+		{"maiz-var", "Mirror the Gaia DR3 photometric dispersions of Maiz Apellaniz et al. 2023 (J/A+A/677/A137)", starcat.MaizVariability()},
 	} {
 		add(c.use, c.short, c.cat.Prefix, c.cat.BaseURL, c.cat.Mirror)
 	}
