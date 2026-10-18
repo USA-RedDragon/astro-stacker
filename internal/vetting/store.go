@@ -100,8 +100,8 @@ const (
 // Pipeline versions of the sources with checks of their own: a source
 // whose pipeline changes gets a new input hash and is vetted again.
 const (
-	moverPipeline     = "mover:2"
-	transientPipeline = "transient:2"
+	moverPipeline     = "mover:3"
+	transientPipeline = "transient:3"
 	starPipeline      = "star:3"
 )
 
