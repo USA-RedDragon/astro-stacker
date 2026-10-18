@@ -60,6 +60,7 @@ type Binary struct {
 	FactsState    string        `json:"facts_state"`
 	FactsError    string        `json:"facts_error"`
 	Share         Share         `json:"share"`
+	Timing        TimingSummary `json:"timing"`
 }
 
 // Facts states.
@@ -77,6 +78,8 @@ type Star struct {
 	Row    *app.BinaryFacts
 	Book   app.BinaryBook
 	Share  *app.ShareImage
+	// Timings are the star's eclipses timed in the user's own frames.
+	Timings []app.EclipseTiming
 }
 
 // ephemeris is the ephemeris the pages use: the worked out one, else the
@@ -221,7 +224,7 @@ func (s Star) View(shareURL func(id, version int) string) Binary {
 	name, alt := s.Names()
 	b := Binary{SourceID: s.Source.ID, Name: name, AltName: alt, Field: s.Source.Object, Magnitude: s.Magnitude(),
 		Notes: s.Book.Notes, VSX: VSXState{Submitted: s.Book.VSXSubmitted, Ref: s.Book.VSXRef, SubmittedAt: s.Book.VSXSubmittedAt},
-		Flags: []Flag{}, Eclipses: []EclipseInfo{}, FactsState: FactsPending}
+		Flags: []Flag{}, Eclipses: []EclipseInfo{}, FactsState: FactsPending, Timing: TimingSummary{Text: "No timings yet.", Flags: []string{}}}
 	if s.Report != nil {
 		b.Confidence = s.Report.Suggestion.Confidence
 	}
@@ -292,6 +295,7 @@ func (s Star) View(shareURL func(id, version int) string) Binary {
 	b.AltPeriodText = altPeriods(e, b.Flags)
 	b.PeriodSettled = b.AltPeriodText == ""
 	b.Share = s.shareView(shareURL)
+	b.Timing = s.Summary()
 	return b
 }
 

@@ -50,6 +50,9 @@ func newBinariesService(cfg *config.Config, s3 *minio.Client, appStore, schedSto
 	if commands != nil {
 		svc.Commands = schedCommands{s: commands}
 	}
+	if gaia != nil {
+		svc.Photometry = binaries.OwnPhotometry{Data: data, Threads: cfg.Vetting.Threads, WorkDir: cfg.Vetting.WorkDir}
+	}
 	return svc
 }
 
@@ -66,6 +69,7 @@ func startBinaries(ctx context.Context, cfg *config.Config, appStore, schedStore
 		return nil
 	}
 	svc := newBinariesService(cfg, s3, appStore, schedStore, commands, backfill, reg.Task(activity.KindBinaries, "Confirmed variable stars"))
+	svc.TimingTask = reg.Task(activity.KindEclipseTiming, "Eclipse timings")
 	broker.Listen(func(e events.Event) {
 		if e.Type == events.TypeMaster || e.Type == events.TypeDiscovery {
 			svc.Kick()
@@ -80,7 +84,7 @@ func startBinaries(ctx context.Context, cfg *config.Config, appStore, schedStore
 // flags as the pages would show them, reading only: no rows, files or
 // pictures are written.
 func newBinariesCommand() *cobra.Command {
-	var dryRun bool
+	var dryRun, timings bool
 	var sources []string
 	c := &cobra.Command{
 		Use:          "binaries",
@@ -115,16 +119,24 @@ func newBinariesCommand() *cobra.Command {
 				}
 				ids = append(ids, id)
 			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			if timings {
+				out, err := svc.DryTimings(cmd.Context(), ids)
+				if err != nil {
+					return err
+				}
+				return enc.Encode(out)
+			}
 			out, err := svc.DryRun(cmd.Context(), ids)
 			if err != nil {
 				return err
 			}
-			enc := json.NewEncoder(cmd.OutOrStdout())
-			enc.SetIndent("", "  ")
 			return enc.Encode(out)
 		},
 	}
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "work the facts out and print them with the flags; write nothing")
+	c.Flags().BoolVar(&timings, "timings", false, "with --dry-run, time every eclipse your frames cover and print the timing records instead")
 	c.Flags().StringSliceVar(&sources, "source", nil, "only these source ids")
 	return c
 }

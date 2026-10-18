@@ -77,6 +77,46 @@ type EclipseRequest struct {
 	UpdatedAt time.Time
 }
 
+// Eclipse timing states.
+const (
+	TimingGood     = "good"
+	TimingDoubtful = "doubtful"
+	TimingNone     = "none"
+)
+
+// EclipseTiming is one eclipse of a confirmed binary timed in the user's
+// own frames: the middle in BJD TDB with its one sigma error in days, or,
+// with State none, why the frames gave no middle.
+type EclipseTiming struct {
+	ID       int    `gorm:"primaryKey;autoIncrement"`
+	SourceID int    `gorm:"not null;index"`
+	Kind     string `gorm:"not null"`
+	// Predicted is the ephemeris's middle, in UTC, when it was measured.
+	Predicted time.Time
+	// Night is the local date the night began.
+	Night  string `gorm:"not null;default:''"`
+	Filter string `gorm:"not null;default:''"`
+	BJD    float64
+	Err    float64
+	Method string `gorm:"not null;default:''"`
+	// CheckBJD and CheckErr are the second method's middle and error, 0
+	// when it could not run.
+	CheckBJD float64
+	CheckErr float64
+	Depth    float64
+	Points   int
+	// Frames is how many frames covered the eclipse when it was measured;
+	// more frames later measure it again.
+	Frames    int
+	State     string `gorm:"not null;index"`
+	Note      string `gorm:"type:text;not null;default:''"`
+	RequestID *int
+	// Version is the timing rules' version; an older one is measured
+	// again.
+	Version    int `gorm:"not null;default:0"`
+	MeasuredAt time.Time
+}
+
 // ShareImage is the annotated picture of one discovery on its target's
 // colour picture. Version changes whenever the picture is made again.
 type ShareImage struct {
