@@ -58,7 +58,9 @@ type Minimum struct {
 	DepthErr float64 `json:"depth_err"`
 	// Slope says a straight line was fitted under the dip, as the night's
 	// trend asked for it.
-	Slope  bool    `json:"slope"`
+	Slope bool `json:"slope"`
+	// Width is the night's dip width against the ephemeris's.
+	Width  float64 `json:"width"`
 	Formal float64 `json:"formal"`
 	Bead   float64 `json:"bead"`
 	// Red is how much more the residuals' averages over a few frames
@@ -102,6 +104,12 @@ const (
 	beadShifts = 60
 	beadReach  = 10.0
 	beadSteps  = 200
+	// trimRounds is how many times the points are cut to a window
+	// centred on the fitted middle, so a dip shape that is a little off
+	// pulls both sides alike; minReach is the least half width of that
+	// window, as a share of the dip's half width.
+	trimRounds = 3
+	minReach   = 0.5
 	// agreeSigma is how many combined errors the two methods may differ.
 	agreeSigma = 3.0
 )
@@ -127,18 +135,13 @@ type fitOut struct {
 	model, resid []float64
 }
 
-// Time fits the minimum of d in pts: one middle for every filter, each
-// filter (G) with its own normal level and depth. ok is false with a
-// reason in plain words when the points do not pin a minimum down.
-func Time(pts []Point, d Dip) (Minimum, string, bool) {
-	if d.Half <= 0 || d.Shape == nil {
-		return Minimum{}, ReasonNoFit, false
-	}
-	span := searchShare * d.Half
-	reach := windowShare*d.Half + span
+// gather is the points within reach of mid in time order, each error at
+// least errFloor, the filters with fewer than minGroup points left out
+// and the rest numbered from 0, with how many filters are left.
+func gather(pts []Point, mid, reach float64) ([]Point, int) {
 	byGroup := map[int][]Point{}
 	for _, p := range pts {
-		if math.Abs(p.T-d.Mid) <= reach && finite(p.T) && finite(p.Y) {
+		if math.Abs(p.T-mid) <= reach && finite(p.T) && finite(p.Y) {
 			e := p.E
 			if !(e > 0) || !finite(e) {
 				e = 0.01
@@ -159,26 +162,52 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 		ng++
 	}
 	slices.SortFunc(use, func(a, b Point) int { return cmpF(a.T, b.T) })
+	return use, ng
+}
+
+// Time fits the minimum of d in pts: one middle for every filter, each
+// filter (G) with its own normal level and depth. ok is false with a
+// reason in plain words when the points do not pin a minimum down.
+func Time(pts []Point, d Dip) (Minimum, string, bool) {
+	if d.Half <= 0 || d.Shape == nil {
+		return Minimum{}, ReasonNoFit, false
+	}
+	span := searchShare * d.Half
+	use, ng := gather(pts, d.Mid, windowShare*d.Half+span)
 	if len(use) < minInDip+2 {
 		return Minimum{}, ReasonFew, false
 	}
-	flat, ok := fitShape(use, ng, d, span, false)
+	best, fd, slope, ok := fitBest(use, ng, d, span)
 	if !ok {
 		return Minimum{}, ReasonNoFit, false
 	}
-	best := flat
-	slope := false
-	if len(use) >= slopeMin {
-		if line, ok := fitShape(use, ng, d, span, true); ok && line.n-line.k > 0 {
-			f := (flat.chi - line.chi) / float64(line.k-flat.k) / (line.chi / float64(line.n-line.k))
-			if FProb(f, float64(line.k-flat.k), float64(line.n-line.k)) < slopeP {
-				best, slope = line, true
+	for range trimRounds {
+		mid := d.Mid + best.tau
+		r := math.Min(mid-use[0].T, use[len(use)-1].T-mid)
+		if r < minReach*fd.Half {
+			return Minimum{T: mid}, ReasonSides, false
+		}
+		trimmed := use[:0:0]
+		for _, p := range use {
+			if math.Abs(p.T-mid) <= r {
+				trimmed = append(trimmed, p)
 			}
 		}
+		if len(trimmed) == len(use) {
+			break
+		}
+		if len(trimmed) < minInDip+2 || !allGroups(trimmed, ng) {
+			return Minimum{T: mid}, ReasonSides, false
+		}
+		use = trimmed
+		if best, fd, slope, ok = fitBest(use, ng, d, span); !ok {
+			return Minimum{}, ReasonNoFit, false
+		}
 	}
-	m := Minimum{T: d.Mid + best.tau, Method: MethodModel, Points: best.n, Depth: best.depth, DepthErr: best.dErr, Slope: slope, Formal: best.formal}
+	m := Minimum{T: d.Mid + best.tau, Method: MethodModel, Points: best.n, Depth: best.depth, DepthErr: best.dErr, Slope: slope, Formal: best.formal,
+		Width: fd.Half / d.Half}
 	for _, p := range use {
-		if d.Shape(p.T-m.T) <= inDip {
+		if fd.Shape(p.T-m.T) <= inDip {
 			continue
 		}
 		if p.T < m.T {
@@ -200,11 +229,11 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 		return m, ReasonLoose, false
 	}
 	if len(use) >= beadMin {
-		m.Bead = bead(use, ng, d, span, slope, best)
-		m.Red = redFactor(best.resid)
+		m.Bead = bead(use, ng, fd, span, slope, best)
+		m.Red = redFactor(use, best.resid)
 	}
 	m.Err = math.Max(m.Formal*math.Max(1, m.Red), m.Bead)
-	if c, ok := KvW(normalized(use, best, d, slope), m.T, d.Half); ok {
+	if c, ok := KvW(normalized(use, best), m.T, fd.Half); ok {
 		m.Check = &c
 		m.Agree = math.Abs(c.T-m.T) <= agreeSigma*math.Hypot(c.Err, m.Err)
 	} else {
@@ -213,17 +242,66 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 	return m, "", true
 }
 
-// normalized puts every filter's points on one dip of depth 1 over a
-// flat normal level, by the best fit, for the second method.
-func normalized(pts []Point, f fitOut, d Dip, slope bool) []Point {
+// fitBest fits the dip on a flat normal level, and with a straight line
+// under it when an F test at slopeP asks for one, at each width in
+// widthScales of the ephemeris's dip, and keeps the width that fits
+// best: a night's dip can look wider or narrower than the surveys' mean
+// shape, and a wrong width moves the middle when one side is short.
+func fitBest(use []Point, ng int, d Dip, span float64) (fitOut, Dip, bool, bool) {
+	var best fitOut
+	var bestDip Dip
+	bestSlope, found := false, false
+	for _, s := range []float64{0.7, 0.8, 0.9, 1, 1.12, 1.25, 1.4} {
+		ds := Dip{Mid: d.Mid, Half: d.Half * s, Shape: func(dt float64) float64 { return d.Shape(dt / s) }}
+		f, slope, ok := fitAt(use, ng, ds, span)
+		if ok && (!found || f.chi < best.chi) {
+			best, bestDip, bestSlope, found = f, ds, slope, true
+		}
+	}
+	return best, bestDip, bestSlope, found
+}
+
+func fitAt(use []Point, ng int, d Dip, span float64) (fitOut, bool, bool) {
+	flat, ok := fitShape(use, ng, d, span, false)
+	if !ok {
+		return fitOut{}, false, false
+	}
+	if len(use) < slopeMin {
+		return flat, false, true
+	}
+	line, ok := fitShape(use, ng, d, span, true)
+	if !ok || line.n-line.k <= 0 {
+		return flat, false, true
+	}
+	f := (flat.chi - line.chi) / float64(line.k-flat.k) / (line.chi / float64(line.n-line.k))
+	if FProb(f, float64(line.k-flat.k), float64(line.n-line.k)) < slopeP {
+		return line, true, true
+	}
+	return flat, false, true
+}
+
+func allGroups(pts []Point, ng int) bool {
+	n := make([]int, ng)
+	for _, p := range pts {
+		n[p.G]++
+	}
+	for _, c := range n {
+		if c < minGroup {
+			return false
+		}
+	}
+	return true
+}
+
+// normalized puts every filter's points on one dip of depth 1 over its
+// normal level, by the best fit, for the second method. Any straight
+// line the fit took is left in, so a line that soaked up a wrong dip
+// shape cannot carry the second method along with it.
+func normalized(pts []Point, f fitOut) []Point {
 	out := make([]Point, len(pts))
 	for i, p := range pts {
 		b := f.betas[p.G]
-		y := p.Y - b[0]
-		if slope {
-			y -= b[2] * (p.T - d.Mid)
-		}
-		out[i] = Point{T: p.T, Y: y / b[1], E: p.E / b[1]}
+		out[i] = Point{T: p.T, Y: (p.Y - b[0]) / b[1], E: p.E / b[1]}
 	}
 	return out
 }
@@ -468,7 +546,8 @@ func bead(pts []Point, ng int, d Dip, span float64, slope bool, best fitOut) flo
 	for j := range shifts {
 		k := 1 + j*(n-1)/shifts
 		for i, p := range pts {
-			shifted[i] = Point{T: p.T, Y: best.model[i] + best.resid[(i+k)%n], E: p.E, G: p.G}
+			o := (i + k) % n
+			shifted[i] = Point{T: p.T, Y: best.model[i] + best.resid[o]/pts[o].E*p.E, E: p.E, G: p.G}
 		}
 		f, ok := fitShapeIn(shifted, ng, d, lo, hi, beadSteps, slope)
 		if !ok {
@@ -485,17 +564,36 @@ func bead(pts []Point, ng int, d Dip, span float64, slope bool, best fitOut) flo
 	return stddev(taus)
 }
 
-// redFactor is the time-averaging factor of Pont, Zucker and Queloz
-// (2006) as Winn et al. (2008) use it: for bins of 2 points up to a
-// fifth of them, the scatter of the bin means over what white noise
-// would give, the largest over the bin sizes; 1 for white noise.
-func redFactor(resid []float64) float64 {
-	n := len(resid)
+// redFactor is how much drifting noise widens the error, from the
+// residuals in units of their own errors: the larger of the
+// time-averaging factor of Pont, Zucker and Queloz (2006) as Winn et al.
+// (2008) use it, the scatter of bin means over what white noise would
+// give, the largest over bins of 2 points to a fifth of them, and the
+// factor sqrt((1+r)/(1-r)) of the residuals' correlation r from one
+// point to the next.
+func redFactor(pts []Point, raw []float64) float64 {
+	n := len(raw)
+	resid := make([]float64, n)
+	for i := range raw {
+		resid[i] = raw[i] / pts[i].E
+	}
 	s1 := stddev(resid)
 	if !(s1 > 0) {
 		return 1
 	}
 	worst := 1.0
+	var c0, c1 float64
+	for i := range resid {
+		c0 += resid[i] * resid[i]
+		if i > 0 {
+			c1 += resid[i] * resid[i-1]
+		}
+	}
+	if r := c1 / c0; r > 0 && r < 0.95 {
+		worst = math.Sqrt((1 + r) / (1 - r))
+	} else if r >= 0.95 {
+		worst = math.Sqrt(1.95 / 0.05)
+	}
 	for size := 2; size <= n/5; size++ {
 		bins := n / size
 		if bins < 3 {
@@ -539,7 +637,8 @@ func stddev(v []float64) float64 {
 // half of guess are put on an even grid, and the time about which the two
 // sides mirror best is found from a parabola through the summed squared
 // differences. Its error is their formula with Z, the number of
-// independent points, taken as a quarter of the points used.
+// independent points, taken as a quarter of the points inside the
+// mirrored range.
 func KvW(pts []Point, guess, half float64) (Check, bool) {
 	var in []Point
 	for _, p := range pts {
@@ -625,7 +724,13 @@ func KvW(pts []Point, guess, half float64) (Check, bool) {
 	if math.Abs(x0) > dt {
 		return Check{}, false
 	}
-	z := float64(len(in)) / 4
+	used := 0
+	for _, p := range in {
+		if math.Abs(p.T-bestT) <= float64(pairs)*dt {
+			used++
+		}
+	}
+	z := float64(used) / 4
 	v := (4*a*c - b*b) / (4 * a * a * (z - 1))
 	if !(v > 0) || z <= 1 {
 		return Check{}, false
