@@ -84,7 +84,7 @@ func startBinaries(ctx context.Context, cfg *config.Config, appStore, schedStore
 // flags as the pages would show them, reading only: no rows, files or
 // pictures are written.
 func newBinariesCommand() *cobra.Command {
-	var dryRun, timings bool
+	var dryRun, timings, debug bool
 	var sources []string
 	c := &cobra.Command{
 		Use:          "binaries",
@@ -121,6 +121,13 @@ func newBinariesCommand() *cobra.Command {
 			}
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
+			if timings && debug {
+				out, err := svc.DebugTimings(cmd.Context(), ids)
+				if err != nil {
+					return err
+				}
+				return enc.Encode(out)
+			}
 			if timings {
 				out, err := svc.DryTimings(cmd.Context(), ids)
 				if err != nil {
@@ -137,6 +144,7 @@ func newBinariesCommand() *cobra.Command {
 	}
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "work the facts out and print them with the flags; write nothing")
 	c.Flags().BoolVar(&timings, "timings", false, "with --dry-run, time every eclipse your frames cover and print the timing records instead")
+	c.Flags().BoolVar(&debug, "debug", false, "with --timings, print what each timing is based on instead: every frame's measurement, each filter's fit and the whole night's light curve")
 	c.Flags().StringSliceVar(&sources, "source", nil, "only these source ids")
 	return c
 }
