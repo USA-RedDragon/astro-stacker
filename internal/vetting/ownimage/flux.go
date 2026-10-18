@@ -35,8 +35,11 @@ type FluxNight struct {
 	Limit   float64 `json:"limit,omitempty"`
 	Flagged bool    `json:"flagged"`
 	// Local is the scatter of the same measurement at places 10 to 45 px
-	// around the spot that night, 0 when they were not measured.
-	Local float64 `json:"local,omitempty"`
+	// around the spot that night, 0 when they were not measured, and
+	// Empty99 the 99th percentile of those places' light above their
+	// median.
+	Local   float64 `json:"local,omitempty"`
+	Empty99 float64 `json:"empty_99,omitempty"`
 	// Thin marks a night of fewer than thinSubs subs.
 	Thin bool `json:"thin,omitempty"`
 	// FreshN counts the night's subs the detection did not measure, and
@@ -106,6 +109,26 @@ type FluxCurve struct {
 	// HotSubs counts the subs left out for a master dark pixel under the
 	// spot hotDarkZ times its spread or more.
 	HotSubs int `json:"hot_subs,omitempty"`
+	// Resp is, per filter, what the measurement gives for a star of unit
+	// light put in at the spot with the subs' own star width: a fake of
+	// any light L shows as L times it.
+	Resp map[string]float64 `json:"resp,omitempty"`
+}
+
+// RespOf is the measurement's response in a filter, or the median of
+// all filters' for all filters combined or a filter not measured.
+func (c *FluxCurve) RespOf(filter string) float64 {
+	if r, ok := c.Resp[filter]; ok && filter != AllFilters {
+		return r
+	}
+	v := make([]float64, 0, len(c.Resp))
+	for _, r := range c.Resp {
+		v = append(v, r)
+	}
+	if len(v) == 0 {
+		return 1
+	}
+	return median(v)
 }
 
 const (
@@ -129,7 +152,9 @@ const (
 // frames skip: what the master shows there, a galaxy's glow or a faint
 // star, is taken away before the star shape is fitted.
 func buildFluxCurve(subs []Sub, sp *spotPlan, e *ensemble, skip map[int]bool) *FluxCurve {
-	c := &FluxCurve{Comps: len(e.kept), Zero: map[string]float64{}, Base: map[string]float64{}, BaseN: map[string]int{}, Floor: map[string]float64{}, HotSubs: len(skip), Scale: sp.scale}
+	c := &FluxCurve{Comps: len(e.kept), Zero: map[string]float64{}, Base: map[string]float64{}, BaseN: map[string]int{}, Floor: map[string]float64{}, HotSubs: len(skip), Scale: sp.scale,
+		Resp: map[string]float64{}}
+	resps := map[string][]float64{}
 	zps := map[string][]float64{}
 	for f, med := range e.medians {
 		for _, j := range e.kept {
@@ -160,11 +185,17 @@ func buildFluxCurve(subs []Sub, sp *spotPlan, e *ensemble, skip map[int]bool) *F
 		if !ok {
 			continue
 		}
+		if rv, rok := unitResponse(cx, cy, width); rok {
+			resps[s.Filter] = append(resps[s.Filter], rv)
+		}
 		c.Points = append(c.Points, FluxPoint{FrameID: s.FrameID, BJD: lc.BJD(midTime(s), sp.spot.RA, sp.spot.Dec), Night: nightKey(s.Night), Filter: s.Filter,
 			Flux: fl / t, Err: fe / t})
 	}
 	if len(c.Points) == 0 {
 		return nil
+	}
+	for f, v := range resps {
+		c.Resp[f] = median(v)
 	}
 	sort.Slice(c.Points, func(a, b int) bool { return c.Points[a].BJD < c.Points[b].BJD })
 	first := ""
@@ -302,11 +333,12 @@ func fluxNights(c *FluxCurve, sp *spotPlan, scatter map[string]float64, pns []pr
 		}
 		groups[k] = append(groups[k], p)
 	}
-	local := map[key]float64{}
+	local, tail := map[key]float64{}, map[key]float64{}
 	if sp.bare != nil {
 		for _, pn := range pns {
 			if s := sp.bare.emptyScatter(pn.v); finite(s) {
 				local[key{pn.night, pn.filter}] = s
+				tail[key{pn.night, pn.filter}] = sp.bare.emptyTail(pn.v)
 			}
 		}
 	}
@@ -323,7 +355,7 @@ func fluxNights(c *FluxCurve, sp *spotPlan, scatter map[string]float64, pns []pr
 		}
 		m, e := nightMean(v, errs, scatter[k.filter])
 		nl := FluxNight{Night: k.night, Filter: k.filter, N: len(g), Flux: m, Err: e, Flagged: sp.flagged[k.night], Thin: len(g) < thinSubs,
-			Local: local[k], FreshN: len(fv)}
+			Local: local[k], Empty99: tail[k], FreshN: len(fv)}
 		if len(fv) >= thinSubs {
 			nl.FreshFlux, nl.FreshErr = nightMean(fv, fe, scatter[k.filter])
 			if nl.Local > 0 {
@@ -432,8 +464,8 @@ func combineNights(c *FluxCurve, pns []probeNight, ring int) []FluxNight {
 		if a.fsw > 0 {
 			nl.FreshFlux, nl.FreshErr = a.fswf/a.fsw, 1/math.Sqrt(a.fsw)
 		}
-		if l := combinedLocal(probes, night, a.weights, a.sw, ring); l > 0 {
-			nl.Local = l
+		if l, t := combinedLocal(probes, night, a.weights, a.sw, ring); l > 0 {
+			nl.Local, nl.Empty99 = l, t
 			nl.Err = math.Max(nl.Err, l)
 		}
 		setMag(&nl, nil, AllFilters)
@@ -443,19 +475,20 @@ func combineNights(c *FluxCurve, pns []probeNight, ring int) []FluxNight {
 }
 
 // combinedLocal is the local error of a night's filters joined with the
-// weights they had, from the empty probes measured in every one of them.
-func combinedLocal(probes map[string]map[string][]float64, night string, weights map[string]float64, sw float64, ring int) float64 {
+// weights they had, from the empty probes measured in every one of them,
+// and the 99th percentile of the probes above their median.
+func combinedLocal(probes map[string]map[string][]float64, night string, weights map[string]float64, sw float64, ring int) (float64, float64) {
 	var vs [][]float64
 	var ws []float64
 	for f, w := range weights {
 		v, ok := probes[night][f]
 		if !ok {
-			return 0
+			return 0, 0
 		}
 		vs, ws = append(vs, v), append(ws, w)
 	}
 	if len(vs) == 0 {
-		return 0
+		return 0, 0
 	}
 	var all []float64
 	for j := 1 + ring; j < len(vs[0]); j++ {
@@ -473,7 +506,23 @@ func combinedLocal(probes map[string]map[string][]float64, night string, weights
 		}
 	}
 	if len(all) < minProbes {
-		return 0
+		return 0, 0
 	}
-	return robustStd(all)
+	return robustStd(all), tailOf(all)
+}
+
+// unitResponse is what psfFlux gives for a star of unit light and width
+// sigma put in at (cx, cy) of an empty stamp.
+func unitResponse(cx, cy, sigma float64) (float64, bool) {
+	st := make([]float32, stampSide*stampSide)
+	gaussianAt(st, stampSide, cx, cy, sigma, 1)
+	v := make([]float64, len(st))
+	for k, x := range st {
+		v[k] = float64(x)
+	}
+	ps := psfSumsOf(v, cx, cy, sigma)
+	if !(ps.sw2 > 0) || len(ps.annulus) < psfAnnulusMin {
+		return 0, false
+	}
+	return (ps.swv - median(ps.annulus)*ps.sw) / ps.sw2, true
 }
