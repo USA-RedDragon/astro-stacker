@@ -136,7 +136,8 @@ func trackSensor(res *TrackResult, f *TrackFlags) check.Check {
 	return check.New(check.MoverSensor, check.Pass, fmt.Sprintf("It crossed %.0f px of the sensor while the frames shifted %.0f px, and keeps to its straight path on the sky (%.1f px scatter), not to one sensor pixel.", crossed, shift, onSky)+dark)
 }
 
-func frameWord(n int) string {
+// FrameWord counts frames in words: "1 frame", "4 frames".
+func FrameWord(n int) string {
 	if n == 1 {
 		return "1 frame"
 	}
@@ -238,7 +239,7 @@ func trackShape(res *TrackResult, rate, scale, angle float64, f *TrackFlags) che
 		return check.Skipped(check.MoverShape, "Not measured yet. It is too faint in the frames, or no bright stars near it could be measured, to compare shapes.")
 	}
 	if sh.SNR < trackMinShapeSN {
-		return check.Skipped(check.MoverShape, fmt.Sprintf("Not measured yet. Summed over %s it is too faint to measure its shape (signal to noise %.1f).", frameWord(sh.Frames), sh.SNR))
+		return check.Skipped(check.MoverShape, fmt.Sprintf("Not measured yet. Summed over %s it is too faint to measure its shape (signal to noise %.1f).", FrameWord(sh.Frames), sh.SNR))
 	}
 	var exp []float64
 	for _, s := range detected(res) {
@@ -257,7 +258,7 @@ func trackShape(res *TrackResult, rate, scale, angle float64, f *TrackFlags) che
 	want[2] += t2 * math.Sin(th) * math.Sin(th)
 	wide, narrow := widthRatios(cov(sh.Object), want)
 	motion := fmt.Sprintf(" At %.2f arcsec a minute over %.0f s exposures it trails %.1f px, which is allowed for.", rate, exposure, trail)
-	stars := fmt.Sprintf("the %d bright stars near it, summed over the same %s", sh.Stars, frameWord(sh.Frames))
+	stars := fmt.Sprintf("the %d bright stars near it, summed over the same %s", sh.Stars, FrameWord(sh.Frames))
 	if sh.Frames == 1 {
 		stars = fmt.Sprintf("the %d bright stars near it in the same frame", sh.Stars)
 	}

@@ -1,0 +1,177 @@
+package ownimage
+
+import (
+	"fmt"
+	"math"
+	"strings"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+)
+
+// StackVerdict is what stacking a source's frames says of it.
+type StackVerdict string
+
+// Stack verdicts: Confirmed shows it as a real source of its brightness
+// would show, Refuted finds it absent where such a source would stand
+// clear, Doubtful neither, and Untested could not judge.
+const (
+	StackUntested  StackVerdict = "untested"
+	StackConfirmed StackVerdict = "confirmed"
+	StackDoubtful  StackVerdict = "doubtful"
+	StackRefuted   StackVerdict = "refuted"
+)
+
+// The thresholds of a stack to confirm, set on the audits of 2026-10-17.
+// Ten moving objects of 2025 and 2026 that were star residuals, hot
+// pixels and diffuse light stacked to 0.08 to 0.49 of the fakes of their
+// brightness put in the same frames (67203: 3.3 against 7.2), and the
+// frames of the same night the detection did not use showed -1.5 to 1.4
+// where the fakes showed 6.5 to 29.7. Four known asteroids of the same
+// nights stacked to 0.76 to 1.0 of their fakes (58453: 87.6 against
+// 87.2), above every wrong motion and random place, and their unused
+// frames showed 6.4 to 26.7 where the fakes showed 9.2 to 21.7. AT
+// 2026acsi (source 182), a real nova, measured 6.2 where its reported
+// light alone gives 5.8.
+const (
+	// StackInjMin is the least a fake must show at for a stack to judge,
+	// the 5 sigma the audits asked of an unused frame.
+	StackInjMin = 5.0
+	// stackReal is the least share of the fake's signal to noise the stack
+	// must show to confirm, stackFake the share under which it is absent
+	// when the unused frames are flat too: midway between the artifacts'
+	// 0.49 and the asteroids' 0.76, as 27203 and 54782 stood at 0.48 and
+	// 0.49.
+	stackReal = 0.6
+	stackFake = 0.6
+	// stackShows and stackShowsShare are the least signal to noise, and
+	// share of the fake's, frames the detection did not use must show the
+	// source at, and stackFlat the most they may show for it to be absent.
+	stackShows      = 3.0
+	stackShowsShare = 0.35
+	stackFlat       = 2.0
+)
+
+// StackUnused is frames the detection did not use, stacked at the source:
+// SNR what they show, Inj what a fake of its brightness shows in them.
+// Required ones must show it for the stack to confirm it; the others only
+// count against it.
+type StackUnused struct {
+	SNR, Inj float64
+	Required bool
+}
+
+// StackFacts are what a stack to confirm measured, in signal to noise:
+// Obs the source in the frames that found it, Peak the brightest point by
+// it, Inj a fake of its brightness in the same frames, and Control99 the
+// 99th percentile of the controls, when HasControl.
+type StackFacts struct {
+	Obs, Peak, Inj float64
+	Control99      float64
+	HasControl     bool
+	Unused         []StackUnused
+}
+
+func (u StackUnused) testable() bool { return u.Inj >= StackInjMin }
+
+func (u StackUnused) shows() bool {
+	return u.SNR >= math.Max(stackShows, stackShowsShare*u.Inj)
+}
+
+func (u StackUnused) flat() bool { return u.SNR < stackFlat }
+
+// JudgeStack weighs a stack to confirm: confirmed when the source shows at
+// stackReal of its fake or more, above the controls, and in the required
+// unused frames that could show it; refuted when it shows under stackFake
+// of its fake and every unused frame that could show it is flat; doubtful
+// otherwise, with why.
+func JudgeStack(f StackFacts) (StackVerdict, string) {
+	if !(f.Inj >= StackInjMin) {
+		return StackUntested, ""
+	}
+	var testable, flat, missing int
+	for _, u := range f.Unused {
+		if !u.testable() {
+			continue
+		}
+		testable++
+		switch {
+		case u.flat():
+			flat++
+		case u.Required && !u.shows():
+			missing++
+		}
+	}
+	if f.Obs < stackFake*f.Inj && testable > 0 && flat == testable {
+		return StackRefuted, ""
+	}
+	var why []string
+	if f.Obs < stackReal*f.Inj {
+		why = append(why, fmt.Sprintf("it shows at only %.0f%% of what the fake shows", 100*math.Max(f.Obs, 0)/f.Inj))
+	}
+	switch {
+	case !f.HasControl:
+		why = append(why, "the controls could not be measured")
+	case !(f.Peak > f.Control99):
+		why = append(why, "it does not stand above the controls")
+	}
+	if flat > 0 {
+		why = append(why, "frames the detection did not use are flat where the fake shows")
+	} else if missing > 0 {
+		why = append(why, "frames the detection did not use show it too weakly")
+	}
+	if len(why) > 0 {
+		return StackDoubtful, strings.Join(why, ", and ")
+	}
+	return StackConfirmed, ""
+}
+
+// StackCheck judges a moving object's frames stacked along its motion.
+func StackCheck(ts *TrackStack) (check.Check, StackVerdict) {
+	if ts == nil {
+		return check.Skipped(check.MoverStack, "Not run: the other checks already settle it."), StackUntested
+	}
+	if ts.Note != "" {
+		return check.Skipped(check.MoverStack, "Not measured. "+ts.Note), StackUntested
+	}
+	f := StackFacts{Obs: ts.SNR, Peak: ts.Peak, Inj: ts.Injected}
+	if ts.Wrong > 0 || ts.Random > 0 {
+		f.HasControl = true
+		f.Control99 = math.Max(ts.Wrong99, ts.Random99)
+	}
+	if ts.Unused > 0 {
+		f.Unused = []StackUnused{{SNR: ts.UnusedSNR, Inj: ts.UnusedInjected, Required: true}}
+	}
+	v, why := JudgeStack(f)
+	ev := stackWords(ts)
+	switch v {
+	case StackUntested:
+		return check.Skipped(check.MoverStack, fmt.Sprintf("Not clear. A fake of its brightness shows at only %.1f in its frames, too faint for the stack to tell. ", ts.Injected)+ev), v
+	case StackRefuted:
+		return check.New(check.MoverStack, check.Fail, ev+" It is not there: a real object of the brightness it was found at would show far more strongly, and the frames it was not found in show nothing clear (signal to noise under 2)."), v
+	case StackDoubtful:
+		return check.New(check.MoverStack, check.Fail, ev+" Not confirmed: "+why+"."), v
+	case StackConfirmed:
+	}
+	return check.New(check.MoverStack, check.Pass, ev+" It shows as a real object of its brightness would, above 99 of 100 controls."), v
+}
+
+func stackWords(ts *TrackStack) string {
+	fake := "a fake of the same brightness"
+	if ts.Mag > 0 {
+		fake = fmt.Sprintf("a fake of the same brightness (magnitude %.1f)", ts.Mag)
+	}
+	ev := fmt.Sprintf("Stacked along its motion over its %s it shows at signal to noise %.1f; %s shows at %.1f in the same frames (%.1f to %.1f).",
+		FrameWord(ts.Frames), ts.SNR, fake, ts.Injected, ts.InjectedLo, ts.InjectedHi)
+	if ts.Wrong > 0 {
+		ev += fmt.Sprintf(" Stacked along %d wrong motions, the brightest point by its path is under %.1f in 99 of 100 (%.1f at most); its own is %.1f.", ts.Wrong, ts.Wrong99, ts.WrongMax, ts.Peak)
+	}
+	if ts.Random > 0 {
+		ev += fmt.Sprintf(" At %d random places stacked along its motion it is under %.1f in 99 of 100.", ts.Random, ts.Random99)
+	}
+	if ts.Unused > 0 {
+		ev += fmt.Sprintf(" In %s of the same night the detection did not use it shows at %.1f, where the fake shows at %.1f.", FrameWord(ts.Unused), ts.UnusedSNR, ts.UnusedInjected)
+	} else {
+		ev += " No frames of the same night that the detection did not use cross its path."
+	}
+	return ev
+}

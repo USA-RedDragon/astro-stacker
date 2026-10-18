@@ -20,12 +20,17 @@ type Masters interface {
 	Masters(ctx context.Context, object string) (map[string]string, error)
 }
 
-// TrackPoint is one detection of a moving object at its frame pixel.
+// TrackPoint is one detection of a moving object at its frame pixel,
+// with its light in the detection's aperture, in its filter master's
+// units, and the magnitude that light was given, 0 when none.
 type TrackPoint struct {
 	FrameID int
+	Filter  string
 	Time    time.Time
 	X, Y    float64
 	SNR     float64
+	Flux    float64
+	Mag     float64
 }
 
 // TrackSpot is a moving object's detections on one night and filter
@@ -297,9 +302,7 @@ type trackJob struct {
 	filter string
 }
 
-func streamTracks(parent context.Context, d Data, subs []Sub, masters map[string]string, plans []*trackPlan, opts Options) error {
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
+func streamTracks(ctx context.Context, d Data, subs []Sub, masters map[string]string, plans []*trackPlan, opts Options) error {
 	var jobs []trackJob
 	seen := map[int]bool{}
 	filters := map[string]bool{}
@@ -325,42 +328,66 @@ func streamTracks(parent context.Context, d Data, subs []Sub, masters map[string
 			jobs = append(jobs, trackJob{sub: -1, master: k, filter: f})
 		}
 	}
-	total := len(jobs)
-	var read atomic.Int64
-	if opts.Progress != nil {
-		opts.Progress(0, total)
+	keys := make([]string, len(jobs))
+	for i, j := range jobs {
+		keys[i] = j.master
+		if j.sub >= 0 {
+			keys[i] = subs[j.sub].Key
+		}
 	}
-	ch := make(chan trackJob)
 	var mu sync.Mutex
+	err := readImages(ctx, d, keys, opts.Threads, progressFrom(opts.Progress, 0, len(keys)), func(i int, p *discoveries.Plane) {
+		if j := jobs[i]; j.sub >= 0 {
+			measureTrackSub(p, j.sub, plans, &mu)
+		} else {
+			measureTrackMaster(p, j.filter, plans, &mu)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("measure the tracks: %w", err)
+	}
+	return nil
+}
+
+// progressFrom tells progress how many of total images are read, the
+// first offset of them read before.
+func progressFrom(progress func(done, total int), offset, total int) func(done int) {
+	if progress == nil {
+		return nil
+	}
+	progress(offset, total)
+	return func(done int) { progress(offset+done, total) }
+}
+
+// readImages reads each key once, threads at a time, and hands each image
+// read to use with its key's index. An image that cannot be read is left
+// out with a warning; only the context's end stops the reading.
+func readImages(parent context.Context, d Data, keys []string, threads int, progress func(done int), use func(i int, p *discoveries.Plane)) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	var read atomic.Int64
+	ch := make(chan int)
 	var wg sync.WaitGroup
-	for range max(opts.Threads, 1) {
+	for range max(threads, 1) {
 		wg.Go(func() {
-			for j := range ch {
-				key := j.master
-				if j.sub >= 0 {
-					key = subs[j.sub].Key
-				}
-				p, err := d.Load(ctx, key)
-				if opts.Progress != nil {
-					opts.Progress(int(read.Add(1)), total)
+			for i := range ch {
+				p, err := d.Load(ctx, keys[i])
+				if progress != nil {
+					progress(int(read.Add(1)))
 				}
 				if err != nil {
 					if ctx.Err() == nil {
-						slog.Warn("Could not read an image for the moving object checks", "key", key, "error", err)
+						slog.Warn("Could not read an image for the moving object checks", "key", keys[i], "error", err)
 					}
 					continue
 				}
-				if j.sub >= 0 {
-					measureTrackSub(p, j.sub, plans, &mu)
-				} else {
-					measureTrackMaster(p, j.filter, plans, &mu)
-				}
+				use(i, p)
 			}
 		})
 	}
-	for _, j := range jobs {
+	for i := range keys {
 		select {
-		case ch <- j:
+		case ch <- i:
 		case <-ctx.Done():
 		}
 		if ctx.Err() != nil {
@@ -369,10 +396,7 @@ func streamTracks(parent context.Context, d Data, subs []Sub, masters map[string
 	}
 	close(ch)
 	wg.Wait()
-	if parent.Err() != nil {
-		return fmt.Errorf("measure the tracks: %w", parent.Err())
-	}
-	return nil
+	return parent.Err()
 }
 
 func measureTrackSub(p *discoveries.Plane, si int, plans []*trackPlan, mu *sync.Mutex) {
@@ -462,10 +486,17 @@ func blurTo(r []float64, n int, sigSub, sigRef float64) []float64 {
 // away from its middle; with mask, pixels on stars the master shows are
 // left out.
 func subtractRef(s, r []float64, mask bool) []float64 {
-	n := stampSide
+	out, _ := subtractRefN(s, r, stampSide, mask)
+	return out
+}
+
+// subtractRefN is subtractRef for a square of side n, with the scale the
+// master was fitted with.
+func subtractRefN(s, r []float64, n int, mask bool) ([]float64, float64) {
+	half := n / 2
 	var sr, ss, srr, sv, cnt float64
 	for k := range s {
-		x, y := float64(k%n-stampHalf), float64(k/n-stampHalf)
+		x, y := float64(k%n-half), float64(k/n-half)
 		if math.Hypot(x, y) <= trackObjectR || !finite(s[k]) || !finite(r[k]) {
 			continue
 		}
@@ -476,7 +507,7 @@ func subtractRef(s, r []float64, mask bool) []float64 {
 		cnt++
 	}
 	if cnt < trackRefMin {
-		return nil
+		return nil, 0
 	}
 	den := cnt*srr - sr*sr
 	a := 1.0
@@ -491,7 +522,7 @@ func subtractRef(s, r []float64, mask bool) []float64 {
 	var ring, lvl []float64
 	for k := range s {
 		out[k] = s[k] - a*r[k] - b
-		x, y := float64(k%n-stampHalf), float64(k/n-stampHalf)
+		x, y := float64(k%n-half), float64(k/n-half)
 		if math.Hypot(x, y) > trackObjectR && finite(out[k]) {
 			ring = append(ring, out[k])
 			lvl = append(lvl, a*r[k])
@@ -505,7 +536,7 @@ func subtractRef(s, r []float64, mask bool) []float64 {
 			}
 		}
 	}
-	return out
+	return out, a
 }
 
 // psfFlux fits a round Gaussian of width sigma at (cx, cy) of a stamp,
@@ -519,9 +550,27 @@ func psfFlux(v []float64, cx, cy, sigma float64) (flux, ferr float64, ok bool) {
 	if v == nil || !(sigma > 0) {
 		return 0, 0, false
 	}
+	ps := psfSumsOf(v, cx, cy, sigma)
+	noise := robustStd(ps.ring)
+	if !(ps.sw2 > 0) || !(noise > 0) || len(ps.annulus) < psfAnnulusMin {
+		return 0, 0, false
+	}
+	bg := median(ps.annulus)
+	bgErr := 1.2533 * noise / math.Sqrt(float64(len(ps.annulus)))
+	return (ps.swv - bg*ps.sw) / ps.sw2, math.Hypot(noise/math.Sqrt(ps.sw2), bgErr*ps.sw/ps.sw2), true
+}
+
+// psfSums are psfFlux's sums over a stamp: the Gaussian's weights against
+// the pixels within trackObjectR, the pixels beyond it, and those of the
+// annulus.
+type psfSums struct {
+	sw2, swv, sw  float64
+	ring, annulus []float64
+}
+
+func psfSumsOf(v []float64, cx, cy, sigma float64) psfSums {
 	n := stampSide
-	var sw2, swv, sw float64
-	var ring, annulus []float64
+	var ps psfSums
 	for k, x := range v {
 		if !finite(x) {
 			continue
@@ -529,24 +578,18 @@ func psfFlux(v []float64, cx, cy, sigma float64) (flux, ferr float64, ok bool) {
 		dx, dy := float64(k%n)-cx, float64(k/n)-cy
 		r := math.Hypot(dx, dy)
 		if r > trackObjectR {
-			ring = append(ring, x)
+			ps.ring = append(ps.ring, x)
 			if r <= psfAnnulusR {
-				annulus = append(annulus, x)
+				ps.annulus = append(ps.annulus, x)
 			}
 			continue
 		}
 		g := math.Exp(-r*r/(2*sigma*sigma)) / (2 * math.Pi * sigma * sigma)
-		sw2 += g * g
-		swv += g * x
-		sw += g
+		ps.sw2 += g * g
+		ps.swv += g * x
+		ps.sw += g
 	}
-	noise := robustStd(ring)
-	if !(sw2 > 0) || !(noise > 0) || len(annulus) < psfAnnulusMin {
-		return 0, 0, false
-	}
-	bg := median(annulus)
-	bgErr := 1.2533 * noise / math.Sqrt(float64(len(annulus)))
-	return (swv - bg*sw) / sw2, math.Hypot(noise/math.Sqrt(sw2), bgErr*sw/sw2), true
+	return ps
 }
 
 func finishTrack(tp *trackPlan, res *TrackResult) {
