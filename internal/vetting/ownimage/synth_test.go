@@ -50,6 +50,11 @@ type synthSub struct {
 	// noise to a fifth, as in a deep master.
 	extra [][3]float64
 	quiet bool
+	// halo is the share of every star's light in a component 2.5 times
+	// wider, a star shape unlike the reference's.
+	halo float64
+	// galaxy is a round galaxy's centre, width and light.
+	galaxy [4]float64
 }
 
 type synthField struct {
@@ -133,9 +138,15 @@ func (f *synthField) render(s synthSub) *discoveries.Plane {
 		if k == 0 {
 			fl *= math.Pow(10, -0.4*s.targetDMag)
 		}
-		gaussian(p, st.x, st.y, s.sigma, fl)
+		gaussian(p, st.x, st.y, s.sigma, fl*(1-s.halo))
+		if s.halo > 0 {
+			gaussian(p, st.x, st.y, 2.5*s.sigma, fl*s.halo)
+		}
 	}
 	gaussian(p, newX, newY, s.sigma, s.transient*s.tr)
+	if g := s.galaxy; g[3] > 0 {
+		gaussian(p, g[0], g[1], g[2], g[3]*s.tr)
+	}
 	cx, cy := int(math.Round(spotX)), int(math.Round(spotY))
 	p.Data[cy*synthW+cx] += float32(s.hotSpot)
 	if s.sensorHot > 0 {
@@ -226,7 +237,7 @@ func day(s string) time.Time {
 }
 
 func synthNights() []time.Time {
-	days := []string{"2025-01-02", "2025-01-05", "2025-03-01", "2025-03-04", "2025-06-01", "2025-06-02", flaggedDay, "2025-06-04"}
+	days := []string{"2025-01-02", "2025-01-05", "2025-03-01", "2025-03-04", "2025-06-01", "2025-06-02", flaggedDay, nextDay}
 	out := make([]time.Time, 0, len(days))
 	for _, s := range days {
 		out = append(out, day(s))
