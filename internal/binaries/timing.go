@@ -20,7 +20,7 @@ import (
 
 // TimingVersion is the version of the rules that time eclipses; timings
 // from an older one are measured again.
-const TimingVersion = 1
+const TimingVersion = 2
 
 // Photometry measures a star in the user's own frames.
 type Photometry interface {
@@ -349,10 +349,6 @@ func (s *Service) DryTimings(ctx context.Context, ids []int) ([]TimingRecord, er
 
 // timeEvent measures one eclipse and times it, writing nothing.
 func (s *Service) timeEvent(ctx context.Context, st Star, ev event) (app.EclipseTiming, error) {
-	e, _ := st.ephemeris()
-	ra, dec := st.Facts.Gaia.Now(ev.utc)
-	g := st.Facts.Gaia.G
-	spot := ownimage.Spot{SourceID: st.Source.ID, Object: st.Source.Object, Kind: st.Source.Kind, RA: ra, Dec: dec, GaiaG: &g}
 	row := app.EclipseTiming{SourceID: st.Source.ID, Kind: ev.kind, Predicted: ev.utc, Night: nightOf(ev.utc, s.loc()),
 		Frames: len(ev.subs), Version: TimingVersion, MeasuredAt: s.now(), State: app.TimingNone}
 	if ev.row != nil {
@@ -362,16 +358,16 @@ func (s *Service) timeEvent(ctx context.Context, st Star, ev event) (app.Eclipse
 		id := ev.req.ID
 		row.RequestID = &id
 	}
-	curve, err := s.Photometry.Curve(ctx, st.Source.Object, spot, ev.subs)
+	curve, err := s.Photometry.Curve(ctx, st.Source.Object, spotOf(st, ev), ev.subs)
 	switch {
 	case errors.Is(err, ErrNoCurve):
 		row.Note = "Not timed: the frames gave the star no light curve to time."
 	case err != nil:
 		return row, err
 	default:
-		m, filter, why, ok := bestMinimum(curve, minima.Dip{Mid: ev.mid, Half: ev.half, Shape: dipShape(e, ev.dip)})
+		m, filter, why, ok := bestMinimum(curve, dipOf(st, ev))
 		if !ok {
-			row.Note = "Not timed: " + why + "."
+			row.Note = "Not timed: " + why + "." + unmeasured(curve, ev, st)
 			break
 		}
 		row.BJD, row.Err, row.Method, row.Filter, row.Points, row.Depth = m.T, m.Err, m.Method, filter, m.Points, m.Depth
@@ -386,6 +382,41 @@ func (s *Service) timeEvent(ctx context.Context, st Star, ev event) (app.Eclipse
 		}
 	}
 	return row, nil
+}
+
+func spotOf(st Star, ev event) ownimage.Spot {
+	ra, dec := st.Facts.Gaia.Now(ev.utc)
+	g := st.Facts.Gaia.G
+	return ownimage.Spot{SourceID: st.Source.ID, Object: st.Source.Object, Kind: st.Source.Kind, RA: ra, Dec: dec, GaiaG: &g}
+}
+
+func dipOf(st Star, ev event) minima.Dip {
+	e, _ := st.ephemeris()
+	return minima.Dip{Mid: ev.mid, Half: ev.half, Shape: dipShape(e, ev.dip)}
+}
+
+// unmeasured is a sentence on the event's frames that gave no
+// measurement of the star, those in the dip counted apart, or "".
+func unmeasured(c *ownimage.Curve, ev event, st Star) string {
+	got := map[int]bool{}
+	for _, p := range c.Points {
+		got[p.FrameID] = true
+	}
+	ra, dec := st.Facts.Gaia.Now(ev.utc)
+	lost, inDip := 0, 0
+	for _, sub := range ev.subs {
+		if got[sub.FrameID] {
+			continue
+		}
+		lost++
+		if math.Abs(lc.BJD(midOf(sub), ra, dec)-ev.mid) < ev.half {
+			inDip++
+		}
+	}
+	if lost == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %d of the %d frames gave no measurement of the star, %d of them inside the dip.", lost, len(ev.subs), inDip)
 }
 
 func requestNote(row app.EclipseTiming, ev event) string {
@@ -407,19 +438,32 @@ func earlyLate(minutes float64) string {
 	return fmt.Sprintf("%.1f minutes early", -minutes)
 }
 
-// bestMinimum times the dip in each filter's points alone and in all
-// filters together, each with its own normal level and depth, and keeps
-// the timing with the smallest error; why is the first failure's reason
-// when none times it.
-func bestMinimum(c *ownimage.Curve, d minima.Dip) (minima.Minimum, string, string, bool) {
+// attempt is one timing bestMinimum tried: one filter's points, or all
+// filters' together.
+type attempt struct {
+	Filter string
+	Joint  bool
+	Points int
+	OK     bool
+	Why    string
+	Min    minima.Minimum
+}
+
+// attempts times the dip in all filters together, each with its own
+// normal level and depth, and in each filter's points alone, the
+// filters with the most points first.
+func attempts(c *ownimage.Curve, d minima.Dip) []attempt {
 	byFilter := map[string][]minima.Point{}
 	for _, p := range c.Points {
 		byFilter[p.Filter] = append(byFilter[p.Filter], minima.Point{T: p.BJD, Y: p.DMag, E: p.Err})
 	}
 	filters := sortedKeys(byFilter)
 	slices.SortStableFunc(filters, func(a, b string) int { return cmp.Compare(len(byFilter[b]), len(byFilter[a])) })
-	tries := map[string][]minima.Point{}
-	order := slices.Clone(filters)
+	var out []attempt
+	try := func(name string, joint bool, pts []minima.Point) {
+		m, why, ok := minima.Time(pts, d)
+		out = append(out, attempt{Filter: name, Joint: joint, Points: len(pts), OK: ok, Why: why, Min: m})
+	}
 	if len(filters) > 1 {
 		var all []minima.Point
 		for g, f := range filters {
@@ -428,29 +472,59 @@ func bestMinimum(c *ownimage.Curve, d minima.Dip) (minima.Minimum, string, strin
 				all = append(all, p)
 			}
 		}
-		joint := strings.Join(filters, " + ")
-		tries[joint] = all
-		order = append([]string{joint}, order...)
+		try(strings.Join(filters, " + "), true, all)
 	}
 	for _, f := range filters {
-		tries[f] = byFilter[f]
+		try(f, false, byFilter[f])
 	}
+	return out
+}
+
+// bestMinimum keeps the attempt that times the dip best: one whose two
+// methods agree, then the smallest error. When none times it, why is
+// each filter's own reason, or the one reason they share.
+func bestMinimum(c *ownimage.Curve, d minima.Dip) (minima.Minimum, string, string, bool) {
+	tries := attempts(c, d)
 	var best minima.Minimum
-	bestF, why, ok := "", "", false
-	for _, f := range order {
-		m, w, good := minima.Time(tries[f], d)
-		if !good {
-			if why == "" {
-				why = w
-			}
+	bestF, ok := "", false
+	for _, a := range tries {
+		if !a.OK {
 			continue
 		}
+		m := a.Min
 		if !ok || (m.Agree && !best.Agree) || (m.Agree == best.Agree && m.Err < best.Err) {
-			best, bestF, ok = m, f, true
+			best, bestF, ok = m, a.Filter, true
 		}
 	}
-	if why == "" {
-		why = minima.ReasonFew
+	if ok {
+		return best, bestF, "", true
 	}
-	return best, bestF, why, ok
+	return best, "", failWhy(tries), false
+}
+
+func failWhy(tries []attempt) string {
+	var alone []attempt
+	for _, a := range tries {
+		if !a.Joint {
+			alone = append(alone, a)
+		}
+	}
+	switch {
+	case len(alone) == 0:
+		return minima.ReasonFew
+	case len(alone) == 1:
+		return alone[0].Why
+	}
+	same := true
+	for _, a := range alone[1:] {
+		same = same && a.Why == alone[0].Why
+	}
+	if same {
+		return alone[0].Why
+	}
+	parts := make([]string, len(alone))
+	for i, a := range alone {
+		parts[i] = "in " + a.Filter + ", " + a.Why
+	}
+	return strings.Join(parts, "; ")
 }
