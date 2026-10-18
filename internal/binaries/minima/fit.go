@@ -3,6 +3,7 @@
 package minima
 
 import (
+	"fmt"
 	"maps"
 	"math"
 	"slices"
@@ -112,6 +113,9 @@ const (
 	minReach   = 0.5
 	// agreeSigma is how many combined errors the two methods may differ.
 	agreeSigma = 3.0
+	// clearDepth is how many of its errors a filter's depth must clear for
+	// its points to go to the second method.
+	clearDepth = 3.0
 )
 
 // Why a night gave no minimum.
@@ -123,7 +127,33 @@ const (
 	ReasonLoose    = "the middle could not be pinned down"
 	ReasonNoFit    = "the eclipse shape could not be fitted"
 	ReasonNoBranch = "too few frames on the sides of the dip"
+	ReasonNoShape  = "the ephemeris gives this eclipse no width or shape"
+	ReasonNoCover  = "none of the measured frames fell inside the dip"
+	ReasonNoDip    = "the star showed no dip near the predicted time"
 )
+
+// failure is why a fit found no dip.
+type failure int
+
+const (
+	fitDone failure = iota
+	// noCover is no middle in reach putting points of any filter in the
+	// dip.
+	noCover
+	// noDip is every middle in reach giving the filters a mean depth
+	// that is not above 0: a brightening or no dip at all.
+	noDip
+	// noSolve is the fit's equations having no solution.
+	noSolve
+)
+
+// worse is the more telling of two failures.
+func worse(a, b failure) failure {
+	if a == fitDone || (b != fitDone && b < a) {
+		return b
+	}
+	return a
+}
 
 type fitOut struct {
 	tau, formal  float64
@@ -132,6 +162,7 @@ type fitOut struct {
 	k            int
 	n            int
 	betas        [][]float64
+	vds          []float64
 	model, resid []float64
 }
 
@@ -170,22 +201,22 @@ func gather(pts []Point, mid, reach float64) ([]Point, int) {
 // reason in plain words when the points do not pin a minimum down.
 func Time(pts []Point, d Dip) (Minimum, string, bool) {
 	if d.Half <= 0 || d.Shape == nil {
-		return Minimum{}, ReasonNoFit, false
+		return Minimum{}, ReasonNoShape, false
 	}
 	span := searchShare * d.Half
 	use, ng := gather(pts, d.Mid, windowShare*d.Half+span)
 	if len(use) < minInDip+2 {
 		return Minimum{}, ReasonFew, false
 	}
-	best, fd, slope, ok := fitBest(use, ng, d, span)
-	if !ok {
-		return Minimum{}, ReasonNoFit, false
+	best, fd, slope, fail := fitBest(use, ng, d, span)
+	if fail != fitDone {
+		return Minimum{}, failReason(fail, use, ng, d), false
 	}
 	for range trimRounds {
 		mid := d.Mid + best.tau
 		r := math.Min(mid-use[0].T, use[len(use)-1].T-mid)
 		if r < minReach*fd.Half {
-			return Minimum{T: mid}, ReasonSides, false
+			return Minimum{T: mid}, sidesOr(best), false
 		}
 		trimmed := use[:0:0]
 		for _, p := range use {
@@ -196,12 +227,13 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 		if len(trimmed) == len(use) {
 			break
 		}
-		if len(trimmed) < minInDip+2 || !allGroups(trimmed, ng) {
-			return Minimum{T: mid}, ReasonSides, false
+		trimmed, ng = regroup(trimmed)
+		if len(trimmed) < minInDip+2 || ng == 0 {
+			return Minimum{T: mid}, sidesOr(best), false
 		}
 		use = trimmed
-		if best, fd, slope, ok = fitBest(use, ng, d, span); !ok {
-			return Minimum{}, ReasonNoFit, false
+		if best, fd, slope, fail = fitBest(use, ng, d, span); fail != fitDone {
+			return Minimum{}, failReason(fail, use, ng, d), false
 		}
 	}
 	m := Minimum{T: d.Mid + best.tau, Method: MethodModel, Points: best.n, Depth: best.depth, DepthErr: best.dErr, Slope: slope, Formal: best.formal,
@@ -222,9 +254,10 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 	case m.Before+m.After < minInDip:
 		return m, ReasonNoBranch, false
 	case !(m.Depth > minDepthZ*m.DepthErr):
-		return m, ReasonShallow, false
+		return m, shallow(m.Depth, m.DepthErr), false
 	case math.Abs(best.tau) > 0.95*span:
-		return m, ReasonEdge, false
+		return m, fmt.Sprintf("%s (%.0f minutes %s the predicted middle, where it is looked for up to %.0f minutes either side)",
+			ReasonEdge, math.Abs(best.tau)*1440, beforeAfter(best.tau), span*1440), false
 	case !(best.formal > 0) || best.formal >= span:
 		return m, ReasonLoose, false
 	}
@@ -242,80 +275,172 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 	return m, "", true
 }
 
+// sidesOr is why a fit whose window could not be centred on its middle
+// gave no minimum: the dip not being clear of the noise, when it is not,
+// else the frames missing one side.
+func sidesOr(best fitOut) string {
+	if !(best.depth > minDepthZ*best.dErr) {
+		return shallow(best.depth, best.dErr)
+	}
+	return ReasonSides
+}
+
+func shallow(depth, err float64) string {
+	return fmt.Sprintf("%s (%.2f ± %.2f mag deep, under %.0f times its error)", ReasonShallow, depth, err, minDepthZ)
+}
+
+func beforeAfter(tau float64) string {
+	if tau < 0 {
+		return "before"
+	}
+	return "after"
+}
+
+// failReason is a failure in plain words, with the depth fitted at the
+// predicted middle when the star showed no dip.
+func failReason(f failure, use []Point, ng int, d Dip) string {
+	switch f {
+	case noCover:
+		return ReasonNoCover
+	case noDip:
+		if dep, e, ok := depthAt(use, ng, d, 0); ok {
+			return fmt.Sprintf("%s (at the predicted middle it was %.2f ± %.2f mag fainter than its normal level)", ReasonNoDip, dep, e)
+		}
+		return ReasonNoDip
+	case fitDone, noSolve:
+	}
+	return ReasonNoFit
+}
+
+// depthAt is the filters' mean depth and its error for the dip's middle
+// at d.Mid+tau, on a flat normal level.
+func depthAt(pts []Point, ng int, d Dip, tau float64) (float64, float64, bool) {
+	betas, vds, _, ok := solveAt(pts, ng, d, tau, false)
+	if !ok {
+		return 0, 0, false
+	}
+	return meanDepth(betas, vds, 1)
+}
+
+// meanDepth is the filters' depths averaged by their variances vds times
+// red, with its error; filters holding no point in the dip have infinite
+// variance and do not count.
+func meanDepth(betas [][]float64, vds []float64, red float64) (float64, float64, bool) {
+	var sw, sws float64
+	for g, b := range betas {
+		if !(vds[g] > 0) || math.IsInf(vds[g], 1) {
+			continue
+		}
+		w := 1 / (vds[g] * red)
+		sw += w
+		sws += w * b[1]
+	}
+	if !(sw > 0) {
+		return 0, 0, false
+	}
+	return sws / sw, 1 / math.Sqrt(sw), true
+}
+
 // fitBest fits the dip on a flat normal level, and with a straight line
 // under it when an F test at slopeP asks for one, at each width in
 // widthScales of the ephemeris's dip, and keeps the width that fits
 // best: a night's dip can look wider or narrower than the surveys' mean
 // shape, and a wrong width moves the middle when one side is short.
-func fitBest(use []Point, ng int, d Dip, span float64) (fitOut, Dip, bool, bool) {
+func fitBest(use []Point, ng int, d Dip, span float64) (fitOut, Dip, bool, failure) {
 	var best fitOut
 	var bestDip Dip
 	bestSlope, found := false, false
+	why := fitDone
 	for _, s := range []float64{0.7, 0.8, 0.9, 1, 1.12, 1.25, 1.4} {
 		ds := Dip{Mid: d.Mid, Half: d.Half * s, Shape: func(dt float64) float64 { return d.Shape(dt / s) }}
-		f, slope, ok := fitAt(use, ng, ds, span)
-		if ok && (!found || f.chi < best.chi) {
+		f, slope, fail := fitAt(use, ng, ds, span)
+		if fail != fitDone {
+			why = worse(why, fail)
+			continue
+		}
+		if !found || f.chi < best.chi {
 			best, bestDip, bestSlope, found = f, ds, slope, true
 		}
 	}
-	return best, bestDip, bestSlope, found
+	if found {
+		return best, bestDip, bestSlope, fitDone
+	}
+	return best, bestDip, bestSlope, why
 }
 
-func fitAt(use []Point, ng int, d Dip, span float64) (fitOut, bool, bool) {
-	flat, ok := fitShape(use, ng, d, span, false)
-	if !ok {
-		return fitOut{}, false, false
+func fitAt(use []Point, ng int, d Dip, span float64) (fitOut, bool, failure) {
+	flat, fail := fitShape(use, ng, d, span, false)
+	if fail != fitDone {
+		return fitOut{}, false, fail
 	}
 	if len(use) < slopeMin {
-		return flat, false, true
+		return flat, false, fitDone
 	}
-	line, ok := fitShape(use, ng, d, span, true)
-	if !ok || line.n-line.k <= 0 {
-		return flat, false, true
+	line, fail := fitShape(use, ng, d, span, true)
+	if fail != fitDone || line.n-line.k <= 0 {
+		return flat, false, fitDone
 	}
 	f := (flat.chi - line.chi) / float64(line.k-flat.k) / (line.chi / float64(line.n-line.k))
 	if FProb(f, float64(line.k-flat.k), float64(line.n-line.k)) < slopeP {
-		return line, true, true
+		return line, true, fitDone
 	}
-	return flat, false, true
+	return flat, false, fitDone
 }
 
-func allGroups(pts []Point, ng int) bool {
-	n := make([]int, ng)
+// regroup leaves out the filters with fewer than minGroup points and
+// numbers the rest from 0 in their order, with how many are left.
+func regroup(pts []Point) ([]Point, int) {
+	count := map[int]int{}
 	for _, p := range pts {
-		n[p.G]++
+		count[p.G]++
 	}
-	for _, c := range n {
-		if c < minGroup {
-			return false
+	num := map[int]int{}
+	for _, g := range slices.Sorted(maps.Keys(count)) {
+		if count[g] >= minGroup {
+			num[g] = len(num)
 		}
 	}
-	return true
+	out := make([]Point, 0, len(pts))
+	for _, p := range pts {
+		if g, ok := num[p.G]; ok {
+			p.G = g
+			out = append(out, p)
+		}
+	}
+	return out, len(num)
 }
 
-// normalized puts every filter's points on one dip of depth 1 over its
-// normal level, by the best fit, for the second method. Any straight
-// line the fit took is left in, so a line that soaked up a wrong dip
-// shape cannot carry the second method along with it.
+// normalized puts the points of every filter whose depth is clear of
+// its error on one dip of depth 1 over its normal level, by the best
+// fit, for the second method. Any straight line the fit took is left
+// in, so a line that soaked up a wrong dip shape cannot carry the second
+// method along with it.
 func normalized(pts []Point, f fitOut) []Point {
-	out := make([]Point, len(pts))
-	for i, p := range pts {
+	out := make([]Point, 0, len(pts))
+	for _, p := range pts {
 		b := f.betas[p.G]
-		out[i] = Point{T: p.T, Y: (p.Y - b[0]) / b[1], E: p.E / b[1]}
+		if !(b[1] > clearDepth*math.Sqrt(f.vds[p.G])) {
+			continue
+		}
+		out = append(out, Point{T: p.T, Y: (p.Y - b[0]) / b[1], E: p.E / b[1]})
 	}
 	return out
 }
 
 // fitShape steps the dip's middle over ±span about d.Mid, solving each
 // of the ng filters' normal level, depth and, with slope, a straight
-// line at each step, and takes the best. Its error is where chi-square
-// rises by the reduced chi-square, at least 1, either side.
-func fitShape(pts []Point, ng int, d Dip, span float64, slope bool) (fitOut, bool) {
+// line at each step, and takes the best of the steps where the filters'
+// mean depth is above 0: one filter the star is lost in may come out
+// with a depth below 0 without forcing the middle, and a filter with no
+// point in the dip at a step has its depth held at 0 there. Its error
+// is where chi-square rises by the reduced chi-square, at least 1,
+// either side.
+func fitShape(pts []Point, ng int, d Dip, span float64, slope bool) (fitOut, failure) {
 	return fitShapeIn(pts, ng, d, -span, span, gridSteps, slope)
 }
 
 // fitShapeIn is fitShape over lo to hi in steps.
-func fitShapeIn(pts []Point, ng int, d Dip, lo, hi float64, steps int, slope bool) (fitOut, bool) {
+func fitShapeIn(pts []Point, ng int, d Dip, lo, hi float64, steps int, slope bool) (fitOut, failure) {
 	per := 2
 	if slope {
 		per = 3
@@ -323,17 +448,19 @@ func fitShapeIn(pts []Point, ng int, d Dip, lo, hi float64, steps int, slope boo
 	k := per * ng
 	n := len(pts)
 	if n <= k || hi <= lo || ng == 0 {
-		return fitOut{}, false
+		return fitOut{}, noSolve
 	}
 	span := (hi - lo) / 2
 	h := (hi - lo) / float64(steps)
 	chis := make([]float64, steps+1)
 	sums := make([]normal, ng)
 	bi := -1
+	solved := false
 	for j := range chis {
 		tau := lo + float64(j)*h
-		chi, ok := chiAt(pts, sums, d, tau, slope)
-		if !ok {
+		chi, ok, dip := chiAt(pts, sums, d, tau, slope)
+		solved = solved || ok
+		if !ok || !dip {
 			chis[j] = math.Inf(1)
 			continue
 		}
@@ -343,29 +470,29 @@ func fitShapeIn(pts []Point, ng int, d Dip, lo, hi float64, steps int, slope boo
 		}
 	}
 	if bi < 0 {
-		return fitOut{}, false
+		if solved {
+			return fitOut{}, noDip
+		}
+		return fitOut{}, noCover
 	}
-	tau := lo + float64(bi)*h
+	grid := lo + float64(bi)*h
+	tau := grid
 	if bi > 0 && bi < steps {
 		c0, c1, c2 := chis[bi-1], chis[bi], chis[bi+1]
 		if den := c0 - 2*c1 + c2; den > 0 && finite(den) {
 			tau += h * 0.5 * (c0 - c2) / den
 		}
 	}
-	betas, covs, chi, ok := solveAt(pts, ng, d, tau, slope)
-	if !ok {
-		return fitOut{}, false
+	betas, vds, chi, ok := solveAt(pts, ng, d, tau, slope)
+	if dep, _, okD := meanDepth(betas, vds, 1); !ok || !okD || !(dep > 0) {
+		tau = grid
+		betas, vds, chi, ok = solveAt(pts, ng, d, tau, slope)
+		if dep, _, okD := meanDepth(betas, vds, 1); !ok || !okD || !(dep > 0) {
+			return fitOut{}, noSolve
+		}
 	}
 	red := math.Max(1, chi/float64(n-k))
-	var sw, sws float64
-	for g := range ng {
-		if !(betas[g][1] > 0) {
-			return fitOut{}, false
-		}
-		w := 1 / (covs[g][1][1] * red)
-		sw += w
-		sws += w * betas[g][1]
-	}
+	depth, dErr, _ := meanDepth(betas, vds, red)
 	lim := chi + red
 	cl, okLo := crossing(chis, bi, -1, lim)
 	ch, okHi := crossing(chis, bi, 1, lim)
@@ -373,14 +500,14 @@ func fitShapeIn(pts []Point, ng int, d Dip, lo, hi float64, steps int, slope boo
 	if okLo && okHi {
 		formal = (ch - cl) * h / 2
 	}
-	out := fitOut{tau: tau, formal: formal, depth: sws / sw, dErr: 1 / math.Sqrt(sw), chi: chi, k: k, n: n, betas: betas}
+	out := fitOut{tau: tau, formal: formal, depth: depth, dErr: dErr, chi: chi, k: k, n: n, betas: betas, vds: vds}
 	out.model = make([]float64, n)
 	out.resid = make([]float64, n)
 	for i, p := range pts {
 		out.model[i] = modelAt(betas[p.G], p, d, tau, slope)
 		out.resid[i] = p.Y - out.model[i]
 	}
-	return out, true
+	return out, fitDone
 }
 
 // crossing is the fractional grid index where chis first reaches lim
@@ -414,8 +541,26 @@ type normal struct {
 }
 
 // chiAt is solveAt's chi-square alone, solved in place in sums, one per
-// filter, without allocating.
-func chiAt(pts []Point, sums []normal, d Dip, tau float64, slope bool) (float64, bool) {
+// filter, without allocating; ok says some filter has points in the dip
+// and dip that the filters' mean depth is above 0.
+func chiAt(pts []Point, sums []normal, d Dip, tau float64, slope bool) (chi float64, ok, dip bool) {
+	addAll(pts, sums, d, tau, slope)
+	var sw, sws float64
+	for g := range sums {
+		beta, vd, c, good := sums[g].solve(slope)
+		if !good {
+			return 0, false, false
+		}
+		chi += c
+		if !math.IsInf(vd, 1) && vd > 0 {
+			sw += 1 / vd
+			sws += beta[1] / vd
+		}
+	}
+	return chi, sw > 0, sw > 0 && sws > 0
+}
+
+func addAll(pts []Point, sums []normal, d Dip, tau float64, slope bool) {
 	k := 2
 	if slope {
 		k = 3
@@ -435,102 +580,90 @@ func chiAt(pts []Point, sums []normal, d Dip, tau float64, slope bool) (float64,
 		}
 		s.syy += w * p.Y * p.Y
 	}
-	var chi float64
-	for g := range sums {
-		s := &sums[g]
-		var m [3][4]float64
-		for i := range k {
-			for j := range k {
-				m[i][j] = s.a[min(i, j)][max(i, j)]
-			}
-			m[i][3] = s.b[i]
+}
+
+// solve solves one filter's normal level, depth and, with slope, a
+// straight line, giving the depth's variance and the chi-square. With
+// no point in the dip the depth is held at 0 with an infinite variance.
+func (s *normal) solve(slope bool) ([3]float64, float64, float64, bool) {
+	var ix [3]int
+	m := 0
+	for i := range 3 {
+		if (i == 1 && !(s.a[1][1] > 0)) || (i == 2 && !slope) {
+			continue
 		}
-		for c := range k {
-			p := c
-			for r := c + 1; r < k; r++ {
-				if math.Abs(m[r][c]) > math.Abs(m[p][c]) {
-					p = r
-				}
-			}
-			if !(math.Abs(m[p][c]) > 1e-300) {
-				return 0, false
-			}
-			m[c], m[p] = m[p], m[c]
-			for r := c + 1; r < k; r++ {
-				f := m[r][c] / m[c][c]
-				for j := c; j < 4; j++ {
-					m[r][j] -= f * m[c][j]
-				}
-			}
-		}
-		var beta [3]float64
-		for i := k - 1; i >= 0; i-- {
-			v := m[i][3]
-			for j := i + 1; j < k; j++ {
-				v -= m[i][j] * beta[j]
-			}
-			beta[i] = v / m[i][i]
-		}
-		x := s.syy
-		for i := range k {
-			x -= beta[i] * s.b[i]
-		}
-		chi += math.Max(x, 0)
+		ix[m] = i
+		m++
 	}
-	return chi, true
+	var a [3][5]float64
+	for r := range m {
+		for c := range m {
+			i, j := ix[r], ix[c]
+			a[r][c] = s.a[min(i, j)][max(i, j)]
+		}
+		a[r][3] = s.b[ix[r]]
+		if ix[r] == 1 {
+			a[r][4] = 1
+		}
+	}
+	for c := range m {
+		p := c
+		for r := c + 1; r < m; r++ {
+			if math.Abs(a[r][c]) > math.Abs(a[p][c]) {
+				p = r
+			}
+		}
+		if !(math.Abs(a[p][c]) > 1e-300) {
+			return [3]float64{}, 0, 0, false
+		}
+		a[c], a[p] = a[p], a[c]
+		for r := c + 1; r < m; r++ {
+			f := a[r][c] / a[c][c]
+			for j := c; j < 5; j++ {
+				a[r][j] -= f * a[c][j]
+			}
+		}
+	}
+	var x, e [3]float64
+	for i := m - 1; i >= 0; i-- {
+		v, u := a[i][3], a[i][4]
+		for j := i + 1; j < m; j++ {
+			v -= a[i][j] * x[j]
+			u -= a[i][j] * e[j]
+		}
+		x[i], e[i] = v/a[i][i], u/a[i][i]
+	}
+	var beta [3]float64
+	vd := math.Inf(1)
+	chi := s.syy
+	for r := range m {
+		beta[ix[r]] = x[r]
+		chi -= x[r] * s.b[ix[r]]
+		if ix[r] == 1 {
+			vd = e[r]
+		}
+	}
+	return beta, vd, math.Max(chi, 0), true
 }
 
 // solveAt solves each filter's normal level, depth and, with slope, a
 // straight line for the dip's middle at d.Mid+tau, by the normal
-// equations, and sums their chi-squares.
-func solveAt(pts []Point, ng int, d Dip, tau float64, slope bool) ([][]float64, [][][]float64, float64, bool) {
-	k := 2
-	if slope {
-		k = 3
-	}
-	a := make([][3][3]float64, ng)
-	b := make([][3]float64, ng)
-	syy := make([]float64, ng)
-	var c [3]float64
-	for _, p := range pts {
-		w := 1 / (p.E * p.E)
-		g := p.G
-		c[0], c[1], c[2] = 1, d.Shape(p.T-d.Mid-tau), p.T-d.Mid
-		for i := range k {
-			b[g][i] += w * c[i] * p.Y
-			for j := i; j < k; j++ {
-				a[g][i][j] += w * c[i] * c[j]
-			}
-		}
-		syy[g] += w * p.Y * p.Y
-	}
+// equations, with each depth's variance and the summed chi-square.
+func solveAt(pts []Point, ng int, d Dip, tau float64, slope bool) ([][]float64, []float64, float64, bool) {
+	sums := make([]normal, ng)
+	addAll(pts, sums, d, tau, slope)
 	betas := make([][]float64, ng)
-	covs := make([][][]float64, ng)
+	vds := make([]float64, ng)
 	var chi float64
-	for g := range ng {
-		m := make([][]float64, k)
-		for i := range k {
-			m[i] = make([]float64, k)
-			for j := range k {
-				m[i][j] = a[g][min(i, j)][max(i, j)]
-			}
-		}
-		cov, ok := invert(m)
+	for g := range sums {
+		beta, vd, c, ok := sums[g].solve(slope)
 		if !ok {
 			return nil, nil, 0, false
 		}
-		beta := make([]float64, k)
-		x := syy[g]
-		for i := range k {
-			for j := range k {
-				beta[i] += cov[i][j] * b[g][j]
-			}
-			x -= beta[i] * b[g][i]
-		}
-		betas[g], covs[g] = beta, cov
-		chi += math.Max(x, 0)
+		betas[g], vds[g] = beta[:], vd
+		chi += c
 	}
-	return betas, covs, chi, true
+	return betas, vds, chi, true
 }
 
 // bead is the spread of the fitted middle when the residuals of the best
@@ -549,8 +682,8 @@ func bead(pts []Point, ng int, d Dip, span float64, slope bool, best fitOut) flo
 			o := (i + k) % n
 			shifted[i] = Point{T: p.T, Y: best.model[i] + best.resid[o]/pts[o].E*p.E, E: p.E, G: p.G}
 		}
-		f, ok := fitShapeIn(shifted, ng, d, lo, hi, beadSteps, slope)
-		if !ok {
+		f, fail := fitShapeIn(shifted, ng, d, lo, hi, beadSteps, slope)
+		if fail != fitDone {
 			continue
 		}
 		if edge := (hi - lo) / beadSteps; f.tau <= lo+edge || f.tau >= hi-edge {
