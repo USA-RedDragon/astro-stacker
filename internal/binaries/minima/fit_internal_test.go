@@ -165,6 +165,57 @@ func TestKvWMatchesSymmetricMinimum(t *testing.T) {
 	}
 }
 
+func TestTimeWrongShapeOnPartNight(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		w, a  float64
+		start float64
+	}{
+		{"dip 30% narrower than the template", 0.03 / 1.3, 1.6, -0.6},
+		{"dip 30% wider than the template", 0.03 * 1.3, 1.6, -0.6},
+		{"rounder dip than the template", 0.03, 0.8, -0.6},
+		{"dip 30% wider, more of it covered", 0.03 * 1.3, 1.6, -0.95},
+		{"rounder dip, more of it covered", 0.03, 0.8, -0.95},
+	} {
+		r := &rng{s: 21}
+		var sum float64
+		within3, doubtful, n := 0, 0, 0
+		for i := range 40 {
+			pred := 2461500.5 + float64(i)*testPeriod
+			d := testDip(pred)
+			truth := pred + (r.uniform()-0.5)*0.2*d.Half
+			trueShape := func(dt float64) float64 { return period.Shape(dt/testPeriod, c.w, c.a) }
+			var pts []Point
+			for tt := pred + c.start*d.Half; tt <= pred+1.6*d.Half; tt += 300.0 / 86400 {
+				pts = append(pts, Point{T: tt, Y: 0.4*trueShape(tt-truth) + 0.008*r.normal(), E: 0.008})
+			}
+			m, _, ok := Time(pts, d)
+			if !ok {
+				continue
+			}
+			n++
+			p := (m.T - truth) / m.Err
+			sum += p
+			if math.Abs(p) < 3 {
+				within3++
+			}
+			if !m.Agree {
+				doubtful++
+			}
+		}
+		if c.start < -0.9 && n < 20 {
+			t.Errorf("%s: only %d of 40 timed", c.name, n)
+		}
+		if n < 10 {
+			continue
+		}
+		if mean := sum / float64(n); math.Abs(mean) > 1 || float64(within3)/float64(n) < 0.9 {
+			t.Errorf("%s: mean pull %.2f, %d of %d within 3 errors, %d doubtful", c.name, mean, within3, n, doubtful)
+		}
+	}
+}
+
 func TestTimeAcrossFilters(t *testing.T) {
 	t.Parallel()
 	r := &rng{s: 17}
