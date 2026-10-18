@@ -372,16 +372,28 @@ func (s *Service) Tick(ctx context.Context) error {
 	if err := s.timingWork(ctx, stars); err != nil {
 		errs = append(errs, err)
 	}
+	if fresh, err := s.Binaries(ctx); err != nil {
+		errs = append(errs, err)
+	} else if err := s.autoRequests(ctx, fresh); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
 }
 
-// Timings is one binary's timing record.
+// Timings is one binary's timing record, with this season's automatic
+// requests.
 func (s *Service) Timings(ctx context.Context, id int) (TimingRecord, error) {
 	st, err := s.Binary(ctx, id)
 	if err != nil {
 		return TimingRecord{}, err
 	}
-	return st.Record(s.loc()), nil
+	var reqs []app.EclipseRequest
+	if err := s.DB.WithContext(ctx).Where("source_id = ?", id).Find(&reqs).Error; err != nil {
+		return TimingRecord{}, err
+	}
+	r := st.Record(s.loc())
+	r.Season = seasonView(st, reqs, s.now())
+	return r, nil
 }
 
 // vsxRadius is how far around a star the VSX copy is read, in arcseconds.
@@ -521,6 +533,11 @@ var (
 // RequestImaging asks the scheduler to image one predicted eclipse of a
 // binary: kind and mid must match a prediction within requestMatch.
 func (s *Service) RequestImaging(ctx context.Context, id int, kind string, mid time.Time) (app.EclipseRequest, error) {
+	return s.requestImaging(ctx, id, kind, mid, false)
+}
+
+// requestImaging is RequestImaging, by the app itself when auto.
+func (s *Service) requestImaging(ctx context.Context, id int, kind string, mid time.Time, auto bool) (app.EclipseRequest, error) {
 	st, err := s.Binary(ctx, id)
 	if err != nil {
 		return app.EclipseRequest{}, err
@@ -541,7 +558,7 @@ func (s *Service) RequestImaging(ctx context.Context, id int, kind string, mid t
 		return app.EclipseRequest{}, ErrNoEclipse
 	}
 	start, end := hit.Window()
-	r := app.EclipseRequest{SourceID: id, Kind: kind, Mid: hit.Mid, Start: start, End: end, State: app.EclipseWaiting, CreatedAt: s.now(), UpdatedAt: s.now()}
+	r := app.EclipseRequest{SourceID: id, Kind: kind, Mid: hit.Mid, Start: start, End: end, State: app.EclipseWaiting, Auto: auto, CreatedAt: s.now(), UpdatedAt: s.now()}
 	if !end.After(s.now()) {
 		return r, ErrOver
 	}
