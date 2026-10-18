@@ -762,23 +762,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	}
 
 	in.stage("linking moving objects")
-	links, transient := linkMovers(times, dets, res.PixelScale, validArea(edge))
-	res.MoverNull = nullMovers(times, dets, links, res.PixelScale, validArea(edge))
-	bright := in.brightStars()
-	astroPx := 0.1
-	if res.AstroRMSArcsec != nil {
-		astroPx = *res.AstroRMSArcsec / res.PixelScale
-	}
-	for _, hs := range links {
-		if len(hs) <= res.MoverNull.MaxHits {
-			continue
-		}
-		tr := in.track(hs, subs, dets, times)
-		tr.Chi = trackChi(tr, res.HFRNight/hfrToSigma, astroPx)
-		if !onBrightStars(tr, bright) && tr.Chi <= maxTrackChi {
-			res.Tracks = append(res.Tracks, tr)
-		}
-	}
+	transient := in.linkTracks(subs, dets, times, ref, edge, res)
 	for j, ns := range subs {
 		ms := MoverSub{FrameID: ns.sub.FrameID, Filter: ns.sub.Filter, Time: times[j], Detections: len(dets[j])}
 		for k, d := range dets[j] {
@@ -799,6 +783,34 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	}
 	res.Night, res.Ref, res.Diff, res.Valid, res.Edge = night, ref, D, valid, edge
 	return res, nil
+}
+
+// linkTracks links the night's detections into moving objects' tracks
+// and adds those that pass the null test, sit on no bright star, keep to
+// a constant rate and move clearly to res. It returns which detections
+// were transient.
+func (in *Input) linkTracks(subs []nightSub, dets [][]moverDet, times []time.Time, ref *Plane, edge []bool, res *Result) [][]bool {
+	if g, radii := starGlows(ref, edge, res); g != nil {
+		markGlows(dets, g, radii)
+	}
+	links, transient := linkMovers(times, dets, res.PixelScale, validArea(edge))
+	res.MoverNull = nullMovers(times, dets, links, res.PixelScale, validArea(edge))
+	bright := in.brightStars()
+	astroPx := 0.1
+	if res.AstroRMSArcsec != nil {
+		astroPx = *res.AstroRMSArcsec / res.PixelScale
+	}
+	for _, hs := range links {
+		if len(hs) <= res.MoverNull.MaxHits {
+			continue
+		}
+		tr := in.track(hs, subs, dets, times)
+		tr.Chi = trackChi(tr, res.HFRNight/hfrToSigma, astroPx)
+		if !onBrightStars(tr, bright) && tr.Chi <= maxTrackChi && movedClearly(tr, 2*res.HFRNight, astroPx) {
+			res.Tracks = append(res.Tracks, tr)
+		}
+	}
+	return transient
 }
 
 // cutFilters cuts each filter's own changes in its own comparison, and adds
@@ -1453,6 +1465,66 @@ func (in *Input) brightStars() *Grid {
 		}
 	}
 	return NewGrid(pts, 8)
+}
+
+// glowMinMag and glowMaxWidths bound the reference sources whose glow
+// holds subtraction residuals: those at least 1 mag brighter than one
+// sub's depth, out to 8 star widths.
+const (
+	glowMinMag    = 1.0
+	glowMaxWidths = 8.0
+)
+
+// starGlows indexes the reference's sources bright enough to leave
+// residuals a sub detects, and the radius of each one's glow: a star
+// width, growing as the fourth root of its flux over a sub's limit. M 78's
+// G 15 stars, 3.2 mag above the depth of its 2025-11-24 subs, left
+// residuals 3.2 to 3.9 px off in the night's last subs, inside their 7 px
+// glow; a residual on a G 17.3 star 1.2 mag above it linked on California
+// Nebula Panel 1's 2026-10-06, inside its 4 px. Nil without a zero point,
+// a sub depth or a star width.
+func starGlows(ref *Plane, edge []bool, res *Result) (*Grid, []float64) {
+	fwhm := 2 * res.HFRNight
+	if res.ZeroPoint == nil || res.SubDepth == nil || !(fwhm > 0) {
+		return nil, nil
+	}
+	work := &Plane{W: ref.W, H: ref.H, Data: slices.Clone(ref.Data)}
+	mesh := Background(work, 128, nil)
+	mesh.Subtract(work)
+	var pts [][2]float64
+	var radii []float64
+	for _, s := range Extract(work, mesh.RMSPlane(), edge, DetectSigma, 5) {
+		fl := Aperture(work, s.X, s.Y, apertureR)
+		if !(fl > 0) {
+			continue
+		}
+		above := *res.SubDepth - (*res.ZeroPoint - 2.5*math.Log10(fl))
+		if above < glowMinMag {
+			continue
+		}
+		pts = append(pts, [2]float64{s.X, s.Y})
+		radii = append(radii, fwhm*math.Min(math.Pow(10, 0.1*above), glowMaxWidths))
+	}
+	return NewGrid(pts, 8), radii
+}
+
+// markGlows marks the detections inside a star's glow.
+func markGlows(dets [][]moverDet, g *Grid, radii []float64) {
+	rmax := 0.0
+	for _, r := range radii {
+		rmax = math.Max(rmax, r)
+	}
+	for _, ds := range dets {
+		for k := range ds {
+			d := &ds[k]
+			for _, i := range g.Within(d.X, d.Y, rmax) {
+				if math.Hypot(g.pts[i][0]-d.X, g.pts[i][1]-d.Y) <= radii[i] {
+					d.OnStar = true
+					break
+				}
+			}
+		}
+	}
 }
 
 // track turns linked detections into a fitted track with sky positions
