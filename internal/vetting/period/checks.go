@@ -544,7 +544,7 @@ func (a *analysis) parityPass(ws [][2]*win, shown int, dbl string) check.Check {
 		return check.New(check.Double, check.Pass, "Ruled out: "+txt)
 	}
 	if len(a.ecl.dips) == 1 {
-		return check.New(check.Double, check.Pass, fmt.Sprintf("The dip has the same depth on odd and even cycles, so the period is not %s days.", dbl))
+		return check.New(check.Double, check.NotRun, fmt.Sprintf("%s, so two equal dips every %s days fit the data too.", SameDepthOddEven, dbl))
 	}
 	if shown == 4 {
 		return check.New(check.Double, check.Pass, "Ruled out: both dips show on odd and even cycles at the same depth.")
