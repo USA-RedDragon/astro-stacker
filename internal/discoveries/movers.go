@@ -288,29 +288,26 @@ func fastEnough(hs []hit, pts [][][2]float64, times []time.Time, vmin, vmax floa
 }
 
 // starResidualPx and starResidualG bound the stars a track is taken for a
-// subtraction residual of: every detection within 3 px of one star of G 17
-// or brighter, where the night's and the reference's star profiles differ
-// most.
+// subtraction residual of: every detection within 5 px, about two star
+// widths, of a star of G 17 or brighter, where the night's and the
+// reference's star profiles differ most.
 const (
-	starResidualPx = 3.0
+	starResidualPx = 5.0
 	starResidualG  = 17.0
 )
 
-// onOneStar says whether all of a track's detections lie within 3 px of
-// the same bright catalogued star, at pixel positions stars: the residual
-// of the star's subtraction, its centroid wandering with each sub's seeing,
-// not a mover.
-func onOneStar(tr Track, stars *Grid) bool {
+// onBrightStars says whether all of a track's detections lie within 5 px of
+// bright catalogued stars, at pixel positions stars: residuals of their
+// subtraction, centroids wandering with each sub's seeing or lining up
+// along a close pair, not a mover.
+func onBrightStars(tr Track, stars *Grid) bool {
 	if stars == nil || len(tr.Points) == 0 {
 		return false
 	}
-	first := -1
 	for _, p := range tr.Points {
-		i, _ := stars.Nearest(p.X, p.Y, starResidualPx)
-		if i < 0 || (first >= 0 && i != first) {
+		if i, _ := stars.Nearest(p.X, p.Y, starResidualPx); i < 0 {
 			return false
 		}
-		first = i
 	}
 	return true
 }

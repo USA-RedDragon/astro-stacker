@@ -167,12 +167,17 @@ func TestStarResidualIsNotAMover(t *testing.T) {
 		tr.Points = append(tr.Points, TrackPoint{X: p[0], Y: p[1]})
 	}
 	stars := NewGrid([][2]float64{{470.0, 1050.8}, {900, 900}}, 8)
-	if !onOneStar(tr, stars) {
+	if !onBrightStars(tr, stars) {
 		t.Error("a track whose detections all sit within 3 px of one bright star is its residual")
 	}
 	moving := Track{Points: []TrackPoint{{X: 465, Y: 1050}, {X: 470, Y: 1050}, {X: 475, Y: 1050}, {X: 480, Y: 1050}}}
-	if onOneStar(moving, stars) {
+	if onBrightStars(moving, stars) {
 		t.Error("an asteroid passing a star is not the star's residual")
+	}
+	pair := NewGrid([][2]float64{{100, 100}, {104, 102.7}}, 8)
+	glow := Track{Points: []TrackPoint{{X: 97.2, Y: 98.1}, {X: 97.4, Y: 98.3}, {X: 102, Y: 101.3}, {X: 102.2, Y: 101.4}, {X: 106.8, Y: 104.6}}}
+	if !onBrightStars(glow, pair) {
+		t.Error("a track along the glow of a close bright pair, 3.2 px off each star, is their residual")
 	}
 	d := NewPlane(64, 64)
 	gauss := func(x0, y0, amp, sigma float64) {
