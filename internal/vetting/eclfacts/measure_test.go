@@ -3,6 +3,7 @@ package eclfacts
 import (
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
@@ -131,6 +132,47 @@ func TestNormalIsMedianOutsideEclipses(t *testing.T) {
 	short := lc.Series{Survey: lc.ZTF, Band: "r", Points: s.Points[:5]}
 	if n := normal([]lc.Series{g, short}, e); n == nil || n.Band != "g" {
 		t.Errorf("with too few r points, normal %+v, want g", n)
+	}
+}
+
+// TestTwoFieldsOneZeroPoint merges a ZTF field 0.15 mag fainter into the
+// light curve, its 180 points mostly inside the dips: the depths and the
+// normal brightness stay those of the main field.
+func TestTwoFieldsOneZeroPoint(t *testing.T) {
+	t.Parallel()
+	e := ephem(0.5, 0.4, 0.2)
+	s := sample(e, 1500, 0.02, 9)
+	for i := range s.Points {
+		s.Points[i].Src = 1
+	}
+	rng := rand.New(rand.NewPCG(10, 1))
+	for i := range 200 {
+		ph := 0.04*rng.Float64() - 0.02
+		switch {
+		case i%10 == 0:
+			ph = 0.25
+		case i%2 == 1:
+			ph += 0.5
+		}
+		tt := e.T0 + float64(i*3-300)*e.Period + (ph+0.002*rng.NormFloat64())*e.Period
+		s.Points = append(s.Points, lc.Point{BJD: tt, Mag: 15.15 + e.Predict(tt, ztfR) + 0.02*rng.NormFloat64(), Err: 0.02, Src: 2})
+	}
+	one := s
+	one.Points = slices.Clone(s.Points)
+	for i := range one.Points {
+		one.Points[i].Src = 0
+	}
+	bad := Summarize([]lc.Series{one}, e)
+	t.Logf("one zero point: depths %.3f %.3f, normal %.3f", bad.Twin.Depth1.Value, bad.Twin.Depth2.Value, bad.Normal.Mag)
+	if math.Abs(bad.Twin.Depth1.Value-0.4) < 0.03 {
+		t.Error("on one zero point the depth is right too; the test shows nothing")
+	}
+	got := Summarize([]lc.Series{s}, e)
+	if math.Abs(got.Twin.Depth1.Value-0.4) > 0.01 || math.Abs(got.Twin.Depth2.Value-0.2) > 0.01 {
+		t.Errorf("depths %+v %+v, want 0.4 and 0.2", got.Twin.Depth1, got.Twin.Depth2)
+	}
+	if got.Normal == nil || math.Abs(got.Normal.Mag-15) > 0.003 {
+		t.Errorf("normal %+v, want 15.00", got.Normal)
 	}
 }
 

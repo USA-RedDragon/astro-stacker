@@ -158,8 +158,10 @@ func phaseOf(e *period.Ephemeris, deep int, bjd float64) float64 {
 }
 
 // PhasedPlot draws the ZTF g and r points folded on e, deeper dip at 0,
-// with the fitted dips in r. name and the caption go in the title lines.
+// with the fitted dips in r, each band's ZTF fields on one zero point. name
+// and the caption go in the title lines.
 func PhasedPlot(series []lc.Series, e *period.Ephemeris, deep int, name string, years [2]int) ([]byte, string, error) {
+	series = period.AlignSrc(series, e)
 	var out []plotSeries
 	var ys []float64
 	for _, band := range []string{"g", "r"} {

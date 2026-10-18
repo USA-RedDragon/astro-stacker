@@ -501,11 +501,14 @@ type Limit struct {
 }
 
 // Summarize measures series at e. A star with one dip per cycle gets its
-// limit on a second dip at mid-cycle.
+// limit on a second dip at mid-cycle. The light curves a series merges
+// (ZTF's one per field and CCD quadrant) are first put on one zero point
+// (period.AlignSrc).
 func Summarize(series []lc.Series, e *period.Ephemeris) *Summary {
 	if e == nil || e.Period <= 0 || len(e.Eclipses) == 0 || len(e.Eclipses) > 2 {
 		return nil
 	}
+	series = period.AlignSrc(series, e)
 	pts := points(series, e)
 	if len(pts) == 0 {
 		return nil
