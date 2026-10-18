@@ -38,8 +38,12 @@ const (
 	vsxMatchArcsec = 5.0
 	// simbadMatchArcsec is tighter: SIMBAD lists thousands of survey
 	// variables in M 31's and M 33's discs, one within 5" of a twentieth of
-	// their area.
-	simbadMatchArcsec  = 2.0
+	// their area. At 2.0" the Mira M33SSS J013357.42+303958.7, 2.12" from
+	// 57613 (Triangulum, 2025-12-12), was missed; at 3.0" the real nova AT
+	// 2025jub would have been taken for [MSH2004] 33064, a pulsating star
+	// 2.90" away. At 2.5" none of 62 real M 31 novae of 2025 and 2026
+	// matches a SIMBAD variable but a past nova.
+	simbadMatchArcsec  = 2.5
 	bodyMatchArcsec    = 20.0
 	staticBodyArcsec   = 10.0
 	alertMatchArcsec   = 3.0
