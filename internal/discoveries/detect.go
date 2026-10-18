@@ -1469,10 +1469,14 @@ func (in *Input) brightStars(maxG float64) *Grid {
 }
 
 // glowMinMag and glowMaxWidths bound the reference sources whose glow
-// holds subtraction residuals: those at least 1 mag brighter than one
-// sub's depth, out to 8 star widths.
+// holds subtraction residuals: those at least 2 mag brighter than one
+// sub's depth, out to 8 star widths. From 1 mag the glows of G 14 and
+// fainter stars covered 11 to 12% of Cygnus Loop Panel 1's and
+// California Nebula Panel 1's fields, from 2 mag 6 to 8%, of every
+// asteroid's detections lost; fainter residuals are left to the track's
+// bright star test.
 const (
-	glowMinMag    = 1.0
+	glowMinMag    = 2.0
 	glowMaxWidths = 8.0
 )
 
@@ -1481,9 +1485,7 @@ const (
 // width, growing as the fourth root of its flux over a sub's limit. M 78's
 // G 15 stars, 3.2 mag above the depth of its 2025-11-24 subs, left
 // residuals 3.2 to 3.9 px off in the night's last subs, inside their 7 px
-// glow; a residual on a G 17.3 star 1.2 mag above it linked on California
-// Nebula Panel 1's 2026-10-06, inside its 4 px. Nil without a zero point,
-// a sub depth or a star width.
+// glow. Nil without a zero point, a sub depth or a star width.
 func starGlows(ref *Plane, edge []bool, res *Result) (*Grid, []float64) {
 	fwhm := 2 * res.HFRNight
 	if res.ZeroPoint == nil || res.SubDepth == nil || !(fwhm > 0) {

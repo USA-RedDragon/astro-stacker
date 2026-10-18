@@ -295,7 +295,7 @@ func TestStarGlowsCoverTheResidualsOfStarsWellAboveASubsDepth(t *testing.T) {
 		ref.Data[i] = float32(rng.NormFloat64())
 	}
 	sigma := 2 * hfr / 2.3548
-	stars := []struct{ x, y, mag float64 }{{80, 80, 15.0}, {220, 80, 17.5}, {80, 220, 17.0}}
+	stars := []struct{ x, y, mag float64 }{{80, 80, 15.0}, {220, 80, 16.5}, {80, 220, 16.0}}
 	for _, s := range stars {
 		addGauss(ref.Data, w, h, s.x, s.y, math.Pow(10, -0.4*(s.mag-zp)), sigma)
 	}
@@ -311,10 +311,10 @@ func TestStarGlowsCoverTheResidualsOfStarsWellAboveASubsDepth(t *testing.T) {
 		t.Errorf("the G 15 star's glow: %v", radii)
 	}
 	if i, _ := g.Nearest(220, 80, 2); i >= 0 {
-		t.Errorf("a star 0.7 mag above a sub's depth leaves no residual a sub detects, glow %.1f px", radii[i])
+		t.Errorf("a star 1.7 mag above a sub's depth has a glow of %.1f px", radii[i])
 	}
-	if i, _ := g.Nearest(80, 220, 2); i < 0 || math.Abs(radii[i]-4.4) > 0.3 {
-		t.Errorf("a star 1.2 mag above a sub's depth glows 1.3 star widths")
+	if i, _ := g.Nearest(80, 220, 2); i < 0 || math.Abs(radii[i]-5.5) > 0.3 {
+		t.Errorf("a star 2.2 mag above a sub's depth glows 1.7 star widths")
 	}
 	dets := [][]moverDet{{{X: 82.7, Y: 81.8}, {X: 85.5, Y: 83.2}, {X: 222.7, Y: 81.8}, {X: 150, Y: 150}}}
 	markGlows(dets, g, radii)
