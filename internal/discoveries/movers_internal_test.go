@@ -216,6 +216,116 @@ func TestStarResidualIsNotAMover(t *testing.T) {
 	}
 }
 
+func TestStarResidualInAShortBlockIsStatic(t *testing.T) {
+	t.Parallel()
+	// M 78's last four subs of 2025-11-24 spanned 24 minutes, less than the
+	// 25.6 minutes apart the static test needs at 1.92"/px, so a residual
+	// 3.2 px off a G 15 star in each of them stayed transient.
+	const scale = 1.923
+	start := time.Date(2025, 11, 25, 11, 6, 6, 0, time.UTC)
+	offsets := []time.Duration{0, 7 * time.Minute, 12 * time.Minute, 24 * time.Minute}
+	times := make([]time.Time, len(offsets))
+	dets := make([][]moverDet, len(offsets))
+	rng := rand.New(rand.NewPCG(2, 2))
+	for j, o := range offsets {
+		times[j] = start.Add(o)
+		dets[j] = []moverDet{{X: 1944.9 + 0.3*rng.NormFloat64(), Y: 2675.1 + 0.3*rng.NormFloat64(), Flux: 1, SNR: 7}}
+	}
+	if _, _, transient := transients(times, dets, scale); !transient[0] || !transient[3] {
+		t.Fatalf("without the star the short block's residual should stay transient: %v", transient)
+	}
+	for j := range dets {
+		dets[j][0].OnStar = true
+	}
+	_, _, transient := transients(times, dets, scale)
+	for i, tr := range transient {
+		if tr {
+			t.Errorf("detection %d on the star's glow taken for transient", i)
+		}
+	}
+}
+
+func TestStarGlowsCoverTheResidualsOfStarsWellAboveASubsDepth(t *testing.T) {
+	t.Parallel()
+	const w, h, hfr, zp, subDepth = 300, 300, 1.672, 25.0, 18.19
+	ref := NewPlane(w, h)
+	rng := rand.New(rand.NewPCG(8, 8))
+	for i := range ref.Data {
+		ref.Data[i] = float32(rng.NormFloat64())
+	}
+	sigma := 2 * hfr / 2.3548
+	stars := []struct{ x, y, mag float64 }{{80, 80, 15.0}, {220, 80, 17.5}, {80, 220, 17.0}}
+	for _, s := range stars {
+		addGauss(ref.Data, w, h, s.x, s.y, math.Pow(10, -0.4*(s.mag-zp)), sigma)
+	}
+	one := NewPlane(64, 64)
+	addGauss(one.Data, 64, 64, 32, 32, 1, sigma)
+	z, d := zp+2.5*math.Log10(Aperture(one, 32, 32, apertureR)), subDepth
+	res := &Result{HFRNight: hfr, ZeroPoint: &z, SubDepth: &d}
+	g, radii := starGlows(ref, make([]bool, w*h), res)
+	if g == nil {
+		t.Fatal("no glows")
+	}
+	if i, _ := g.Nearest(80, 80, 2); i < 0 || math.Abs(radii[i]-7.0) > 0.4 {
+		t.Errorf("the G 15 star's glow: %v", radii)
+	}
+	if i, _ := g.Nearest(220, 80, 2); i >= 0 {
+		t.Errorf("a star 0.7 mag above a sub's depth leaves no residual a sub detects, glow %.1f px", radii[i])
+	}
+	if i, _ := g.Nearest(80, 220, 2); i < 0 || math.Abs(radii[i]-4.4) > 0.3 {
+		t.Errorf("a star 1.2 mag above a sub's depth glows 1.3 star widths")
+	}
+	dets := [][]moverDet{{{X: 82.7, Y: 81.8}, {X: 85.5, Y: 83.2}, {X: 222.7, Y: 81.8}, {X: 150, Y: 150}}}
+	markGlows(dets, g, radii)
+	for k, want := range []bool{true, true, false, false} {
+		if dets[0][k].OnStar != want {
+			t.Errorf("detection %d at (%.1f, %.1f): on a star %v, want %v", k, dets[0][k].X, dets[0][k].Y, dets[0][k].OnStar, want)
+		}
+	}
+	if g, _ := starGlows(ref, make([]bool, w*h), &Result{HFRNight: hfr}); g != nil {
+		t.Error("glows without a zero point or a sub depth")
+	}
+}
+
+func TestMoversMustMoveClearly(t *testing.T) {
+	t.Parallel()
+	// Tracks linked on M 78's 2025-11-24, California Nebula Panel 1's
+	// 2026-10-06 and Sombrero Galaxy's 2025-12-29, each detection's minutes
+	// after the first and pixel, with the night's HFR and plate solution
+	// error in pixels.
+	type pt struct{ min, x, y float64 }
+	cases := []struct {
+		name         string
+		hfr, astroPx float64
+		real         bool
+		pts          []pt
+	}{
+		{"M 78 33324, a G 15 star's residual", 1.672, 0.117, false, []pt{{0.00, 1942.23, 2676.84}, {5.13, 1941.50, 2676.39}, {31.33, 1944.43, 2675.95}, {38.37, 1945.26, 2674.95}, {43.50, 1944.96, 2674.79}, {55.63, 1945.32, 2674.73}}},
+		{"M 78 33327, a G 15 star's residual", 1.672, 0.117, false, []pt{{0.00, 4733.37, 1777.22}, {5.20, 4734.16, 1776.57}, {10.34, 4734.48, 1776.73}, {36.53, 4737.42, 1775.45}, {43.57, 4737.48, 1775.30}, {48.70, 4736.76, 1776.02}}},
+		{"M 78 58457, a G 15 star's residual", 1.672, 0.117, false, []pt{{0.00, 801.54, 3586.37}, {10.34, 803.03, 3587.00}, {36.53, 806.18, 3585.81}, {43.57, 806.43, 3586.02}, {48.70, 805.54, 3586.48}, {60.83, 806.42, 3585.86}}},
+		{"California 67212, on G 17 stars", 1.543, 0.060, false, []pt{{0.00, 246.69, 415.93}, {10.37, 246.68, 415.35}, {15.87, 246.32, 415.60}, {21.03, 246.79, 415.31}, {36.93, 243.70, 410.33}, {42.13, 244.07, 410.55}}},
+		{"Sombrero 30622", 1.715, 0.056, false, []pt{{0.00, 197.28, 3214.45}, {5.20, 194.78, 3215.35}, {15.83, 195.56, 3215.88}, {21.03, 193.95, 3215.26}, {34.27, 192.86, 3213.59}, {39.47, 191.71, 3213.32}, {55.20, 191.69, 3213.26}}},
+		{"California 636, a known asteroid", 1.543, 0.060, true, []pt{{0.00, 5176.67, 1565.30}, {5.50, 5176.01, 1565.07}, {15.87, 5174.83, 1566.13}, {26.57, 5173.28, 1565.69}, {31.77, 5173.38, 1565.38}, {37.27, 5173.12, 1566.20}, {58.20, 5170.94, 1565.93}}},
+		{"California 635, a known asteroid", 1.543, 0.060, true, []pt{{0.00, 4621.53, 268.62}, {21.07, 4619.73, 269.88}, {36.97, 4617.83, 270.09}, {42.47, 4618.43, 270.53}, {47.63, 4617.25, 271.24}, {58.23, 4615.48, 270.54}, {63.40, 4615.44, 270.41}}},
+		{"California 633, a known asteroid", 1.543, 0.060, true, []pt{{0.00, 473.68, 1641.90}, {5.17, 473.86, 1642.02}, {15.90, 472.37, 1642.23}, {21.07, 471.48, 1641.94}, {31.77, 470.87, 1642.21}, {42.13, 468.58, 1642.84}, {52.70, 468.21, 1642.42}, {57.90, 466.71, 1641.43}}},
+	}
+	start := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	for _, c := range cases {
+		var tr Track
+		for _, p := range c.pts {
+			tr.Points = append(tr.Points, TrackPoint{Time: start.Add(time.Duration(p.min * float64(time.Minute))), X: p.x, Y: p.y})
+		}
+		d, sig := motion(tr, c.astroPx)
+		if got := movedClearly(tr, 2*c.hfr, c.astroPx); got != c.real {
+			t.Errorf("%s: moved %.1f px, %.1f times its error: taken for a mover %v", c.name, d, sig, got)
+		}
+	}
+	still := Track{Points: []TrackPoint{{X: 10, Y: 10}, {X: 10, Y: 10}, {X: 10, Y: 10}}}
+	if movedClearly(still, 3, 0.1) {
+		t.Error("detections all at one time moved")
+	}
+}
+
 func TestMoverNullTestLeavesTheLinkedTracksOut(t *testing.T) {
 	t.Parallel()
 	const scale, n = 1.923, 20

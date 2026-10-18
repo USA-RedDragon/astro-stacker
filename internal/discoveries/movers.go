@@ -34,6 +34,10 @@ type moverDet struct {
 	// sub's sensorMap is known (Sensor).
 	SX, SY float64
 	Sensor bool
+	// OnStar says the detection lies in the glow of one of the
+	// reference's stars (starGlows), where the subtraction leaves
+	// residuals however close in time the subs are.
+	OnStar bool
 }
 
 // moverDetections finds point sources in one sub minus its reference,
@@ -73,14 +77,18 @@ type hit struct{ sub, idx int }
 // sub, far enough away in time for the slowest mover linked to have moved
 // 2 px, has a detection within 2 px of on the sky, nor 3 such subs within
 // 1.5 px on the sensor, as for a hot pixel the registration walks across
-// the sky.
+// the sky, and that is not on a reference star: a block of subs shorter
+// than the time apart, as M 78's 24 minutes of late subs on 2025-11-24,
+// otherwise keeps its star residuals transient.
 func transients(times []time.Time, dets [][]moverDet, scale float64) ([][2]float64, []int, []bool) {
 	var all [][2]float64
 	var lab []int
+	var onStar []bool
 	for j, ds := range dets {
 		for _, d := range ds {
 			all = append(all, [2]float64{d.X, d.Y})
 			lab = append(lab, j)
+			onStar = append(onStar, d.OnStar)
 		}
 	}
 	var sens [][2]float64
@@ -112,7 +120,10 @@ func transients(times []time.Time, dets [][]moverDet, scale float64) ([][2]float
 		return d >= staticGap || d <= -staticGap
 	}
 	for i, p := range all {
-		transient[i] = true
+		transient[i] = !onStar[i]
+		if !transient[i] {
+			continue
+		}
 		for _, k := range g.Within(p[0], p[1], moverRepeatPx) {
 			if apart(i, k) {
 				transient[i] = false
@@ -285,6 +296,71 @@ func fastEnough(hs []hit, pts [][][2]float64, times []time.Time, vmin, vmax floa
 	}
 	v := math.Hypot(slope(ts, xs), slope(ts, ys))
 	return v >= vmin && v <= vmax && v*ts[len(ts)-1].Sub(ts[0]).Hours()/24 >= 2*moverRepeatPx
+}
+
+// moverMinSignificance and moverMinWidths are how clearly a track must
+// move: its fitted motion from its first detection to its last at least
+// 9 times its own error and 1.5 star widths. Of the known asteroids
+// linked on six nights, the least significant moved 11.3 times its error
+// (California Nebula Panel 1, 2026-10-06), the shortest 1.84 widths; the
+// star residuals, hot pixel and diffuse light linked as unknown movers
+// on those nights moved 6.1 to 8.3 times theirs.
+const (
+	moverMinSignificance = 9.0
+	moverMinWidths       = 1.5
+)
+
+// motion is a track's fitted motion from its first detection to its last,
+// in pixels, and how many times its error that is, the error from the
+// detections' scatter about the fit, at least astroPx on each axis.
+func motion(tr Track, astroPx float64) (d, sig float64) {
+	n := len(tr.Points)
+	if n < 3 {
+		return 0, 0
+	}
+	ts := make([]float64, n)
+	var tm, xm, ym float64
+	lo, hi := math.Inf(1), math.Inf(-1)
+	for i, p := range tr.Points {
+		ts[i] = p.Time.Sub(tr.Points[0].Time).Minutes()
+		tm += ts[i] / float64(n)
+		xm += p.X / float64(n)
+		ym += p.Y / float64(n)
+		lo, hi = math.Min(lo, ts[i]), math.Max(hi, ts[i])
+	}
+	var stt, stx, sty float64
+	for i, p := range tr.Points {
+		dt := ts[i] - tm
+		stt += dt * dt
+		stx += dt * (p.X - xm)
+		sty += dt * (p.Y - ym)
+	}
+	if !(stt > 0) {
+		return 0, 0
+	}
+	vx, vy := stx/stt, sty/stt
+	var ss float64
+	for i, p := range tr.Points {
+		dt := ts[i] - tm
+		ex, ey := p.X-xm-vx*dt, p.Y-ym-vy*dt
+		ss += ex*ex + ey*ey
+	}
+	sigma := math.Max(math.Sqrt(ss/float64(2*(n-2))), astroPx)
+	v := math.Hypot(vx, vy)
+	d = v * (hi - lo)
+	if sigma == 0 {
+		return d, math.Inf(1)
+	}
+	return d, v * math.Sqrt(stt) / sigma
+}
+
+// movedClearly says whether a track moved clearly more than its
+// detections scatter and more than a star's width, fwhm: residuals of a
+// static source in a short block of subs, the static test's time apart
+// not reached, scatter by a pixel and wander with each sub's seeing.
+func movedClearly(tr Track, fwhm, astroPx float64) bool {
+	d, sig := motion(tr, astroPx)
+	return sig >= moverMinSignificance && d >= moverMinWidths*fwhm
 }
 
 // starResidualPx and starResidualG bound the stars a track is taken for a
