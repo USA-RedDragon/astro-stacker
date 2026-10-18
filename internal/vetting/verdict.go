@@ -52,6 +52,17 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		}
 		return Medium
 	}
+	var ps *Suggestion
+	if pr != nil && pr.Ephemeris != nil {
+		p := periodic(sum, pr, timing, groups, curve, known)
+		ps = &p
+	}
+	if ps != nil && ps.State == app.VetReal && known.Listed == "" && moving.Status != check.Fail {
+		if why := ownDoubt(flags, groups); why != "" {
+			ps.Why = joinSentences(ps.Why, why)
+		}
+		return *ps
+	}
 	switch {
 	case flags.RefContaminated:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: reference image contaminated", Confidence: confirm(),
@@ -69,8 +80,8 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 	if known.Listed != "" {
 		return Suggestion{State: app.VetKnown, Say: "Already known", Confidence: High, Why: sentence(known.Listed)}
 	}
-	if pr != nil && pr.Ephemeris != nil {
-		return periodic(sum, pr, timing, groups, curve)
+	if ps != nil && (ps.State == app.VetArtifact || ps.State == app.VetKnown) {
+		return *ps
 	}
 	if flags.NotStar {
 		return Suggestion{State: app.VetArtifact, Say: sayNotStar, Confidence: Medium, Why: evidence(groups, check.PSF)}
@@ -81,6 +92,9 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 	}
 	if ownFlat {
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: the star did not change", Confidence: Low, Why: evidence(groups, check.OwnChange)}
+	}
+	if ps != nil {
+		return *ps
 	}
 	pending := ""
 	for _, f := range fx.all() {
@@ -94,6 +108,29 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 			Why: joinSentences(evidence(groups, check.ZTF), "Your own measurements show a change, so it may be new or brief.") + pending}
 	}
 	return Suggestion{State: app.VetUnsure, Say: sayNotSure, Confidence: Low, Why: "The checks found nothing against it, and nothing that confirms it." + pending}
+}
+
+// ownDoubt names what the own image checks found at the spot of a star
+// whose survey period stands on its own.
+func ownDoubt(flags ownimage.Flags, groups []Group) string {
+	var what string
+	switch {
+	case flags.RefContaminated:
+		what = "a contaminated reference image"
+	case flags.HotPixel:
+		what = "a hot pixel"
+	case flags.Trail:
+		what = "a satellite trail"
+	case flags.Edge:
+		what = "a saturated star or the image edge"
+	case flags.NotStar:
+		what = "a spot not shaped like a star"
+	case status(groups, check.OwnChange) == check.Fail:
+		what = "no clear change"
+	default:
+		return ""
+	}
+	return fmt.Sprintf("Your own frames show %s there, so the change you caught may not be an eclipse; the survey data stand on their own.", what)
 }
 
 func notChanged(ownFlat bool, c change) string {
@@ -116,13 +153,28 @@ func joinSentences(parts ...string) string {
 	return strings.Join(out, " ")
 }
 
-func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Timing, groups []Group, curve *ownimage.Curve) Suggestion {
+// periodic is the verdict on a survey period. Only the tests for false
+// periods make it real: the cycle survives taking out the star's slow
+// changes and is not an echo of the day, month or year (or TESS or
+// changes within a night show it), and nearby steady stars of the same
+// brightness do not show it. A period that drifts from season to season
+// stays unsure. The own image checks do not decide it: confirmed
+// binaries fail them as often as false periods do.
+func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Timing, groups []Group, curve *ownimage.Curve, known Known) Suggestion {
 	e := pr.Ephemeris
+	ps := shortPeriod(e.Period)
+	if pr.Robust == nil {
+		return Suggestion{State: app.VetUnsure, Say: sayNotSure, Confidence: Low, Why: fmt.Sprintf("Survey data show a %s-day period, but it could not be tested against false periods.", ps)}
+	}
+	if s := periodDoubt(e, pr.Robust, groups, known); s != nil {
+		return *s
+	}
 	p := periodText(e.Period)
 	surveysSeen := surveyWords(pr)
 	if e.Kind != period.KindEclipsing {
-		return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new variable star, repeats every %s days", shortPeriod(e.Period)), Confidence: Medium,
-			Why: fmt.Sprintf("%s show it varying every %s days, and no catalog lists the star as variable.", surveysSeen, p)}
+		return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new variable star, repeats every %s days", ps), Confidence: Medium,
+			Why: joinSentences(fmt.Sprintf("%s show it varying every %s days, and no catalog lists the star as variable.", surveysSeen, p),
+				evidence(groups, check.Echo), evidence(groups, check.Compare))}
 	}
 	conf := Medium
 	foldOK := status(groups, check.Fold) == check.Pass
@@ -142,6 +194,57 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 	}
 	why := joinSentences(which, fmt.Sprintf("%s show the same dips every %s days, and no catalog lists the star as variable.", surveysSeen, p))
 	return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new eclipsing binary, repeats every %s days", shortPeriod(e.Period)), Confidence: conf, Why: why}
+}
+
+// periodDoubt is the verdict on a survey period that does not pass the
+// tests for false periods, or nil when it passes them. Nearby steady stars
+// that plainly show the same signal make it an artifact; ones that come
+// close leave it unsure. Eclipses that TESS shows deep and on time pass
+// the other tests whatever ZTF says.
+func periodDoubt(e *period.Ephemeris, r *period.Robust, groups []Group, known Known) *Suggestion {
+	ecl := e.Kind == period.KindEclipsing
+	what, cycle, drift, is, does := "variable star", "cycle", "drifts", "is", "does"
+	if ecl {
+		what, cycle, drift, is, does = "eclipsing binary", "dips", "drift", "are", "do"
+	}
+	ps := shortPeriod(e.Period)
+	tess := ecl && r.TESS
+	slowOK := r.Echo == "" && r.Stable || r.Confirmed != "" || tess
+	var s Suggestion
+	switch {
+	case r.Comparisons > 0 && r.CompClear:
+		s = Suggestion{State: app.VetArtifact, Say: fmt.Sprintf("Artifact: the %s %s no stronger than in nearby steady stars", cycle, is), Confidence: Medium,
+			Why: joinSentences(evidence(groups, check.Compare), fmt.Sprintf("The %s-day period is noise, not the star.", ps))}
+		if r.CompSignal > 1 {
+			s.Say = fmt.Sprintf("Artifact: nearby steady stars show the same %s", cycle)
+			s.Why = joinSentences(evidence(groups, check.Compare), fmt.Sprintf("The %s-day period comes from the sky or the camera, not the star.", ps))
+		}
+	case tess:
+		return nil
+	case !slowOK && known.Expected != "":
+		s = Suggestion{State: app.VetKnown, Say: fmt.Sprintf("Known %s, irregular changes expected", known.Expected), Confidence: Medium,
+			Why: joinSentences(fmt.Sprintf("SIMBAD lists it as %s, a %s; such stars change without a fixed period.", known.ExpectedName, known.Expected), evidence(groups, check.Echo))}
+	case r.Echo != "" && r.Confirmed == "":
+		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: a %s-day period next to %s needs TESS", ps, r.Echo), Confidence: Low,
+			Why: joinSentences(evidence(groups, check.Echo), "The star may still vary, but not on this period.")}
+	case !slowOK:
+		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: the %s-day %s %s not hold up", ps, cycle, does), Confidence: Low,
+			Why: joinSentences(evidence(groups, check.Echo), "The star may vary, but no steady period stands out.")}
+	case r.Comparisons > 0 && !r.CompPass:
+		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: nearby steady stars come close to the %s-day %s", ps, cycle), Confidence: Low,
+			Why: joinSentences(evidence(groups, check.Compare), "The star may be periodic, but its signal is not clearly above what steady stars show.")}
+	case !r.Real:
+		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: the %s-day %s %s weak", ps, cycle, is), Confidence: Low,
+			Why: joinSentences(evidence(groups, check.Echo), evidence(groups, check.Compare), "No single survey band shows it clearly enough on its own.")}
+	case status(groups, check.Fold) == check.Fail:
+		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: periodic, but the %s %s", cycle, drift), Confidence: Medium,
+			Why: joinSentences(evidence(groups, check.Fold), fmt.Sprintf("The %s-day period is real in the survey data, but its timing wanders from season to season, so it is not a strict %s.", ps, what))}
+	case !ecl && status(groups, check.Half) == check.Fail:
+		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: the period may be half of %s days", ps), Confidence: Low, Why: evidence(groups, check.Half)}
+	default:
+		return nil
+	}
+	return &s
 }
 
 func shortPeriod(p float64) string {

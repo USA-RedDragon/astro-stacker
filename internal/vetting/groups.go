@@ -66,7 +66,7 @@ func surveyRows(fx fetches, pr *period.Result, timing *period.Timing) []check.Ch
 	}
 	ids := []string{check.ZTF, check.Period, check.TESS, check.ATLAS, check.NEOWISE}
 	if pr != nil && pr.Ephemeris != nil {
-		ids = []string{check.ZTF, check.Fold, check.Half, check.Double, check.TESS, check.OwnTiming, check.ATLAS, check.NEOWISE}
+		ids = []string{check.ZTF, check.Fold, check.Half, check.Double, check.Echo, check.Compare, check.TESS, check.OwnTiming, check.ATLAS, check.NEOWISE}
 		have = append(have, timingCheck(pr.Ephemeris, timing))
 	}
 	if pr == nil || pr.Ephemeris == nil {
