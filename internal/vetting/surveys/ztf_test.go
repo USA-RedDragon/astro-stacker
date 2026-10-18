@@ -179,6 +179,31 @@ func TestTileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestZTFStarsReadsTilesOnce(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	f, _ := testFetcher(t, ztfServer(t, &hits))
+	ctx := t.Context()
+	field := ic1396Field()
+	if err := f.Prefetch(ctx, field); err != nil {
+		t.Fatal(err)
+	}
+	one := f.ZTF(ctx, field, ic1396Star())
+	empty := Target{RA: 323.2, Dec: 58.6}
+	got := f.ZTFStars(ctx, field, []Target{empty, ic1396Star()})
+	if len(got) != 2 || got[0].State != Done || len(got[0].Series) != 0 {
+		t.Fatalf("empty spot %+v", got[0])
+	}
+	if got[1].State != Done || len(got[1].Series) != len(one.Series) || len(got[1].Series[0].Points) != len(one.Series[0].Points) || got[1].Note != one.Note {
+		t.Fatalf("star read with others %+v, alone %+v", got[1], one)
+	}
+	for i, p := range one.Series[0].Points {
+		if got[1].Series[0].Points[i] != p {
+			t.Fatalf("point %d: %+v, alone %+v", i, got[1].Series[0].Points[i], p)
+		}
+	}
+}
+
 func TestTilesNear(t *testing.T) {
 	t.Parallel()
 	for _, p := range [][2]float64{{0, 0}, {323.277, 58.63}, {10.68, 89.99}, {359.9999, -10}} {

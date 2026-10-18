@@ -489,6 +489,97 @@ func (f *Fetcher) ztf(ctx context.Context, field Field, t Target) Fetch {
 	return fe
 }
 
+// ztfMany reads the ZTF light curves of several stars, each tile of the
+// field's files read once for all of them; stars outside a complete pull
+// go one by one through ztf.
+func (f *Fetcher) ztfMany(ctx context.Context, field Field, ts []Target) []Fetch {
+	out := make([]Fetch, len(ts))
+	m, err := f.ztfManifest(ctx, field)
+	if err != nil && !isNotFound(err) {
+		for i := range out {
+			out[i] = failed(lc.ZTF, "could not read the field's ZTF manifest: %v", err)
+		}
+		return out
+	}
+	type pos struct{ ra, dec float64 }
+	var in []int
+	at := make([]pos, len(ts))
+	for i, t := range ts {
+		ra, dec := t.at(ztfMatchYear)
+		at[i] = pos{ra, dec}
+		if m != nil && m.Complete && sepArcsec(m.RA, m.Dec, ra, dec) <= m.Radius*3600 {
+			in = append(in, i)
+			continue
+		}
+		out[i] = f.ztf(ctx, field, t)
+	}
+	if len(in) == 0 {
+		return out
+	}
+	keys := map[string]bool{}
+	var order []string
+	stems := make([]string, 0, len(m.Files))
+	for s := range m.Files {
+		stems = append(stems, s)
+	}
+	sort.Strings(stems)
+	for _, i := range in {
+		for _, p := range tilesNear(at[i].ra, at[i].dec, ztflc.MatchRadius+1) {
+			for _, s := range stems {
+				if !slices.Contains(m.Files[s].Tiles, p) {
+					continue
+				}
+				if k := f.tileKey(field, m.Release, p, s); !keys[k] {
+					keys[k] = true
+					order = append(order, k)
+				}
+			}
+		}
+	}
+	near := func(i int, ra, dec float64) bool {
+		return sepArcsec(at[i].ra, at[i].dec, ra, dec) <= ztflc.MatchRadius
+	}
+	eps := make([][]ztfEpoch, len(ts))
+	for _, k := range order {
+		objs, err := f.readTile(ctx, k, func(ra, dec float64) bool {
+			return slices.ContainsFunc(in, func(i int) bool { return near(i, ra, dec) })
+		})
+		if err != nil {
+			for _, i := range in {
+				out[i] = failed(lc.ZTF, "could not read the field's ZTF tiles: %v", err)
+			}
+			return out
+		}
+		for _, o := range objs {
+			for _, i := range in {
+				if !near(i, float64(o.RA), float64(o.Dec)) {
+					continue
+				}
+				for j := range o.T {
+					eps[i] = append(eps[i], ztfEpoch{Band: string(o.Band), OID: o.ID, MJD: o.mjd(j), Mag: o.mag(j), MagErr: o.magErr(j)})
+				}
+			}
+		}
+	}
+	for _, i := range in {
+		out[i] = f.ztfFetch(ts[i], eps[i])
+		out[i].Note = joinNotes(fmt.Sprintf("from the field's ZTF %s light curve files", strings.ToUpper(m.Release)), out[i].Note)
+	}
+	return out
+}
+
+func (f *Fetcher) readTile(ctx context.Context, key string, keep func(ra, dec float64) bool) ([]*ztfObject, error) {
+	raw, err := f.getZ(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	objs, err := decodeTile(raw, keep)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", key, err)
+	}
+	return objs, nil
+}
+
 func joinNotes(a, b string) string {
 	switch {
 	case a == "":
