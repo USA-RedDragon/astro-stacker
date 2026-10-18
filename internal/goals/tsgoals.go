@@ -290,6 +290,8 @@ type progressRow struct {
 	StackSubs      *int
 	MinSubs        *int
 	SubLimit       *int
+	ScoreCut       *float64
+	ExpectedScore  *float64
 }
 
 func ptr(v float64) *float64 {
@@ -355,7 +357,10 @@ func (r progressRow) sameReadiness(o progressRow) bool {
 		sameInt(r.MinSubs, o.MinSubs) && sameInt(r.SubLimit, o.SubLimit)
 }
 
-func (r progressRow) same(o progressRow, signals, readiness bool) bool {
+func (r progressRow) same(o progressRow, signals, readiness, pass bool) bool {
+	if pass && !r.samePass(o) {
+		return false
+	}
 	if readiness && !r.sameReadiness(o) {
 		return false
 	}
@@ -376,10 +381,14 @@ type Publisher struct {
 	Longitude    func(ctx context.Context) (float64, error)
 	Now          func() time.Time
 	Log          *slog.Logger
+	// MinScore is the stacker's score cut, a fraction of the target's best score; 0 publishes no score cut.
+	MinScore float64
 
 	mu      sync.Mutex
 	outcome string
 	lon     *float64
+	pass    *PassInputs
+	passAt  time.Time
 }
 
 func (p *Publisher) now() time.Time {
@@ -504,28 +513,30 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	if err != nil {
 		return sum, err
 	}
-	var sig Signals
-	if withSignals {
-		if sig, err = p.signals(ctx); err != nil {
-			return sum, err
-		}
+	sig, withPass, pass, err := p.signalsAndPass(ctx, withSignals)
+	if err != nil {
+		return sum, err
 	}
 	for _, w := range want {
 		sum.Rows++
 		if withSignals {
 			sig.apply(&w.row)
 		}
-		if old, ok := have[progressKey{w.row.TargetGUID, w.row.Filter}]; ok && old.same(w.row, withSignals, withReadiness) {
+		if withPass {
+			w.row.setPass(pass, tm.objects[w.row.TargetGUID], sig.NightQuality, p.MinScore)
+		}
+		if old, ok := have[progressKey{w.row.TargetGUID, w.row.Filter}]; ok && old.same(w.row, withSignals, withReadiness, withPass) {
 			continue
 		}
 		sum.Changed++
 		if p.Mode == PublishDryRun {
 			slog.Info("Would publish goal progress (dry run)", "object", w.prog.Object, "filter", w.row.Filter, "target_guid", w.row.TargetGUID,
 				"kind", w.prog.Kind, "goal", w.prog.Goal, "achieved", w.prog.Achieved, "progress", w.prog.Progress,
-				"hours_needed", w.prog.HoursNeeded, "gain_per_hour_pct", w.prog.GainPerHourPct, "done", w.prog.Done)
+				"hours_needed", w.prog.HoursNeeded, "gain_per_hour_pct", w.prog.GainPerHourPct, "done", w.prog.Done,
+				"score_cut", w.row.ScoreCut, "expected_score", w.row.ExpectedScore)
 			continue
 		}
-		if err := p.upsert(ctx, w.row, withSignals, withReadiness); err != nil {
+		if err := p.upsert(ctx, w.row, withSignals, withReadiness, withPass); err != nil {
 			return sum, err
 		}
 	}
@@ -536,9 +547,31 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	p.outcome = ""
 	p.mu.Unlock()
 	if p.Mode == PublishOn {
-		p.logger().Info("Published goal progress", "rows", sum.Rows, "changed", sum.Changed, "readiness_columns", withReadiness, "signal_columns", withSignals)
+		p.logger().Info("Published goal progress", "rows", sum.Rows, "changed", sum.Changed, "readiness_columns", withReadiness, "signal_columns", withSignals, "pass_columns", withPass)
 	}
 	return sum, nil
+}
+
+// signalsAndPass loads the night signals when the table has their columns, and the pass inputs when it
+// has those too: the expected score is for the night quality the signals carry.
+func (p *Publisher) signalsAndPass(ctx context.Context, withSignals bool) (Signals, bool, PassInputs, error) {
+	if !withSignals {
+		return Signals{}, false, PassInputs{}, nil
+	}
+	sig, err := p.signals(ctx)
+	if err != nil {
+		return sig, false, PassInputs{}, err
+	}
+	withPass, err := HasPassColumns(ctx, p.Sched)
+	if err != nil || !withPass {
+		return sig, false, PassInputs{}, err
+	}
+	pass, err := p.passInputs(ctx, p.now())
+	if err != nil {
+		p.logger().Warn("Could not load the sub scores for the score cut and expected score; publishing goal progress without them", "error", err)
+		return sig, false, PassInputs{}, nil
+	}
+	return sig, true, pass, nil
 }
 
 type progressKey struct{ guid, filter string }
@@ -697,7 +730,7 @@ func (p *Publisher) existing(ctx context.Context) (map[progressKey]progressRow, 
 	return out, nil
 }
 
-func (p *Publisher) upsert(ctx context.Context, r progressRow, signals, readiness bool) error {
+func (p *Publisher) upsert(ctx context.Context, r progressRow, signals, readiness, pass bool) error {
 	values := map[string]any{
 		"kind": r.Kind, "goal_value": r.GoalValue, "achieved_value": r.AchievedValue, "progress": r.Progress,
 		"snr": r.SNR, "depth": r.Depth, "effective_hours": r.EffectiveHours, "hours_needed": r.HoursNeeded,
@@ -715,6 +748,10 @@ func (p *Publisher) upsert(ctx context.Context, r progressRow, signals, readines
 		values[ColumnStackSubs] = r.StackSubs
 		values[ColumnMinSubs] = r.MinSubs
 		values[ColumnSubLimit] = r.SubLimit
+	}
+	if pass {
+		values[ColumnScoreCut] = r.ScoreCut
+		values[ColumnExpectedScore] = r.ExpectedScore
 	}
 	row := map[string]any{"target_guid": r.TargetGUID, "filter": r.Filter}
 	for k, v := range values {
