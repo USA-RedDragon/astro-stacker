@@ -343,6 +343,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 				l.Matches = append(l.Matches, Match{Catalog: a.Source, Name: a.ID, Type: a.Class, SepArcsec: a.SepArc, TNS: a.TNS})
 			}
 		}
+		l.Matches = append(l.Matches, onStarMatch(c, res.PixelScale)...)
 		l.Matches = append(l.Matches, placeMatches(c, k)...)
 		l.Class = classOf(l)
 		if c.Filter != "" {
@@ -355,6 +356,16 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 	}
 	holdMany(out)
 	return out, tracks, checked, failed
+}
+
+// onStarMatch is the match of a change that sits on a star it barely
+// changed, if it does, at pixel scale scale.
+func onStarMatch(c Candidate, scale float64) []Match {
+	if !c.onStar() {
+		return nil
+	}
+	return []Match{{Catalog: catalogOnStar, Name: "on a star", SepArcsec: c.NearStarPx * scale, Mag: c.NearStarG,
+		Note: fmt.Sprintf("%.1f px from a G %.2f star, and the light there changed by only %.2f mag", c.NearStarPx, *c.NearStarG, math.Abs(*c.DeltaMag))}}
 }
 
 // heldWhy are the matches telling why a new source is held at low
@@ -383,6 +394,10 @@ const maxNewSources = 10
 // catalogDefect is the match of a new source held for being far sharper
 // than a star in its subs.
 const catalogDefect = "defect"
+
+// catalogOnStar is the match of a new source held for sitting on a star
+// it barely changed.
+const catalogOnStar = "star"
 
 // catalogNoise is the match of a new source held for being weak against
 // the noise of the picture around it.
@@ -495,7 +510,9 @@ func bodyName(b Body) string {
 // a star's: Orion's H-a night of 2026-10-05 brightened 17 nebular knots by
 // 5 to 22%. An alert broker's ZTF object at a catalogued star is
 // that star's own variability in ZTF's differences, not a transient: only a
-// TNS entry makes a change on a star a known transient.
+// TNS entry makes a change on a star a known transient. A change Gaia
+// matched to no star but that sits on one and barely moves its light is
+// held: it is the star's residual (see onStar).
 func classOf(l Labelled) string {
 	has := func(cat ...string) bool {
 		for _, m := range l.Matches {
@@ -514,7 +531,7 @@ func classOf(l Labelled) string {
 		return ClassKnownAsteroid
 	case has(sourceTNS), l.GaiaG == nil && has(sourceAlerce, sourceFink):
 		return ClassKnownTransient
-	case l.LowConf, l.Sign < 0 && l.GaiaG == nil:
+	case l.LowConf, l.Sign < 0 && l.GaiaG == nil, has(catalogOnStar):
 		return ClassLowConfidence
 	case l.Sign > 0 && l.GaiaG == nil && inLocalGroup(l.Matches):
 		return ClassNova

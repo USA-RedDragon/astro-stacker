@@ -198,6 +198,11 @@ type Candidate struct {
 	// LocalSNR is the change's strength against the noise of the
 	// difference around it rather than the whole picture's.
 	LocalSNR float64
+	// NearStarG and NearStarPx are the nearest Gaia star of G under
+	// onStarMaxG within onStarPx of a change no star was matched to, and how
+	// far from it.
+	NearStarG  *float64
+	NearStarPx float64
 	// Filter is the filter whose own comparison found the change, when
 	// the filters combined did not.
 	Filter string
@@ -1066,6 +1071,9 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 			if gi, d, moved := gaia.match(o.X, o.Y); gi >= 0 {
 				g := in.Gaia[gi].G
 				c.GaiaG, c.GaiaSepPx, c.GaiaMotionPx = &g, d, moved
+			} else if gi, d := gaia.near(o.X, o.Y, func(i int) bool { return in.Gaia[i].G < onStarMaxG }); gi >= 0 {
+				g := in.Gaia[gi].G
+				c.NearStarG, c.NearStarPx = &g, d
 			}
 			cands = append(cands, c)
 		}
@@ -1290,6 +1298,43 @@ func (g gaiaIndex) match(x, y float64) (star int, sep, moved float64) {
 	}
 	p, q := g.grid.pts[best], g.from[best]
 	return g.idx[best], bestD, math.Hypot(p[0]-q[0], p[1]-q[1])
+}
+
+// near returns the nearest Gaia star keep accepts whose path from the
+// reference's epoch to the night's passes within onStarPx of (x, y), and
+// how far from it; -1 when there is none.
+func (g gaiaIndex) near(x, y float64, keep func(int) bool) (star int, sep float64) {
+	best, bestD := -1, math.Inf(1)
+	for _, i := range g.grid.Within(x, y, onStarPx+g.maxMove) {
+		p, q := g.grid.pts[i], g.from[i]
+		if d := segmentDistance(x, y, p[0], p[1], q[0], q[1]); d <= onStarPx && d < bestD && keep(g.idx[i]) {
+			best, bestD = i, d
+		}
+	}
+	if best < 0 {
+		return -1, 0
+	}
+	return g.idx[best], bestD
+}
+
+const (
+	// onStarPx and onStarMaxG bound the star a brightening Gaia matched to
+	// no star may sit on, and onStarMag is the most it may change the light
+	// in the reference's aperture there, which holds the star, to be taken
+	// for the star's own residual. In the audit of October 2026, 60400
+	// (2025-10-25, broadband) sat 2.0 px from a G 15.68 star and 58090
+	// (2025-11-21, H-a) 2.35 px from a G 14.87 star, both steady to 0.04 to
+	// 0.10 mag over 23 to 28 nights, and changed the light there by 0.09
+	// mag; AT 2026uti, a real nova 2.8 px from a G 15.77 star, by 0.15.
+	onStarPx   = 3.0
+	onStarMaxG = 17.0
+	onStarMag  = 0.12
+)
+
+// onStar says whether a change no star was matched to sits on a star
+// within onStarPx and moves the light there by under onStarMag.
+func (c Candidate) onStar() bool {
+	return c.GaiaG == nil && c.NearStarG != nil && c.DeltaMag != nil && math.Abs(*c.DeltaMag) < onStarMag
 }
 
 // movingStar says whether a change is the dipole a catalogued star leaves
