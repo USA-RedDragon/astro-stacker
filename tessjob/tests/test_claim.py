@@ -214,3 +214,37 @@ def test_a_request_finished_by_another_worker_is_not_redone(tmp_path):
     assert j.run() == 0
     assert not st.exists(f"vetting/cache/m31/tess/{GID}/status.json")
     assert st.keys(claim.CLAIMS) == []
+
+
+def test_a_star_in_the_cutout_another_worker_is_making_waits(tmp_path):
+    st = MemStore()
+    near, far, elsewhere = "381299946636125440", "381299946636125441", "381299946636125442"
+    st.put_json(KEY, request(neighbours=[], when="2026-10-14T00:00:00Z"))
+    st.put_json(f"vetting/tess/requests/{near}.json", request(gid=near, ra=10.95, dec=41.70, neighbours=[]))
+    st.put_json(f"vetting/tess/requests/{elsewhere}.json",
+                request(gid=elsewhere, slug="m31-panel-2", ra=10.95, dec=41.70, neighbours=[]))
+    st.put_json(f"vetting/tess/requests/{far}.json",
+                request(gid=far, ra=11.6, dec=41.66, neighbours=[], when="2026-10-16T00:00:00Z"))
+    held = claim.Claims(st, "pod-b").take(KEY, GID, {"slug": "m31", "ra": 10.889321, "dec": 41.662433})
+    calls = []
+    fm = FakeMast(tmp_path, SECTORS[1:])
+    j = make_job(tmp_path, st, fm, fake_runner(tmp_path, calls, produce=(near, far, elsewhere)))
+    assert j.run() == 2
+    assert [c["names"] for c in calls] == [[elsewhere], [far]]
+    assert st.exists(f"vetting/tess/requests/{near}.json")
+    held.release()
+    calls.clear()
+    cutouts = len(fm.cutouts)
+    j = make_job(tmp_path, st, fm, fake_runner(tmp_path, calls, produce=(GID, near)))
+    assert j.run() == 2
+    assert [c["names"] for c in calls] == [[GID]] and len(fm.cutouts) == cutouts + 1
+    assert st.get_json(f"vetting/cache/m31/tess/{near}/status.json")["sectors_done"] == [57]
+    assert st.keys("vetting/tess/requests/") == []
+
+
+def test_shared_cutout_reach():
+    req = jobmod.Request("k", "2", 359.99, 0.0, "f")
+    assert jobmod._shares_cutout({"slug": "f", "gaia_id": "1", "ra": 0.1, "dec": 0.1}, req)
+    assert not jobmod._shares_cutout({"slug": "f", "gaia_id": "1", "ra": 0.5, "dec": 0.0}, req)
+    assert not jobmod._shares_cutout({"slug": "g", "gaia_id": "1", "ra": 0.0, "dec": 0.0}, req)
+    assert not jobmod._shares_cutout({"slug": "f", "gaia_id": "1"}, req)

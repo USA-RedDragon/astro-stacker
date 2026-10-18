@@ -12,6 +12,8 @@ Layout under vetting/cache/<slug>/tess/:
 Several workers can run at once, one per node: each claims a request in vetting/tess/claims/ before
 working on it (see claim.py), so no two workers fit the same star. Cutouts and field light curves are
 shared; a worker only adds to them, and objects are written before the meta.json that points at them.
+A worker leaves a star that could lie in the cutout another worker is making for now, so that the star
+reuses the cutout and its ePSF later instead of fitting its own.
 
 Time budget: no request or sector starts after max_minutes. Everything stops by stop_minutes:
 network calls and tglc stop CHILD_RESERVE before it, tglc is killed KILL_RESERVE before it, and
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -46,6 +49,8 @@ EPSF_FACTOR = 2
 EDGE_MARGIN = 10
 NEIGHBOUR_HLSP_ARCSEC = 42.0
 MAX_ATTEMPTS = 3
+PIXEL_ARCSEC = 21.0
+SHARED_CUTOUT_DEG = (CUTOUT_SIZE / 2 - EDGE_MARGIN) * math.sqrt(2) * PIXEL_ARCSEC / 3600
 CHILD_RESERVE = 8 * 60
 KILL_RESERVE = 4 * 60
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -163,26 +168,19 @@ class Job:
         n = 0
         tried: set[str] = set()
         while True:
-            item = next(((k, d) for k, d in self.queue() if k not in tried), None)
-            if item is None:
-                break
-            key, doc = item
-            tried.add(key)
             if self.out_of_time():
-                log.info("time budget used; %s waits for the next run", key)
+                log.info("time budget used; the rest of the queue waits for the next run")
                 break
-            try:
-                req = Request.parse(key, doc)
-            except Exception as e:
-                log.error("dropping malformed request %s: %s", key, e)
-                self.store.delete(key)
-                continue
-            lease = self.claims.take(key, req.gaia_id)
+            req = self.next_request(tried)
+            if req is None:
+                break
+            tried.add(req.key)
+            lease = self.claims.take(req.key, req.gaia_id, {"slug": req.slug, "ra": req.ra, "dec": req.dec})
             if lease is None:
                 log.info("%s is claimed by another worker", req.gaia_id)
                 continue
             try:
-                if not self.store.exists(key):
+                if not self.store.exists(req.key):
                     continue
                 self.lease = lease
                 lease.start()
@@ -192,6 +190,28 @@ class Job:
                 self.lease = None
                 lease.release()
         return n
+
+    def next_request(self, tried: set[str]) -> Request | None:
+        """The oldest request not yet tried this run whose star is outside the cutouts other workers hold."""
+        others = self.claims.others()
+        waiting = 0
+        for key, doc in self.queue():
+            if key in tried:
+                continue
+            try:
+                req = Request.parse(key, doc)
+            except Exception as e:
+                log.error("dropping malformed request %s: %s", key, e)
+                self.store.delete(key)
+                tried.add(key)
+                continue
+            if any(_shares_cutout(c, req) for c in others):
+                waiting += 1
+                continue
+            return req
+        if waiting:
+            log.info("%d requests wait for the cutouts other workers are making", waiting)
+        return None
 
     def base(self, req: Request) -> str:
         return f"vetting/cache/{req.slug}/tess"
@@ -491,6 +511,18 @@ class Job:
         res["peak_rss_mb"] = round(peak)
         res["seconds"] = round(secs)
         return res
+
+
+def _shares_cutout(claim: dict, req: Request) -> bool:
+    """Whether req's star may lie in the cutout around the claimed star, so it can reuse that cutout."""
+    try:
+        if claim.get("slug") != req.slug or str(claim.get("gaia_id")) == req.gaia_id:
+            return False
+        ra, dec = float(claim["ra"]), float(claim["dec"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    dra = (req.ra - ra + 180) % 360 - 180
+    return math.hypot(dra * math.cos(math.radians(dec)), req.dec - dec) <= SHARED_CUTOUT_DEG
 
 
 def _inside(pos, size: int) -> bool:
