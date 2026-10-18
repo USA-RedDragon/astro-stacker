@@ -5,6 +5,7 @@ package imagedata
 import (
 	"bytes"
 	"compress/zlib"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/xml"
 	"errors"
@@ -22,7 +23,15 @@ import (
 type Image struct {
 	W, H, C int
 	Data    []float32
+	// Numbers are an XISF image's numeric properties by id: a scalar as
+	// one value, a vector or matrix inline in row order.
+	Numbers map[string][]float64
 }
+
+// PropSensorMap is the property of a registered sub holding the map from
+// its pixels to the sensor's, x' = a·x + b·y + c and y' = d·x + e·y + f,
+// as a 2 by 3 matrix.
+const PropSensorMap = "AstroStacker:SensorMap"
 
 // Plane returns channel c.
 func (im *Image) Plane(c int) []float32 {
@@ -32,7 +41,10 @@ func (im *Image) Plane(c int) []float32 {
 
 var ErrUnsupported = errors.New("unsupported image")
 
-const sampleUInt16 = "UInt16"
+const (
+	sampleUInt16  = "UInt16"
+	sampleFloat64 = "Float64"
+)
 
 // Decode reads a whole XISF or FITS file.
 func Decode(b []byte) (*Image, error) {
@@ -58,8 +70,39 @@ type xisfImage struct {
 }
 
 type xisfProperty struct {
-	ID    string `xml:"id,attr"`
-	Value string `xml:"value,attr"`
+	ID       string `xml:"id,attr"`
+	Type     string `xml:"type,attr"`
+	Value    string `xml:"value,attr"`
+	Location string `xml:"location,attr"`
+	Text     string `xml:",chardata"`
+}
+
+// numbers reads the numeric properties: Float64 values, and F64Vector
+// and F64Matrix ones stored inline in base64.
+func numbers(props []xisfProperty) map[string][]float64 {
+	out := map[string][]float64{}
+	for _, p := range props {
+		switch p.Type {
+		case sampleFloat64:
+			if v, err := strconv.ParseFloat(p.Value, 64); err == nil {
+				out[p.ID] = []float64{v}
+			}
+		case "F64Vector", "F64Matrix":
+			if p.Location != "inline:base64" {
+				continue
+			}
+			b, err := base64.StdEncoding.DecodeString(strings.TrimSpace(p.Text))
+			if err != nil || len(b)%8 != 0 {
+				continue
+			}
+			v := make([]float64, len(b)/8)
+			for i := range v {
+				v[i] = math.Float64frombits(binary.LittleEndian.Uint64(b[8*i:]))
+			}
+			out[p.ID] = v
+		}
+	}
+	return out
 }
 
 type xisfDoc struct {
@@ -129,9 +172,15 @@ func decodeXISF(b []byte) (*Image, error) {
 		for i := range count {
 			im.Data[i] = decodeCode(order.Uint16(raw[2*i:]), step, zero, empty)
 		}
+		im.Numbers = numbers(img.Properties)
 		return im, nil
 	}
-	return toFloat(raw, order, img.SampleFormat, w, h, c, lo, hi)
+	im, err := toFloat(raw, order, img.SampleFormat, w, h, c, lo, hi)
+	if err != nil {
+		return nil, err
+	}
+	im.Numbers = numbers(img.Properties)
+	return im, nil
 }
 
 func codeMapping(img xisfImage) (step, zero float64, empty int, ok bool) {
@@ -205,7 +254,7 @@ func sampleBytes(format string) (int, error) {
 		return 2, nil
 	case "UInt32", "Float32":
 		return 4, nil
-	case "Float64":
+	case sampleFloat64:
 		return 8, nil
 	default:
 		return 0, fmt.Errorf("%w: sample format %q", ErrUnsupported, format)
@@ -339,7 +388,7 @@ func toFloat(raw []byte, order binary.ByteOrder, format string, w, h, c int, lo,
 		for i := range count {
 			im.Data[i] = (math.Float32frombits(order.Uint32(raw[4*i:])) - float32(lo)) / scale
 		}
-	case "Float64":
+	case sampleFloat64:
 		for i := range count {
 			im.Data[i] = float32((math.Float64frombits(order.Uint64(raw[8*i:])) - lo) / (hi - lo))
 		}

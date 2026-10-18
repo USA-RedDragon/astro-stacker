@@ -841,7 +841,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		sm := footprint(p)
+		sm := SensorMapOf(p)
 		for i, v := range p.Data {
 			r := ns.fs.ref.Data[i]
 			if isNaN32(v) || isNaN32(r) || !valid[i] {
@@ -863,8 +863,8 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 			}
 			c.sharp = append(c.sharp, signedSharpness(p, c.X, c.Y, c.Sign))
 			sx, sy := math.NaN(), math.NaN()
-			if sm.measured {
-				sx, sy = sm.at(c.X, c.Y)
+			if sm.Measured {
+				sx, sy = sm.At(c.X, c.Y)
 			}
 			c.sensor = append(c.sensor, [2]float64{sx, sy})
 			c.off = append(c.off, centroidOffset(p, c.X, c.Y, c.Sign))
@@ -874,10 +874,10 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 			res.SubDepthPerFilter[ns.sub.Filter] = math.Max(res.SubDepthPerFilter[ns.sub.Filter], d)
 		}
 		dets[j] = moverDetections(p, m.RMSPlane(), edge, bmask, sig, moverSharp)
-		if sm.ok {
+		if sm.OK {
 			for k := range dets[j] {
 				d := &dets[j][k]
-				d.SX, d.SY = sm.at(d.X, d.Y)
+				d.SX, d.SY = sm.At(d.X, d.Y)
 				d.Sensor = true
 			}
 		}

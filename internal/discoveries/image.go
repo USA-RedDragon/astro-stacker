@@ -17,6 +17,9 @@ import (
 type Plane struct {
 	W, H int
 	Data []float32
+	// Sensor is a registered sub's map to the sensor, when its
+	// registration kept one.
+	Sensor *SensorMap
 }
 
 func NewPlane(w, h int) *Plane { return &Plane{W: w, H: h, Data: make([]float32, w*h)} }
@@ -391,5 +394,9 @@ func PlaneOf(im *imagedata.Image) *Plane {
 			data[i] = v
 		}
 	}
-	return &Plane{W: im.W, H: im.H, Data: data}
+	p := &Plane{W: im.W, H: im.H, Data: data}
+	if m, ok := SensorMapFrom(im.Numbers[imagedata.PropSensorMap]); ok {
+		p.Sensor = &m
+	}
+	return p
 }

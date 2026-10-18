@@ -34,7 +34,7 @@ func TestRegisteredFormatsStackAlike(t *testing.T) {
 	var encBytes, fitBytes int64
 	for _, s := range subs {
 		dst := filepath.Join(encDir, filepath.Base(s.key)+".xisf")
-		if err := encodeRegisteredFile(s.key, dst); err != nil {
+		if err := encodeRegisteredFile(s.key, "", dst); err != nil {
 			t.Fatal(err)
 		}
 		a, _ := os.Stat(s.key)
