@@ -5,6 +5,8 @@ Both stores use the same keys, so a local run writes the layout the Go reader ex
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import io
 import json
 import os
@@ -57,6 +59,17 @@ class Base:
         raise NotImplementedError
 
     def delete(self, key: str) -> None:
+        raise NotImplementedError
+
+    def get_versioned(self, key: str) -> tuple[bytes, str] | None:
+        """The object and its ETag, or None when it does not exist."""
+        raise NotImplementedError
+
+    def put_if(self, key: str, data: bytes, etag: str | None) -> str | None:
+        """Write data only if the object does not exist (etag None) or still has etag.
+
+        Returns the new ETag, or None when the condition failed because another writer got there first.
+        """
         raise NotImplementedError
 
     def keys(self, prefix: str) -> list[str]:
@@ -146,6 +159,46 @@ class S3Store(Base):
     def delete(self, key):
         self.client.remove_object(self.bucket, key)
 
+    def get_versioned(self, key):
+        from minio.error import S3Error
+
+        try:
+            resp = self.client.get_object(self.bucket, key)
+        except S3Error as e:
+            if e.code in ("NoSuchKey", "NoSuchObject", "NotFound"):
+                return None
+            raise
+        try:
+            return resp.read(), resp.headers.get("etag", "").strip('"')
+        finally:
+            resp.close()
+            resp.release_conn()
+
+    def put_if(self, key, data, etag):
+        from minio.error import S3Error
+
+        if etag is not None and not self._has_etag(key, etag):
+            return None
+        cond = {"If-None-Match": "*"} if etag is None else {"If-Match": f'"{etag}"'}
+        try:
+            res = self.client._put_object(self.bucket, key, data, {"Content-Type": "application/json", **cond})
+        except S3Error as e:
+            if e.code in ("PreconditionFailed", "ConditionalRequestConflict", "NoSuchKey"):
+                return None
+            raise
+        return res.etag
+
+    def _has_etag(self, key: str, etag: str) -> bool:
+        """MinIO writes despite If-Match when the object is missing, so check that it exists first."""
+        from minio.error import S3Error
+
+        try:
+            return self.client.stat_object(self.bucket, key).etag.strip('"') == etag
+        except S3Error as e:
+            if e.code in ("NoSuchKey", "NoSuchObject", "NotFound"):
+                return False
+            raise
+
 
 class LocalStore(Base):
     def __init__(self, root: str):
@@ -196,3 +249,19 @@ class LocalStore(Base):
 
     def delete(self, key):
         self._path(key).unlink(missing_ok=True)
+
+    def get_versioned(self, key):
+        p = self._path(key)
+        if not p.is_file():
+            return None
+        data = p.read_bytes()
+        return data, hashlib.md5(data).hexdigest()
+
+    def put_if(self, key, data, etag):
+        with open(self.root / ".lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            cur = self.get_versioned(key)
+            if (cur is None) != (etag is None) or (cur is not None and cur[1] != etag):
+                return None
+            self.put(key, data)
+            return hashlib.md5(data).hexdigest()
