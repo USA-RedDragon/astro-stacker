@@ -449,7 +449,7 @@ func Draft(snap *planning.Snapshot, f *app.DiscoveryFollowup, origGUID string, n
 	if err != nil {
 		return nil, Pick{}, err.Error()
 	}
-	keepLimits(&settings, proj)
+	KeepLimits(&settings, proj)
 	end := WindowEnd(f.Until, loc)
 	if !end.After(now) {
 		return nil, Pick{}, "the follow-up's last night is over"
@@ -464,7 +464,7 @@ func Draft(snap *planning.Snapshot, f *app.DiscoveryFollowup, origGUID string, n
 	tmplID, tmplName, filter := plan.TemplateID, plan.Template, plan.Filter
 	if t, ok := snap.ResolveFilter(proj.ProfileID, plan.Filter); ok {
 		tmplID, tmplName, filter = t.ID, t.Name, snap.PlanFilter(t)
-	} else if t, ok := templateByID(snap, plan.TemplateID); ok {
+	} else if t, ok := TemplateByID(snap, plan.TemplateID); ok {
 		tmplName, filter = t.Name, snap.PlanFilter(t)
 	}
 	minutes := int(math.Ceil(float64(pick.Subs) * (exposure + 30) / 60))
@@ -481,7 +481,8 @@ func Draft(snap *planning.Snapshot, f *app.DiscoveryFollowup, origGUID string, n
 	return payload, pick, ""
 }
 
-func templateByID(snap *planning.Snapshot, id int) (planning.Template, bool) {
+// TemplateByID is the snapshot's exposure template id.
+func TemplateByID(snap *planning.Snapshot, id int) (planning.Template, bool) {
 	for _, t := range snap.Templates {
 		if t.ID == id {
 			return t, true
@@ -490,8 +491,8 @@ func templateByID(snap *planning.Snapshot, id int) (planning.Template, bool) {
 	return planning.Template{}, false
 }
 
-// keepLimits copies the original project's horizon and meridian limits.
-func keepLimits(s *schedcmd.ProjectSettings, p planning.Project) {
+// KeepLimits copies the original project's horizon and meridian limits.
+func KeepLimits(s *schedcmd.ProjectSettings, p planning.Project) {
 	if p.MeridianWindow != nil {
 		s.MeridianWindow = p.MeridianWindow
 	}
