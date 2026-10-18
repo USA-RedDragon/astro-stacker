@@ -20,6 +20,24 @@ import (
 // TESSRequestPrefix is where TESS requests wait for the TESS job.
 const TESSRequestPrefix = "vetting/tess/requests/"
 
+// TESSClaimPrefix is where a TESS worker claims the request of the same
+// name while it fits that star.
+const TESSClaimPrefix = "vetting/tess/claims/"
+
+// TESSClaim is one worker's lease on a request. It holds until Expires, in
+// Unix seconds; the worker renews it while it works.
+type TESSClaim struct {
+	GaiaID    GaiaID    `json:"gaia_id"`
+	Worker    string    `json:"worker"`
+	ClaimedAt time.Time `json:"claimed_at"`
+	Expires   float64   `json:"expires"`
+}
+
+// Live is whether the claim still holds at now.
+func (c TESSClaim) Live(now time.Time) bool {
+	return float64(now.UnixNano())/1e9 < c.Expires
+}
+
 // TESSRequest asks the TESS job to fit the star and its neighbours in
 // every TESS sector.
 type TESSRequest struct {
