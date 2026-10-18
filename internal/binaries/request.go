@@ -94,9 +94,13 @@ func uuidFrom(seed string) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
 }
 
-// RequestGUID is the project of one eclipse request.
-func RequestGUID(sourceID int, kind string, mid time.Time) string {
-	return uuidFrom(fmt.Sprintf("eclipse-request:%d:%s:%s", sourceID, kind, mid.UTC().Format(time.RFC3339)))
+// RequestGUID is the project of one attempt to image an eclipse.
+func RequestGUID(sourceID int, kind string, mid time.Time, attempt int) string {
+	seed := fmt.Sprintf("eclipse-request:%d:%s:%s", sourceID, kind, mid.UTC().Format(time.RFC3339))
+	if attempt > 0 {
+		seed += fmt.Sprintf(":%d", attempt)
+	}
+	return uuidFrom(seed)
 }
 
 // DraftRequest is the Target Scheduler project that images one eclipse:
@@ -150,7 +154,7 @@ func DraftRequest(snap *planning.Snapshot, origGUID string, r *app.EclipseReques
 		kind = "second eclipse"
 	}
 	local := r.Mid.In(loc).Format("2006-01-02 3:04 PM MST")
-	r.ProjectGUID, r.TargetGUID, r.Filter, r.Exposure, r.Subs = RequestGUID(r.SourceID, r.Kind, r.Mid), uuidFrom("eclipse-request-target:"+RequestGUID(r.SourceID, r.Kind, r.Mid)), filter, exposure, subs
+	r.ProjectGUID, r.TargetGUID, r.Filter, r.Exposure, r.Subs = RequestGUID(r.SourceID, r.Kind, r.Mid, r.Attempt), uuidFrom("eclipse-request-target:"+RequestGUID(r.SourceID, r.Kind, r.Mid, r.Attempt)), filter, exposure, subs
 	minutes := int(math.Ceil(window.Minutes()))
 	payload := &schedcmd.ProjectCreatePayload{
 		Project: schedcmd.NewProject{GUID: r.ProjectGUID, Name: fmt.Sprintf(RequestPrefix+"%s (%s, %s)", name, local, kind),

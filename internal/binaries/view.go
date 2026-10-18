@@ -170,7 +170,12 @@ const ecc = 0.005
 // TypeOf is the VSX type of an ephemeris, EA, EB or EW by how much of the
 // cycle the dips take and how alike they are, and the words the cards use,
 // which add that the orbit is oval when the second dip is off mid-cycle.
-func TypeOf(e *period.Ephemeris) (string, string) {
+func TypeOf(e *period.Ephemeris) (string, string) { return typeOf(e, nil) }
+
+// typeOf is TypeOf with the surveys' own measure of the second dip's
+// phase: the orbit counts as oval only when the dip is strongZ sigma off
+// mid-cycle as well as more than ecc of a cycle.
+func typeOf(e *period.Ephemeris, t *eclfacts.Twin) (string, string) {
 	var share float64
 	for k := range e.Eclipses {
 		share += eclfacts.Duration(e, k) / e.Period
@@ -186,7 +191,7 @@ func TypeOf(e *period.Ephemeris) (string, string) {
 			}
 		}
 	}
-	if len(e.Eclipses) == 2 && math.Abs(e.Eclipses[1].Phase-0.5) > ecc {
+	if len(e.Eclipses) == 2 && math.Abs(e.Eclipses[1].Phase-0.5) > ecc && (t == nil || t.PhaseErr <= 0 || t.PhaseZ >= strongZ) {
 		return typ, typ + ", oval orbit"
 	}
 	return typ, typ
@@ -235,7 +240,11 @@ func (s Star) View(shareURL func(id, version int) string) Binary {
 	}
 	b.Period = e.Period
 	b.PeriodText = periodText(e.Period, e.PeriodErr)
-	b.Type, b.TypeWords = TypeOf(e)
+	var tw *eclfacts.Twin
+	if s.Facts != nil && s.Facts.Survey != nil {
+		tw = s.Facts.Survey.Twin
+	}
+	b.Type, b.TypeWords = typeOf(e, tw)
 	deep := s.deeper()
 	var depths []string
 	band := ""
@@ -267,8 +276,11 @@ func (s Star) View(shareURL func(id, version int) string) Binary {
 	case len(depths) == 1:
 		b.DepthText = fmt.Sprintf("%s mag (%s)", depths[0], band)
 	}
-	if dbl {
+	switch {
+	case dbl && len(depths) > 0 && s.Facts != nil && s.Facts.Alike:
 		b.DepthText = fmt.Sprintf("%s mag (%s), both eclipses alike", depths[0], band)
+	case dbl && len(depths) > 0 && s.Facts == nil:
+		b.DepthText = fmt.Sprintf("%s mag (%s), odd and even cycles not compared yet", depths[0], band)
 	}
 	if s.Report != nil {
 		f := Facts{Ephemeris: e, Doubled: dbl, Deeper: deep}
@@ -277,26 +289,39 @@ func (s Star) View(shareURL func(id, version int) string) Binary {
 		}
 		b.Flags = Flags(s.Report, f)
 	}
-	b.PeriodSettled = true
-	for _, fl := range b.Flags {
+	b.AltPeriodText = altPeriods(e, b.Flags)
+	b.PeriodSettled = b.AltPeriodText == ""
+	b.Share = s.shareView(shareURL)
+	return b
+}
+
+// altPeriods are the other periods the flags leave open, "or 10.78 (twice
+// that)".
+func altPeriods(e *period.Ephemeris, flags []Flag) string {
+	var alts []string
+	for _, fl := range flags {
 		switch fl.ID {
 		case FlagTwice:
-			b.AltPeriodText = "or " + periodText(2*e.Period, e.PeriodErr) + " (twice that)"
-			b.PeriodSettled = false
+			alts = append(alts, periodText(2*e.Period, e.PeriodErr)+" (twice that)")
 		case FlagHalf:
-			b.AltPeriodText = "or " + periodText(e.Period/2, e.PeriodErr) + " (half that)"
-			b.PeriodSettled = false
+			alts = append(alts, periodText(e.Period/2, e.PeriodErr)+" (half that)")
 		}
 	}
-	if s.Share != nil {
-		b.Share = Share{State: s.Share.State, Version: s.Share.Version, Note: s.Share.Note}
-		if s.Share.State == ShareReady && shareURL != nil {
-			b.Share.URL = shareURL(s.Source.ID, s.Share.Version)
-		}
-	} else {
-		b.Share = Share{State: SharePending, Note: "Not made yet."}
+	if len(alts) == 0 {
+		return ""
 	}
-	return b
+	return "or " + strings.Join(alts, " or ")
+}
+
+func (s Star) shareView(shareURL func(id, version int) string) Share {
+	if s.Share == nil {
+		return Share{State: SharePending, Note: "Not made yet."}
+	}
+	out := Share{State: s.Share.State, Version: s.Share.Version, Note: s.Share.Note}
+	if s.Share.State == ShareReady && shareURL != nil {
+		out.URL = shareURL(s.Source.ID, s.Share.Version)
+	}
+	return out
 }
 
 func frac(x float64) float64 { return x - math.Floor(x) }

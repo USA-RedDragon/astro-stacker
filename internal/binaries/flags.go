@@ -56,6 +56,7 @@ func Flags(r *vetting.Report, f Facts) []Flag {
 	}
 	p := periodText(e.Period, e.PeriodErr)
 	switch {
+	case f.Doubled && len(e.Eclipses) == 1:
 	case f.Doubled:
 		if t := f.twin(); t == nil || (t.DepthZ < strongZ && t.PhaseZ < strongZ) {
 			why := fmt.Sprintf("The vet's odd and even cycles disagreed, so the app takes twice its period, %s days.", p)
@@ -92,6 +93,12 @@ func Flags(r *vetting.Report, f Facts) []Flag {
 			}
 		}
 	}
+	return append(out, recordFlags(f)...)
+}
+
+// recordFlags are the doubts about the survey record and the Gaia star.
+func recordFlags(f Facts) []Flag {
+	var out []Flag
 	if s := f.Survey; s != nil && f.Deeper < len(s.Coverage) {
 		deep := s.Coverage[f.Deeper]
 		events := 0

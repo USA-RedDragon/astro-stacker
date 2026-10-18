@@ -154,9 +154,14 @@ func (s *Service) makePictures(ctx context.Context, w pictureWork) error {
 	if err == nil {
 		mark, err = s.markOf(ctx, w, frame, wcs)
 	}
+	retry := false
 	if err != nil {
 		sh.State, sh.Note = ShareNone, err.Error()
 		chart.Note = "Not made yet: " + err.Error()
+		var l lasting
+		if !errors.As(err, &l) {
+			sh.Stamp, retry = "", true
+		}
 	} else {
 		label, name := s.words(ctx, w)
 		var b []byte
@@ -197,16 +202,25 @@ func (s *Service) makePictures(ctx context.Context, w pictureWork) error {
 		if err != nil {
 			return err
 		}
-		return db.Model(&app.BinaryFacts{}).Where("source_id = ?", w.src.ID).Updates(map[string]any{"files": string(raw), "chart_stamp": w.stamp}).Error
+		stamp := w.stamp
+		if retry || chart.State == FileFailed {
+			stamp = ""
+		}
+		return db.Model(&app.BinaryFacts{}).Where("source_id = ?", w.src.ID).Updates(map[string]any{"files": string(raw), "chart_stamp": stamp}).Error
 	}
 	return nil
 }
+
+// lasting is a reason a picture can't be made that only a new colour
+// picture or plate solution changes; any other is tried again at the
+// next look.
+type lasting struct{ error }
 
 // coverOf reads the target's colour picture and where it sits on the
 // masters.
 func (s *Service) coverOf(ctx context.Context, w pictureWork) (image.Image, stacking.CoverFrame, *discoveries.WCS, error) {
 	if w.cover == nil {
-		return nil, stacking.CoverFrame{}, nil, fmt.Errorf("no colour picture of %s yet", w.src.Object)
+		return nil, stacking.CoverFrame{}, nil, lasting{fmt.Errorf("no colour picture of %s yet", w.src.Object)}
 	}
 	if s.Frame == nil {
 		return nil, stacking.CoverFrame{}, nil, errors.New("no plate solutions to place the star")
@@ -221,7 +235,7 @@ func (s *Service) coverOf(ctx context.Context, w pictureWork) (image.Image, stac
 	}
 	frame, ok := stacking.CoverFrameOf(w.src.Object, stacks)
 	if !ok {
-		return nil, stacking.CoverFrame{}, nil, errors.New("the colour picture's frame could not be worked out from the masters")
+		return nil, stacking.CoverFrame{}, nil, lasting{errors.New("the colour picture's frame could not be worked out from the masters")}
 	}
 	b, err := s.Objects.Get(ctx, w.cover.PreviewKey)
 	if err != nil {
@@ -232,7 +246,7 @@ func (s *Service) coverOf(ctx context.Context, w pictureWork) (image.Image, stac
 		return nil, stacking.CoverFrame{}, nil, fmt.Errorf("decode the colour picture: %w", err)
 	}
 	if bb := img.Bounds(); bb.Dx() != frame.W || bb.Dy() != frame.H {
-		return nil, stacking.CoverFrame{}, nil, fmt.Errorf("the colour picture is %dx%d, its masters give %dx%d; it is made again soon", bb.Dx(), bb.Dy(), frame.W, frame.H)
+		return nil, stacking.CoverFrame{}, nil, fmt.Errorf("the colour picture is %dx%d, its masters give %dx%d; tried again at the next look", bb.Dx(), bb.Dy(), frame.W, frame.H)
 	}
 	return img, frame, wcs, nil
 }
@@ -265,12 +279,12 @@ func (s *Service) markOf(ctx context.Context, w pictureWork, frame stacking.Cove
 				return Mark{X: x0, Y: y0, X1: x1, Y1: y1, Track: true}, nil
 			}
 		}
-		return Mark{}, errors.New("the moving object's track is not on the colour picture")
+		return Mark{}, lasting{errors.New("the moving object's track is not on the colour picture")}
 	}
 	ra, dec := s.skyPos(w)
 	x, y, ok := at(ra, dec)
 	if !ok {
-		return Mark{}, errors.New("the star is outside the colour picture")
+		return Mark{}, lasting{errors.New("the star is outside the colour picture")}
 	}
 	return Mark{X: x, Y: y}, nil
 }

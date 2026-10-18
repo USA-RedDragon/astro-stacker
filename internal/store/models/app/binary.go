@@ -39,7 +39,7 @@ type BinaryFacts struct {
 // BinarySetting is one setting of the discovery pages, such as the
 // discoverer line for VSX.
 type BinarySetting struct {
-	Key   string `gorm:"primaryKey"`
+	Key   string `gorm:"column:name;primaryKey"`
 	Value string `gorm:"type:text;not null;default:''"`
 }
 
@@ -70,8 +70,11 @@ type EclipseRequest struct {
 	CloseCmd    string
 	State       string `gorm:"not null;index"`
 	Note        string `gorm:"type:text;not null;default:''"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Attempt counts earlier requests of the same eclipse that failed or
+	// were cancelled; each attempt is a project of its own.
+	Attempt   int `gorm:"not null;default:0"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // ShareImage is the annotated picture of one discovery on its target's

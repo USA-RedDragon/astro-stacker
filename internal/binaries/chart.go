@@ -59,12 +59,18 @@ func FindingChart(src image.Image, g ChartGeometry, name string) ([]byte, string
 	}
 	ax, ay := 100.0, chartBand+float64(chartSide)-100
 	arrow := func(dir [2]float64, label string) {
+		if dir == ([2]float64{}) {
+			return
+		}
 		ex, ey := ax+dir[0]*50, ay+dir[1]*50
 		c.line(ax, ay, ex, ey, 2.5, red)
 		c.text(ex+dir[0]*16, ey+dir[1]*16+7, label, 20, true, red, 0.5)
 	}
 	arrow(unit(g.North), "N")
 	arrow(unit(g.East), "E")
+	if g.North == ([2]float64{}) || g.East == ([2]float64{}) {
+		return nil, "", errors.New("north and east could not be worked out on the picture")
+	}
 	bar := 60 / g.Scale * k
 	bx, by := float64(chartSide)-40-bar, chartBand+float64(chartSide)-40
 	c.line(bx, by, bx+bar, by, 3, red)
@@ -83,7 +89,7 @@ func FindingChart(src image.Image, g ChartGeometry, name string) ([]byte, string
 func unit(v [2]float64) [2]float64 {
 	d := math.Hypot(v[0], v[1])
 	if d == 0 {
-		return [2]float64{0, -1}
+		return v
 	}
 	return [2]float64{v[0] / d, v[1] / d}
 }
