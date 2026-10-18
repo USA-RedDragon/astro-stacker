@@ -18,6 +18,7 @@ const (
 	listedArcsec = 3.0
 	nearArcsec   = 30.0
 	simbadArcsec = 5.0
+	expectArcsec = 2.0
 )
 
 // Mirrors are the local catalog copies, read first.
@@ -49,6 +50,11 @@ type Known struct {
 	Listed string
 	// Name is the star's best known designation, when SIMBAD has one.
 	Name string
+	// Expected is "young star" or "supergiant" when SIMBAD lists the star
+	// as one within expectArcsec, a kind whose brightness wanders without
+	// a fixed period, with its SIMBAD name in ExpectedName.
+	Expected     string
+	ExpectedName string
 }
 
 func arcsec(ra1, dec1, ra2, dec2 float64) float64 {
@@ -203,10 +209,19 @@ func simbadCheck(ctx context.Context, sb Simbad, ra, dec float64, k *Known) chec
 		k.Name = bestName(o)
 	}
 	for _, x := range objs {
+		if w := expectedOType(x.OType); w != "" && arcsec(ra, dec, x.RA, x.Dec) <= expectArcsec {
+			k.Expected, k.ExpectedName = w, x.MainID
+			break
+		}
+	}
+	for _, x := range objs {
 		if variableOType(x.OType) && arcsec(ra, dec, x.RA, x.Dec) <= listedArcsec {
 			k.Listed = cmpOr(k.Listed, "SIMBAD lists it as "+x.MainID)
 			return check.New(check.SIMBAD, check.Fail, fmt.Sprintf("Listed as %s, %s.", x.MainID, otypeWords(x.OType)))
 		}
+	}
+	if k.Expected != "" {
+		return check.New(check.SIMBAD, check.Pass, fmt.Sprintf("Not listed as variable, but listed as %s, a %s; such stars change without a fixed period.", k.ExpectedName, k.Expected))
 	}
 	if sep <= listedArcsec {
 		return check.New(check.SIMBAD, check.Pass, "Not listed as variable.")
@@ -245,6 +260,27 @@ func variableOType(t string) bool {
 	}
 	return false
 }
+
+// expectedOType is "young star" or "supergiant" for SIMBAD object types of
+// stars whose brightness wanders without a fixed period: young stellar
+// objects and their candidates, and red, yellow and blue supergiants and
+// their candidates. T Tauri, Orion and Herbig Ae/Be types are variable
+// types, already listed by variableOType.
+func expectedOType(t string) string {
+	switch strings.TrimSpace(t) {
+	case "Y*O", "Y*?", "YSO", "HH":
+		return expectYoung
+	case "s*r", "s*y", "s*b", "sg*", "s?r", "s?y", "s?b", "sg?", "RSG", "YSG", "BSG", "RedSG*", "YellowSG*", "BlueSG*", "Supergiant":
+		return expectSupergiant
+	}
+	return ""
+}
+
+// Kinds of star whose brightness wanders without a fixed period.
+const (
+	expectYoung      = "young star"
+	expectSupergiant = "supergiant"
+)
 
 func otypeWords(t string) string {
 	switch strings.TrimSpace(t) {
