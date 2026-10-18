@@ -402,6 +402,7 @@ type win struct {
 	dsum     map[string]float64
 	dnorm    map[string]float64
 	gy       map[int][2]float64
+	gd       map[int][2]float64
 }
 
 func (w *win) scale() (float64, float64) {
@@ -427,7 +428,7 @@ func (a *analysis) parityWindows() [][2]*win {
 	for k := range out {
 		for p := range 2 {
 			out[k][p] = &win{k: k, surveys: map[string]bool{}, first: map[string]float64{}, cycle: map[string]int{}, sectors: map[int]bool{},
-				dsum: map[string]float64{}, dnorm: map[string]float64{}, gy: map[int][2]float64{}}
+				dsum: map[string]float64{}, dnorm: map[string]float64{}, gy: map[int][2]float64{}, gd: map[int][2]float64{}}
 		}
 	}
 	a.rawPoints(func(se *series, p obs) {
@@ -441,8 +442,6 @@ func (a *analysis) parityWindows() [][2]*win {
 			w := out[k][par]
 			mm := m.depth[p.g][k] * sh
 			wt := 1 / (p.e * p.e)
-			w.smy += wt * p.y * mm
-			w.smm += wt * mm * mm
 			gy := w.gy[p.g]
 			gy[0] += wt * p.y * mm
 			gy[1] += wt * mm * mm
@@ -455,11 +454,49 @@ func (a *analysis) parityWindows() [][2]*win {
 			if se.sector > 0 {
 				w.sectors[se.sector] = true
 			}
-			w.dsum[se.survey] += wt * p.y * sh
-			w.dnorm[se.survey] += wt * sh * sh
+			gd := w.gd[p.g]
+			gd[0] += wt * p.y * sh
+			gd[1] += wt * sh * sh
+			w.gd[p.g] = gd
 		}
 	})
+	for k := range out {
+		for p := range 2 {
+			w := out[k][p]
+			w.smy, w.smm = 0, 0
+			clear(w.surveys)
+			for g, gy := range w.gy {
+				if !a.realDip(out, k, g) {
+					continue
+				}
+				w.smy += gy[0]
+				w.smm += gy[1]
+				s := a.d.groups[g].survey
+				w.surveys[s] = true
+				w.dsum[s] += w.gd[g][0]
+				w.dnorm[s] += w.gd[g][1]
+			}
+		}
+	}
 	return out
+}
+
+// realDip says band g shows dip k as a dip on both odd and even cycles:
+// its fitted depth is positive and neither cycle's points sit brighter
+// than normal by two sigma. A band that brightens in a dip says nothing
+// about the eclipse.
+func (a *analysis) realDip(ws [][2]*win, k, g int) bool {
+	m := a.ecl
+	if !m.active[g][k] || m.depth[g][k] <= 0 {
+		return false
+	}
+	for p := range 2 {
+		gy := ws[k][p].gy[g]
+		if gy[1] > 0 && gy[0]/gy[1] < -2/math.Sqrt(gy[1]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *analysis) whoCaught(w *win, skip string) string {
@@ -516,6 +553,22 @@ func (a *analysis) doubleEclipse() check.Check {
 	return a.parityUndecided(ws, dbl)
 }
 
+// agreeing is how many of the differences share the sign most of them
+// have.
+func agreeing(d []float64) int {
+	pos := 0
+	for _, x := range d {
+		if x > 0 {
+			pos++
+		}
+	}
+	return max(pos, len(d)-pos)
+}
+
+// parityConflict fails the double check when a dip is missing on odd or
+// even cycles, or differs in depth between them: in the only band that
+// can tell, or in two bands that agree, so one band's systematics cannot
+// double the period alone.
 func (a *analysis) parityConflict(ws [][2]*win, dbl string) (check.Check, bool) {
 	m := a.ecl
 	for k := range ws {
@@ -525,9 +578,11 @@ func (a *analysis) parityConflict(ws [][2]*win, dbl string) (check.Check, bool) 
 					capitalize(a.dipName(k)), parityName(p), dbl)), true
 			}
 		}
+		tested, bestG, bestZ := 0, -1, 0.0
+		var signs []float64
 		for g := range a.d.groups {
 			e, o := ws[k][0].gy[g], ws[k][1].gy[g]
-			if e[1] == 0 || o[1] == 0 {
+			if e[1] == 0 || o[1] == 0 || !a.realDip(ws, k, g) || m.depth[g][k] < 3*m.depthSigma(g, k) {
 				continue
 			}
 			se, so := e[0]/e[1], o[0]/o[1]
@@ -535,11 +590,20 @@ func (a *analysis) parityConflict(ws [][2]*win, dbl string) (check.Check, bool) 
 			if ee > 0.25 || eo > 0.25 {
 				continue
 			}
-			if math.Abs(se-so) > 0.25 && math.Abs(se-so)/math.Hypot(ee, eo) > 4 {
-				dd := m.depth[g][k]
-				return check.New(check.Double, check.Fail, fmt.Sprintf("%s is %s mag deep on even cycles but %s on odd cycles in %s, so the true period may be %s days.",
-					capitalize(a.dipName(k)), mag2(se*dd), mag2(so*dd), bandLabel(a.d.groups[g]), dbl)), true
+			tested++
+			z := math.Abs(se-so) / math.Hypot(ee, eo)
+			if math.Abs(se-so) > 0.25 && z > 4 {
+				signs = append(signs, se-so)
+				if z > bestZ {
+					bestG, bestZ = g, z
+				}
 			}
+		}
+		if bestG >= 0 && (tested == 1 || agreeing(signs) >= 2) {
+			e, o := ws[k][0].gy[bestG], ws[k][1].gy[bestG]
+			dd := m.depth[bestG][k]
+			return check.New(check.Double, check.Fail, fmt.Sprintf("%s is %s mag deep on even cycles but %s on odd cycles in %s, so the true period may be %s days.",
+				capitalize(a.dipName(k)), mag2(e[0]/e[1]*dd), mag2(o[0]/o[1]*dd), bandLabel(a.d.groups[bestG]), dbl)), true
 		}
 	}
 	return check.Check{}, false
