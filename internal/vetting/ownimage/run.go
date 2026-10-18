@@ -53,15 +53,23 @@ func measure(ctx context.Context, d Data, object string, spots []Spot, opts Opti
 		return nil, fmt.Errorf("the target's Gaia stars: %w", err)
 	}
 	for _, sp := range plans {
-		if sp.inFrame {
-			f.pickComps(sp)
+		if !sp.inFrame {
+			continue
+		}
+		f.pickComps(sp)
+		if sp.star == nil && sp.spot.Kind != app.DiscoveryKindMover {
+			sp.bare = newBarePlan(sp, subs)
+			if sp.bare.wing = f.planWing(sp); sp.bare.wing != nil {
+				sp.bare.wing.nights = wingNightsOf(sp, subs)
+			}
+			sp.bare.halo = f.haloAt(sp)
 		}
 	}
 	f.shapes(plans)
-	if err := stream(ctx, d, subs, plans, opts.Threads, opts.Progress); err != nil {
+	if err := bareMasters(ctx, d, object, subs, plans); err != nil {
 		return nil, err
 	}
-	if err := bareMasters(ctx, d, object, subs, plans); err != nil {
+	if err := stream(ctx, d, subs, plans, opts.Threads, opts.Progress); err != nil {
 		return nil, err
 	}
 	evs := make([]*spotEval, len(plans))
@@ -108,7 +116,7 @@ func prepare(ctx context.Context, subs []Sub, sp *spotPlan, need map[darkPos]boo
 		summarize(ev.curve, sp)
 	}
 	if sp.star == nil && len(ev.e.kept) >= minPresent {
-		ev.flux = buildFluxCurve(subs, sp, ev.e)
+		ev.flux = buildFluxCurve(subs, sp, ev.e, nil)
 	}
 	var evals []refEval
 	ev.ref, evals = refClean(ctx, subs, sp, ev.e, sp.star != nil && !ownChanged(sp, ev.curve))

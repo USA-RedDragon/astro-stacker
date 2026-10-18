@@ -41,6 +41,13 @@ type rec struct {
 	satAt      bool
 	satNear    float64
 	stamp      stampRef
+	// probes are the bare spot's probes measured in the sub, on the nights
+	// near the flagged ones.
+	probes []float32
+	// wing and wingErr are the spot's light fitted next to a bright star
+	// with the sub's own star shape.
+	wing, wingErr float64
+	wingOK        bool
 }
 
 // subInfo is what is known of a sub as a whole.
@@ -120,7 +127,7 @@ func (f *subFits) star(t *tile, m *starModel) fitOut {
 // errOffData says the sub has no data at the spot.
 var errOffData = errors.New("no data at the spot")
 
-func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits *subFits) (*rec, error) {
+func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, sub Sub, fits *subFits) (*rec, error) {
 	cx, cy := int(math.Round(sp.x)), int(math.Round(sp.y))
 	if isNaN32(p.At(cx, cy)) {
 		return nil, errOffData
@@ -131,7 +138,8 @@ func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits 
 		r.sensOK = true
 	}
 	measureLocal(p, sp, info, r)
-	if sh := fits.shape(sp.tile); sh.ok {
+	sh := fits.shape(sp.tile)
+	if sh.ok {
 		r.sigma = sh.sigma
 		o := fits.star(sp.tile, sp.target)
 		r.flux, r.ferr, r.fluxOK = o.flux, o.err, o.ok
@@ -156,7 +164,32 @@ func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits 
 			return nil, err
 		}
 	}
+	if sp.star == nil && sp.bare != nil && sh.ok {
+		measureBare(p, sp, sub, sh, r)
+	}
 	return r, nil
+}
+
+// measureBare measures a spot with no star's probes on the nights near
+// the flagged ones and its light next to a bright star.
+func measureBare(p *discoveries.Plane, sp *spotPlan, sub Sub, sh shapeFit, r *rec) {
+	b := sp.bare
+	if mw := b.wide[sub.Filter]; mw != nil && b.near[nightKey(sub.Night)] {
+		width := sh.sigma
+		if !(width > 0) {
+			width = sp.mSigma[sub.Filter]
+		}
+		r.probes = probeFluxes(cutWide(p, sp), mw, sh.sigma, sp.mSigma[sub.Filter], width, b.probes)
+	}
+	if w := b.wing; w != nil && len(w.epsf) >= epsfMin && w.nights[nightKey(sub.Night)] {
+		stars := make([][2]float64, len(w.epsf))
+		for k, s := range w.epsf {
+			stars[k] = [2]float64{s[0] + sh.sx, s[1] + sh.sy}
+		}
+		if e, ok := buildEPSF(p, stars); ok {
+			r.wing, r.wingErr, r.wingOK = wingFit(p, e, w.x+sh.sx, w.y+sh.sy, sp.x+sh.sx, sp.y+sh.sy)
+		}
+	}
 }
 
 func measureLocal(p *discoveries.Plane, sp *spotPlan, info subInfo, r *rec) {
@@ -259,7 +292,7 @@ func stream(parent context.Context, d Data, subs []Sub, plans []*spotPlan, threa
 					if !sp.inFrame {
 						continue
 					}
-					r, err := measureSpot(p, sp, info, i, fits)
+					r, err := measureSpot(p, sp, info, i, subs[i], fits)
 					mu.Lock()
 					sp.recs[i] = r
 					failed := err != nil && !errors.Is(err, errOffData)

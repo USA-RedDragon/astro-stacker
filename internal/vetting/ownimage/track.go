@@ -440,15 +440,29 @@ func diffOf(st, ref []float32, sigSub, sigRef float64, mask bool) []float64 {
 	if st == nil || ref == nil {
 		return nil
 	}
-	n := stampSide
 	s := make([]float64, len(st))
 	r := make([]float64, len(ref))
 	for k := range st {
 		s[k], r[k] = float64(st[k]), float64(ref[k])
 	}
+	return subtractRef(s, blurTo(r, stampSide, sigSub, sigRef), mask)
+}
+
+// blurTo blurs a master of side n to a sub's star width when the sub's
+// stars are wider.
+func blurTo(r []float64, n int, sigSub, sigRef float64) []float64 {
 	if sigSub > 0 && sigRef > 0 && sigSub > sigRef {
-		r = blur(r, n, math.Sqrt(sigSub*sigSub-sigRef*sigRef))
+		return blur(r, n, math.Sqrt(sigSub*sigSub-sigRef*sigRef))
 	}
+	return r
+}
+
+// subtractRef is a sub's stamp less its master's, the master already
+// blurred to the sub's star width, scaled and offset to fit the stamp
+// away from its middle; with mask, pixels on stars the master shows are
+// left out.
+func subtractRef(s, r []float64, mask bool) []float64 {
+	n := stampSide
 	var sr, ss, srr, sv, cnt float64
 	for k := range s {
 		x, y := float64(k%n-stampHalf), float64(k/n-stampHalf)

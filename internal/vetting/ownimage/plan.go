@@ -66,6 +66,12 @@ type spotPlan struct {
 	// mSigma their star widths.
 	masters map[string][]float32
 	mSigma  map[string]float64
+	// bare is the work only a spot with no star needs: the places around
+	// it measured the same way, the star whose wing may reach it, and how
+	// clear it is of bright stars and the edge.
+	bare *barePlan
+	// scale is the frame's pixel scale in arcsec.
+	scale float64
 }
 
 func nightKey(t time.Time) string { return t.UTC().Format(dateLayout) }
@@ -293,7 +299,7 @@ func newSpotPlan(w *discoveries.WCS, width, height int, subs []Sub, s Spot, refS
 	if !ok || x < 0 || y < 0 || x >= float64(width) || y >= float64(height) {
 		return sp
 	}
-	sp.x, sp.y, sp.inFrame = x, y, true
+	sp.x, sp.y, sp.inFrame, sp.scale = x, y, true, w.PixelScale()
 	sp.recs = make([]*rec, len(subs))
 	refSets(subs, sp, refSubs)
 	return sp
