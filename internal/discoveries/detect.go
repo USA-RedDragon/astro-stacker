@@ -775,7 +775,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 		}
 		tr := in.track(hs, subs, dets, times)
 		tr.Chi = trackChi(tr, res.HFRNight/hfrToSigma, astroPx)
-		if !onOneStar(tr, bright) && tr.Chi <= maxTrackChi {
+		if !onBrightStars(tr, bright) && tr.Chi <= maxTrackChi {
 			res.Tracks = append(res.Tracks, tr)
 		}
 	}
