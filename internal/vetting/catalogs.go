@@ -15,7 +15,7 @@ import (
 // listedArcsec is how close a catalog entry must be to name the spot's
 // star; nearArcsec how close a different entry is still worth naming.
 const (
-	listedArcsec = 3.0
+	listedArcsec = 2.5
 	nearArcsec   = 30.0
 	simbadArcsec = 5.0
 	expectArcsec = 2.0
@@ -120,24 +120,28 @@ func gaiaVariCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int64
 // check reads: key in Mirrors.Variables, who lists the star, and a short
 // name for a list that could not be read. listed, when set, says what the
 // list's entries within listedArcsec tell of the star, empty when they do
-// not list it as variable; otherwise any entry lists it.
+// not list it as variable; otherwise any entry lists it. A note-only list
+// is reported in the evidence but never makes the star known: it flags
+// scatter, not a variable star with a type or period, and every eclipsing
+// binary has scatter.
 type surveyList struct {
 	key, who, short string
 	listed          func(stars []starcat.VarStar, ra, dec float64, gaiaID int64) string
+	noteOnly        bool
 }
 
 func surveyLists() []surveyList {
 	return []surveyList{
-		{"atlas-var", "ATLAS", "ATLAS", nil},
-		{"ztf-var", "ZTF", "ZTF", nil},
-		{"asassn-var", "ASAS-SN", "ASAS-SN", nil},
-		{"ztf-sus", "ZTF's list of suspected variables (Chen 2020)", "ZTF suspected", nil},
-		{"tess-eb-new", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS new binaries", nil},
-		{"tess-eb-known", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS known binaries", nil},
-		{"tess-eb-prsa", "the TESS eclipsing binary catalog (Prsa 2022)", "TESS sectors 1 to 26 binaries", nil},
-		{"tess-rot", "the TESS rotation periods of young stars (Kounkel 2022)", "TESS rotation", nil},
-		{"gcvs-evs", "the GCVS list of variables in other galaxies", "GCVS other galaxies", nil},
-		{"maiz-var", "Maiz Apellaniz 2023", "Gaia brightness spread", maizListed},
+		{"atlas-var", "ATLAS", "ATLAS", nil, false},
+		{"ztf-var", "ZTF", "ZTF", nil, false},
+		{"asassn-var", "ASAS-SN", "ASAS-SN", nil, false},
+		{"ztf-sus", "ZTF's list of suspected variables (Chen 2020)", "ZTF suspected", nil, false},
+		{"tess-eb-new", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS new binaries", nil, false},
+		{"tess-eb-known", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS known binaries", nil, false},
+		{"tess-eb-prsa", "the TESS eclipsing binary catalog (Prsa 2022)", "TESS sectors 1 to 26 binaries", nil, false},
+		{"tess-rot", "the TESS rotation periods of young stars (Kounkel 2022)", "TESS rotation", nil, false},
+		{"gcvs-evs", "the GCVS list of variables in other galaxies", "GCVS other galaxies", nil, false},
+		{"maiz-var", "Maiz Apellaniz 2023", "Gaia brightness spread", maizListed, true},
 	}
 }
 
@@ -167,7 +171,7 @@ func maizListed(stars []starcat.VarStar, ra, dec float64, gaiaID int64) string {
 
 func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int64, k *Known) check.Check {
 	names := surveyLists()
-	var listed, failed []string
+	var listed, notes, failed []string
 	for _, n := range names {
 		v := m.Variables[n.key]
 		if v == nil {
@@ -181,7 +185,11 @@ func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int6
 		}
 		if n.listed != nil {
 			if l := n.listed(stars, ra, dec, gaiaID); l != "" {
-				listed = append(listed, l)
+				if n.noteOnly {
+					notes = append(notes, sentence(l))
+				} else {
+					listed = append(listed, l)
+				}
 			}
 			continue
 		}
@@ -197,10 +205,14 @@ func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int6
 			break
 		}
 	}
+	note := ""
+	if len(notes) > 0 {
+		note = " " + strings.Join(notes, " ")
+	}
 	switch {
 	case len(listed) > 0:
 		k.Listed = cmpOr(k.Listed, listed[0])
-		return check.New(check.SurveyVar, check.Fail, sentence(strings.Join(listed, "; ")))
+		return check.New(check.SurveyVar, check.Fail, sentence(strings.Join(listed, "; "))+note)
 	case len(failed) == len(names):
 		return check.Skipped(check.SurveyVar, "Not run: the local copies could not be read.")
 	case len(failed) > 0:
@@ -208,9 +220,9 @@ func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int6
 		if len(failed) > 1 {
 			word = "lists"
 		}
-		return check.New(check.SurveyVar, check.Pass, fmt.Sprintf("Not listed. The %s %s could not be read.", joinWords(failed), word))
+		return check.New(check.SurveyVar, check.Pass, fmt.Sprintf("Not listed. The %s %s could not be read.%s", joinWords(failed), word, note))
 	}
-	return check.New(check.SurveyVar, check.Pass, "Not listed.")
+	return check.New(check.SurveyVar, check.Pass, "Not listed."+note)
 }
 
 func tnsCheck(m Mirrors, ra, dec float64, k *Known) check.Check {
