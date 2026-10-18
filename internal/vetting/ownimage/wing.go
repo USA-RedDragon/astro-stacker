@@ -338,7 +338,9 @@ type Wing struct {
 	Filter string  `json:"filter,omitempty"`
 	Excess float64 `json:"excess"`
 	Sigma  float64 `json:"sigma"`
-	Far    int     `json:"far"`
+	// Err is the excess's error, in the spot's light units.
+	Err float64 `json:"err,omitempty"`
+	Far int     `json:"far"`
 	// Measured is false when too few subs or far nights could be fitted.
 	Measured bool `json:"measured"`
 }
@@ -409,7 +411,7 @@ func wingNights(subs []Sub, sp *spotPlan, e *ensemble) *Wing {
 		s := (lv.m - base) / err
 		if s > best {
 			best = s
-			out.Night, out.Filter, out.Excess, out.Sigma, out.Far, out.Measured = k.night, k.filter, lv.m-base, s, len(fl), true
+			out.Night, out.Filter, out.Excess, out.Sigma, out.Err, out.Far, out.Measured = k.night, k.filter, lv.m-base, s, err, len(fl), true
 		}
 	}
 	return out

@@ -293,6 +293,40 @@ func (b *barePlan) emptyScatter(v []float64) float64 {
 	return robustStd(e)
 }
 
+// emptyTail is the 99th percentile of the empty probes' levels above
+// their median, 0 with too few.
+func (b *barePlan) emptyTail(v []float64) float64 {
+	var e []float64
+	for _, x := range v[1+b.ring:] {
+		if finite(x) {
+			e = append(e, x)
+		}
+	}
+	if len(e) < minProbes {
+		return 0
+	}
+	return tailOf(e)
+}
+
+// tailClip leaves out of an empty places' tail those beyond this many
+// spreads, which sat on a star's leftover light, as the audit of 67203
+// left out the brightest half percent of the master.
+const tailClip = 5.0
+
+// tailOf is the 99th percentile of values above their median, leaving
+// out those over tailClip spreads from it.
+func tailOf(v []float64) float64 {
+	m, s := median(v), robustStd(v)
+	d := make([]float64, 0, len(v))
+	for _, x := range v {
+		if !(s > 0) || math.Abs(x-m) <= tailClip*s {
+			d = append(d, x-m)
+		}
+	}
+	sort.Float64s(d)
+	return percentile(d, 99)
+}
+
 // ringNights is, on each flagged night and filter, the spot's signal to
 // noise against the brightest place on the ring around a nucleus, both
 // on the night's error.

@@ -256,3 +256,26 @@ func TestHaloReach(t *testing.T) {
 		t.Errorf("a halo a degree from Alnitak: %+v", h)
 	}
 }
+
+func TestFakesAndEmptyPlacesAreMeasuredLikeTheSpot(t *testing.T) {
+	t.Parallel()
+	f := newSynth()
+	f.addNights(synthNights(), 6)
+	for i := range f.subs {
+		if nightKey(f.subs[i].Night) == flaggedDay {
+			f.subs[i].transient = 0.5
+		}
+	}
+	c := measureBareSpot(t, f, bareSpot(f))
+	if r := c.RespOf(synthLum); r < 0.9 || r > 1.02 {
+		t.Errorf("a star of unit light put in measures %.3f", r)
+	}
+	n := nightOf(t, c, flaggedDay)
+	t.Logf("response %.3f, empty places 99th percentile %.2f of the error, err %.4f local %.4f", c.RespOf(synthLum), n.Empty99/n.Err, n.Err, n.Local)
+	if z := n.Empty99 / n.Err; !(z > 1.5) || z > 4 {
+		t.Errorf("the empty places' 99th percentile stands at %.2f of the night's error", z)
+	}
+	if early := nightOf(t, c, "2025-01-02"); early.Empty99 != 0 {
+		t.Errorf("a night far from the flagged one has empty places measured: %+v", early)
+	}
+}
