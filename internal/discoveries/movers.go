@@ -242,7 +242,7 @@ func linkMovers(times []time.Time, dets [][]moverDet, scale, area float64) ([][]
 						continue
 					}
 					sort.Slice(hs, func(i, j int) bool { return hs[i].sub < hs[j].sub })
-					if !fastEnough(hs, pts, times, vmin, vmax) {
+					if !fastEnough(hs, pts, times, vmin, vmax) || onOneSensorPixel(hs, idx, dets) {
 						continue
 					}
 					key := hitKey(hs)
@@ -279,6 +279,33 @@ func linkMovers(times []time.Time, dets [][]moverDet, scale, area float64) ([][]
 		}
 	}
 	return out, flags
+}
+
+// onOneSensorPixel says whether all of a track's detections but one fall
+// within 1.5 px of one sensor pixel: a hot pixel the registration walked
+// across the sky. The static test misses one whose detections are too
+// few subs apart in time: four of Markarian Chain Panel 6's nine hot
+// pixels of 2026-02-15 had six detections over 36 to 42 minutes, and
+// linked from them alone. hs index the transient detections, idx maps
+// them to dets.
+func onOneSensorPixel(hs []hit, idx [][]int, dets [][]moverDet) bool {
+	var sx, sy []float64
+	for _, h := range hs {
+		if d := dets[h.sub][idx[h.sub][h.idx]]; d.Sensor {
+			sx, sy = append(sx, d.SX), append(sy, d.SY)
+		}
+	}
+	if len(sx) < max(2, len(hs)-1) {
+		return false
+	}
+	mx, my := median64(sx), median64(sy)
+	near := 0
+	for i := range sx {
+		if math.Hypot(sx[i]-mx, sy[i]-my) <= sensorRepeatPx {
+			near++
+		}
+	}
+	return near >= len(hs)-1
 }
 
 // fastEnough says whether a track's fitted rate, not only its seed pair's,
