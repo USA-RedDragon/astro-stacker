@@ -10,10 +10,11 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 )
 
-// TestMaizListMakesAStarKnown checks discovery 34867's star, Gaia DR3
+// TestMaizListIsANoteOnly checks discovery 34867's star, Gaia DR3
 // 151460926477704192, which Maiz Apellaniz 2023 flags as variable in G, BP
-// and RP without a period, next to a steady star 2 arcsec away.
-func TestMaizListMakesAStarKnown(t *testing.T) {
+// and RP without a period, next to a steady star 2 arcsec away: the flag is
+// noted but never makes the star known.
+func TestMaizListIsANoteOnly(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const star, steady = int64(151460926477704192), int64(151460926477704000)
@@ -32,7 +33,7 @@ func TestMaizListMakesAStarKnown(t *testing.T) {
 		name    string
 		ra, dec float64
 		gaiaID  int64
-		known   bool
+		noted   bool
 	}{
 		{"by its Gaia ID", 68.96090, 26.37117, star, true},
 		{"nearest without a Gaia ID", 68.96090, 26.37117, 0, true},
@@ -43,18 +44,12 @@ func TestMaizListMakesAStarKnown(t *testing.T) {
 			t.Parallel()
 			var k Known
 			ch := surveyVarCheck(ctx, m, tc.ra, tc.dec, tc.gaiaID, &k)
-			if !tc.known {
-				if ch.Status != check.Pass || k.Listed != "" {
-					t.Fatalf("a steady star: %+v, listed %q", ch, k.Listed)
-				}
-				return
-			}
-			want := "Maiz Apellaniz 2023 lists it as varying in Gaia's own measurements, with a spread of 0.025 mag in G"
-			if ch.Status != check.Fail || k.Listed != want || !strings.HasPrefix(ch.Evidence, "Maiz Apellaniz 2023 lists it") {
+			if ch.Status != check.Pass || k.Listed != "" {
 				t.Fatalf("got %+v, listed %q", ch, k.Listed)
 			}
-			if s := sentence(k.Listed); !strings.HasSuffix(s, "in G.") {
-				t.Fatalf("verdict reason %q", s)
+			want := "Maiz Apellaniz 2023 lists it as varying in Gaia's own measurements, with a spread of 0.025 mag in G."
+			if got := strings.Contains(ch.Evidence, want); got != tc.noted {
+				t.Fatalf("noted %v, evidence %q", got, ch.Evidence)
 			}
 		})
 	}
