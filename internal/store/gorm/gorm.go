@@ -48,6 +48,9 @@ func NewAppGormStore(cfg *config.Config) (*Gorm, error) {
 	if err := store.db.AutoMigrate(app.DiscoveryAlert{}, app.DiscoveryAlertMessage{}, app.DiscoveryAlertState{}, app.DiscoveryFollowup{}, app.DiscoveryReport{}); err != nil {
 		return nil, err
 	}
+	if err := store.db.AutoMigrate(app.BinaryBook{}, app.BinaryFacts{}, app.BinarySetting{}, app.EclipseRequest{}, app.ShareImage{}); err != nil {
+		return nil, err
+	}
 	if err := store.db.AutoMigrate(app.DustEpoch{}); err != nil {
 		return nil, err
 	}
