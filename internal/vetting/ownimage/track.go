@@ -104,8 +104,12 @@ type TrackResult struct {
 
 const (
 	trackObjectR = 6.0
-	trackRefMin  = 30
-	trackShapeSN = 3.0
+	// psfAnnulusR and psfAnnulusMin are the outer radius of the annulus
+	// the local background is read from and the fewest pixels it needs.
+	psfAnnulusR   = 12.0
+	psfAnnulusMin = 30
+	trackRefMin   = 30
+	trackShapeSN  = 3.0
 	// trackStarMask leaves out the pixels where the master shows a star
 	// this many times the difference's noise, whose residuals would spoil
 	// the fit.
@@ -490,15 +494,20 @@ func diffOf(st, ref []float32, sigSub, sigRef float64, mask bool) []float64 {
 	return out
 }
 
-// psfFlux fits a round Gaussian of width sigma at (cx, cy) of a stamp
-// and gives its flux and error from the scatter outside the object.
+// psfFlux fits a round Gaussian of width sigma at (cx, cy) of a stamp,
+// less the median of the annulus just outside the object, and gives its
+// flux and error from the scatter outside the object and the annulus
+// median's own error. The stamp's level as a whole leaves diffuse light
+// at the spot: 67045 on Sombrero Galaxy's 2025-12-29, a glow near a
+// corner of the frame, measured at signal to noise 27 without the
+// annulus and 3 with it, as at random places nearby.
 func psfFlux(v []float64, cx, cy, sigma float64) (flux, ferr float64, ok bool) {
 	if v == nil || !(sigma > 0) {
 		return 0, 0, false
 	}
 	n := stampSide
-	var sw2, swv float64
-	var ring []float64
+	var sw2, swv, sw float64
+	var ring, annulus []float64
 	for k, x := range v {
 		if !finite(x) {
 			continue
@@ -507,17 +516,23 @@ func psfFlux(v []float64, cx, cy, sigma float64) (flux, ferr float64, ok bool) {
 		r := math.Hypot(dx, dy)
 		if r > trackObjectR {
 			ring = append(ring, x)
+			if r <= psfAnnulusR {
+				annulus = append(annulus, x)
+			}
 			continue
 		}
 		g := math.Exp(-r*r/(2*sigma*sigma)) / (2 * math.Pi * sigma * sigma)
 		sw2 += g * g
 		swv += g * x
+		sw += g
 	}
 	noise := robustStd(ring)
-	if !(sw2 > 0) || !(noise > 0) {
+	if !(sw2 > 0) || !(noise > 0) || len(annulus) < psfAnnulusMin {
 		return 0, 0, false
 	}
-	return swv / sw2, noise / math.Sqrt(sw2), true
+	bg := median(annulus)
+	bgErr := 1.2533 * noise / math.Sqrt(float64(len(annulus)))
+	return (swv - bg*sw) / sw2, math.Hypot(noise/math.Sqrt(sw2), bgErr*sw/sw2), true
 }
 
 func finishTrack(tp *trackPlan, res *TrackResult) {
