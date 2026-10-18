@@ -55,6 +55,10 @@ type Service struct {
 	Report *activity.Reporter
 	// Mem, if set, gives each target step's peak memory for the log.
 	Mem *memwatch.Watch
+	// StackCap is the most moving objects a run stacks along their
+	// motion; 0 is stackPerRun.
+	StackCap int
+	stacked  int
 }
 
 // RunOptions narrow a run: Objects to those targets, IDs to those
@@ -92,6 +96,7 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 		return Stats{}, err
 	}
 	defer unlock()
+	s.stacked = 0
 	start := s.now()
 	stale, err := requeueStale(ctx, s.App, start)
 	if err != nil {
@@ -286,6 +291,7 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 	if err != nil {
 		return fail(err)
 	}
+	s.stackMovers(ctx, w, dues, false)
 	done, failed := 0, 0
 	defer func() {
 		if s.Mem != nil {
@@ -330,14 +336,21 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 // objectWork is what one target's sources are checked from: their
 // candidates, runs and own image measurements.
 type objectWork struct {
-	object   string
-	f        surveys.Field
-	byID     map[int][]app.DiscoveryCandidate
-	runs     map[int]app.DiscoveryRun
-	own      map[int]*ownimage.Result
-	tracks   map[int]*ownimage.TrackResult
-	pulled   memwatch.Peaks
-	measured memwatch.Peaks
+	object string
+	f      surveys.Field
+	byID   map[int][]app.DiscoveryCandidate
+	runs   map[int]app.DiscoveryRun
+	own    map[int]*ownimage.Result
+	tracks map[int]*ownimage.TrackResult
+	// movers are the moving objects' reports before their stacks are
+	// judged, stacks the stacks made, stackAsked those asked for and
+	// stackLater those left for a later run.
+	movers     map[int]*moverVet
+	stacks     map[int]*ownimage.TrackStack
+	stackAsked map[int]bool
+	stackLater map[int]bool
+	pulled     memwatch.Peaks
+	measured   memwatch.Peaks
 }
 
 // prepare pulls the target's survey data and measures its sources in
@@ -348,7 +361,8 @@ func (s *Service) prepare(ctx context.Context, object string, dues []Due) (*obje
 	if err != nil {
 		return nil, err
 	}
-	w := &objectWork{object: object, f: f, own: map[int]*ownimage.Result{}, tracks: map[int]*ownimage.TrackResult{}}
+	w := &objectWork{object: object, f: f, own: map[int]*ownimage.Result{}, tracks: map[int]*ownimage.TrackResult{},
+		movers: map[int]*moverVet{}, stacks: map[int]*ownimage.TrackStack{}, stackAsked: map[int]bool{}, stackLater: map[int]bool{}}
 	s.Report.Set(object+": pulling survey data", 0, 0, "")
 	if s.Surveys != nil && !s.ReadOnly {
 		if err := s.Surveys.PrefetchProgress(ctx, f, func(done, total int) {
@@ -419,7 +433,7 @@ func (s *Service) checkSource(ctx context.Context, w *objectWork, sum discoverys
 	var rep *Report
 	var err error
 	if sum.Source.Kind == kindMover {
-		rep = s.vetMover(ctx, sum, w.byID[id], w.runs, w.tracks[id])
+		rep = s.moverReport(ctx, w, sum)
 	} else {
 		rep, err = s.vetSource(ctx, w.f, sum, w.runs, w.own[id])
 	}
@@ -450,6 +464,7 @@ func (s *Service) Preview(ctx context.Context, ids []int, each func(*Report) err
 		if err != nil {
 			return fmt.Errorf("%s: %w", o, err)
 		}
+		s.stackMovers(ctx, w, byObject[o], true)
 		for _, d := range byObject[o] {
 			rep, err := s.checkSource(ctx, w, d.Summary)
 			if err != nil {

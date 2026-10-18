@@ -130,7 +130,7 @@ func TestZTFAlerts(t *testing.T) {
 // not given, and the shape, wing, clearance and asteroid checks, passed
 // unless given.
 func transientGroups(statuses map[string]check.Status) []Group {
-	ids := []string{check.TransFlux, check.TransNights, check.TransNext, check.TransFresh, check.TransColor, check.TransWing, check.TransClear,
+	ids := []string{check.TransFlux, check.TransStack, check.TransNights, check.TransNext, check.TransFresh, check.TransColor, check.TransWing, check.TransClear,
 		check.TransBefore, check.TransATLAS, check.TransZTF, check.TransZTFImages, check.TransHost}
 	for _, id := range []string{check.TransNucleus, check.TransBroad} {
 		if _, ok := statuses[id]; ok {
@@ -164,7 +164,7 @@ func transientGroups(statuses map[string]check.Status) []Group {
 // ownOnly are the statuses of new light every check of the user's own
 // frames finds real.
 func ownOnly() map[string]check.Status {
-	return map[string]check.Status{check.TransFlux: check.Pass, check.TransNights: check.Pass, check.TransBefore: check.Pass, check.TransFresh: check.Pass}
+	return map[string]check.Status{check.TransFlux: check.Pass, check.TransStack: check.Pass, check.TransNights: check.Pass, check.TransBefore: check.Pass, check.TransFresh: check.Pass}
 }
 
 func TestTransientSuggestions(t *testing.T) {
@@ -174,7 +174,7 @@ func TestTransientSuggestions(t *testing.T) {
 	if s.State != app.VetReal || s.Confidence != High || s.Say != "Looks like a nova, seen by a survey too" {
 		t.Errorf("confirmed: %+v", s)
 	}
-	s = transientSuggest(transientGroups(ownOnly()), nova)
+	s = transientSuggest(transientGroups(ownOnly()), transientFacts{class: discoveries.ClassNova, stackV: ownimage.StackConfirmed})
 	if s.State != app.VetReal || s.Confidence != Medium {
 		t.Errorf("own nights only: %+v", s)
 	}
@@ -202,5 +202,36 @@ func TestTransientWithItsShapeUnmeasuredIsNotReal(t *testing.T) {
 	skipped[check.TransATLAS] = check.Pass
 	if s := transientSuggest(transientGroups(skipped), transientFacts{}); s.State != app.VetReal {
 		t.Errorf("seen by ATLAS, shape unmeasured: %+v", s)
+	}
+}
+
+func TestOwnFramesAloneNeedTheirStack(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		v     ownimage.StackVerdict
+		state string
+		say   string
+	}{
+		{ownimage.StackConfirmed, app.VetReal, "in your own frames"},
+		{ownimage.StackDoubtful, app.VetUnsure, "do not confirm"},
+		{ownimage.StackUntested, app.VetUnsure, sayNotSure},
+		{ownimage.StackRefuted, app.VetArtifact, "stacked at the spot"},
+	} {
+		st := ownOnly()
+		if c.v != ownimage.StackConfirmed {
+			st[check.TransStack] = check.Fail
+			if c.v == ownimage.StackUntested {
+				st[check.TransStack] = check.NotRun
+			}
+		}
+		s := transientSuggest(transientGroups(st), transientFacts{class: discoveries.ClassNova, stackV: c.v})
+		if s.State != c.state || !strings.Contains(s.Say, c.say) {
+			t.Errorf("%s: %+v", c.v, s)
+		}
+	}
+	st := ownOnly()
+	st[check.TransStack], st[check.TransATLAS] = check.Fail, check.Pass
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetUnsure || !strings.Contains(s.Say, "survey saw it") {
+		t.Errorf("seen by ATLAS, absent from the stack: %+v", s)
 	}
 }
