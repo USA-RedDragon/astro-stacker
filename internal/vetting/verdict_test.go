@@ -31,7 +31,8 @@ func TestSuggestion(t *testing.T) {
 		t.Errorf("known %+v", s)
 	}
 	e := &period.Ephemeris{Period: 9.98715, Kind: period.KindEclipsing, Eclipses: []period.Eclipse{{Phase: 0}, {Phase: 0.5}}}
-	pr := &period.Result{Ephemeris: e, Fits: []period.SurveyFit{{Survey: "ZTF", Agrees: true}, {Survey: "TESS", Agrees: true}}}
+	pr := &period.Result{Ephemeris: e, Fits: []period.SurveyFit{{Survey: "ZTF", Agrees: true}, {Survey: "TESS", Agrees: true}},
+		Robust: &period.Robust{Stable: true, CompPass: true, Real: true, Comparisons: 5, TESS: true}}
 	groups = []Group{{ID: check.GroupSurveys, Checks: []check.Check{
 		check.New(check.Fold, check.Pass, ""), check.New(check.Half, check.Pass, ""), check.Skipped(check.Double, ""),
 		check.New(check.TESS, check.Pass, ""), check.New(check.OwnTiming, check.Pass, ""),
