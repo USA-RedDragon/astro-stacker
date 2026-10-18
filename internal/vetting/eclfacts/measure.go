@@ -308,13 +308,19 @@ func twin(pts []point, e *period.Ephemeris) *Twin {
 func fitPhase2(pts []point, e *period.Ephemeris) (float64, float64) {
 	w := e.Eclipses[1].Width
 	ph0 := e.Eclipses[1].Phase
+	base := fitBands(pts, e)
 	chi := func(ph float64) (float64, int) {
 		c := *e
 		c.Eclipses = slices.Clone(e.Eclipses)
 		c.Eclipses[1].Phase = ph
+		fits := fitBands(pts, &c)
 		var sum float64
 		n := 0
-		for _, f := range fitBands(pts, &c) {
+		for key := range base {
+			f, ok := fits[key]
+			if !ok {
+				return math.Inf(1), 0
+			}
 			sum += f.chi2
 			n += f.n
 		}
