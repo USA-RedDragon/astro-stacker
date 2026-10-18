@@ -45,6 +45,7 @@ func applyBinaryRoutes(g *gin.RouterGroup, svc *binaries.Service) {
 	g.PUT("/discoveries/binaries/:id", func(c *gin.Context) { updateBinary(c, svc) })
 	g.GET("/discoveries/binaries/:id/kit", func(c *gin.Context) { binaryKit(c, svc) })
 	g.GET("/discoveries/binaries/:id/files/:name", func(c *gin.Context) { binaryFile(c, svc) })
+	g.GET("/discoveries/binaries/:id/timings", func(c *gin.Context) { binaryTimings(c, svc) })
 	g.GET("/discoveries/eclipses", func(c *gin.Context) { eclipsePlan(c, svc) })
 	g.POST("/discoveries/eclipses/requests", func(c *gin.Context) { requestEclipse(c, svc) })
 	g.DELETE("/discoveries/eclipses/requests/:id", func(c *gin.Context) { cancelEclipse(c, svc) })
@@ -148,6 +149,20 @@ func binaryKit(c *gin.Context, svc *binaries.Service) {
 	}
 	c.Header(cacheControl, noCache)
 	c.JSON(http.StatusOK, k)
+}
+
+func binaryTimings(c *gin.Context, svc *binaries.Service) {
+	id, ok := sourceID(c)
+	if !ok {
+		return
+	}
+	r, err := svc.Timings(c.Request.Context(), id)
+	if err != nil {
+		binaryError(c, err)
+		return
+	}
+	c.Header(cacheControl, noCache)
+	c.JSON(http.StatusOK, r)
 }
 
 func binaryFile(c *gin.Context, svc *binaries.Service) {
