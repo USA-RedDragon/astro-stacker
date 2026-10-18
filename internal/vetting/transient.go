@@ -1304,6 +1304,8 @@ func (s *Service) vetTransient(ctx context.Context, f surveys.Field, sum discove
 // moving objects settle on their own, nil when they leave it open.
 func imageSuggest(groups []Group, flags ownimage.Flags, known Known, moving check.Check) *Suggestion {
 	switch {
+	case known.Reported != "":
+		return &Suggestion{State: app.VetKnown, Say: sayAlreadyKnown, Confidence: High, Why: sentence(known.Reported)}
 	case flags.RefContaminated:
 		return &Suggestion{State: app.VetArtifact, Say: "Artifact: reference image contaminated", Confidence: Medium, Why: evidence(groups, check.RefClean)}
 	case flags.HotPixel:
@@ -1315,7 +1317,7 @@ func imageSuggest(groups []Group, flags ownimage.Flags, known Known, moving chec
 	case moving.Status == check.Fail:
 		return &Suggestion{State: app.VetKnown, Say: "Known asteroid or comet", Confidence: High, Why: moving.Evidence}
 	case known.Listed != "":
-		return &Suggestion{State: app.VetKnown, Say: "Already known", Confidence: High, Why: sentence(known.Listed)}
+		return &Suggestion{State: app.VetKnown, Say: sayAlreadyKnown, Confidence: High, Why: sentence(known.Listed)}
 	case flags.NotStar:
 		return &Suggestion{State: app.VetArtifact, Say: sayNotStar, Confidence: Medium, Why: evidence(groups, check.PSF)}
 	}
