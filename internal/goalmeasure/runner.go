@@ -75,6 +75,9 @@ type Options struct {
 	Workers      int
 	Busy         func() bool
 	Longitude    func(ctx context.Context) (float64, error)
+	// MinScore is the stacker's score cut, published with goal progress so the plugin can tell whether a
+	// sub would pass it.
+	MinScore float64
 	// OnMeasured, if set, hears of each measurement saved.
 	OnMeasured func(object, filter string)
 }
@@ -115,7 +118,7 @@ func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Optio
 		opts.Workers = DefaultWorkers
 	}
 	return &Runner{db: db, sched: sched, objects: objects, stars: stars, opts: opts,
-		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts, Longitude: opts.Longitude},
+		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts, Longitude: opts.Longitude, MinScore: opts.MinScore},
 		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll, pubEvery: publishEvery,
 		measure: &trigger.Debouncer{Quiet: MeasureQuiet, MaxWait: MeasureMaxWait},
 		pubKick: &trigger.Debouncer{Quiet: PublishQuiet, MaxWait: PublishMaxWait, MinGap: PublishMinGap},

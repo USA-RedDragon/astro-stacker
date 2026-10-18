@@ -393,6 +393,7 @@ func goalOptions(cfg *config.Config, boosts goals.SeasonBoostSource, busy func()
 		SeasonBoosts: boosts,
 		Workers:      cfg.Goals.Workers,
 		Busy:         busy,
+		MinScore:     cfg.Stacking.MinScore,
 	}
 }
 
