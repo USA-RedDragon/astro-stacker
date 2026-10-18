@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/gzip"
+	"golang.org/x/sync/errgroup"
 )
 
 // VarCatalog is a survey's catalogue of variable stars as CDS serves it:
@@ -45,6 +47,11 @@ type VarCatalog struct {
 	// keep, when set, says which records the mirror stores; the others
 	// are read and counted but left out.
 	keep func(s VarStar) bool
+	// flushRows, when set, stores the rows read so far each time this
+	// many are held, so a catalogue too large to hold in memory is
+	// mirrored in pieces; a partition then has a piece from each store it
+	// had rows in.
+	flushRows int64
 }
 
 // TESSEBNew is the TESS Ten Thousand Catalog's 7,936 new eclipsing binaries
@@ -356,17 +363,18 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 		}
 	}
 	t0 := time.Now()
-	parts := map[int64][]VarStar{}
-	types := map[string]string{}
-	var rows, read, size int64
+	vprefix := path.Join(o.Prefix, version)
+	src := c.source(o.BaseURL)
+	man := &Manifest{Catalog: c.Name, Schema: varSchema().name, Order: c.Order, Version: version, Source: src, Created: time.Now().UTC()}
+	buf := &varBuffer{c: c, o: &o, vprefix: vprefix, man: man, parts: map[int64][]VarStar{}, types: map[string]string{}}
+	var read, size int64
 	sum := sha256.New()
 	var n, total atomic.Int64
-	src := c.source(o.BaseURL)
 	var badRow error
 	err = retry(ctx, src, func() error {
-		clear(parts)
+		buf.reset()
 		badRow = nil
-		rows, read, size = 0, 0, 0
+		read, size = 0, 0
 		sum.Reset()
 		n.Store(0)
 		return o.downloadResuming(ctx, src, &n, &total, func(r io.Reader, resp *http.Response) error {
@@ -380,37 +388,10 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 				}
 				in = zr
 			}
-			sc := bufio.NewScanner(in)
-			sc.Buffer(make([]byte, 64<<10), 1<<20)
-			for sc.Scan() {
-				line := sc.Bytes()
-				read++
-				s, keep, err := c.parse(line, read)
-				if len(line) > lrecl {
-					err = fmt.Errorf("%d bytes, the ReadMe says %d", len(line), lrecl)
-				}
-				if err != nil {
-					bad := fmt.Errorf("%s: line %d: %w", c.Name, read, err)
-					if !sc.Scan() && sc.Err() != nil {
-						return sc.Err()
-					}
-					badRow = bad
-					return nil
-				}
-				if !keep {
-					continue
-				}
-				t, ok := types[s.Type]
-				if !ok {
-					t = s.Type
-					types[t] = t
-				}
-				s.Type = t
-				p := Pixel(c.Order, s.RA, s.Dec)
-				parts[p] = append(parts[p], s)
-				rows++
-			}
-			if err := sc.Err(); err != nil {
+			var err error
+			if read, badRow, err = c.scan(ctx, buf, in, lrecl, func() {
+				o.Report.Track("Downloading the catalogue", "bytes", resp.ContentLength, &n)
+			}); err != nil || badRow != nil {
 				return err
 			}
 			if _, err := io.Copy(io.Discard, tee); err != nil {
@@ -426,19 +407,27 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 	if err == nil {
 		err = badRow
 	}
+	if err == nil && read != records {
+		err = fmt.Errorf("%s: %d rows, the ReadMe lists %d", c.Name, read, records)
+	}
 	if err != nil {
+		if len(man.Pieces) > 0 {
+			return errors.Join(err, o.dropUnlisted(ctx, vprefix, nil))
+		}
 		return err
 	}
-	if read != records {
-		return fmt.Errorf("%s: %d rows, the ReadMe lists %d", c.Name, read, records)
-	}
-	slog.Info("Variable star catalogue read", "catalog", c.Name, "rows", rows, "partitions", len(parts), "downloaded MB", size>>20,
+	slog.Info("Variable star catalogue read", "catalog", c.Name, "rows", buf.rows, "partitions", len(buf.parts), "downloaded MB", size>>20,
 		"took", time.Since(t0).Round(time.Second))
-	vprefix := path.Join(o.Prefix, version)
-	man := &Manifest{Catalog: c.Name, Schema: varSchema().name, Order: c.Order, Version: version, Source: src, Created: time.Now().UTC(), Rows: rows,
-		Inputs: []Input{{File: path.Base(src), SHA256: hex.EncodeToString(sum.Sum(nil)), Bytes: size, Rows: read}}}
-	if err := o.storeVars(ctx, vprefix, c.Order, parts, man); err != nil {
+	rows := buf.rows
+	man.Rows = rows
+	man.Inputs = []Input{{File: path.Base(src), SHA256: hex.EncodeToString(sum.Sum(nil)), Bytes: size, Rows: read}}
+	if err := o.storeVars(ctx, vprefix, c.Order, buf.parts, man, buf.seq); err != nil {
 		return err
+	}
+	if buf.seq >= 0 {
+		if err := o.dropUnlisted(ctx, vprefix, man.Pieces); err != nil {
+			return err
+		}
 	}
 	bad, err := verifyPieces(ctx, o.Bucket, varSchema(), c.Order, man.Pieces, o.Report)
 	if err != nil {
@@ -463,27 +452,153 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 	return o.pruneVSX(ctx, version)
 }
 
-// storeVars encodes and stores each partition's rows as one piece.
-func (o *MirrorOptions) storeVars(ctx context.Context, vprefix string, order int, parts map[int64][]VarStar, man *Manifest) error {
+// scan reads the records into buf, calling stored after buf stores them.
+// bad is a record that does not read, unless the download broke right
+// after it, which is err.
+func (c *VarCatalog) scan(ctx context.Context, buf *varBuffer, in io.Reader, lrecl int, stored func()) (read int64, bad, err error) {
+	sc := bufio.NewScanner(in)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	for sc.Scan() {
+		line := sc.Bytes()
+		read++
+		s, keep, err := c.parse(line, read)
+		if len(line) > lrecl {
+			err = fmt.Errorf("%d bytes, the ReadMe says %d", len(line), lrecl)
+		}
+		if err != nil {
+			bad := fmt.Errorf("%s: line %d: %w", c.Name, read, err)
+			if !sc.Scan() && sc.Err() != nil {
+				return read, nil, sc.Err()
+			}
+			return read, bad, nil
+		}
+		if !keep {
+			continue
+		}
+		did, err := buf.add(ctx, s)
+		if err != nil {
+			return read, nil, err
+		}
+		if did {
+			stored()
+		}
+	}
+	return read, nil, sc.Err()
+}
+
+// varBuffer holds a catalogue's rows by partition until they are stored.
+type varBuffer struct {
+	c       *VarCatalog
+	o       *MirrorOptions
+	vprefix string
+	man     *Manifest
+	parts   map[int64][]VarStar
+	types   map[string]string
+	// rows counts the rows added; held those not yet stored.
+	rows, held int64
+	// seq numbers the stores of a catalogue stored in several, and is -1
+	// for one stored at the end.
+	seq int
+}
+
+// reset empties the buffer and the manifest's pieces for a new read.
+func (b *varBuffer) reset() {
+	clear(b.parts)
+	b.rows, b.held, b.seq = 0, 0, -1
+	if b.c.flushRows > 0 {
+		b.seq = 0
+	}
+	b.man.Pieces, b.man.Bytes = nil, 0
+}
+
+// add holds a row, storing every held row when the catalogue's flushRows
+// are held; stored says it did.
+func (b *varBuffer) add(ctx context.Context, s VarStar) (stored bool, err error) {
+	t, ok := b.types[s.Type]
+	if !ok {
+		t = s.Type
+		b.types[t] = t
+	}
+	s.Type = t
+	p := Pixel(b.c.Order, s.RA, s.Dec)
+	b.parts[p] = append(b.parts[p], s)
+	b.rows++
+	b.held++
+	if b.c.flushRows <= 0 || b.held < b.c.flushRows {
+		return false, nil
+	}
+	if err := b.o.storeVars(ctx, b.vprefix, b.c.Order, b.parts, b.man, b.seq); err != nil {
+		return false, err
+	}
+	b.seq++
+	b.held = 0
+	return true, nil
+}
+
+// storeVars encodes and stores each partition's rows as a piece and
+// empties parts. With seq < 0 a partition has one piece; otherwise this
+// is the seq'th store of a catalogue stored in several, and a partition
+// has a piece from each store it had rows in.
+func (o *MirrorOptions) storeVars(ctx context.Context, vprefix string, order int, parts map[int64][]VarStar, man *Manifest, seq int) error {
 	keys := make([]int64, 0, len(parts))
 	for p := range parts {
 		keys = append(keys, p)
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	pieces := make([]Piece, len(keys))
+	var done atomic.Int64
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.GOMAXPROCS(0))
 	for i, p := range keys {
-		o.Report.Set("Storing the catalogue", int64(i), int64(len(keys)), "pieces")
-		data, err := encodePiece(varSchema(), parts[p])
-		if err != nil {
-			return err
-		}
-		pc := Piece{Partition: p, Key: path.Join(vprefix, "order"+strconv.Itoa(order), strconv.FormatInt(p, 10)+".scat"),
-			Rows: int64(len(parts[p])), Bytes: int64(len(data)), SHA256: sha256Hex(data)}
-		if err := o.Bucket.Put(ctx, pc.Key, data); err != nil {
-			return err
-		}
+		rs := parts[p]
+		g.Go(func() error {
+			data, err := encodePiece(varSchema(), rs)
+			if err != nil {
+				return err
+			}
+			name := strconv.FormatInt(p, 10) + ".scat"
+			if seq >= 0 {
+				name = path.Join(strconv.FormatInt(p, 10), strconv.Itoa(seq)+".scat")
+			}
+			pc := Piece{Partition: p, Key: path.Join(vprefix, "order"+strconv.Itoa(order), name),
+				Rows: int64(len(rs)), Bytes: int64(len(data)), SHA256: sha256Hex(data)}
+			if err := o.Bucket.Put(gctx, pc.Key, data); err != nil {
+				return err
+			}
+			pieces[i] = pc
+			o.Report.Set("Storing the catalogue", done.Add(1), int64(len(keys)), "pieces")
+			return nil
+		})
+	}
+	err := g.Wait()
+	clear(parts)
+	if err != nil {
+		return err
+	}
+	for _, pc := range pieces {
 		man.Pieces = append(man.Pieces, pc)
 		man.Bytes += pc.Bytes
-		delete(parts, p)
+	}
+	return nil
+}
+
+// dropUnlisted deletes the objects under vprefix that are not pieces in
+// keep: those of a store that was tried again, or of one that failed.
+func (o *MirrorOptions) dropUnlisted(ctx context.Context, vprefix string, keep []Piece) error {
+	listed := make(map[string]bool, len(keep))
+	for _, p := range keep {
+		listed[p.Key] = true
+	}
+	all, err := o.Bucket.List(ctx, vprefix+"/")
+	if err != nil {
+		return err
+	}
+	for _, k := range all {
+		if !listed[k] {
+			if err := o.Bucket.Delete(ctx, k); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
