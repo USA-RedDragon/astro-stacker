@@ -242,7 +242,7 @@ func (a *analysis) flatRow(s string, si surveyInfo) check.Check {
 		}
 		for _, p := range sr.raw {
 			ys = append(ys, p.y)
-			faint = math.Max(faint, p.y+sr.level)
+			faint = math.Max(faint, p.y+a.d.series[sr.lead].level)
 		}
 	}
 	scatter := mad(ys, median(ys))

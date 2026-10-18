@@ -9,8 +9,8 @@ import (
 
 // TestStatsMatchAstropy checks the periodogram power, Baluev false alarm
 // probability, sine amplitude and box search against astropy 8.0 on the
-// same ZTF r points (LombScargle with errors floored at 5 mmag,
-// BoxLeastSquares with objective snr and oversample 20).
+// same ZTF r points, all ZTF fields on one median (LombScargle with errors
+// floored at 5 mmag, BoxLeastSquares with objective snr and oversample 20).
 func TestStatsMatchAstropy(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -26,7 +26,7 @@ func TestStatsMatchAstropy(t *testing.T) {
 		var r []lc.Series
 		for _, s := range series {
 			if s.Survey == lc.ZTF && s.Band == "r" {
-				r = append(r, s)
+				r = append(r, withoutSrc(s))
 			}
 		}
 		d := prepare(r)

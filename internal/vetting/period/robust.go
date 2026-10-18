@@ -156,21 +156,31 @@ type band struct {
 	weight []float64
 }
 
-// groupPts are group g's points, each series on its own median and passed
-// through fn when set, in time order; TESS's in its half hour bins.
+// groupPts are group g's points, each series on its own median, the light
+// curves an input series merges aligned on its largest one's zero point,
+// and each input series passed through fn when set, in time order; TESS's
+// in its half hour bins.
 func groupPts(d *data, g int, fn func([]pt) []pt) []pt {
-	var out []pt
+	byLead := map[int][]pt{}
+	var leads []int
 	for _, si := range d.groups[g].series {
 		se := d.series[si]
 		src := se.raw
 		if se.survey == lc.TESS {
 			src = se.srch
 		}
-		ps := make([]pt, 0, len(src))
-		for _, o := range src {
-			ps = append(ps, pt{t: o.t, y: o.y, e: math.Max(o.e, minErr)})
+		if _, ok := byLead[se.lead]; !ok {
+			leads = append(leads, se.lead)
 		}
+		for _, o := range src {
+			byLead[se.lead] = append(byLead[se.lead], pt{t: o.t, y: o.y - se.shift, e: math.Max(o.e, minErr)})
+		}
+	}
+	var out []pt
+	for _, l := range leads {
+		ps := byLead[l]
 		if fn != nil {
+			sortPts(ps)
 			ps = fn(ps)
 		}
 		out = append(out, ps...)

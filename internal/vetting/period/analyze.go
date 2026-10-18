@@ -67,6 +67,7 @@ func analyzeSeries(d *data, own []lc.Series, opts Options, at *Ephemeris) (*Resu
 		res.Fits = a.surveyFits()
 	}
 	res.Ephemeris = a.eph
+	a.alignSrc()
 	if a.kind == KindEclipsing || a.kind == KindSinusoidal {
 		var comps [][]lc.Series
 		if opts.Comparisons != nil {
@@ -80,6 +81,33 @@ func analyzeSeries(d *data, own []lc.Series, opts Options, at *Ephemeris) (*Resu
 		return res, ErrNoPeriod
 	}
 	return res, nil
+}
+
+// alignSrc moves each light curve an input series merges onto its
+// largest one's zero point by the offsets the period model fitted with
+// it, so a light curve that mostly catches eclipses is not lifted to its
+// own median; the tests for false periods then read them aligned.
+func (a *analysis) alignSrc() {
+	var off []float64
+	var keep []bool
+	switch {
+	case a.ecl != nil:
+		off, keep = a.ecl.offset, a.ecl.keep
+	case a.sine != nil:
+		off, keep = a.sine.offset, a.sine.keep
+	default:
+		return
+	}
+	fitted := make([]bool, len(off))
+	for i, k := range keep {
+		fitted[a.f.s[i]] = fitted[a.f.s[i]] || k
+	}
+	for _, se := range a.d.series {
+		if se.lead != se.idx && fitted[se.idx] && fitted[se.lead] {
+			se.shift = off[se.idx] - off[se.lead]
+		}
+	}
+	a.bandCache, a.bandsDone = nil, false
 }
 
 // fitAt fits the model of a given ephemeris, its period and epoch free
