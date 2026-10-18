@@ -158,7 +158,7 @@ class Job:
         return [(k, d) for _, k, d in items]
 
     def lease_lost(self) -> bool:
-        return self.lease is not None and self.lease.lost.is_set()
+        return self.lease is not None and not self.lease.held()
 
     def run(self) -> int:
         """Work through the queue, oldest first, skipping requests other workers hold.
@@ -171,16 +171,23 @@ class Job:
             if self.out_of_time():
                 log.info("time budget used; the rest of the queue waits for the next run")
                 break
-            req = self.next_request(tried)
-            if req is None:
+            try:
+                req = self.next_request(tried)
+                if req is None:
+                    break
+                tried.add(req.key)
+                lease = self.claims.take(req.key, req.gaia_id, {"slug": req.slug, "ra": req.ra, "dec": req.dec})
+            except Exception as e:
+                log.error("could not read or claim the queue; stopping this run: %s", e)
                 break
-            tried.add(req.key)
-            lease = self.claims.take(req.key, req.gaia_id, {"slug": req.slug, "ra": req.ra, "dec": req.dec})
             if lease is None:
                 log.info("%s is claimed by another worker", req.gaia_id)
                 continue
             try:
                 if not self.store.exists(req.key):
+                    continue
+                if self._yields(req, lease):
+                    tried.discard(req.key)
                     continue
                 self.lease = lease
                 lease.start()
@@ -190,6 +197,15 @@ class Job:
                 self.lease = None
                 lease.release()
         return n
+
+    def _yields(self, req: Request, lease: Lease) -> bool:
+        """Whether another worker claimed a star sharing req's cutout first, while this one was choosing."""
+        mine = (datetime.fromtimestamp(lease.claimed, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), self.claims.worker)
+        for c in self.claims.others():
+            if _shares_cutout(c, req) and (str(c.get("claimed_at")), str(c.get("worker"))) < mine:
+                log.info("%s waits for the cutout %s is making", req.gaia_id, c.get("worker"))
+                return True
+        return False
 
     def next_request(self, tried: set[str]) -> Request | None:
         """The oldest request not yet tried this run whose star is outside the cutouts other workers hold."""

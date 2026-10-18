@@ -242,6 +242,87 @@ def test_a_star_in_the_cutout_another_worker_is_making_waits(tmp_path):
     assert st.keys("vetting/tess/requests/") == []
 
 
+class RetriedStore(MemStore):
+    """A store whose conditional writes land but report a failed precondition, like a retried PUT."""
+
+    def put_if(self, key, data, etag):
+        super().put_if(key, data, etag)
+        return None
+
+
+def test_a_retried_write_still_takes_and_renews_the_claim():
+    st = RetriedStore()
+    clock = Tick(0.0)
+    la = claim.Claims(st, "pod-a", ttl=600, clock=clock).take(KEY, GID)
+    assert la is not None
+    clock.t = 200
+    assert la.renew() and la.held()
+    la.release()
+    assert not st.exists(claim.claim_key(KEY))
+
+
+def test_a_lease_runs_out_locally_without_the_store():
+    st = MemStore()
+    clock = Tick(0.0)
+    la = claim.Claims(st, "pod-a", ttl=600, clock=clock).take(KEY, GID)
+    clock.t = 600 - claim.MARGIN - 1
+    assert la.held()
+    clock.t = 600 - claim.MARGIN
+    assert not la.held()
+    clock.t = 601
+    lb = claim.Claims(st, "pod-b", ttl=600, clock=clock).take(KEY, GID)
+    la.release()
+    assert lb is not None and st.get_json(claim.claim_key(KEY))["worker"] == "pod-b"
+
+
+def test_expired_claims_on_finished_requests_are_cleaned_up():
+    st = MemStore()
+    clock = Tick(0.0)
+    gone = "vetting/tess/requests/9.json"
+    claim.Claims(st, "pod-a", ttl=600, clock=clock).take(gone, "9")
+    claim.Claims(st, "pod-a", ttl=600, clock=clock).take(KEY, GID)
+    st.put_json(KEY, request())
+    b = claim.Claims(st, "pod-b", ttl=600, clock=clock)
+    assert len(b.others()) == 2
+    clock.t = 700
+    assert b.others() == []
+    assert st.keys(claim.CLAIMS) == [claim.claim_key(KEY)]
+
+
+def test_the_later_of_two_nearby_claims_yields(tmp_path):
+    st = MemStore()
+    near = "381299946636125440"
+    near_key = f"vetting/tess/requests/{near}.json"
+    st.put_json(KEY, request(neighbours=[], when="2026-10-14T00:00:00Z"))
+    st.put_json(near_key, request(gid=near, ra=10.95, dec=41.70, neighbours=[]))
+    calls = []
+    j = make_job(tmp_path, st, FakeMast(tmp_path, SECTORS[1:]), fake_runner(tmp_path, calls))
+    real = j.claims.take
+
+    def racing(key, gid, info=None):
+        if not st.exists(claim.claim_key(near_key)):
+            claim.Claims(st, "pod-0", clock=lambda: time.time() - 5).take(
+                near_key, near, {"slug": "m31", "ra": 10.95, "dec": 41.70})
+        return real(key, gid, info)
+
+    j.claims.take = racing
+    assert j.run() == 0
+    assert calls == [] and st.exists(KEY)
+    assert st.keys(claim.CLAIMS) == [claim.claim_key(near_key)]
+
+
+def test_a_store_error_ends_the_run_cleanly(tmp_path):
+    st = MemStore()
+    st.put_json(KEY, request(neighbours=[]))
+
+    def down(*a):
+        raise ConnectionError("minio down")
+
+    st.put_if = down
+    j = make_job(tmp_path, st, FakeMast(tmp_path, SECTORS), fake_runner(tmp_path, []))
+    assert j.run() == 0
+
+
 def test_shared_cutout_reach():
     req = jobmod.Request("k", "2", 359.99, 0.0, "f")
     assert jobmod._shares_cutout({"slug": "f", "gaia_id": "1", "ra": 0.1, "dec": 0.1}, req)

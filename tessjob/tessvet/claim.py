@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 
 CLAIMS = "vetting/tess/claims/"
 TTL = 15 * 60
+MARGIN = 60
 
 
 def claim_key(request_key: str) -> str:
@@ -32,7 +33,11 @@ def _iso(t: float) -> str:
 
 
 class Lease:
-    """One held claim. lost is set when a renewal finds that another worker has taken it."""
+    """One held claim. lost is set when a renewal finds that another worker has taken it.
+
+    held() also turns false MARGIN seconds before the last known expiry, without waiting on the store,
+    so a worker cut off from the store stops before another worker can take the star over.
+    """
 
     def __init__(self, claims: "Claims", key: str, gaia_id: str, etag: str, expires: float, claimed: float,
                  info: dict | None = None):
@@ -55,20 +60,31 @@ class Lease:
                 return False
             now = self.claims.clock()
             expires = now + self.claims.ttl
+            if now >= self.expires - MARGIN:
+                log.error("the claim on %s ran out before it could be renewed", self.gaia_id)
+                self.lost.set()
+                return False
             try:
-                etag = self.claims.store.put_if(self.key, self.claims.doc(self.gaia_id, self.claimed, expires, self.info),
-                                                self.etag)
+                etag = self.claims.write(self.key, self.claims.doc(self.gaia_id, self.claimed, expires, self.info),
+                                         self.etag)
             except Exception as e:
                 log.warning("could not renew the claim on %s: %s", self.gaia_id, e)
-                if now >= self.expires:
-                    self.lost.set()
-                return not self.lost.is_set()
+                return True
             if etag is None:
                 log.error("the claim on %s was taken by another worker", self.gaia_id)
                 self.lost.set()
                 return False
             self.etag, self.expires = etag, expires
             return True
+
+    def held(self) -> bool:
+        """Whether the claim is still this worker's, as far as it knows."""
+        if self.lost.is_set():
+            return False
+        if self.claims.clock() >= self.expires - MARGIN:
+            self.lost.set()
+            return False
+        return True
 
     def start(self, every: float | None = None) -> None:
         """Renew in the background every `every` seconds (a third of the TTL by default)."""
@@ -88,7 +104,7 @@ class Lease:
         if self._thread:
             self._thread.join()
         with self._lock:
-            if self.lost.is_set():
+            if not self.held():
                 return
             self.lost.set()
             try:
@@ -111,8 +127,17 @@ class Claims:
                            "claimed_at": _iso(claimed), "renewed_at": _iso(self.clock()),
                            "expires_at": _iso(expires), "expires": expires}, indent=1).encode()
 
-    def others(self) -> list[dict]:
-        """The live claims of other workers."""
+    def write(self, key: str, data: bytes, etag: str | None) -> str | None:
+        """put_if that also succeeds when a retried request had already written data."""
+        new = self.store.put_if(key, data, etag)
+        if new is None:
+            cur = self.store.get_versioned(key)
+            if cur is not None and cur[0] == data:
+                return cur[1]
+        return new
+
+    def others(self, requests: str = "vetting/tess/requests/") -> list[dict]:
+        """The live claims of other workers. Expired claims on requests that are gone are deleted."""
         out = []
         now = self.clock()
         for key in self.store.keys(CLAIMS):
@@ -121,10 +146,14 @@ class Claims:
                 continue
             try:
                 doc = json.loads(cur[0])
-                if doc.get("worker") != self.worker and float(doc["expires"]) > now:
-                    out.append(doc)
+                expires = float(doc["expires"])
             except (ValueError, KeyError, TypeError, AttributeError):
-                continue
+                doc, expires = {}, 0.0
+            if expires > now:
+                if doc.get("worker") != self.worker:
+                    out.append(doc)
+            elif not self.store.exists(requests + posixpath.basename(key)):
+                self.store.delete(key)
         return out
 
     def take(self, request_key: str, gaia_id: str, info: dict | None = None) -> Lease | None:
@@ -135,11 +164,11 @@ class Claims:
         key = claim_key(request_key)
         now = self.clock()
         data = self.doc(gaia_id, now, now + self.ttl, info)
-        etag = self.store.put_if(key, data, None)
+        etag = self.write(key, data, None)
         if etag is None:
             cur = self.store.get_versioned(key)
             if cur is None:
-                etag = self.store.put_if(key, data, None)
+                etag = self.write(key, data, None)
             else:
                 try:
                     held = json.loads(cur[0])
@@ -150,7 +179,7 @@ class Claims:
                 if expires > now:
                     return None
                 log.info("%s: taking over the claim %s let expire at %s", gaia_id, owner, _iso(expires))
-                etag = self.store.put_if(key, data, cur[1])
+                etag = self.write(key, data, cur[1])
         if etag is None:
             return None
         return Lease(self, key, gaia_id, etag, now + self.ttl, now, info)
