@@ -155,6 +155,9 @@ func finish(ctx context.Context, d Data, subs []Sub, ev *spotEval, levels map[da
 		}
 	}
 	e, c := ev.e, ev.curve
+	if skip := hotSubs(subs, ev.ncs, levels); len(skip) > 0 && ev.flux != nil {
+		ev.flux = buildFluxCurve(subs, sp, e, skip)
+	}
 	res.Curve, res.Flux = c, ev.flux
 	res.Checks = append(res.Checks, hotPixel(ev.ncs, z, zok), ev.ref, trail(subs, sp, e, ev.ncs), psf(ctx, d, sp, e), edge(sp))
 	if sp.star == nil {
@@ -236,6 +239,35 @@ func darkLevels(ctx context.Context, d Data, need map[darkPos]bool) (map[darkPos
 		}
 	}
 	return out, tails
+}
+
+// hotDarkZ is how hot, in its spreads, a master dark pixel under the
+// spot must be for the sub to be left out of the spot's light: the IC
+// 1396 and IC 410 spots of 2025 sat on master dark pixels 170 to 430
+// times their spread in the subs that carried them, while dithers moved
+// them 3 px or more.
+const hotDarkZ = 100.0
+
+// hotSubs are the frames with a strong change whose master dark is
+// hotDarkZ spreads hot under the spot.
+func hotSubs(subs []Sub, ncs []*nightChange, levels map[darkPos]float64) map[int]bool {
+	out := map[int]bool{}
+	for _, nc := range ncs {
+		for j, i := range nc.subs {
+			if subs[i].DarkKey == nil || !nc.sensed[j] || !nc.isStrong(j) {
+				continue
+			}
+			x, y := int(math.Round(nc.sx[j])), int(math.Round(nc.sy[j]))
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if levels[darkPos{*subs[i].DarkKey, x + dx, y + dy}] >= hotDarkZ {
+						out[subs[i].FrameID] = true
+					}
+				}
+			}
+		}
+	}
+	return out
 }
 
 // darkNeeds are the master dark pixels under the spot in the subs where
