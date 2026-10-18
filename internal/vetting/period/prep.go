@@ -22,15 +22,22 @@ type obs struct {
 	g, s    int
 }
 
+// series is one zero point's points of one survey band: a whole input
+// series, or one of the light curves it merges (lc.Point.Src). lead is
+// the index of the input series' largest light curve, the one the others
+// are aligned to; shift is how much fainter a light curve's zero point
+// sits than the lead's once the period model is fitted.
 type series struct {
 	survey, band, key string
 	group, idx        int
+	lead              int
 	raw               []obs
 	fit               []obs
 	srch              []obs
 	dil               float64
 	sigma             float64
 	level             float64
+	shift             float64
 	relative          bool
 	sector            int
 }
@@ -90,57 +97,86 @@ func prepare(in []lc.Series) *data {
 		if s.Survey == lc.Own {
 			continue
 		}
-		ps := cleanPoints(s.Points)
-		if len(ps) < 3 {
-			continue
-		}
-		mags := make([]float64, len(ps))
-		for i, p := range ps {
-			mags[i] = p.Mag
-		}
-		lvl := median(mags)
-		sig := mad(mags, lvl)
-		pp := pointScatter(ps)
-		if sig < pp {
-			sig = pp
-		}
-		se := &series{survey: s.Survey, band: s.Band, relative: s.Relative,
-			level: lvl, sigma: math.Max(sig, 1e-4), dil: s.Dilution, sector: sectorOf(s)}
-		if se.dil <= 0 || se.dil > 1 {
-			se.dil = 1
-		}
-		se.key = s.Survey + " " + s.Band
-		if s.Survey == lc.TESS {
-			se.key = lc.TESS
-		}
-		for _, p := range ps {
-			e := p.Err
-			if !(e > 0) || math.IsInf(e, 0) {
-				e = pp
+		runs, offs := fieldRuns(cleanPoints(s.Points))
+		var lead *series
+		var srch [][]obs
+		for i, ps := range runs {
+			lvl := math.NaN()
+			if lead != nil {
+				lvl = lead.level + offs[i]
 			}
-			se.raw = append(se.raw, obs{t: p.BJD, y: p.Mag - lvl, e: e})
-			d.t0, d.t1 = math.Min(d.t0, p.BJD), math.Max(d.t1, p.BJD)
-		}
-		gi, ok := byKey[se.key]
-		if !ok {
-			gi = len(d.groups)
-			byKey[se.key] = gi
-			d.groups = append(d.groups, &group{key: se.key, survey: s.Survey, band: s.Band, dil: se.dil})
-			if s.Survey == lc.TESS {
-				d.groups[gi].band = ""
+			se := addSeries(d, byKey, s, ps, lvl)
+			if se == nil {
+				continue
 			}
+			if lead == nil {
+				lead = se
+			}
+			se.lead = lead.idx
+			srch = append(srch, se.srch)
 		}
-		g := d.groups[gi]
-		g.dil = math.Min(g.dil, se.dil)
-		se.group, se.idx = gi, len(d.series)
-		g.series = append(g.series, se.idx)
-		g.points += len(se.raw)
-		se.fit = binObs(se.raw, fitBinDays)
-		se.srch = binObs(se.raw, srchBinDay)
-		densityWeights(se.srch)
-		d.series = append(d.series, se)
+		if len(srch) > 1 {
+			densityWeightsJoint(srch)
+		}
 	}
 	return d
+}
+
+// addSeries adds the points ps of the input series s as one series, put
+// on level lvl, or on their median when lvl is NaN.
+func addSeries(d *data, byKey map[string]int, s lc.Series, ps []lc.Point, lvl float64) *series {
+	if len(ps) < 3 {
+		return nil
+	}
+	mags := make([]float64, len(ps))
+	for i, p := range ps {
+		mags[i] = p.Mag
+	}
+	med := median(mags)
+	if math.IsNaN(lvl) {
+		lvl = med
+	}
+	sig := mad(mags, med)
+	pp := pointScatter(ps)
+	if sig < pp {
+		sig = pp
+	}
+	se := &series{survey: s.Survey, band: s.Band, relative: s.Relative,
+		level: lvl, sigma: math.Max(sig, 1e-4), dil: s.Dilution, sector: sectorOf(s)}
+	if se.dil <= 0 || se.dil > 1 {
+		se.dil = 1
+	}
+	se.key = s.Survey + " " + s.Band
+	if s.Survey == lc.TESS {
+		se.key = lc.TESS
+	}
+	for _, p := range ps {
+		e := p.Err
+		if !(e > 0) || math.IsInf(e, 0) {
+			e = pp
+		}
+		se.raw = append(se.raw, obs{t: p.BJD, y: p.Mag - lvl, e: e})
+		d.t0, d.t1 = math.Min(d.t0, p.BJD), math.Max(d.t1, p.BJD)
+	}
+	gi, ok := byKey[se.key]
+	if !ok {
+		gi = len(d.groups)
+		byKey[se.key] = gi
+		d.groups = append(d.groups, &group{key: se.key, survey: s.Survey, band: s.Band, dil: se.dil})
+		if s.Survey == lc.TESS {
+			d.groups[gi].band = ""
+		}
+	}
+	g := d.groups[gi]
+	g.dil = math.Min(g.dil, se.dil)
+	se.group, se.idx = gi, len(d.series)
+	g.series = append(g.series, se.idx)
+	g.points += len(se.raw)
+	se.fit = binObs(se.raw, fitBinDays)
+	se.srch = binObs(se.raw, srchBinDay)
+	densityWeights(se.srch)
+	d.series = append(d.series, se)
+	return se
 }
 
 func cleanPoints(in []lc.Point) []lc.Point {
