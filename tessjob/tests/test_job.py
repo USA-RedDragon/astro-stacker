@@ -1,4 +1,6 @@
+import hashlib
 import io
+import threading
 import time
 import json
 from datetime import datetime, timezone
@@ -43,6 +45,22 @@ class MemStore(Base):
 
     def delete(self, key):
         self.objs.pop(key, None)
+
+    lock = threading.Lock()
+
+    def get_versioned(self, key):
+        if key not in self.objs:
+            return None
+        data = self.objs[key][0]
+        return data, hashlib.md5(data).hexdigest()
+
+    def put_if(self, key, data, etag):
+        with self.lock:
+            cur = self.get_versioned(key)
+            if (cur is None) != (etag is None) or (cur is not None and cur[1] != etag):
+                return None
+            self.put(key, data)
+            return hashlib.md5(data).hexdigest()
 
 
 def write_tglc_fits(path, gid, sector, n=50, dip=None, v2=True):

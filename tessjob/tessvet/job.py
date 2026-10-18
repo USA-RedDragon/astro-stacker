@@ -9,6 +9,10 @@ Layout under vetting/cache/<slug>/tess/:
   cutouts/s<NNNN>/<ra><dec>/catalog.pkl.zst tglc Source state without pixels (Gaia DR3, TIC)
   cutouts/s<NNNN>/<ra><dec>/epsf.npz.zst    the fitted ePSF per cadence
 
+Several workers can run at once, one per node: each claims a request in vetting/tess/claims/ before
+working on it (see claim.py), so no two workers fit the same star. Cutouts and field light curves are
+shared; a worker only adds to them, and objects are written before the meta.json that points at them.
+
 Time budget: no request or sector starts after max_minutes. Everything stops by stop_minutes:
 network calls and tglc stop CHILD_RESERVE before it, tglc is killed KILL_RESERVE before it, and
 the light curves and cutout written so far are saved, so the next run resumes the sector.
@@ -21,6 +25,7 @@ import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -28,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from . import lightcurve, mast
+from .claim import Claims, Lease
 from .store import Base
 
 log = logging.getLogger(__name__)
@@ -47,6 +53,10 @@ GAIA = re.compile(r"^[0-9]{1,20}$")
 
 
 class Permanent(Exception):
+    pass
+
+
+class LeaseLost(Exception):
     pass
 
 
@@ -103,8 +113,10 @@ def _when(doc: dict, mtime: datetime) -> datetime:
 
 
 class Job:
-    def __init__(self, store: Base, client: mast.Client, cfg: Config, runner=None):
+    def __init__(self, store: Base, client: mast.Client, cfg: Config, runner=None, claims: Claims | None = None):
         self.store = store
+        self.claims = claims or Claims(store, os.environ.get("HOSTNAME") or socket.gethostname())
+        self.lease: Lease | None = None
         self.mast = client
         self.cfg = cfg
         self.runner = runner or self._run_tglc
@@ -140,9 +152,22 @@ class Job:
         items.sort(key=lambda x: (x[0], x[1]))
         return [(k, d) for _, k, d in items]
 
+    def lease_lost(self) -> bool:
+        return self.lease is not None and self.lease.lost.is_set()
+
     def run(self) -> int:
+        """Work through the queue, oldest first, skipping requests other workers hold.
+
+        The queue is read again after each request, so requests added during the run are seen.
+        """
         n = 0
-        for key, doc in self.queue():
+        tried: set[str] = set()
+        while True:
+            item = next(((k, d) for k, d in self.queue() if k not in tried), None)
+            if item is None:
+                break
+            key, doc = item
+            tried.add(key)
             if self.out_of_time():
                 log.info("time budget used; %s waits for the next run", key)
                 break
@@ -152,8 +177,20 @@ class Job:
                 log.error("dropping malformed request %s: %s", key, e)
                 self.store.delete(key)
                 continue
-            self.process(req)
-            n += 1
+            lease = self.claims.take(key, req.gaia_id)
+            if lease is None:
+                log.info("%s is claimed by another worker", req.gaia_id)
+                continue
+            try:
+                if not self.store.exists(key):
+                    continue
+                self.lease = lease
+                lease.start()
+                self.process(req)
+                n += 1
+            finally:
+                self.lease = None
+                lease.release()
         return n
 
     def base(self, req: Request) -> str:
@@ -186,6 +223,9 @@ class Job:
             n = s["sector"]
             if n in status["sectors_done"] or str(n) in status["sectors_failed"]:
                 continue
+            if self.lease_lost():
+                log.error("%s: lost the claim; another worker has the star", req.gaia_id)
+                return
             if self.out_of_time():
                 log.info("time budget used during %s", req.gaia_id)
                 return
@@ -201,6 +241,9 @@ class Job:
                 how = self.sector(req, s)
                 status["sectors_done"] = sorted(set(status["sectors_done"]) | {n})
                 log.info("%s s%04d done via %s in %.0f s", req.gaia_id, n, how, time.time() - t0)
+            except LeaseLost:
+                log.error("%s s%04d: lost the claim; another worker has the star", req.gaia_id, n)
+                return
             except (OutOfTime, mast.OutOfTime) as e:
                 self.stopped = True
                 if getattr(e, "progress", False):
@@ -219,7 +262,7 @@ class Job:
                     status["sectors_failed"][str(n)] = f"gave up after {tries + 1} runs: {e}"[:300]
             self._status(status_key, status)
         finished = set(status["sectors_done"]) | {int(k) for k in status["sectors_failed"]}
-        if finished >= set(status["sectors_available"]):
+        if finished >= set(status["sectors_available"]) and not self.lease_lost():
             self.store.delete(req.key)
             self.store.delete(attempts_key)
             log.info("%s complete; request removed", req.gaia_id)
@@ -323,6 +366,8 @@ class Job:
                 log.info("s%04d: cutout %.0f MB in %.0f s", n, os.path.getsize(cutout) / 1e6, time.time() - t0)
                 spec.update(reuse=False, field_mag=self.cfg.field_mag, center=[req.ra, req.dec])
             res = self.runner(spec)
+            if res.get("lost"):
+                raise LeaseLost(res.get("error"))
             if res.get("stopped"):
                 self.stopped = True
             if not res.get("ok"):
@@ -355,19 +400,22 @@ class Job:
             shutil.rmtree(work, ignore_errors=True)
 
     def _checkpoint(self, base: str, n: int, spec: dict, res: dict, prefix: str | None, meta: dict | None) -> bool:
-        """Save the cutout, catalog and ePSF a later run can resume from. True when something new was saved."""
+        """Save the cutout, catalog and ePSF a later run can resume from. True when something new was saved.
+
+        Changes to a reused cutout merge into its meta.json as stored now, which another worker may have updated.
+        """
         from astropy.io import fits
 
         complete = bool(res.get("field_complete", not res.get("stopped")))
         if prefix and meta is not None:
-            update = dict(meta)
+            update = self.store.get_json(prefix + "meta.json") if self.store.exists(prefix + "meta.json") else dict(meta)
             changed = False
-            if res.get("epsf") and not meta.get("epsf_name"):
+            if res.get("epsf") and not update.get("epsf_name"):
                 with open(res["epsf"], "rb") as f:
                     self.store.put_zst(prefix + "epsf.npz.zst", f.read())
                 update["epsf_name"] = os.path.basename(res["epsf"])
                 changed = True
-            if spec.get("field_mag") is not None and complete != meta.get("field_complete", True):
+            if spec.get("field_mag") is not None and complete != update.get("field_complete", True):
                 update["field_complete"] = complete
                 changed = True
             if changed:
@@ -414,6 +462,12 @@ class Job:
                 pid, rc, ru = os.wait4(p.pid, os.WNOHANG)
                 if pid:
                     break
+                if self.lease_lost():
+                    p.kill()
+                    os.wait4(p.pid, 0)
+                    log.error("s%04d: killed tglc because another worker took over the star", spec["sector"])
+                    return {"ok": False, "permanent": False, "lost": True,
+                            "error": "the claim on the star was lost"}
                 if time.monotonic() > self.hard_deadline - KILL_RESERVE:
                     p.kill()
                     os.wait4(p.pid, 0)
