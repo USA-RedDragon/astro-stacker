@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -374,10 +375,20 @@ type tessQueued struct {
 	when   time.Time
 	req    surveys.TESSRequest
 	gaiaID string
+	claim  *surveys.TESSClaim
+	status *surveys.TESSStatus
+}
+
+func (q tessQueued) name() string {
+	if q.req.Field.Object != "" {
+		return q.req.Field.Object
+	}
+	return q.req.Field.Slug
 }
 
 func (a *activitySources) tess(ctx context.Context) ([]activity.Item, error) {
 	info := a.Jobs.Info(activity.KindTESS)
+	now := a.now()
 	var queue []tessQueued
 	for o := range a.S3.ListObjects(ctx, a.Processed, minio.ListObjectsOptions{Prefix: surveys.TESSRequestPrefix, Recursive: true}) {
 		if o.Err != nil {
@@ -412,57 +423,142 @@ func (a *activitySources) tess(ctx context.Context) ([]activity.Item, error) {
 		}
 		return queue[i].key < queue[j].key
 	})
-	it := activity.Item{Kind: activity.KindTESS, Label: "TESS light curves", State: activity.StateIdle, Unit: "sectors", QueueUnit: "stars"}
-	if len(queue) > 0 {
-		q := queue[0]
-		name := q.req.Field.Object
-		if name == "" {
-			name = q.req.Field.Slug
+	claims, err := a.tessClaims(ctx, now, info)
+	if err != nil {
+		return nil, err
+	}
+	claimed := 0
+	for i := range queue {
+		if c, ok := claims[path.Base(queue[i].key)]; ok {
+			queue[i].claim = &c
+			claimed++
 		}
-		it.State = activity.StateQueued
-		it.Current = name + ", Gaia " + q.gaiaID
-		it.Queued = len(queue)
-		if info.Running {
-			it.Queued--
+	}
+	for i := range queue {
+		if queue[i].claim == nil && (claimed > 0 || i > 0) {
+			continue
 		}
-		key := surveys.DefaultPrefix + surveys.FieldSlug(q.req.Field) + "/tess/" + q.gaiaID + "/status.json"
-		if b, err := a.getObject(ctx, a.Processed, key); err == nil {
-			var st surveys.TESSStatus
-			if json.Unmarshal(b, &st) == nil {
-				finished := map[int]bool{}
-				for _, s := range st.SectorsDone {
-					finished[s] = true
-				}
-				for k := range st.SectorsFailed {
-					if n, err := strconv.Atoi(k); err == nil {
-						finished[n] = true
-					}
-				}
-				var next []int
-				for _, s := range st.SectorsAvailable {
-					if !finished[s] {
-						next = append(next, s)
-					}
-				}
-				it.Total = int64(len(st.SectorsAvailable))
-				it.Done = it.Total - int64(len(next))
-				if len(next) > 0 && info.Running {
-					sort.Ints(next)
-					it.Current = fmt.Sprintf("%s, sector %d", name, next[0])
-				}
+		key := surveys.DefaultPrefix + surveys.FieldSlug(queue[i].req.Field) + "/tess/" + queue[i].gaiaID + "/status.json"
+		b, err := a.getObject(ctx, a.Processed, key)
+		if err != nil {
+			if !isNoSuchKey(err) {
+				slog.Debug("Could not read a TESS status", "key", key, "error", err)
 			}
-		} else if !isNoSuchKey(err) {
-			slog.Debug("Could not read a TESS status", "key", key, "error", err)
+			continue
 		}
-		if info.Running && it.Total == 0 {
-			it.Current = name + ": looking up its sectors"
+		var st surveys.TESSStatus
+		if json.Unmarshal(b, &st) == nil {
+			queue[i].status = &st
 		}
 	}
-	info.Apply(&it)
-	if info.Running && it.Current == "" {
-		it.Current = "reading the queue"
+	return tessItems(queue, info), nil
+}
+
+// tessClaims is the live claims by request file name. A claim outlives a
+// worker that dies by up to its lease, so claims count only while a TESS
+// Job runs.
+func (a *activitySources) tessClaims(ctx context.Context, now time.Time, info activity.JobInfo) (map[string]surveys.TESSClaim, error) {
+	claims := map[string]surveys.TESSClaim{}
+	if info.Known && !info.Running {
+		return claims, nil
 	}
-	return []activity.Item{it}, nil
+	for o := range a.S3.ListObjects(ctx, a.Processed, minio.ListObjectsOptions{Prefix: surveys.TESSClaimPrefix, Recursive: true}) {
+		if o.Err != nil {
+			return nil, o.Err
+		}
+		b, err := a.getObject(ctx, a.Processed, o.Key)
+		if err != nil {
+			continue
+		}
+		var c surveys.TESSClaim
+		if json.Unmarshal(b, &c) == nil && c.Live(now) {
+			claims[path.Base(o.Key)] = c
+		}
+	}
+	return claims, nil
+}
+
+// tessItems is one item for each star a worker holds a claim on, or one
+// item for the head of the queue when no worker holds one.
+func tessItems(queue []tessQueued, info activity.JobInfo) []activity.Item {
+	base := activity.Item{Kind: activity.KindTESS, Label: "TESS light curves", State: activity.StateIdle, Unit: "sectors", QueueUnit: "stars"}
+	var items []activity.Item
+	waiting := 0
+	for _, q := range queue {
+		if q.claim == nil {
+			waiting++
+			continue
+		}
+		it := base
+		it.ID = activity.KindTESS + ":" + q.gaiaID
+		it.State = activity.StateRunning
+		if !q.claim.ClaimedAt.IsZero() {
+			t := q.claim.ClaimedAt.UTC()
+			it.Started = &t
+		}
+		next := tessProgress(&it, q.status)
+		switch {
+		case it.Total == 0:
+			it.Current = q.name() + ": looking up its sectors"
+		case next > 0:
+			it.Current = fmt.Sprintf("%s, sector %d", q.name(), next)
+		default:
+			it.Current = q.name() + ", Gaia " + q.gaiaID
+		}
+		items = append(items, it)
+	}
+	if len(items) == 0 {
+		it := base
+		if len(queue) > 0 {
+			q := queue[0]
+			it.State = activity.StateQueued
+			it.Current = q.name() + ", Gaia " + q.gaiaID
+			tessProgress(&it, q.status)
+			if info.Running {
+				it.Current = stepStarting
+				waiting--
+			}
+		}
+		items = append(items, it)
+	}
+	for i := range items {
+		items[i].Queued = waiting
+		info.Apply(&items[i])
+		if info.Running && items[i].Current == "" {
+			items[i].Current = "reading the queue"
+		}
+	}
+	return items
+}
+
+// tessProgress sets the star's sectors done and total on it and returns the
+// first sector left, or 0.
+func tessProgress(it *activity.Item, st *surveys.TESSStatus) int {
+	if st == nil {
+		return 0
+	}
+	finished := map[int]bool{}
+	for _, s := range st.SectorsDone {
+		finished[s] = true
+	}
+	for k := range st.SectorsFailed {
+		if n, err := strconv.Atoi(k); err == nil {
+			finished[n] = true
+		}
+	}
+	var next []int
+	for _, s := range st.SectorsAvailable {
+		if !finished[s] {
+			next = append(next, s)
+		}
+	}
+	it.Total = int64(len(st.SectorsAvailable))
+	it.Done = it.Total - int64(len(next))
+	if len(next) == 0 {
+		return 0
+	}
+	sort.Ints(next)
+	return next[0]
 }
 
 func (a *activitySources) mirrors(ctx context.Context) ([]activity.Item, error) {
