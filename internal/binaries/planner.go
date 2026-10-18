@@ -2,12 +2,14 @@ package binaries
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
 
 // Purposes of a planned eclipse.
@@ -95,6 +97,7 @@ func Plan(in PlanInput) EclipsePlan {
 		mid := in.From.Add(in.To.Sub(in.From) / 2)
 		ra, dec := s.Facts.Gaia.Now(mid)
 		for _, p := range Predict(e, s.Facts.Deeper, ra, dec, in.From, in.To) {
+			p = s.withPhaseError(p, e)
 			day, clock, zone := Labels(p.Mid, loc)
 			row := PlannedEclipse{SourceID: s.Source.ID, Name: b.Name, Field: b.Field, Magnitude: b.Magnitude, PeriodText: b.PeriodText,
 				Kind: p.Kind, KindLabel: kindLabel(p, dbl), Mid: p.Mid, DayLabel: day, TimeLabel: clock, Zone: zone,
@@ -189,4 +192,16 @@ func matchRequest(reqs []app.EclipseRequest, id int, p Predicted) *RequestView {
 		return nil
 	}
 	return &RequestView{ID: best.ID, State: best.State, Note: best.Note}
+}
+
+// withPhaseError adds the second dip's own phase error to its timing
+// error: its place in the cycle is fitted, not fixed at half.
+func (s Star) withPhaseError(p Predicted, e *period.Ephemeris) Predicted {
+	if p.Kind != KindSecondary || s.Facts == nil || s.Facts.Survey == nil || s.Facts.Survey.Twin == nil || s.Facts.Doubled {
+		return p
+	}
+	if pe := s.Facts.Survey.Twin.PhaseErr; pe > 0 {
+		p.Err = time.Duration(math.Hypot(p.Err.Seconds(), pe*e.Period*86400) * 1e9)
+	}
+	return p
 }
