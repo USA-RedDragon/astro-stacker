@@ -78,6 +78,16 @@ const (
 	TransATLAS  = "trans_atlas"
 	TransZTF    = "trans_ztf"
 	TransHost   = "trans_host"
+	// TransNext and the checks after it weigh new light seen in the
+	// user's own frames only.
+	TransNext      = "trans_next"
+	TransFresh     = "trans_fresh"
+	TransColor     = "trans_color"
+	TransBroad     = "trans_broad"
+	TransWing      = "trans_wing"
+	TransNucleus   = "trans_nucleus"
+	TransClear     = "trans_clear"
+	TransZTFImages = "trans_ztf_images"
 )
 
 // Names are the row titles the panel shows for each check ID.
@@ -123,6 +133,15 @@ func Names() map[string]string {
 		TransATLAS:  "ATLAS on the same dates",
 		TransZTF:    "ZTF alerts on the same dates",
 		TransHost:   "Host galaxy",
+
+		TransNext:      "Still there on the next nights",
+		TransFresh:     "Seen in frames the detection did not use",
+		TransColor:     "Seen in Luminance as in colour",
+		TransBroad:     "Seen in broadband light",
+		TransWing:      "Not a bright star's wing",
+		TransNucleus:   "Not a galaxy nucleus residual",
+		TransClear:     "Clear of bright stars and the edge",
+		TransZTFImages: "ZTF images on the same night",
 	}
 }
 

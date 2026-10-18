@@ -41,7 +41,60 @@ const (
 	nightMid = 30 * time.Hour
 )
 
+const (
+	// noLightSNR and injGap judge the reported light against the frames:
+	// with no light at signal to noise 2 where the light the detection
+	// reported would show 4 higher, it was not there. AT 2026acsi (source
+	// 182), a real nova, measured 6.2 where its reported light gave 12.0.
+	noLightSNR = 2.0
+	injGap     = 4.0
+	// goneSNR and goneRep judge the nights 1 to followDays days after the
+	// first flagged one: under 1.5 on each, where the reported light would
+	// show at 3 or more, the light was gone the next night. 43 spots of M
+	// 31's bulge in 2025 were; every real nova seen at 5 or more with a
+	// later night that close was still there.
+	goneSNR    = 1.5
+	goneRep    = 3.0
+	followDays = 3
+	// trendDays bounds the nights a rise or fade is told over: 66053's
+	// "brightened 0.5 mag" came from a night a season later.
+	trendDays = 60
+	// freshNights is how many nights the light must stand at seenSNR in
+	// frames the detection did not use for the user's own frames alone to
+	// call it real: the 36 own-frame transients of 2025 vetted real on
+	// one night of the same frames were all artifacts.
+	freshNights = 2
+	// lumShare and lumFloor are the least signal to noise Luminance, which
+	// takes in red, green and blue together, must show beside the best of
+	// them: 39478 showed -0.8 in Luminance and 3.9 in Blue. The faint night
+	// before AT 2025adss was found showed 2.5 against 5.4, so a share of 0.5
+	// would lose it.
+	lumShare = 0.3
+	lumFloor = 2.0
+	// nucleusMargin is how far, in signal to noise, the spot must stand
+	// above the brightest place on its ring around a galaxy's nucleus, and
+	// nucleusMatch how far the nucleus may be from where the galaxy
+	// catalogue puts the centre, in arcsec or half its distance.
+	nucleusMargin = 3.0
+	nucleusMatch  = 5.0
+	// starNearArcsec, starNearG and starNearMag find a catalogued star the
+	// change may be: 48806 sat 3.0" from Gaia DR3 1857982378152951424, of G
+	// 14.06, with 14.7 at the spot in the reference.
+	starNearArcsec = 7.0
+	starNearG      = 18.0
+	starNearMag    = 1.5
+	// ztfImageDays and ztfImageMargin judge a ZTF image with no alert: one
+	// taken within a day of the night and half a magnitude deeper than the
+	// new light would have alerted on it.
+	ztfImageDays   = 1.0
+	ztfImageMargin = 0.5
+	jdMJD          = 2400000.5
+)
+
 var errNoCatalog = errors.New("no catalog")
+
+// catalogGalaxy names a match with a catalogued galaxy.
+const catalogGalaxy = "galaxy"
 
 const explained = "Not fetched: the checks above already explain the spot."
 
@@ -65,12 +118,75 @@ func nightDate(s string) time.Time {
 	return t
 }
 
+// reported is the new light the detection reported, as a magnitude on
+// its zero point's Gaia G scale.
+type reported struct {
+	mag float64
+	ok  bool
+}
+
+// flux is the reported light in a night's units.
+func (r reported) flux(fc *ownimage.FluxCurve, filter string) (float64, bool) {
+	if !r.ok || fc == nil {
+		return 0, false
+	}
+	zp, ok := fc.Zero[filter]
+	if filter == ownimage.AllFilters {
+		zp, ok = ownimage.AllFiltersZero, true
+	}
+	if !ok {
+		return 0, false
+	}
+	return math.Pow(10, -0.4*(r.mag-zp)), true
+}
+
+// snr is the signal to noise the reported light would give on a night.
+func (r reported) snr(fc *ownimage.FluxCurve, n ownimage.FluxNight) (float64, bool) {
+	f, ok := r.flux(fc, n.Filter)
+	if !ok || !(n.Err > 0) {
+		return 0, false
+	}
+	return f / n.Err, true
+}
+
+// reportedLights is the new light the detection reported in each filter
+// group, on the group's strongest brightening: light reported in H-a
+// says little of what broadband frames show.
+func reportedLights(sum discoverysource.Summary) map[string]reported {
+	out := map[string]reported{}
+	best := map[string]float64{}
+	for _, m := range sum.Members {
+		nl := discoveries.NewLight(m)
+		if m.Sign <= 0 || nl == nil {
+			continue
+		}
+		if s, ok := best[m.Group]; !ok || m.SNR > s {
+			best[m.Group] = m.SNR
+			out[m.Group] = reported{mag: *nl, ok: true}
+		}
+	}
+	return out
+}
+
+// reportedFor is the reported light of a filter's group; all filters
+// combined stand for the broadband group.
+func reportedFor(reps map[string]reported, filter string) reported {
+	g := discoveries.GroupOf(filter)
+	if filter == ownimage.AllFilters {
+		g = discoveries.GroupBroadband
+	}
+	return reps[g]
+}
+
 // transientFacts is what the transient checks read.
 type transientFacts struct {
 	flux     *ownimage.FluxCurve
 	flagged  []time.Time
+	groups   []string
 	gaia     []counterpart
+	near     []counterpart
 	gaiaErr  error
+	refMag   *float64
 	ps1Objs  []PS1Object
 	ps1Err   error
 	atlas    surveys.Fetch
@@ -79,8 +195,12 @@ type transientFacts struct {
 	ztfErr   error
 	ztfAsked bool
 	ztfNote  string
+	images   []surveys.ZTFImage
+	imgErr   error
+	imgAsked bool
 	matches  []discoveries.Match
 	class    string
+	reps     map[string]reported
 }
 
 type counterpart struct {
@@ -88,19 +208,24 @@ type counterpart struct {
 	sep float64
 }
 
-// peak is the flagged night where the spot's own light stood out most.
+// peak is the flagged night where the spot's own light stood out most,
+// a night of thinSubs subs or more when there is one.
 func peak(fc *ownimage.FluxCurve) (ownimage.FluxNight, bool) {
 	var best ownimage.FluxNight
 	found := false
 	for _, n := range fc.Nights {
-		if n.Flagged && (!found || n.SNR() > best.SNR()) {
+		if !n.Flagged {
+			continue
+		}
+		better := !found || (best.Thin && !n.Thin) || (best.Thin == n.Thin && n.SNR() > best.SNR())
+		if better {
 			best, found = n, true
 		}
 	}
 	return best, found
 }
 
-func fluxCheck(fc *ownimage.FluxCurve) check.Check {
+func fluxCheck(fc *ownimage.FluxCurve, reps map[string]reported) check.Check {
 	if fc == nil || fc.Comps < 3 {
 		return check.Skipped(check.TransFlux, "Not measured yet. Too few steady stars of like brightness are near enough to compare with.")
 	}
@@ -109,21 +234,60 @@ func fluxCheck(fc *ownimage.FluxCurve) check.Check {
 		return check.Skipped(check.TransFlux, "Not measured yet. None of your frames from the flagged nights could be measured at the spot.")
 	}
 	basis := fmt.Sprintf(" Measured with the star shape over %d frames against %d steady nearby stars, whose Gaia magnitudes set the scale.", p.N, fc.Comps)
+	if p.Local > 0 {
+		basis += " The noise is the spread of the same measurement at places around the spot."
+	}
+	z := p.SNR()
+	rep := reportedFor(reps, p.Filter)
+	inj, injOK := rep.snr(fc, p)
 	switch {
-	case p.SNR() >= seenSNR && p.Mag > 0:
-		return check.New(check.TransFlux, check.Pass, fmt.Sprintf("On %s the spot had new light of magnitude %.1f in %s, at signal to noise %.0f.", p.Night, p.Mag, p.Filter, p.SNR())+basis)
-	case p.SNR() < faintSNR:
+	case z >= seenSNR && p.Mag > 0:
+		return check.New(check.TransFlux, check.Pass, fmt.Sprintf("On %s the spot had new light of magnitude %.1f in %s, at signal to noise %.0f.", p.Night, p.Mag, p.Filter, z)+basis)
+	case injOK && z < noLightSNR && inj >= injGap:
+		return check.New(check.TransFlux, check.Fail, fmt.Sprintf("On %s your frames show no new light at the spot in %s (signal to noise %.1f), where the light the detection reported, magnitude %.1f, would show at %.0f.",
+			p.Night, p.Filter, z, rep.mag, inj)+basis)
+	case !injOK && z < faintSNR:
 		lim := ""
 		if p.Limit > 0 {
 			lim = fmt.Sprintf(" Anything brighter than magnitude %.1f would have shown.", p.Limit)
 		}
-		return check.New(check.TransFlux, check.Fail, fmt.Sprintf("On %s your frames show no new light at the spot in %s (signal to noise %.1f).%s", p.Night, p.Filter, p.SNR(), lim)+basis)
+		return check.New(check.TransFlux, check.Fail, fmt.Sprintf("On %s your frames show no new light at the spot in %s (signal to noise %.1f).%s", p.Night, p.Filter, z, lim)+basis)
+	case z < faintSNR && inj >= injGap:
+		return check.Skipped(check.TransFlux, fmt.Sprintf("Not clear. On %s the spot had at most faint light in %s (signal to noise %.1f), where the light the detection reported would show at %.0f.", p.Night, p.Filter, z, inj)+basis)
+	case z < faintSNR:
+		return check.Skipped(check.TransFlux, fmt.Sprintf("Not clear. On %s the spot had no clear light in %s (signal to noise %.1f), but the light the detection reported, magnitude %.1f, is too faint for your frames to rule out (it would show at %.1f).",
+			p.Night, p.Filter, z, rep.mag, inj)+basis)
 	}
-	return check.Skipped(check.TransFlux, fmt.Sprintf("Not clear. On %s the spot had faint new light in %s, at signal to noise %.1f only.", p.Night, p.Filter, p.SNR())+basis)
+	return check.Skipped(check.TransFlux, fmt.Sprintf("Not clear. On %s the spot had faint new light in %s, at signal to noise %.1f only.", p.Night, p.Filter, z)+basis)
 }
 
+// inFilter is the curve's nights in one filter, oldest first.
+func inFilter(fc *ownimage.FluxCurve, filter string) []ownimage.FluxNight {
+	var ns []ownimage.FluxNight
+	for _, n := range fc.Nights {
+		if n.Filter == filter {
+			ns = append(ns, n)
+		}
+	}
+	sort.Slice(ns, func(i, j int) bool { return ns[i].Night < ns[j].Night })
+	return ns
+}
+
+func firstFlagged(ns []ownimage.FluxNight) string {
+	for _, n := range ns {
+		if n.Flagged {
+			return n.Night
+		}
+	}
+	return ""
+}
+
+func daysBetween(a, b string) float64 { return nightDate(b).Sub(nightDate(a)).Hours() / 24 }
+
 // nightsCheckTransient follows the new light across the nights around
-// the flagged ones, in the filter the peak was measured in.
+// the flagged ones, in the filter the peak was measured in. A night of
+// fewer than three subs is shown but neither shows the light rising nor
+// confirms it.
 func nightsCheckTransient(fc *ownimage.FluxCurve) check.Check {
 	if fc == nil {
 		return check.Skipped(check.TransNights, "Not measured yet. The spot's own light could not be measured.")
@@ -132,26 +296,14 @@ func nightsCheckTransient(fc *ownimage.FluxCurve) check.Check {
 	if !ok || p.SNR() < seenSNR {
 		return check.Skipped(check.TransNights, "Not measured. There is no clear new light to follow.")
 	}
-	var ns []ownimage.FluxNight
-	for _, n := range fc.Nights {
-		if n.Filter == p.Filter {
-			ns = append(ns, n)
-		}
-	}
-	sort.Slice(ns, func(i, j int) bool { return ns[i].Night < ns[j].Night })
-	first := ""
-	for _, n := range ns {
-		if n.Flagged {
-			first = n.Night
-			break
-		}
-	}
+	ns := inFilter(fc, p.Filter)
+	first := firstFlagged(ns)
 	var before, earlier, after []ownimage.FluxNight
 	for _, n := range ns {
 		switch {
-		case n.Night < first && n.SNR() >= seenSNR && n.Flux >= quietAmp*p.Flux:
+		case n.Night < first && !n.Thin && n.SNR() >= seenSNR && n.Flux >= quietAmp*p.Flux:
 			earlier = append(earlier, n)
-		case n.Night < first:
+		case n.Night < first && !n.Thin:
 			before = append(before, n)
 		case n.Night > first:
 			after = append(after, n)
@@ -161,15 +313,20 @@ func nightsCheckTransient(fc *ownimage.FluxCurve) check.Check {
 		return check.New(check.TransNights, check.Fail, fmt.Sprintf("The spot was already this bright on %d earlier nights, first on %s, so the light is not new.", len(earlier), earlier[0].Night))
 	}
 	level := func(n ownimage.FluxNight) string {
+		thin := ""
+		if n.Thin {
+			thin = fmt.Sprintf(" from %d frames only", n.N)
+		}
 		switch {
 		case n.Mag > 0:
-			return fmt.Sprintf("%.1f on %s", n.Mag, n.Night)
+			return fmt.Sprintf("%.1f on %s%s", n.Mag, n.Night, thin)
 		case n.Limit > 0:
-			return fmt.Sprintf("nothing on %s (fainter than %.1f)", n.Night, n.Limit)
+			return fmt.Sprintf("nothing on %s (fainter than %.1f)%s", n.Night, n.Limit, thin)
 		}
-		return "nothing on " + n.Night
+		return "nothing on " + n.Night + thin
 	}
 	var parts []string
+	var listed []ownimage.FluxNight
 	if len(before) > 0 {
 		parts = append(parts, level(before[len(before)-1]))
 	}
@@ -177,7 +334,8 @@ func nightsCheckTransient(fc *ownimage.FluxCurve) check.Check {
 	for _, n := range ns {
 		if n.Night == first {
 			parts = append(parts, level(n))
-			if n.Mag > 0 {
+			listed = append(listed, n)
+			if n.Mag > 0 && !n.Thin {
 				seen++
 			}
 		}
@@ -187,7 +345,8 @@ func nightsCheckTransient(fc *ownimage.FluxCurve) check.Check {
 			break
 		}
 		parts = append(parts, level(n))
-		if n.Mag > 0 {
+		listed = append(listed, n)
+		if n.Mag > 0 && !n.Thin {
 			seen++
 		}
 	}
@@ -195,13 +354,15 @@ func nightsCheckTransient(fc *ownimage.FluxCurve) check.Check {
 	if seen < 2 && len(before) == 0 {
 		return check.Skipped(check.TransNights, "Seen on one night only, with no earlier night to show it rising. "+ev)
 	}
-	return check.New(check.TransNights, check.Pass, ev+trend(ns, first))
+	return check.New(check.TransNights, check.Pass, ev+trend(listed, first))
 }
 
+// trend tells how the light changed over the nights listed, within
+// trendDays of the first, leaving out thin ones.
 func trend(ns []ownimage.FluxNight, first string) string {
 	var mags []float64
 	for _, n := range ns {
-		if n.Night >= first && n.Mag > 0 {
+		if n.Night >= first && n.Mag > 0 && !n.Thin && daysBetween(first, n.Night) <= trendDays {
 			mags = append(mags, n.Mag)
 		}
 	}
@@ -218,9 +379,366 @@ func trend(ns []ownimage.FluxNight, first string) string {
 	return " It stayed about as bright."
 }
 
+// nextCheck looks for the light on the nights 1 to followDays days after
+// the first flagged one, each with three subs or more, in the peak's
+// filter. Earlier nights are not judged: a nova caught on the rise is
+// rightly absent before.
+func nextCheck(fc *ownimage.FluxCurve, reps map[string]reported) check.Check {
+	if fc == nil {
+		return check.Skipped(check.TransNext, "Not measured yet. The spot's own light could not be measured.")
+	}
+	p, ok := peak(fc)
+	if !ok {
+		return check.Skipped(check.TransNext, "Not measured yet. None of your frames from the flagged nights could be measured at the spot.")
+	}
+	ns := inFilter(fc, p.Filter)
+	first := firstFlagged(ns)
+	rep := reportedFor(reps, p.Filter)
+	var looked []ownimage.FluxNight
+	for _, n := range ns {
+		if d := daysBetween(first, n.Night); d >= 1 && d <= followDays && !n.Thin {
+			looked = append(looked, n)
+		}
+	}
+	if len(looked) == 0 {
+		return check.Skipped(check.TransNext, fmt.Sprintf("No night 1 to %d days after %s has three frames or more in %s.", followDays, first, p.Filter))
+	}
+	expect := func(n ownimage.FluxNight) (float64, bool) {
+		if z, ok := rep.snr(fc, n); ok {
+			return z, true
+		}
+		if p.SNR() >= seenSNR && n.Err > 0 {
+			return p.Flux / n.Err, true
+		}
+		return 0, false
+	}
+	gone := true
+	var words []string
+	for _, n := range looked {
+		e, ok := expect(n)
+		if !ok || n.SNR() >= goneSNR || e < goneRep {
+			gone = false
+		}
+		words = append(words, fmt.Sprintf("%s at signal to noise %.1f", n.Night, n.SNR()))
+		if ok {
+			words[len(words)-1] += fmt.Sprintf(" where the reported light would show at %.0f", e)
+		}
+	}
+	ev := fmt.Sprintf("In %s, after %s: %s.", p.Filter, first, joinWords(words))
+	if gone {
+		return check.New(check.TransNext, check.Fail, "The light was gone the next nights. "+ev)
+	}
+	for _, n := range looked {
+		if n.SNR() >= faintSNR {
+			return check.New(check.TransNext, check.Pass, "The light was still there. "+ev)
+		}
+	}
+	return check.Skipped(check.TransNext, "Not clear. "+ev)
+}
+
+// freshCheck counts the nights the light stood at seenSNR in frames the
+// detection did not use, which test it independently.
+func freshCheck(fc *ownimage.FluxCurve) check.Check {
+	if fc == nil {
+		return check.Skipped(check.TransFresh, "Not measured yet. The spot's own light could not be measured.")
+	}
+	best := map[string]float64{}
+	for _, n := range fc.Nights {
+		if z := n.FreshSNR(); z >= seenSNR && z > best[n.Night] {
+			best[n.Night] = z
+		}
+	}
+	nights := make([]string, 0, len(best))
+	for k := range best {
+		nights = append(nights, k)
+	}
+	sort.Strings(nights)
+	var words []string
+	for _, k := range nights {
+		words = append(words, fmt.Sprintf("%s at %.0f", k, best[k]))
+	}
+	if len(nights) >= freshNights {
+		return check.New(check.TransFresh, check.Pass, fmt.Sprintf("Frames the detection did not use show the light on %d nights: %s.", len(nights), joinWords(words)))
+	}
+	if len(nights) == 1 {
+		return check.Skipped(check.TransFresh, fmt.Sprintf("Frames the detection did not use show the light on one night only, %s; your own frames alone need two such nights.", words[0]))
+	}
+	return check.Skipped(check.TransFresh, "No frames the detection did not use show the light clearly; your own frames alone need two such nights.")
+}
+
+// colorCheck asks Luminance, which takes in red, green and blue
+// together, to show the light the colour frames show on a flagged night.
+func colorCheck(fc *ownimage.FluxCurve) check.Check {
+	if fc == nil {
+		return check.Skipped(check.TransColor, "Not measured yet. The spot's own light could not be measured.")
+	}
+	type night struct {
+		l, best   float64
+		bestF     string
+		hasL, rgb bool
+	}
+	by := map[string]*night{}
+	var order []string
+	for _, n := range fc.Nights {
+		if !n.Flagged || n.Thin {
+			continue
+		}
+		g := by[n.Night]
+		if g == nil {
+			g = &night{best: math.Inf(-1)}
+			by[n.Night] = g
+			order = append(order, n.Night)
+		}
+		switch n.Filter {
+		case "Luminance":
+			g.l, g.hasL = n.SNR(), true
+		case "Red", "Green", "Blue":
+			if z := n.SNR(); z > g.best {
+				g.best, g.bestF, g.rgb = z, n.Filter, true
+			}
+		}
+	}
+	sort.Strings(order)
+	judged := ""
+	for _, k := range order {
+		g := by[k]
+		if !g.hasL || !g.rgb || g.best < faintSNR {
+			continue
+		}
+		need := math.Max(lumFloor, lumShare*g.best)
+		if g.l < need {
+			return check.New(check.TransColor, check.Fail, fmt.Sprintf("On %s the light shows in %s at signal to noise %.1f but only %.1f in Luminance, which takes in red, green and blue together and should show at least %.1f.",
+				k, g.bestF, g.best, g.l, need))
+		}
+		judged = fmt.Sprintf("On %s Luminance shows it at signal to noise %.1f beside %.1f in %s.", k, g.l, g.best, g.bestF)
+	}
+	if judged == "" {
+		return check.Skipped(check.TransColor, "Not judged: no flagged night has Luminance frames beside colour frames that show the light.")
+	}
+	return check.New(check.TransColor, check.Pass, judged)
+}
+
+// broadCheck asks a supernova candidate found only in narrowband frames
+// for light in the broadband frames of its flagged nights: a supernova
+// shines in every band, while 54004 by NGC 4313 stood at H-a 7.6 and
+// 0.2, 0.8 and 4.6 in red, green and blue.
+func broadCheck(fc *ownimage.FluxCurve, groups []string) check.Check {
+	for _, g := range groups {
+		if g == discoveries.GroupBroadband {
+			return check.New(check.TransBroad, check.Pass, "It was found in broadband frames.")
+		}
+	}
+	if fc == nil {
+		return check.Skipped(check.TransBroad, "Not measured yet. The spot's own light could not be measured.")
+	}
+	type acc struct{ sw, swf float64 }
+	by := map[string]*acc{}
+	for _, n := range fc.Nights {
+		zp, ok := fc.Zero[n.Filter]
+		if !n.Flagged || !ok || !(n.Err > 0) || discoveries.GroupOf(n.Filter) != discoveries.GroupBroadband {
+			continue
+		}
+		k := math.Pow(10, 0.4*(ownimage.AllFiltersZero-zp))
+		e := n.Err * k
+		a := by[n.Night]
+		if a == nil {
+			a = &acc{}
+			by[n.Night] = a
+		}
+		a.sw += 1 / (e * e)
+		a.swf += n.Flux * k / (e * e)
+	}
+	if len(by) == 0 {
+		return check.Skipped(check.TransBroad, "Found in narrowband frames only, and no broadband frames were taken on its nights.")
+	}
+	bestN, best := "", math.Inf(-1)
+	for k, a := range by {
+		if z := a.swf / math.Sqrt(a.sw); z > best {
+			bestN, best = k, z
+		}
+	}
+	switch {
+	case best >= faintSNR:
+		return check.New(check.TransBroad, check.Pass, fmt.Sprintf("Its broadband frames of %s show it at signal to noise %.1f.", bestN, best))
+	case best < noLightSNR:
+		return check.New(check.TransBroad, check.Fail, fmt.Sprintf("Found in narrowband frames only: its broadband frames of %s show nothing at the spot (signal to noise %.1f), where a supernova shines too.", bestN, best))
+	}
+	return check.Skipped(check.TransBroad, fmt.Sprintf("Not clear: its broadband frames of %s show it at signal to noise %.1f only.", bestN, best))
+}
+
+// wingCheck fits a bright star next to the spot with each frame's own
+// star shape and asks whether light remains at the spot beyond its level
+// on far nights.
+func wingCheck(fc *ownimage.FluxCurve) check.Check {
+	if fc == nil {
+		return check.Skipped(check.TransWing, "Not measured yet. The spot's own light could not be measured.")
+	}
+	w := fc.Wing
+	if w == nil {
+		return check.New(check.TransWing, check.Pass, "No catalogued star of G 16.5 or brighter lies within 10 px.")
+	}
+	where := fmt.Sprintf("a star of G %.1f %.1f px away", w.G, w.SepPx)
+	if !w.Measured {
+		return check.Skipped(check.TransWing, fmt.Sprintf("Not measured: %s, and its wing could not be fitted on enough nights to compare.", sentenceStart(where)))
+	}
+	ev := fmt.Sprintf("Fitting %s with each frame's own star shape, the spot on %s in %s stood %.1f times its error above its level on %d nights 120 days or more away.",
+		where, w.Night, w.Filter, w.Sigma, w.Far)
+	if w.Sigma < 3 {
+		return check.New(check.TransWing, check.Fail, ev+" The star's wing explains the light.")
+	}
+	return check.New(check.TransWing, check.Pass, ev)
+}
+
+func sentenceStart(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// nucleusCheck compares a supernova candidate by a galaxy's nucleus with
+// the places on the same circle around the nucleus, where a poor match
+// of the nucleus between night and reference leaves light too.
+func nucleusCheck(fc *ownimage.FluxCurve, matches []discoveries.Match) check.Check {
+	galSep := -1.0
+	for _, m := range matches {
+		if m.Catalog == catalogGalaxy {
+			galSep = m.SepArcsec
+			break
+		}
+	}
+	if fc == nil || fc.Ring == nil || !(fc.Scale > 0) {
+		return check.New(check.TransNucleus, check.Pass, "No galaxy nucleus lies within 15 px of the spot.")
+	}
+	if len(fc.Ring.Nights) == 0 {
+		return check.Skipped(check.TransNucleus, "Not measured: the places around the galaxy's nucleus could not be measured on the flagged nights.")
+	}
+	sep := fc.Ring.SepPx * fc.Scale
+	if galSep < 0 || math.Abs(sep-galSep) > math.Max(nucleusMatch, 0.5*galSep) {
+		return check.New(check.TransNucleus, check.Pass, fmt.Sprintf("The brightest place within 15 px, %.0f arcsec away, is not the catalogued galaxy's centre.", sep))
+	}
+	best := fc.Ring.Nights[0]
+	for _, n := range fc.Ring.Nights[1:] {
+		if n.Spot > best.Spot {
+			best = n
+		}
+	}
+	ev := fmt.Sprintf("On %s in %s the spot, %.0f arcsec from the nucleus, stood at signal to noise %.1f, and places on the same circle around the nucleus up to %.1f.", best.Night, best.Filter, sep, best.Spot, best.Max)
+	if best.Spot < best.Max+nucleusMargin {
+		return check.New(check.TransNucleus, check.Fail, ev+" The spot does not stand out of what a poor match of the nucleus leaves on that circle.")
+	}
+	return check.New(check.TransNucleus, check.Pass, ev)
+}
+
+// clearCheck asks that the spot be clear of a bright star's halo and
+// spikes and of the covered area's edge, where light comes and goes with
+// the sky and the frames' own error is too small.
+func clearCheck(fc *ownimage.FluxCurve) check.Check {
+	if fc == nil {
+		return check.Skipped(check.TransClear, "Not measured yet. The spot's own light could not be measured.")
+	}
+	if h := fc.Halo; h != nil {
+		return check.New(check.TransClear, check.Fail, fmt.Sprintf("A star of magnitude %.1f lies %.1f arcmin away, inside the %.1f arcmin its halo and spikes reach.", h.V, h.SepArcsec/60, h.Reach/60))
+	}
+	if fc.EdgeOK && fc.EdgePx < 150 {
+		return check.New(check.TransClear, check.Fail, fmt.Sprintf("The spot is %.0f px from the edge of the covered area, where the sky's level steps and bands.", fc.EdgePx))
+	}
+	if !fc.EdgeOK {
+		return check.Skipped(check.TransClear, "No bright star's halo reaches the spot, but how far it is from the covered area's edge could not be measured.")
+	}
+	return check.New(check.TransClear, check.Pass, "No bright star's halo reaches the spot, and it is 150 px or more inside the covered area.")
+}
+
+// ztfImagesCheck asks whether ZTF imaged the spot within a day of a
+// flagged night, deep enough to have alerted on the new light in
+// broadband, with ALeRCE listing nothing there at all: 14 of the 36
+// own-frame transients of 2025 had such images. In a galaxy it is not
+// judged: ZTF imaged AT 2025xtl, AT 2025ahwi and AT 2025abws, real M 31
+// novae, to 20.6 to 21.2 near their discovery and ALeRCE lists none of
+// them.
+func ztfImagesCheck(fx transientFacts, alerted bool) check.Check {
+	inGalaxy := false
+	for _, m := range fx.matches {
+		inGalaxy = inGalaxy || m.Catalog == catalogGalaxy
+	}
+	switch {
+	case alerted:
+		return check.New(check.TransZTFImages, check.Pass, "ZTF alerted on it.")
+	case inGalaxy:
+		return check.Skipped(check.TransZTFImages, "Not judged in a galaxy, where ZTF's alerts miss many novae.")
+	case !fx.imgAsked:
+		return check.Skipped(check.TransZTFImages, "Not run.")
+	case fx.imgErr != nil:
+		return check.Skipped(check.TransZTFImages, "Not run: IRSA's list of ZTF images could not be read.")
+	case !fx.ztfAsked || fx.ztfErr != nil:
+		return check.Skipped(check.TransZTFImages, "Not run: ALeRCE, which collects ZTF's alerts, could not be asked.")
+	case len(fx.ztf) > 0:
+		return check.Skipped(check.TransZTFImages, fmt.Sprintf("Not judged: ALeRCE lists ZTF object %s here.", fx.ztf[0].OID))
+	}
+	light, what := broadLight(fx.flux), "the new light in your broadband frames"
+	if rep := fx.reps[discoveries.GroupBroadband]; light == 0 && rep.ok {
+		light, what = rep.mag, "the new light the detection reported in broadband"
+	}
+	if light == 0 {
+		return check.Skipped(check.TransZTFImages, "Not judged: no new light was measured in broadband to compare with.")
+	}
+	var deep *surveys.ZTFImage
+	near := 0
+	for i := range fx.images {
+		im := &fx.images[i]
+		ok := false
+		for _, f := range fx.flagged {
+			if math.Abs(im.JD-jdMJD-mjdOf(f.Add(nightMid))) <= ztfImageDays {
+				ok = true
+			}
+		}
+		if !ok {
+			continue
+		}
+		near++
+		if im.MagLimit >= light+ztfImageMargin && (deep == nil || im.MagLimit > deep.MagLimit) {
+			deep = im
+		}
+	}
+	if near == 0 {
+		return check.Skipped(check.TransZTFImages, "ZTF has no public images of the spot within a day of your nights.")
+	}
+	if deep == nil {
+		return check.Skipped(check.TransZTFImages, fmt.Sprintf("ZTF imaged the spot within a day of your nights, but not half a magnitude deeper than %s, %.1f.", what, light))
+	}
+	return check.New(check.TransZTFImages, check.Fail, fmt.Sprintf("ZTF imaged the spot on %s to magnitude %.1f in %s, deeper than %s (%.1f), and ALeRCE lists no alert within %.0f arcsec.",
+		mjdDate(deep.JD-jdMJD), deep.MagLimit, deep.Band, what, light, alertArcsec))
+}
+
+// broadLight is the brightest new light a flagged night showed in a
+// broadband filter, 0 when none stood clear.
+func broadLight(fc *ownimage.FluxCurve) float64 {
+	if fc == nil {
+		return 0
+	}
+	best := 0.0
+	for _, n := range fc.Nights {
+		if !n.Flagged || n.Thin || n.Mag <= 0 || n.SNR() < seenSNR || n.Filter == ownimage.AllFilters || discoveries.GroupOf(n.Filter) != discoveries.GroupBroadband {
+			continue
+		}
+		if best == 0 || n.Mag < best {
+			best = n.Mag
+		}
+	}
+	return best
+}
+
 func beforeCheck(fx transientFacts) check.Check {
 	if fx.gaiaErr != nil && fx.ps1Err != nil {
 		return check.Skipped(check.TransBefore, "Not run: neither Gaia nor Pan-STARRS could be read.")
+	}
+	if fx.refMag != nil {
+		for _, c := range fx.near {
+			if c.sep > counterpartArcsec && math.Abs(c.g-*fx.refMag) < starNearMag {
+				return check.New(check.TransBefore, check.Fail, fmt.Sprintf("Gaia lists a star of G %.1f %.1f arcsec away, and the reference already held light of %.1f at the spot, so the change is most likely that star's.",
+					c.g, c.sep, *fx.refMag))
+			}
+		}
 	}
 	peakMag := 0.0
 	if fx.flux != nil {
@@ -426,7 +944,7 @@ func ztfCheckTransient(fx transientFacts) check.Check {
 		return check.Skipped(check.TransZTF, "Not run: ALeRCE, which collects ZTF's alerts, could not be reached.")
 	}
 	if len(fx.ztf) == 0 {
-		return check.Skipped(check.TransZTF, fmt.Sprintf("ALeRCE lists no ZTF alert within %.0f arcsec. ZTF alerts only reach about magnitude 20.5, and ZTF may not have looked that week.", alertArcsec))
+		return check.Skipped(check.TransZTF, fmt.Sprintf("ALeRCE lists no ZTF alert within %.0f arcsec. ZTF alerts only reach about magnitude 20.5.", alertArcsec))
 	}
 	first := math.Inf(1)
 	for _, f := range fx.flagged {
@@ -466,7 +984,7 @@ func ztfCheckTransient(fx transientFacts) check.Check {
 
 func hostCheck(fx transientFacts) check.Check {
 	for _, m := range fx.matches {
-		if m.Catalog != "galaxy" {
+		if m.Catalog != catalogGalaxy {
 			continue
 		}
 		kind := ""
@@ -487,31 +1005,44 @@ func matchesOf(c app.DiscoveryCandidate) []discoveries.Match {
 	return ms
 }
 
+// maxImageNights bounds the ZTF image lists asked for, one per flagged
+// night.
+const maxImageNights = 5
+
 // transientFacts gathers what the transient checks read.
 func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum discoverysource.Summary, own *ownimage.Result, remote bool) transientFacts {
 	ra, dec := sum.Source.RA, sum.Source.Dec
-	fx := transientFacts{class: sum.Class, matches: matchesOf(sum.Best)}
+	fx := transientFacts{class: sum.Class, matches: matchesOf(sum.Best), reps: reportedLights(sum), refMag: sum.Best.RefMag}
 	if own != nil {
 		fx.flux = own.Flux
 	}
 	seen := map[string]bool{}
+	groups := map[string]bool{}
 	for _, m := range sum.Members {
 		k := m.Night.UTC().Format(time.DateOnly)
 		if !seen[k] {
 			seen[k] = true
 			fx.flagged = append(fx.flagged, m.Night.UTC())
 		}
+		if !groups[m.Group] {
+			groups[m.Group] = true
+			fx.groups = append(fx.groups, m.Group)
+		}
 	}
 	if s.Gaia != nil {
-		stars, err := s.Gaia.Cone(ctx, ra, dec, counterpartArcsec/3600, nil)
+		stars, err := s.Gaia.Cone(ctx, ra, dec, starNearArcsec/3600, nil)
 		fx.gaiaErr = err
 		for _, g := range stars {
 			gra, gdec := g.At(epochYear(s.now()))
 			if math.IsNaN(float64(g.G)) {
 				continue
 			}
-			if sep := arcsec(ra, dec, gra, gdec); sep <= counterpartArcsec {
+			sep := arcsec(ra, dec, gra, gdec)
+			if sep <= counterpartArcsec {
 				fx.gaia = append(fx.gaia, counterpart{g: float64(g.G), sep: sep})
+			}
+			if sep <= starNearArcsec && float64(g.G) < starNearG {
+				fx.near = append(fx.near, counterpart{g: float64(g.G), sep: sep})
 			}
 		}
 	} else {
@@ -534,6 +1065,19 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 	}
 	if s.Surveys != nil {
 		fx.atlas, fx.rows = s.Surveys.ATLASRows(ctx, f, surveys.Target{RA: ra, Dec: dec})
+		fx.imgAsked = true
+		for i, n := range fx.flagged {
+			if i >= maxImageNights {
+				break
+			}
+			mid := mjdOf(n.Add(nightMid)) + jdMJD
+			imgs, err := s.Surveys.ZTFImages(ctx, ra, dec, mid-ztfImageDays, mid+ztfImageDays)
+			if err != nil {
+				fx.imgErr = err
+				break
+			}
+			fx.images = append(fx.images, imgs...)
+		}
 	}
 	if s.Alerts != nil {
 		fx.ztfAsked = true
@@ -543,10 +1087,14 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 }
 
 // transientSuggest turns the transient checks into a suggestion, after
-// the image checks and catalogs have had their say. Unless ATLAS or ZTF saw
-// it too, it never says real while the light's shape is unmeasured: 67045 on Sombrero Galaxy's
-// 2025-12-29, diffuse light near a corner of the frame, was taken for a
-// transient with its shape and hot pixel checks skipped.
+// the image checks and catalogs have had their say. ATLAS or ZTF seeing
+// it makes it real even with its shape unmeasured. The user's own frames
+// alone never make it real unless the light stood out on two nights in
+// frames the detection did not use, its shape was measured, the asteroid
+// check ran, and nothing else left it open: the 36 own-frame transients
+// vetted real in 2025, each on one night of the frames that found it,
+// were all artifacts, and 67045 on Sombrero Galaxy's 2025-12-29 was
+// diffuse light near a frame corner with its shape unmeasured.
 func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 	ev := func(id string) string { return evidence(groups, id) }
 	st := func(id string) check.Status { return status(groups, id) }
@@ -556,6 +1104,10 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		what = "a nova"
 	case discoveries.ClassSupernova:
 		what = "a supernova"
+	}
+	pendingNote := ""
+	if fx.atlas.State == surveys.Pending {
+		pendingNote = " ATLAS data still being fetched may settle it."
 	}
 	switch {
 	case st(check.TransATLAS) == check.Fail:
@@ -568,12 +1120,6 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: a catalogued source sits there at that brightness", Confidence: Low, Why: ev(check.TransBefore)}
 	case st(check.TransZTF) == check.Fail:
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: ZTF saw this spot brighten before", Confidence: Low, Why: ev(check.TransZTF)}
-	case st(check.PSF) != check.Pass && st(check.TransATLAS) != check.Pass && st(check.TransZTF) != check.Pass:
-		why := joinSentences(ev(check.PSF), "Diffuse light, not a star, can show as new light at a spot until its shape is measured.")
-		if fx.atlas.State == surveys.Pending {
-			why += " ATLAS data still being fetched may settle it."
-		}
-		return Suggestion{State: app.VetUnsure, Say: "Not sure: the shape of the new light was not measured", Confidence: Low, Why: why}
 	}
 	if st(check.TransATLAS) == check.Pass || st(check.TransZTF) == check.Pass {
 		conf := Medium
@@ -588,12 +1134,47 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		}
 		return Suggestion{State: app.VetReal, Say: "Looks like " + what + ", seen by a survey too", Confidence: conf, Why: joinSentences(why...)}
 	}
-	if st(check.TransFlux) == check.Pass && st(check.TransNights) == check.Pass && st(check.TransBefore) == check.Pass {
+	return ownFramesSuggest(groups, what, pendingNote)
+}
+
+// ownFramesSuggest is the suggestion for new light no survey has seen,
+// from the user's own frames alone.
+func ownFramesSuggest(groups []Group, what, pendingNote string) Suggestion {
+	ev := func(id string) string { return evidence(groups, id) }
+	st := func(id string) check.Status { return status(groups, id) }
+	has := func(id string) bool {
+		_, ok := find(groups, id)
+		return ok
+	}
+	switch {
+	case st(check.TransNext) == check.Fail:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: gone the next night", Confidence: Medium, Why: ev(check.TransNext)}
+	case st(check.TransColor) == check.Fail:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: light in colour frames but not in Luminance", Confidence: Medium, Why: ev(check.TransColor)}
+	case st(check.TransNucleus) == check.Fail:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: galaxy nucleus residual", Confidence: Medium, Why: ev(check.TransNucleus)}
+	case st(check.TransZTFImages) == check.Fail:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: ZTF looked the same night and saw nothing", Confidence: Medium, Why: ev(check.TransZTFImages)}
+	case st(check.PSF) != check.Pass:
+		why := joinSentences(ev(check.PSF), "Diffuse light, not a star, can show as new light at a spot until its shape is measured.")
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: the shape of the new light was not measured", Confidence: Low, Why: why + pendingNote}
+	case st(check.TransWing) != check.Pass && has(check.TransWing):
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: a bright star's wing", Confidence: Low, Why: ev(check.TransWing) + pendingNote}
+	case st(check.TransClear) == check.Fail:
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: by a bright star or the edge", Confidence: Low,
+			Why: joinSentences(ev(check.TransClear), "There your own frames alone cannot tell new light from the sky's.") + pendingNote}
+	case st(check.TransBroad) != check.Pass && has(check.TransBroad):
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: seen in narrowband only", Confidence: Low, Why: ev(check.TransBroad) + pendingNote}
+	case st(check.Stays) != check.Pass:
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: not checked against known asteroids", Confidence: Low,
+			Why: joinSentences(ev(check.Stays), "A known asteroid passing on one night looks just like this.") + pendingNote}
+	}
+	if st(check.TransFlux) == check.Pass && st(check.TransNights) == check.Pass && st(check.TransBefore) == check.Pass && st(check.TransFresh) == check.Pass {
 		return Suggestion{State: app.VetReal, Say: "Looks like " + what + " in your own frames", Confidence: Medium,
-			Why: joinSentences(ev(check.TransFlux), ev(check.TransNights), ev(check.TransBefore), "No survey has confirmed it yet.")}
+			Why: joinSentences(ev(check.TransFlux), ev(check.TransFresh), ev(check.TransNights), ev(check.TransBefore), "No survey has confirmed it yet.")}
 	}
 	var missing []string
-	for _, id := range []string{check.TransFlux, check.TransNights, check.TransBefore, check.TransATLAS, check.TransZTF} {
+	for _, id := range []string{check.TransFlux, check.TransFresh, check.TransNights, check.TransBefore, check.TransATLAS, check.TransZTF} {
 		if st(id) != check.Pass {
 			missing = append(missing, lowerFirst(check.Names()[id]))
 		}
@@ -602,10 +1183,7 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 	if len(missing) > 0 {
 		why = fmt.Sprintf("Nothing found against it, but these did not settle it: %s.", joinWords(missing))
 	}
-	if fx.atlas.State == surveys.Pending {
-		why += " ATLAS data still being fetched may settle it."
-	}
-	return Suggestion{State: app.VetUnsure, Say: sayNotSure, Confidence: Low, Why: why}
+	return Suggestion{State: app.VetUnsure, Say: sayNotSure, Confidence: Low, Why: why + pendingNote}
 }
 
 // transientChart is the spot's own magnitude in each frame of its best
@@ -654,7 +1232,17 @@ func transientChart(fc *ownimage.FluxCurve) Chart {
 }
 
 func transientGroup(fx transientFacts) []check.Check {
-	return []check.Check{fluxCheck(fx.flux), nightsCheckTransient(fx.flux), beforeCheck(fx), atlasCheckTransient(fx), ztfCheckTransient(fx), hostCheck(fx)}
+	cs := []check.Check{fluxCheck(fx.flux, fx.reps), nightsCheckTransient(fx.flux), nextCheck(fx.flux, fx.reps), freshCheck(fx.flux), colorCheck(fx.flux)}
+	if fx.class == discoveries.ClassSupernova {
+		cs = append(cs, broadCheck(fx.flux, fx.groups))
+	}
+	cs = append(cs, wingCheck(fx.flux))
+	if fx.class == discoveries.ClassSupernova {
+		cs = append(cs, nucleusCheck(fx.flux, fx.matches))
+	}
+	zc := ztfCheckTransient(fx)
+	cs = append(cs, clearCheck(fx.flux), beforeCheck(fx), atlasCheckTransient(fx), zc, ztfImagesCheck(fx, zc.Status == check.Pass), hostCheck(fx))
+	return cs
 }
 
 func (s *Service) vetTransient(ctx context.Context, f surveys.Field, sum discoverysource.Summary, rep *Report, own *ownimage.Result, ownChecks []check.Check,
@@ -688,7 +1276,7 @@ func imageSuggest(groups []Group, flags ownimage.Flags, known Known, moving chec
 	case flags.HotPixel:
 		return &Suggestion{State: app.VetArtifact, Say: "Artifact: hot pixel", Confidence: Medium, Why: evidence(groups, check.HotPixel)}
 	case flags.Trail:
-		return &Suggestion{State: app.VetArtifact, Say: "Artifact: satellite trail", Confidence: Medium, Why: evidence(groups, check.Trail)}
+		return &Suggestion{State: app.VetArtifact, Say: "Artifact: satellite trail or one-frame flash", Confidence: Medium, Why: evidence(groups, check.Trail)}
 	case flags.Edge:
 		return &Suggestion{State: app.VetArtifact, Say: "Artifact: saturated star or image edge", Confidence: Medium, Why: evidence(groups, check.Edge)}
 	case moving.Status == check.Fail:

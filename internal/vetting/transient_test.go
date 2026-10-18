@@ -41,7 +41,7 @@ func novaCurve(earlier float64) *ownimage.FluxCurve {
 func TestOwnLightAtTheSpot(t *testing.T) {
 	t.Parallel()
 	fc := novaCurve(0)
-	c := fluxCheck(fc)
+	c := fluxCheck(fc, nil)
 	if c.Status != check.Pass || !strings.Contains(c.Evidence, "magnitude 17.0 in Luminance") {
 		t.Errorf("flux: %s %s", c.Status, c.Evidence)
 	}
@@ -54,7 +54,7 @@ func TestOwnLightAtTheSpot(t *testing.T) {
 		t.Errorf("already there before: %s %s", c.Status, c.Evidence)
 	}
 	dark := &ownimage.FluxCurve{Comps: 9, Zero: map[string]float64{lum: 25}, Nights: []ownimage.FluxNight{fluxNight(novaNight, 20, true)}}
-	if c := fluxCheck(dark); c.Status != check.Fail || !strings.Contains(c.Evidence, "no new light") {
+	if c := fluxCheck(dark, nil); c.Status != check.Fail || !strings.Contains(c.Evidence, "no new light") {
 		t.Errorf("no light: %s %s", c.Status, c.Evidence)
 	}
 }
@@ -127,9 +127,16 @@ func TestZTFAlerts(t *testing.T) {
 }
 
 // transientGroups are the transient checks at statuses, not run where
-// not given, and the shape check, passed unless given.
+// not given, and the shape, wing, clearance and asteroid checks, passed
+// unless given.
 func transientGroups(statuses map[string]check.Status) []Group {
-	ids := []string{check.TransFlux, check.TransNights, check.TransBefore, check.TransATLAS, check.TransZTF, check.TransHost}
+	ids := []string{check.TransFlux, check.TransNights, check.TransNext, check.TransFresh, check.TransColor, check.TransWing, check.TransClear,
+		check.TransBefore, check.TransATLAS, check.TransZTF, check.TransZTFImages, check.TransHost}
+	for _, id := range []string{check.TransNucleus, check.TransBroad} {
+		if _, ok := statuses[id]; ok {
+			ids = append(ids, id)
+		}
+	}
 	cs := make([]check.Check, 0, len(ids))
 	for _, id := range ids {
 		st, ok := statuses[id]
@@ -138,11 +145,26 @@ func transientGroups(statuses map[string]check.Status) []Group {
 		}
 		cs = append(cs, check.New(id, st, id+" evidence."))
 	}
-	psf, ok := statuses[check.PSF]
-	if !ok {
-		psf = check.Pass
+	passed := func(id string) check.Check {
+		st, ok := statuses[id]
+		if !ok {
+			st = check.Pass
+		}
+		return check.New(id, st, id+" evidence.")
 	}
-	return []Group{{ID: check.GroupImage, Checks: []check.Check{check.New(check.PSF, psf, "psf evidence.")}}, {ID: check.GroupTransient, Checks: cs}}
+	for i, c := range cs {
+		if c.ID == check.TransWing || c.ID == check.TransClear {
+			cs[i] = passed(c.ID)
+		}
+	}
+	return []Group{{ID: check.GroupImage, Checks: []check.Check{passed(check.PSF)}}, {ID: check.GroupTransient, Checks: cs},
+		{ID: check.GroupMoving, Checks: []check.Check{passed(check.Stays)}}}
+}
+
+// ownOnly are the statuses of new light every check of the user's own
+// frames finds real.
+func ownOnly() map[string]check.Status {
+	return map[string]check.Status{check.TransFlux: check.Pass, check.TransNights: check.Pass, check.TransBefore: check.Pass, check.TransFresh: check.Pass}
 }
 
 func TestTransientSuggestions(t *testing.T) {
@@ -152,7 +174,7 @@ func TestTransientSuggestions(t *testing.T) {
 	if s.State != app.VetReal || s.Confidence != High || s.Say != "Looks like a nova, seen by a survey too" {
 		t.Errorf("confirmed: %+v", s)
 	}
-	s = transientSuggest(transientGroups(map[string]check.Status{check.TransFlux: check.Pass, check.TransNights: check.Pass, check.TransBefore: check.Pass}), nova)
+	s = transientSuggest(transientGroups(ownOnly()), nova)
 	if s.State != app.VetReal || s.Confidence != Medium {
 		t.Errorf("own nights only: %+v", s)
 	}
@@ -171,7 +193,8 @@ func TestTransientWithItsShapeUnmeasuredIsNotReal(t *testing.T) {
 	// 67045 on Sombrero Galaxy's 2025-12-29 had new light at signal to noise
 	// 5 on one night only and nothing catalogued there, its shape too faint
 	// to measure: "real, medium", for diffuse light near a frame corner.
-	skipped := map[string]check.Status{check.TransFlux: check.Pass, check.TransNights: check.Pass, check.TransBefore: check.Pass, check.PSF: check.NotRun}
+	skipped := ownOnly()
+	skipped[check.PSF] = check.NotRun
 	s := transientSuggest(transientGroups(skipped), transientFacts{})
 	if s.State != app.VetUnsure || !strings.Contains(s.Say, "shape") || !strings.Contains(s.Why, "psf evidence.") {
 		t.Errorf("own frames, shape unmeasured: %+v", s)
