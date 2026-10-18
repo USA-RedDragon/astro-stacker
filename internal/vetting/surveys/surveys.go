@@ -116,6 +116,12 @@ type Fetcher struct {
 // ZTF is the star's ZTF light curves, from the field's ZTF files.
 func (f *Fetcher) ZTF(ctx context.Context, field Field, t Target) Fetch { return f.ztf(ctx, field, t) }
 
+// ZTFStars is the ZTF light curves of several stars of one field, read
+// together so each of the field's tiles is read once.
+func (f *Fetcher) ZTFStars(ctx context.Context, field Field, ts []Target) []Fetch {
+	return f.ztfMany(ctx, field, ts)
+}
+
 // ATLAS is the star's ATLAS forced photometry, queued on first use.
 func (f *Fetcher) ATLAS(ctx context.Context, field Field, t Target) Fetch {
 	return f.atlas(ctx, field, t, func(text []byte) Fetch { return atlasFetch(t, text) })
