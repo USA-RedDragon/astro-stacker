@@ -383,4 +383,5 @@ const (
 	KindSmallBodies  = "small-bodies"
 	KindMirrorPrefix = "catalog-mirror-"
 	KindCalibration  = "calibration"
+	KindBinaries     = "binaries"
 )
