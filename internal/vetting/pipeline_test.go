@@ -9,7 +9,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
-func TestPipelineChangeRequeuesMoversAndTransients(t *testing.T) {
+func TestPipelineChangeRequeuesEachKind(t *testing.T) {
 	t.Parallel()
 	night := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
 	g := 15.0
@@ -27,8 +27,8 @@ func TestPipelineChangeRequeuesMoversAndTransients(t *testing.T) {
 	if hashOf(mover) == plain(mover) || hashOf(nova) == plain(nova) {
 		t.Error("a mover or nova kept its old input hash, so it would not be vetted again")
 	}
-	if hashOf(star) != plain(star) {
-		t.Error("a variable star's input hash changed, so every star would be vetted again")
+	if pipelineOf(star) != starPipeline || pipelineOf(nova) != transientPipeline || pipelineOf(mover) != moverPipeline {
+		t.Error("a source took another kind's pipeline, so changing one kind's checks would vet the wrong sources again")
 	}
 	if !isTransient(nova) || isTransient(star) || isTransient(mover) {
 		t.Error("transient pipeline picked the wrong sources")

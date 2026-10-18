@@ -102,6 +102,7 @@ const (
 const (
 	moverPipeline     = "mover:2"
 	transientPipeline = "transient:2"
+	starPipeline      = "star:2"
 )
 
 func pipelineOf(s discoverysource.Summary) string {
@@ -111,7 +112,7 @@ func pipelineOf(s discoverysource.Summary) string {
 	case isTransient(s):
 		return transientPipeline
 	}
-	return ""
+	return starPipeline
 }
 
 func hashOf(s discoverysource.Summary) string {
