@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/eclfacts"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
 
@@ -95,6 +96,12 @@ type Report struct {
 	Groups     []Group           `json:"groups"`
 	Charts     []Chart           `json:"charts"`
 	Ephemeris  *period.Ephemeris `json:"ephemeris,omitempty"`
+	// Survey is what the survey light curves say about an eclipsing
+	// ephemeris's dips: points and eclipses caught, depths with errors,
+	// normal brightness. SurveyDoubled is the same at twice the period for
+	// a star with one dip per cycle.
+	Survey        *eclfacts.Summary `json:"survey,omitempty"`
+	SurveyDoubled *eclfacts.Summary `json:"survey_doubled,omitempty"`
 	// Pending names surveys whose data is still being fetched; a later
 	// run fills them in.
 	Pending []string `json:"pending,omitempty"`
