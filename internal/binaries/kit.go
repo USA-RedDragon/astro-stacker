@@ -280,8 +280,10 @@ func Remarks(s Star, b Binary) string {
 		n = s.Facts.Survey.Normal
 	}
 	switch {
-	case dbl:
+	case dbl && s.Facts != nil && s.Facts.Alike && len(b.Eclipses) > 0 && b.Eclipses[0].Depth != nil:
 		out = append(out, fmt.Sprintf("Two minima of equal depth per cycle, %s mag in %s.", mag2(*b.Eclipses[0].Depth), b.Eclipses[0].Band))
+	case dbl && s.Facts == nil:
+		out = append(out, "Odd and even cycles of the shortest period differ, so the period is twice that.")
 	case len(e.Eclipses) == 2:
 		k := 1 - deep
 		ph := frac(e.Eclipses[k].Phase - e.Eclipses[deep].Phase)
@@ -316,6 +318,14 @@ func Remarks(s Star, b Binary) string {
 			out = append(out, fmt.Sprintf("Gaia DR3 shows an unresolved close pair (RUWE %s); the eclipsing component is not identified and the amplitude is diluted.", ruweText(s.Facts.Gaia.RUWE)))
 		}
 	}
+	out = append(out, factRemarks(s)...)
+	return strings.Join(out, " ")
+}
+
+// factRemarks are the remarks from the catalogs and the survey data: a
+// listed variable nearby, the years and bands of ZTF data, TESS sectors.
+func factRemarks(s Star) []string {
+	var out []string
 	if f := s.Facts; f != nil {
 		for _, v := range f.VSXNear {
 			if v.Sep > 30 || v.Sep <= 2 {
@@ -347,7 +357,7 @@ func Remarks(s Star, b Binary) string {
 			out = append(out, t+".")
 		}
 	}
-	return strings.Join(out, " ")
+	return out
 }
 
 func plural2(n int, one, many string) string {

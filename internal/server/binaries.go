@@ -213,6 +213,9 @@ func requestEclipse(c *gin.Context, svc *binaries.Service) {
 	case errors.Is(err, binaries.ErrNoEclipse):
 		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
+	case errors.Is(err, binaries.ErrNotReady), errors.Is(err, binaries.ErrOver):
+		c.JSON(http.StatusConflict, gin.H{errorKey: err.Error()})
+		return
 	case err != nil && r.ID == 0:
 		binaryError(c, err)
 		return
@@ -228,11 +231,14 @@ func cancelEclipse(c *gin.Context, svc *binaries.Service) {
 	}
 	r, err := svc.CancelRequest(c.Request.Context(), id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
 			c.JSON(http.StatusNotFound, gin.H{errorKey: "no such request"})
-			return
+		case errors.Is(err, binaries.ErrCannotCancel):
+			c.JSON(http.StatusConflict, gin.H{errorKey: err.Error()})
+		default:
+			serverError(c, err)
 		}
-		serverError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, binaries.RequestView{ID: r.ID, State: r.State, Note: r.Note})

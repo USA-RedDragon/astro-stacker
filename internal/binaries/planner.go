@@ -76,6 +76,10 @@ type PlanInput struct {
 	Requests []app.EclipseRequest
 }
 
+// maxHalfWindow is how far before now an eclipse's middle may be while
+// its imaging window is still open.
+const maxHalfWindow = 7 * 24 * time.Hour
+
 // requestMatch is how close a request's middle must be to a prediction's
 // to be its request.
 const requestMatch = 2 * time.Hour
@@ -96,11 +100,14 @@ func Plan(in PlanInput) EclipsePlan {
 		b := s.View(nil)
 		mid := in.From.Add(in.To.Sub(in.From) / 2)
 		ra, dec := s.Facts.Gaia.Now(mid)
-		for _, p := range Predict(e, s.Facts.Deeper, ra, dec, in.From, in.To) {
+		for _, p := range Predict(e, s.Facts.Deeper, ra, dec, in.From.Add(-maxHalfWindow), in.To) {
 			p = s.withPhaseError(p, e)
+			if _, end := p.Window(); !end.After(in.From) {
+				continue
+			}
 			day, clock, zone := Labels(p.Mid, loc)
 			row := PlannedEclipse{SourceID: s.Source.ID, Name: b.Name, Field: b.Field, Magnitude: b.Magnitude, PeriodText: b.PeriodText,
-				Kind: p.Kind, KindLabel: kindLabel(p, dbl), Mid: p.Mid, DayLabel: day, TimeLabel: clock, Zone: zone,
+				Kind: p.Kind, KindLabel: kindLabel(p, dbl && s.Facts.Alike), Mid: p.Mid, DayLabel: day, TimeLabel: clock, Zone: zone,
 				ErrMinutes: p.Err.Minutes()}
 			if b.AltPeriodText != "" {
 				row.AltPeriodText = "(" + b.AltPeriodText + ")"

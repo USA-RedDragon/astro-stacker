@@ -66,9 +66,10 @@ type Service struct {
 	Task     *activity.Task
 	Interval time.Duration
 
-	kick *trigger.Debouncer
-	mu   sync.Mutex
-	want map[int]bool
+	kick     *trigger.Debouncer
+	kickOnce sync.Once
+	mu       sync.Mutex
+	want     map[int]bool
 }
 
 // Settings keys.
@@ -89,23 +90,22 @@ func (s *Service) loc() *time.Location {
 }
 
 // Kick asks for a look soon.
-func (s *Service) Kick() {
-	if s.kick != nil {
-		s.kick.Kick()
-	}
+func (s *Service) Kick() { s.debouncer().Kick() }
+
+func (s *Service) debouncer() *trigger.Debouncer {
+	s.kickOnce.Do(func() { s.kick = &trigger.Debouncer{Quiet: 20 * time.Second, MaxWait: 2 * time.Minute} })
+	return s.kick
 }
 
 // Run works out facts, files and share pictures at start, soon after
 // each Kick and every Interval until ctx ends.
 func (s *Service) Run(ctx context.Context) {
-	if s.kick == nil {
-		s.kick = &trigger.Debouncer{Quiet: 20 * time.Second, MaxWait: 2 * time.Minute}
-	}
+	kick := s.debouncer()
 	every := s.Interval
 	if every <= 0 {
 		every = 15 * time.Minute
 	}
-	s.kick.Run(ctx, every, func(ctx context.Context, _ []string) {
+	kick.Run(ctx, every, func(ctx context.Context, _ []string) {
 		if err := s.Tick(ctx); err != nil {
 			slog.Error("Discovery pages background work", "error", err)
 		}
@@ -174,7 +174,7 @@ func (s *Service) load(ctx context.Context, ids []int) ([]Star, error) {
 		if st.Book.SourceID == 0 {
 			st.Book.SourceID = src.ID
 		}
-		if r := st.Report; r != nil && st.Row != nil && st.Row.VetRanAt.Equal(r.RanAt) {
+		if r := st.Report; r != nil && st.Row != nil && sameRun(st.Row.VetRanAt, r.RanAt) {
 			st.Facts = decodeFacts(st.Row)
 		}
 		out = append(out, st)
@@ -214,14 +214,14 @@ func (s *Service) Binary(ctx context.Context, id int) (Star, error) {
 // Discoverer is the discoverer line the user set for VSX.
 func (s *Service) Discoverer(ctx context.Context) (string, error) {
 	var row app.BinarySetting
-	err := s.DB.WithContext(ctx).Where("key = ?", settingDiscoverer).Limit(1).Find(&row).Error
+	err := s.DB.WithContext(ctx).Where("name = ?", settingDiscoverer).Limit(1).Find(&row).Error
 	return row.Value, err
 }
 
 // SetDiscoverer stores the discoverer line.
 func (s *Service) SetDiscoverer(ctx context.Context, v string) error {
 	row := app.BinarySetting{Key: settingDiscoverer, Value: strings.TrimSpace(v)}
-	return s.DB.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value"})}).Create(&row).Error
+	return s.DB.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "name"}}, DoUpdates: clause.AssignmentColumns([]string{"value"})}).Create(&row).Error
 }
 
 // BookChange is what the user changes on a card or kit; nil fields stay.
@@ -301,13 +301,19 @@ func (s *Service) Progress() Progress {
 	return Progress{State: st, Done: it.Done, Total: it.Total}
 }
 
+// sameRun says two vet run times are the same run: the database keeps
+// microseconds, the report JSON nanoseconds.
+func sameRun(a, b time.Time) bool {
+	return a.Truncate(time.Microsecond).Equal(b.Truncate(time.Microsecond))
+}
+
 // stale says a star's facts need working out again.
 func stale(st Star) bool {
 	if st.Report == nil || !Periodic(st.Report) {
 		return false
 	}
 	r := st.Row
-	return r == nil || r.Version != FactsVersion || !r.VetRanAt.Equal(st.Report.RanAt) || (r.State == FactsFailed && time.Since(r.ComputedAt) > 6*time.Hour)
+	return r == nil || r.Version != FactsVersion || !sameRun(r.VetRanAt, st.Report.RanAt) || (r.State == FactsFailed && time.Since(r.ComputedAt) > 6*time.Hour)
 }
 
 // Tick works out stale facts and files, makes share pictures whose colour
@@ -358,7 +364,7 @@ const vsxRadius = 30.0
 
 // work works out one star's facts and renders its plots.
 func (s *Service) work(ctx context.Context, st Star) error {
-	row := app.BinaryFacts{SourceID: st.Source.ID, Version: FactsVersion, VetRanAt: st.Report.RanAt, ComputedAt: s.now(), State: FactsReady}
+	row := app.BinaryFacts{SourceID: st.Source.ID, Version: FactsVersion, VetRanAt: st.Report.RanAt.Truncate(time.Microsecond), ComputedAt: s.now(), State: FactsReady}
 	if st.Row != nil {
 		row.ChartStamp, row.Files = st.Row.ChartStamp, st.Row.Files
 	}
@@ -478,8 +484,14 @@ func (s *Service) Plan(ctx context.Context, days int, all bool) (EclipsePlan, er
 	return Plan(in), nil
 }
 
-// ErrNoEclipse says no predicted eclipse matches a request.
-var ErrNoEclipse = errors.New("no predicted eclipse of that star near that time")
+// Request errors the caller made, as opposed to the server's.
+var (
+	ErrNoEclipse = errors.New("no predicted eclipse of that star near that time")
+	ErrNotReady  = errors.New("the star's survey facts are not worked out yet")
+	ErrOver      = errors.New("that eclipse's imaging window is over")
+	// ErrCannotCancel says a request's project can no longer be taken back.
+	ErrCannotCancel = errors.New("the request cannot be cancelled")
+)
 
 // RequestImaging asks the scheduler to image one predicted eclipse of a
 // binary: kind and mid must match a prediction within requestMatch.
@@ -489,16 +501,15 @@ func (s *Service) RequestImaging(ctx context.Context, id int, kind string, mid t
 		return app.EclipseRequest{}, err
 	}
 	if st.Facts == nil || st.Facts.Gaia == nil {
-		return app.EclipseRequest{}, errors.New("the star's survey facts are not worked out yet")
+		return app.EclipseRequest{}, ErrNotReady
 	}
 	e, _ := st.ephemeris()
 	ra, dec := st.Facts.Gaia.Now(mid)
 	var hit *Predicted
 	for _, p := range Predict(e, st.Facts.Deeper, ra, dec, mid.Add(-requestMatch), mid.Add(requestMatch)) {
-		if p.Kind == kind {
+		if p.Kind == kind && (hit == nil || absDur(p.Mid.Sub(mid)) < absDur(hit.Mid.Sub(mid))) {
 			p = st.withPhaseError(p, e)
 			hit = &p
-			break
 		}
 	}
 	if hit == nil {
@@ -507,14 +518,20 @@ func (s *Service) RequestImaging(ctx context.Context, id int, kind string, mid t
 	start, end := hit.Window()
 	r := app.EclipseRequest{SourceID: id, Kind: kind, Mid: hit.Mid, Start: start, End: end, State: app.EclipseWaiting, CreatedAt: s.now(), UpdatedAt: s.now()}
 	if !end.After(s.now()) {
-		return r, errors.New("that eclipse is over")
+		return r, ErrOver
 	}
-	var open []app.EclipseRequest
-	if err := s.DB.WithContext(ctx).Where("project_guid = ? AND state IN ?", RequestGUID(id, kind, hit.Mid), []string{app.EclipseWaiting, app.EclipseSent, app.EclipseDone}).Find(&open).Error; err != nil {
+	var before []app.EclipseRequest
+	if err := s.DB.WithContext(ctx).Where("source_id = ? AND kind = ?", id, kind).Find(&before).Error; err != nil {
 		return r, err
 	}
-	if len(open) > 0 {
-		return open[0], nil
+	for _, b := range before {
+		if absDur(b.Mid.Sub(hit.Mid)) > time.Minute {
+			continue
+		}
+		if b.State == app.EclipseWaiting || b.State == app.EclipseSent || b.State == app.EclipseDone {
+			return b, nil
+		}
+		r.Attempt++
 	}
 	if s.Commands == nil || s.Snapshot == nil {
 		return r, errors.New("the scheduler is not set up")
@@ -557,7 +574,10 @@ func (s *Service) CancelRequest(ctx context.Context, id int) (app.EclipseRequest
 		return r, err
 	}
 	if r.CreateCmd != "" && s.Commands != nil && (r.State == app.EclipseSent || r.State == app.EclipseWaiting) {
-		if _, err := s.Commands.Undo(ctx, r.CreateCmd, RequestAuthor); err != nil && !errors.Is(err, schedcmd.ErrNotUndoable) {
+		if _, err := s.Commands.Undo(ctx, r.CreateCmd, RequestAuthor); err != nil {
+			if errors.Is(err, schedcmd.ErrNotUndoable) {
+				return r, fmt.Errorf("%w: the scheduler cannot take its project back any more; close it in Target Scheduler", ErrCannotCancel)
+			}
 			return r, err
 		}
 	}
@@ -582,10 +602,11 @@ func (s *Service) followRequests(ctx context.Context) error {
 		case err == nil && refused(rec.Status):
 			r.State, r.Note = app.EclipseFailed, "The scheduler did not take it: "+cmpOr(rec.Message, string(rec.Status))
 		case s.now().After(r.End.Add(time.Hour)):
-			r.State, r.Note = app.EclipseDone, "The window has passed."
 			if err := s.closeProject(ctx, &r); err != nil {
 				errs = append(errs, err)
+				continue
 			}
+			r.State, r.Note = app.EclipseDone, "The window has passed."
 		default:
 			continue
 		}
@@ -595,6 +616,13 @@ func (s *Service) followRequests(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func absDur(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 func refused(s schedcmd.Status) bool {

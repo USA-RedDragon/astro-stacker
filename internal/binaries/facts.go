@@ -56,6 +56,9 @@ type Facts struct {
 	// its period with the dip on both halves (Doubled).
 	Ephemeris *period.Ephemeris `json:"ephemeris"`
 	Doubled   bool              `json:"doubled,omitempty"`
+	// Alike says a doubled star's two halves have the same depth by the
+	// surveys, so half its period fits too.
+	Alike bool `json:"alike,omitempty"`
 	// Deeper is the index of the deeper dip in Ephemeris.
 	Deeper int `json:"deeper"`
 	// Survey is what the survey light curves say at Ephemeris, from the
@@ -193,6 +196,9 @@ func Work(r *vetting.Report, sd vetting.StarData, vsx []starcat.VSXStar, vsxChec
 			f.Survey, f.SurveyFrom = s, FromCaches
 		}
 	}
+	if dbl {
+		f.refineDoubled(sd)
+	}
 	bands := map[string]bool{}
 	for _, s := range sd.Series {
 		if len(s.Points) == 0 || s.Survey == lc.Own {
@@ -219,6 +225,44 @@ func Work(r *vetting.Report, sd vetting.StarData, vsx []starcat.VSXStar, vsxChec
 	f.Bands = sortedKeys(bands)
 	slices.Sort(f.Sectors)
 	return f
+}
+
+// refineDoubled settles what a doubled star's two halves are by the
+// surveys: a second dip as deep as the first (Alike), a second dip of its
+// own depth, or none at all, the dip coming every other cycle only.
+func (f *Facts) refineDoubled(sd vetting.StarData) {
+	e := f.Ephemeris
+	if f.Survey == nil || f.Survey.Twin == nil || f.Survey.Twin.Band == "" || len(e.Eclipses) != 2 {
+		return
+	}
+	t := f.Survey.Twin
+	switch {
+	case t.DepthZ < strongZ && t.PhaseZ < strongZ:
+		f.Alike = true
+	case t.Depth2.Value < 3*t.Depth2.Err:
+		one := *e
+		one.Eclipses = e.Eclipses[:1]
+		f.Ephemeris, f.Deeper = &one, 0
+		if s := eclfacts.Summarize(sd.Series, &one); s != nil {
+			f.Survey, f.SurveyFrom = s, FromCaches
+		} else {
+			cov := f.Survey.Coverage
+			if len(cov) > 1 {
+				cov = cov[:1]
+			}
+			f.Survey = &eclfacts.Summary{Period: one.Period, Coverage: cov, Normal: f.Survey.Normal}
+		}
+	default:
+		two := *e
+		two.Eclipses = []period.Eclipse{e.Eclipses[0], e.Eclipses[1]}
+		two.Eclipses[0].Depth = map[string]float64{t.Band: t.Depth1.Value}
+		two.Eclipses[1].Depth = map[string]float64{t.Band: t.Depth2.Value}
+		f.Ephemeris = &two
+		f.Deeper = 0
+		if t.Depth2.Value > t.Depth1.Value {
+			f.Deeper = 1
+		}
+	}
 }
 
 func sectorOf(s lc.Series) (int, bool) {

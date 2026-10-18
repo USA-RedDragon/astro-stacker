@@ -19,8 +19,8 @@ const (
 	// MinAltitude is the lowest the star may be at mid-eclipse.
 	MinAltitude = 30.0
 	// windowDurations is how many eclipse durations an imaging window
-	// spans, centred on mid-eclipse: half a duration of normal light on
-	// each side.
+	// spans, centred on mid-eclipse: a duration of normal light on each
+	// side of the eclipse.
 	windowDurations = 3.0
 	// windowSigma is how many timing sigmas widen the window on each side.
 	windowSigma = 3.0
