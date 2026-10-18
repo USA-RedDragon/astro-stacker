@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/eclfacts"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
@@ -635,9 +636,24 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	rep.Charts = chartsOf(sum, curve, fx, pr, change)
 	if pr != nil {
 		rep.Ephemeris = pr.Ephemeris
+		rep.Survey, rep.SurveyDoubled = surveySummaries(series, pr.Ephemeris)
 	}
 	rep.Suggestion = suggest(sum, flags, curve, known, moving, fx, pr, timing, rep.Groups, change)
 	return rep, nil
+}
+
+// surveySummaries measures an eclipsing ephemeris's dips in the survey
+// light curves, and for a star with one dip per cycle the same at twice
+// its period.
+func surveySummaries(series []lc.Series, e *period.Ephemeris) (*eclfacts.Summary, *eclfacts.Summary) {
+	if e == nil || e.Kind != period.KindEclipsing {
+		return nil, nil
+	}
+	var dbl *eclfacts.Summary
+	if d := eclfacts.Doubled(e); d != nil {
+		dbl = eclfacts.Summarize(series, d)
+	}
+	return eclfacts.Summarize(series, e), dbl
 }
 
 func starLine(name string, st star) string {
