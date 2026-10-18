@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func call(t *testing.T, r *gin.Engine, method, path string, body any, out any) int {
@@ -42,9 +44,16 @@ func call(t *testing.T, r *gin.Engine, method, path string, body any, out any) i
 // an unconfirmed source.
 func binaryServer(t *testing.T) (*gin.Engine, app.DiscoverySource, app.DiscoverySource) {
 	t.Helper()
+	r, _, src, other := binaryServerDB(t)
+	return r, src, other
+}
+
+// binaryServerDB is binaryServer with its database.
+func binaryServerDB(t *testing.T) (*gin.Engine, *gorm.DB, app.DiscoverySource, app.DiscoverySource) {
+	t.Helper()
 	db := memStore(t).DB()
 	if err := db.AutoMigrate(&app.DiscoverySource{}, &app.DiscoveryVet{}, &app.BinaryBook{}, &app.BinaryFacts{}, &app.BinarySetting{},
-		&app.EclipseRequest{}, &app.ShareImage{}); err != nil {
+		&app.EclipseRequest{}, &app.ShareImage{}, &app.EclipseTiming{}); err != nil {
 		t.Fatal(err)
 	}
 	src := app.DiscoverySource{Object: "Made-up field", Kind: app.DiscoveryKindChange, RA: 10, Dec: 20, Night: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), Vetting: app.VetReal}
@@ -69,7 +78,7 @@ func binaryServer(t *testing.T) (*gin.Engine, app.DiscoverySource, app.Discovery
 	}
 	r := gin.New()
 	applyBinaryRoutes(r.Group("/api/v1"), &binaries.Service{DB: db})
-	return r, src, other
+	return r, db, src, other
 }
 
 func TestBinaryListAndUpdate(t *testing.T) {
@@ -142,5 +151,47 @@ func TestEclipseAndShareRoutes(t *testing.T) {
 	}
 	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/sources/999/share", nil, nil); code != http.StatusNotFound {
 		t.Errorf("no such source: %d", code)
+	}
+}
+
+func TestBinaryTimingsRoute(t *testing.T) {
+	t.Parallel()
+	r, db, src, other := binaryServerDB(t)
+	path := "/api/v1/discoveries/binaries/" + strconv.Itoa(src.ID) + "/timings"
+	var rec binaries.TimingRecord
+	if code := call(t, r, http.MethodGet, path, nil, &rec); code != http.StatusOK || !strings.HasPrefix(rec.Summary, "Not ready yet") {
+		t.Fatalf("before the facts: %d %+v", code, rec)
+	}
+	e := &period.Ephemeris{Period: 5.4, PeriodErr: 1e-5, T0: 2459000, T0Err: 0.001, Kind: period.KindEclipsing,
+		Eclipses: []period.Eclipse{{Phase: 0, Width: 0.02, Shape: 2, Depth: map[string]float64{"ZTF r": 0.3}}}}
+	raw, err := json.Marshal(binaries.Facts{Ephemeris: e, Gaia: &binaries.GaiaFacts{RA: 10, Dec: 20, G: 15}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&app.BinaryFacts{SourceID: src.ID, Version: binaries.FactsVersion, State: binaries.FactsReady, Facts: string(raw)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	bjd := e.T0 + 1000*e.Period + 2.0/1440
+	if err := db.Create(&app.EclipseTiming{SourceID: src.ID, Kind: binaries.KindPrimary, Predicted: time.Date(2023, 9, 1, 0, 0, 0, 0, time.UTC), BJD: bjd, Err: 0.4 / 1440,
+		State: app.TimingGood, Method: "model", Filter: "Red", Points: 80, Night: "2023-08-31"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if code := call(t, r, http.MethodGet, path, nil, &rec); code != http.StatusOK || len(rec.Timings) != 1 || len(rec.Trends) != 4 {
+		t.Fatalf("record: %d %+v", code, rec)
+	}
+	if v := rec.Timings[0]; v.LateText != "2.0 minutes late" || v.Cycle != 1000 {
+		t.Errorf("timing %+v", v)
+	}
+	for _, tr := range rec.Trends {
+		if tr.State != "need" {
+			t.Errorf("one timing tested a trend: %+v", tr)
+		}
+	}
+	var list BinaryList
+	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/binaries", nil, &list); code != http.StatusOK || list.Stars[0].Timing.Count != 1 {
+		t.Errorf("card timing: %d %+v", code, list.Stars[0].Timing)
+	}
+	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/binaries/"+strconv.Itoa(other.ID)+"/timings", nil, nil); code != http.StatusNotFound {
+		t.Errorf("an unconfirmed source's timings: %d", code)
 	}
 }
