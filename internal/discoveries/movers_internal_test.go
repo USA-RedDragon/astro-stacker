@@ -167,16 +167,16 @@ func TestStarResidualIsNotAMover(t *testing.T) {
 		tr.Points = append(tr.Points, TrackPoint{X: p[0], Y: p[1]})
 	}
 	stars := NewGrid([][2]float64{{470.0, 1050.8}, {900, 900}}, 8)
-	if !onBrightStars(tr, stars) {
+	if !onBrightStars(tr, stars, starResidualPx) {
 		t.Error("a track whose detections all sit within 3 px of one bright star is its residual")
 	}
 	moving := Track{Points: []TrackPoint{{X: 465, Y: 1050}, {X: 470, Y: 1050}, {X: 475, Y: 1050}, {X: 480, Y: 1050}}}
-	if onBrightStars(moving, stars) {
+	if onBrightStars(moving, stars, starResidualPx) {
 		t.Error("an asteroid passing a star is not the star's residual")
 	}
 	pair := NewGrid([][2]float64{{100, 100}, {104, 102.7}}, 8)
 	glow := Track{Points: []TrackPoint{{X: 97.2, Y: 98.1}, {X: 97.4, Y: 98.3}, {X: 102, Y: 101.3}, {X: 102.2, Y: 101.4}, {X: 106.8, Y: 104.6}}}
-	if !onBrightStars(glow, pair) {
+	if !onBrightStars(glow, pair, starResidualPx) {
 		t.Error("a track along the glow of a close bright pair, 3.2 px off each star, is their residual")
 	}
 	d := NewPlane(64, 64)
@@ -213,6 +213,47 @@ func TestStarResidualIsNotAMover(t *testing.T) {
 	}
 	if len(dets) == 0 || math.Hypot(dets[0].X-20, dets[0].Y-20) > 0.5 {
 		t.Errorf("the star-like source was not kept: %+v", dets)
+	}
+}
+
+func TestStarResidualsNearTheNightsDepthAreNotMovers(t *testing.T) {
+	t.Parallel()
+	// Unknown mover 58459 of M 78's 2025-11-24: five detections 2.8 to 3.3 px
+	// from a G 15.02 star, the first 8.6 px from it. 67212 of California
+	// Nebula Panel 1's 2026-10-06 sat within 0.4 px of a G 17.47 star, then
+	// of a G 17.3 one, under the G 17 limit but 1 mag above its subs' depth
+	// of 18.49.
+	m78Depth, m78 := 18.19, &Result{HFRNight: 1.672}
+	m78.SubDepth = &m78Depth
+	maxG, r := residualStars(m78)
+	if math.Abs(maxG-17.19) > 1e-9 || math.Abs(r-6.688) > 1e-9 {
+		t.Fatalf("M 78's residual stars: G %.2f within %.2f px", maxG, r)
+	}
+	star := NewGrid([][2]float64{{903.88, 1163.92}}, 8)
+	var tr58459 Track
+	for _, p := range [][2]float64{{895.88, 1167.0}, {903.70, 1166.70}, {906.37, 1165.37}, {906.09, 1165.80}, {906.62, 1165.78}, {906.19, 1165.67}} {
+		tr58459.Points = append(tr58459.Points, TrackPoint{X: p[0], Y: p[1]})
+	}
+	if i, _ := star.Nearest(895.88, 1167.0, starResidualPx); i >= 0 {
+		t.Fatal("58459's first detection is 8.6 px from the star, out of the old rule's 5 px")
+	}
+	if !onBrightStars(tr58459, star, r) {
+		t.Error("58459, all but one detection within 3.3 px of a G 15 star, is its residual")
+	}
+	calDepth, cal := 18.49, &Result{HFRNight: 1.543}
+	cal.SubDepth = &calDepth
+	if maxG, _ := residualStars(cal); 17.465 > maxG {
+		t.Errorf("the G 17.47 star 67212 sat on is %.2f mag above the subs' depth, under the limit G %.2f", calDepth-17.465, maxG)
+	}
+	if maxG, r := residualStars(&Result{}); maxG != starResidualG || r != starResidualPx {
+		t.Errorf("a night with no depth or star width: G %.1f within %.1f px", maxG, r)
+	}
+	var passing Track
+	for k := range 8 {
+		passing.Points = append(passing.Points, TrackPoint{X: 890 + 4*float64(k), Y: 1160 + 0.5*float64(k)})
+	}
+	if onBrightStars(passing, star, r) {
+		t.Error("an asteroid passing the star at 4 px a sub is not its residual")
 	}
 }
 

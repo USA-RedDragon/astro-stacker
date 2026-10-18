@@ -363,29 +363,52 @@ func movedClearly(tr Track, fwhm, astroPx float64) bool {
 	return sig >= moverMinSignificance && d >= moverMinWidths*fwhm
 }
 
-// starResidualPx and starResidualG bound the stars a track is taken for a
-// subtraction residual of: every detection within 5 px, about two star
-// widths, of a star of G 17 or brighter, where the night's and the
-// reference's star profiles differ most.
+// starResidualWidths and starResidualMag bound the stars a track is taken
+// for a subtraction residual of: all its detections but one within two
+// star widths of a catalogued star at least 1 mag brighter than one sub's
+// depth, where the night's and the reference's star profiles differ most.
+// M 78's residuals of 2025-11-24 had one early detection 5.5 to 8.6 px
+// from the star and the rest 2.3 to 4 px, and one on California Nebula
+// Panel 1's 2026-10-06 sat on a G 17.5 star 1 mag above its subs' depth.
+// starResidualPx and starResidualG stand in for a night with no star
+// width or sub depth.
 const (
-	starResidualPx = 5.0
-	starResidualG  = 17.0
+	starResidualWidths = 2.0
+	starResidualMag    = 1.0
+	starResidualPx     = 5.0
+	starResidualG      = 17.0
 )
 
-// onBrightStars says whether all of a track's detections lie within 5 px of
-// bright catalogued stars, at pixel positions stars: residuals of their
-// subtraction, centroids wandering with each sub's seeing or lining up
-// along a close pair, not a mover.
-func onBrightStars(tr Track, stars *Grid) bool {
+// residualStars are the faintest catalogued star, in G, and the distance
+// in pixels, within which a night's detections are taken for its stars'
+// residuals.
+func residualStars(res *Result) (maxG, r float64) {
+	maxG, r = starResidualG, starResidualPx
+	if res.SubDepth != nil {
+		maxG = *res.SubDepth - starResidualMag
+	}
+	if res.HFRNight > 0 {
+		r = starResidualWidths * 2 * res.HFRNight
+	}
+	return maxG, r
+}
+
+// onBrightStars says whether all of a track's detections but one lie
+// within r of bright catalogued stars, at pixel positions stars:
+// residuals of their subtraction, centroids wandering with each sub's
+// seeing or lining up along a close pair, not a mover. An asteroid passing
+// a star has only the detections near it there.
+func onBrightStars(tr Track, stars *Grid, r float64) bool {
 	if stars == nil || len(tr.Points) == 0 {
 		return false
 	}
+	near := 0
 	for _, p := range tr.Points {
-		if i, _ := stars.Nearest(p.X, p.Y, starResidualPx); i < 0 {
-			return false
+		if i, _ := stars.Nearest(p.X, p.Y, r); i >= 0 {
+			near++
 		}
 	}
-	return true
+	return near >= max(1, len(tr.Points)-1)
 }
 
 // moverNullShuffles is how many times the null test shuffles the subs.
