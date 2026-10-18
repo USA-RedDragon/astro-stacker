@@ -108,21 +108,33 @@ func TestZTFPrefetchAndRead(t *testing.T) {
 			apiG = x
 		}
 	}
-	matched := 0
-	for _, p := range s.Points {
-		for _, q := range apiG.Points {
-			if math.Abs(p.BJD-q.BJD) < 2e-5 {
-				matched++
-				if math.Abs(p.Mag-q.Mag) > 0.0006 || math.Abs(p.Err-q.Err)/q.Err > 0.03 {
-					t.Errorf("mag %v±%v against %v±%v", p.Mag, p.Err, q.Mag, q.Err)
-				}
-			}
-		}
-	}
+	matched := matchService(t, s.Points, apiG.Points)
 	t.Logf("%d field-file epochs, %d service epochs, %d matched", len(s.Points), len(apiG.Points), matched)
 	if matched < 40 {
 		t.Errorf("only %d of %d field-file epochs match the light curve service", matched, len(s.Points))
 	}
+}
+
+// matchService counts the field-file epochs the light curve service has
+// too, checking each pair's magnitude, error and ZTF object id.
+func matchService(t *testing.T, file, api []lc.Point) int {
+	t.Helper()
+	matched := 0
+	for _, p := range file {
+		for _, q := range api {
+			if math.Abs(p.BJD-q.BJD) >= 2e-5 {
+				continue
+			}
+			matched++
+			if math.Abs(p.Mag-q.Mag) > 0.0006 || math.Abs(p.Err-q.Err)/q.Err > 0.03 {
+				t.Errorf("mag %v±%v against %v±%v", p.Mag, p.Err, q.Mag, q.Err)
+			}
+			if p.Src == 0 || p.Src != q.Src {
+				t.Errorf("object id %d against the service's %d", p.Src, q.Src)
+			}
+		}
+	}
+	return matched
 }
 
 func TestZTFTimesAreMidExposureBJD(t *testing.T) {

@@ -707,7 +707,7 @@ func (f *Fetcher) ztfFetch(t Target, eps []ztfEpoch) Fetch {
 	d, n := dilution(t, ZTFDilutionRadius)
 	byBand := map[string][]lc.Point{}
 	for _, e := range eps {
-		byBand[e.Band] = append(byBand[e.Band], lc.Point{BJD: lc.BJD(lc.MJDTime(e.MJD), t.RA, t.Dec), Mag: e.Mag, Err: e.MagErr})
+		byBand[e.Band] = append(byBand[e.Band], lc.Point{BJD: lc.BJD(lc.MJDTime(e.MJD), t.RA, t.Dec), Mag: e.Mag, Err: e.MagErr, Src: e.OID})
 	}
 	fe := Fetch{Survey: lc.ZTF, State: Done}
 	for _, b := range []string{"g", "r", "i"} {
