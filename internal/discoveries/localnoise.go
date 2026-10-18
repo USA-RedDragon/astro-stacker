@@ -27,7 +27,7 @@ const (
 // (60465 on 2025-10-26: 12.8 against 1.7), while all 27 of the app's
 // brightenings at real M 31 novae stood at 5.68 or more (AT 2025abrs, H-a,
 // 2025-11-11) and AT 2026acsi at 6.8 to 7.4.
-const minLocalSNR = 5.0
+const minLocalSNR = 4.5
 
 // noiseMap is the scatter of empty apertures of radius apertureR in each
 // noiseBox cell of a difference: 1.4826 times the median absolute deviation

@@ -11,7 +11,7 @@ func TestASourceHeldForLocalNoiseIsStillLookedUp(t *testing.T) {
 	// own aperture: a real nova held for the noise around it must still be
 	// matched to its TNS entry.
 	c := newSource(100, 100)
-	c.LocalSNR, c.LowConf = 4.8, true
+	c.LocalSNR, c.LowConf = 4.3, true
 	asked := 0
 	lookup := func(context.Context, float64, float64, float64) ([]Alert, []string, []string) {
 		asked++
