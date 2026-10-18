@@ -56,7 +56,8 @@ func auditCases(t *testing.T) []AuditCase {
 }
 
 // auditSeries reads a case's light curves: the star's, one series per
-// survey band (per TESS sector), and each comparison star's.
+// survey band (per TESS sector), and each comparison star's. ZTF points
+// carry their ZTF object id, one per field and CCD quadrant.
 func auditSeries(t *testing.T, key string) ([]lc.Series, [][]lc.Series) {
 	t.Helper()
 	rows := readCSV(t, filepath.Join(auditDir, key+".csv.zst"))
@@ -72,7 +73,8 @@ func auditSeries(t *testing.T, key string) ([]lc.Series, [][]lc.Series) {
 		if r["err"] != "" {
 			e = num(t, r["err"])
 		}
-		by[k] = append(by[k], lc.Point{BJD: num(t, r["bjd"]) + 2450000, Mag: num(t, r["mag"]), Err: e})
+		src, _ := strconv.ParseInt(r["oid"], 10, 64)
+		by[k] = append(by[k], lc.Point{BJD: num(t, r["bjd"]) + 2450000, Mag: num(t, r["mag"]), Err: e, Src: src})
 	}
 	var target []lc.Series
 	comps := map[string][]lc.Series{}

@@ -83,7 +83,11 @@ func readAuditSeries(t *testing.T, key string) ([]lc.Series, [][]lc.Series) {
 			t.Fatal(err)
 		}
 		e, _ := strconv.ParseFloat(r[5], 64)
-		s.Points = append(s.Points, lc.Point{BJD: bjd + 2450000, Mag: mag, Err: e})
+		var src int64
+		if len(r) > 6 {
+			src, _ = strconv.ParseInt(r[6], 10, 64)
+		}
+		s.Points = append(s.Points, lc.Point{BJD: bjd + 2450000, Mag: mag, Err: e, Src: src})
 	}
 	var target []lc.Series
 	comps := map[string][]lc.Series{}
