@@ -40,6 +40,62 @@ type VarCatalog struct {
 	// lrecl is the record length the byte ranges row reads are for.
 	lrecl int
 	row   func(f *fixedLine, n int64) VarStar
+	// plain is set when CDS serves File itself rather than File.gz.
+	plain bool
+	// keep, when set, says which records the mirror stores; the others
+	// are read and counted but left out.
+	keep func(s VarStar) bool
+}
+
+// TESSEBNew is the TESS Ten Thousand Catalog's 7,936 new eclipsing binaries
+// (Kostov+ 2025, J/ApJS/279/50 table3): TIC number, period and TESS
+// magnitude.
+func TESSEBNew() *VarCatalog {
+	return &VarCatalog{Name: "tess-eb-new", Prefix: "catalogs/tess-eb-new", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/279/50/",
+		File: "table3.dat", Order: 3, VizieR: "J/ApJS/279/50/table3", lrecl: 250, row: tessEBNewRow}
+}
+
+// TESSEBKnown is the TESS Ten Thousand Catalog's 2,065 known eclipsing
+// binaries with their TESS periods (Kostov+ 2025, J/ApJS/279/50 table4).
+func TESSEBKnown() *VarCatalog {
+	return &VarCatalog{Name: "tess-eb-known", Prefix: "catalogs/tess-eb-known", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/279/50/",
+		File: "table4.dat", Order: 3, VizieR: "J/ApJS/279/50/table4", lrecl: 147, row: tessEBKnownRow, plain: true}
+}
+
+// TESSEBPrsa is the TESS eclipsing binaries of sectors 1 to 26 (Prsa+ 2022,
+// J/ApJS/258/16): TIC number, period and TESS magnitude; a TIC can have two
+// ephemerides, so ID is the record number.
+func TESSEBPrsa() *VarCatalog {
+	return &VarCatalog{Name: "tess-eb-prsa", Prefix: "catalogs/tess-eb-prsa", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/258/16/",
+		File: "tess-ebs.dat", Order: 3, VizieR: "J/ApJS/258/16/tess-ebs", lrecl: 625, row: tessEBPrsaRow}
+}
+
+// ZTFSuspected is the ZTF catalogue of suspected variables (Chen+ 2020,
+// J/ApJS/249/18 table3): stars that vary in ZTF without a class, with the
+// r (else g) period, mean r magnitude and amplitude; ID is the record
+// number.
+func ZTFSuspected() *VarCatalog {
+	return &VarCatalog{Name: "ztf-sus", Prefix: "catalogs/ztf-sus", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/249/18/",
+		File: "table3.dat", Order: 3, VizieR: "J/ApJS/249/18/table3", lrecl: 120, row: ztfSuspectedRow}
+}
+
+// TESSRotation is the TESS rotation periods of young stars in nearby
+// groups (Kounkel+ 2022, J/AJ/164/137), one record per star and sector,
+// those with a measured period; ID is the record number.
+func TESSRotation() *VarCatalog {
+	return &VarCatalog{Name: "tess-rot", Prefix: "catalogs/tess-rot", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/AJ/164/137/",
+		File: "table1.dat", Order: 3, VizieR: "J/AJ/164/137/table1", lrecl: 411, row: tessRotRow, plain: true,
+		keep: func(s VarStar) bool { return s.Period > 0 }}
+}
+
+// GCVSExtragalactic is the GCVS catalogue of variable stars in other
+// galaxies (B/gcvs/evs_cat), M31 and M33 among them: number, name, type
+// and period, at their B1950 positions moved to J2000; stars without a
+// position are left out.
+func GCVSExtragalactic() *VarCatalog {
+	return &VarCatalog{Name: "gcvs-evs", Prefix: "catalogs/gcvs-evs", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/B/gcvs/",
+		File: "evs_cat.dat", Order: 3, VizieR: "B/gcvs/evs_cat", lrecl: 160, row: gcvsEVSRow,
+		keep: func(s VarStar) bool { return !math.IsNaN(s.RA) && !math.IsNaN(s.Dec) }}
 }
 
 // GaiaVariability is Gaia DR3's classification of its variable sources
@@ -78,7 +134,8 @@ func ASASSNVariables() *VarCatalog {
 
 // VarCatalogs returns the survey catalogues of variable stars.
 func VarCatalogs() []*VarCatalog {
-	return []*VarCatalog{GaiaVariability(), ATLASVariables(), ZTFVariables(), ASASSNVariables()}
+	return []*VarCatalog{GaiaVariability(), ATLASVariables(), ZTFVariables(), ASASSNVariables(),
+		TESSEBNew(), TESSEBKnown(), TESSEBPrsa(), ZTFSuspected(), TESSRotation(), GCVSExtragalactic()}
 }
 
 // fixedLine reads the fields of a fixed-width record by their 1-based
@@ -153,14 +210,119 @@ func asassnRow(f *fixedLine, n int64) VarStar {
 		Amp: f32(f.num(127, 131, false)), Period: f.num(133, 144, false), Type: f.str(146, 153), Score: f32(f.num(155, 159, false))}
 }
 
-// parse reads one record, n counting from 1.
-func (c *VarCatalog) parse(line []byte, n int64) (VarStar, error) {
+func ticName(f *fixedLine, a, b int) string {
+	if n, err := strconv.ParseInt(f.str(a, b), 10, 64); err == nil {
+		return "TIC " + strconv.FormatInt(n, 10)
+	}
+	return ""
+}
+
+func tessEBNewRow(f *fixedLine, _ int64) VarStar {
+	return VarStar{ID: f.i64(1, 10), Name: ticName(f, 1, 10), RA: f.num(12, 23, true), Dec: f.num(25, 36, true), Mag: f32(f.num(38, 43, false)),
+		Period: f.num(45, 53, true), Type: "EB", Amp: nan32(), Score: nan32()}
+}
+
+func tessEBKnownRow(f *fixedLine, _ int64) VarStar {
+	return VarStar{ID: f.i64(1, 10), Name: ticName(f, 1, 10), RA: f.num(12, 23, true), Dec: f.num(25, 36, true), Period: f.num(38, 46, true),
+		Type: "EB", Mag: nan32(), Amp: nan32(), Score: nan32()}
+}
+
+func tessEBPrsaRow(f *fixedLine, n int64) VarStar {
+	return VarStar{ID: n, Name: ticName(f, 1, 10), RA: f.num(91, 109, true), Dec: f.num(111, 130, true), Mag: f32(f.num(161, 168, false)),
+		Period: f.num(212, 232, false), Type: "EB", Amp: nan32(), Score: nan32()}
+}
+
+// orNaN reads null (a catalogue's stand-in for blank) as NaN.
+func orNaN(v, null float64) float64 {
+	if v == null {
+		return math.NaN()
+	}
+	return v
+}
+
+func ztfSuspectedRow(f *fixedLine, n int64) VarStar {
+	per, amp := orNaN(f.num(70, 80, false), 0), f32(f.num(88, 92, false), 0)
+	if math.IsNaN(per) {
+		per, amp = orNaN(f.num(58, 68, false), 0), f32(f.num(82, 86, false), 0)
+	}
+	return VarStar{ID: n, Name: f.str(1, 22), RA: f.num(24, 32, true), Dec: f.num(34, 42, true), Mag: f32(f.num(51, 56, false), 0),
+		Period: per, Amp: amp, Type: "VAR", Score: nan32()}
+}
+
+func tessRotRow(f *fixedLine, n int64) VarStar {
+	per := f.num(138, 146, false)
+	for _, r := range [][2]int{{193, 200}, {243, 250}} {
+		if !(per > 0) {
+			per = f.num(r[0], r[1], false)
+		}
+	}
+	return VarStar{ID: n, Name: ticName(f, 21, 30), RA: f.num(32, 41, true), Dec: f.num(43, 52, true), Mag: f32(f.num(90, 95, false)),
+		Period: per, Amp: f32(f.num(177, 183, false)), Type: "ROT", Score: nan32()}
+}
+
+func gcvsEVSRow(f *fixedLine, _ int64) VarStar {
+	s := VarStar{ID: f.i64(1, 7), Name: f.str(9, 20), Type: f.str(41, 48), Mag: f32(f.num(49, 53, false)), Period: f.num(81, 93, false),
+		Amp: nan32(), Score: nan32(), RA: math.NaN(), Dec: math.NaN()}
+	rh, rm, rs := f.num(22, 23, false), f.num(24, 25, false), f.num(26, 30, false)
+	dd, dm, ds := f.num(32, 33, false), f.num(34, 35, false), f.num(36, 39, false)
+	if math.IsNaN(rh + rm + rs + dd + dm + ds) {
+		return s
+	}
+	dec := dd + dm/60 + ds/3600
+	if f.str(31, 31) == "-" {
+		dec = -dec
+	}
+	s.RA, s.Dec = b1950ToJ2000(15*(rh+rm/60+rs/3600), dec)
+	return s
+}
+
+// b1950ToJ2000 moves a B1950 (FK4) position to J2000 (FK5) by the
+// standard rotation, without the E-terms of aberration (under 0.35
+// arcsec) or proper motion.
+func b1950ToJ2000(ra, dec float64) (float64, float64) {
+	m := [3][3]float64{
+		{0.9999256782, -0.0111820611, -0.0048579477},
+		{0.0111820610, 0.9999374784, -0.0000271765},
+		{0.0048579479, -0.0000271474, 0.9999881997},
+	}
+	r, d := ra*math.Pi/180, dec*math.Pi/180
+	v := [3]float64{math.Cos(d) * math.Cos(r), math.Cos(d) * math.Sin(r), math.Sin(d)}
+	var w [3]float64
+	for i := range 3 {
+		for j := range 3 {
+			w[i] += m[i][j] * v[j]
+		}
+	}
+	ra2 := math.Atan2(w[1], w[0]) * 180 / math.Pi
+	if ra2 < 0 {
+		ra2 += 360
+	}
+	return ra2, math.Asin(math.Max(-1, math.Min(1, w[2]))) * 180 / math.Pi
+}
+
+// parse reads one record, n counting from 1; keep is false for a record
+// the catalogue's filter leaves out.
+func (c *VarCatalog) parse(line []byte, n int64) (VarStar, bool, error) {
 	f := &fixedLine{b: line}
 	s := c.row(f, n)
-	if f.err == nil && !(s.RA >= 0 && s.RA < 360 && s.Dec >= -90 && s.Dec <= 90) {
-		f.err = errors.New("position out of range")
+	if f.err != nil {
+		return s, false, f.err
 	}
-	return s, f.err
+	if c.keep != nil && !c.keep(s) {
+		return s, false, nil
+	}
+	if !(s.RA >= 0 && s.RA < 360 && s.Dec >= -90 && s.Dec <= 90) {
+		return s, false, errors.New("position out of range")
+	}
+	return s, true, nil
+}
+
+// source is the URL of the catalogue's data file.
+func (c *VarCatalog) source(base string) string {
+	if c.plain {
+		return base + c.File
+	}
+	return base + c.File + ".gz"
 }
 
 // Mirror mirrors the catalogue when its ReadMe has changed since the
@@ -196,39 +358,47 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 	t0 := time.Now()
 	parts := map[int64][]VarStar{}
 	types := map[string]string{}
-	var rows, size int64
+	var rows, read, size int64
 	sum := sha256.New()
 	var n, total atomic.Int64
-	src := o.BaseURL + c.File + ".gz"
+	src := c.source(o.BaseURL)
 	var badRow error
 	err = retry(ctx, src, func() error {
 		clear(parts)
 		badRow = nil
-		rows, size = 0, 0
+		rows, read, size = 0, 0, 0
 		sum.Reset()
 		n.Store(0)
 		return o.downloadResuming(ctx, src, &n, &total, func(r io.Reader, resp *http.Response) error {
 			o.Report.Track("Downloading the catalogue", "bytes", resp.ContentLength, &n)
 			tee := io.TeeReader(r, sum)
-			zr, err := gzip.NewReader(tee)
-			if err != nil {
-				return err
+			in := tee
+			if !c.plain {
+				zr, err := gzip.NewReader(tee)
+				if err != nil {
+					return err
+				}
+				in = zr
 			}
-			sc := bufio.NewScanner(zr)
+			sc := bufio.NewScanner(in)
 			sc.Buffer(make([]byte, 64<<10), 1<<20)
 			for sc.Scan() {
 				line := sc.Bytes()
-				s, err := c.parse(line, rows+1)
+				read++
+				s, keep, err := c.parse(line, read)
 				if len(line) > lrecl {
 					err = fmt.Errorf("%d bytes, the ReadMe says %d", len(line), lrecl)
 				}
 				if err != nil {
-					bad := fmt.Errorf("%s: line %d: %w", c.Name, rows+1, err)
+					bad := fmt.Errorf("%s: line %d: %w", c.Name, read, err)
 					if !sc.Scan() && sc.Err() != nil {
 						return sc.Err()
 					}
 					badRow = bad
 					return nil
+				}
+				if !keep {
+					continue
 				}
 				t, ok := types[s.Type]
 				if !ok {
@@ -259,14 +429,14 @@ func (c *VarCatalog) Mirror(ctx context.Context, o MirrorOptions) error {
 	if err != nil {
 		return err
 	}
-	if rows != records {
-		return fmt.Errorf("%s: %d rows, the ReadMe lists %d", c.Name, rows, records)
+	if read != records {
+		return fmt.Errorf("%s: %d rows, the ReadMe lists %d", c.Name, read, records)
 	}
 	slog.Info("Variable star catalogue read", "catalog", c.Name, "rows", rows, "partitions", len(parts), "downloaded MB", size>>20,
 		"took", time.Since(t0).Round(time.Second))
 	vprefix := path.Join(o.Prefix, version)
 	man := &Manifest{Catalog: c.Name, Schema: varSchema().name, Order: c.Order, Version: version, Source: src, Created: time.Now().UTC(), Rows: rows,
-		Inputs: []Input{{File: c.File + ".gz", SHA256: hex.EncodeToString(sum.Sum(nil)), Bytes: size, Rows: rows}}}
+		Inputs: []Input{{File: path.Base(src), SHA256: hex.EncodeToString(sum.Sum(nil)), Bytes: size, Rows: read}}}
 	if err := o.storeVars(ctx, vprefix, c.Order, parts, man); err != nil {
 		return err
 	}

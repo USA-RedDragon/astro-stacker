@@ -9,7 +9,9 @@ import (
 func TestCatalogMirrorHasTheVariableStarCatalogs(t *testing.T) {
 	t.Parallel()
 	c := newCatalogMirrorCommand()
-	for use, prefix := range map[string]string{"gaia-vari": "catalogs/gaia-dr3-vari", "atlas-var": "catalogs/atlas-var", "ztf-var": "catalogs/ztf-var", "asassn-var": "catalogs/asassn-var"} {
+	for use, prefix := range map[string]string{"gaia-vari": "catalogs/gaia-dr3-vari", "atlas-var": "catalogs/atlas-var", "ztf-var": "catalogs/ztf-var", "asassn-var": "catalogs/asassn-var",
+		"tess-eb-new": "catalogs/tess-eb-new", "tess-eb-known": "catalogs/tess-eb-known", "tess-eb-prsa": "catalogs/tess-eb-prsa", "ztf-sus": "catalogs/ztf-sus",
+		"tess-rot": "catalogs/tess-rot", "gcvs-evs": "catalogs/gcvs-evs"} {
 		sc, _, err := c.Find([]string{use})
 		if err != nil || sc.Name() != use {
 			t.Fatalf("%s: %v", use, err)

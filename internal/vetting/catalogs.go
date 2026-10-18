@@ -23,8 +23,8 @@ const (
 // Mirrors are the local catalog copies, read first.
 type Mirrors struct {
 	VSX *starcat.VSX
-	// Variables are the survey variable star lists by name: gaia-dr3-vari,
-	// atlas-var, ztf-var and asassn-var.
+	// Variables are the survey variable star lists by name: gaia-dr3-vari
+	// and the lists of surveyLists.
 	Variables map[string]*starcat.Variables
 	TNS       func() *tnsmirror.Index
 }
@@ -110,25 +110,42 @@ func gaiaVariCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int64
 	return check.New(check.GaiaVari, check.Pass, "Not listed.")
 }
 
+// surveyLists are the local copies of the survey variable star lists the
+// catalog check reads: key in Mirrors.Variables, who lists the star, and
+// a short name for a list that could not be read.
+func surveyLists() []struct{ key, who, short string } {
+	return []struct{ key, who, short string }{
+		{"atlas-var", "ATLAS", "ATLAS"},
+		{"ztf-var", "ZTF", "ZTF"},
+		{"asassn-var", "ASAS-SN", "ASAS-SN"},
+		{"ztf-sus", "ZTF's list of suspected variables (Chen 2020)", "ZTF suspected"},
+		{"tess-eb-new", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS new binaries"},
+		{"tess-eb-known", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS known binaries"},
+		{"tess-eb-prsa", "the TESS eclipsing binary catalog (Prsa 2022)", "TESS sectors 1 to 26 binaries"},
+		{"tess-rot", "the TESS rotation periods of young stars (Kounkel 2022)", "TESS rotation"},
+		{"gcvs-evs", "the GCVS list of variables in other galaxies", "GCVS other galaxies"},
+	}
+}
+
 func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, k *Known) check.Check {
-	names := []struct{ key, word string }{{"atlas-var", "ATLAS"}, {"ztf-var", "ZTF"}, {"asassn-var", "ASAS-SN"}}
+	names := surveyLists()
 	var listed, failed []string
 	for _, n := range names {
 		v := m.Variables[n.key]
 		if v == nil {
-			failed = append(failed, n.word)
+			failed = append(failed, n.short)
 			continue
 		}
 		stars, err := v.Cone(ctx, ra, dec, listedArcsec/3600, nil)
 		if err != nil {
-			failed = append(failed, n.word)
+			failed = append(failed, n.short)
 			continue
 		}
 		for _, s := range stars {
 			if arcsec(ra, dec, s.RA, s.Dec) > listedArcsec {
 				continue
 			}
-			l := fmt.Sprintf("%s lists it as %s", n.word, typeWords(s.Type))
+			l := fmt.Sprintf("%s lists it as %s", n.who, typeWords(s.Type))
 			if s.Period > 0 {
 				l += fmt.Sprintf(" repeating every %s days", periodText(s.Period))
 			}
@@ -143,7 +160,11 @@ func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, k *Known) c
 	case len(failed) == len(names):
 		return check.Skipped(check.SurveyVar, "Not run: the local copies could not be read.")
 	case len(failed) > 0:
-		return check.New(check.SurveyVar, check.Pass, fmt.Sprintf("Not listed. The %s list could not be read.", joinWords(failed)))
+		word := "list"
+		if len(failed) > 1 {
+			word = "lists"
+		}
+		return check.New(check.SurveyVar, check.Pass, fmt.Sprintf("Not listed. The %s %s could not be read.", joinWords(failed), word))
 	}
 	return check.New(check.SurveyVar, check.Pass, "Not listed.")
 }

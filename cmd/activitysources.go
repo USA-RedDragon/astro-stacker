@@ -46,6 +46,12 @@ func catalogMirrorJobs() []catalogMirror {
 		{"atlas-var", "atlas-var-mirror", "ATLAS variable stars mirror"},
 		{"ztf-var", "ztf-var-mirror", "ZTF variable stars mirror"},
 		{"asassn-var", "asassn-var-mirror", "ASAS-SN variable stars mirror"},
+		{"tess-eb-new", "tess-eb-new-mirror", "TESS new eclipsing binaries mirror"},
+		{"tess-eb-known", "tess-eb-known-mirror", "TESS known eclipsing binaries mirror"},
+		{"tess-eb-prsa", "tess-eb-prsa-mirror", "TESS sectors 1-26 eclipsing binaries mirror"},
+		{"ztf-sus", "ztf-sus-mirror", "ZTF suspected variables mirror"},
+		{"tess-rot", "tess-rot-mirror", "TESS rotation periods mirror"},
+		{"gcvs-evs", "gcvs-evs-mirror", "GCVS extragalactic variables mirror"},
 	}
 }
 
