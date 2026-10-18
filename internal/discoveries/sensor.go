@@ -264,7 +264,7 @@ func matchSensor(m SensorMap, rs, cs [][2]float64, g *Grid, cx, cy float64) (Sen
 				px, py := m.At(p.x+cx, p.y+cy)
 				res[i] = math.Hypot(p.sx-px, p.sy-py)
 			}
-			lim := math.Max(3*1.4826*median64(slices.Clone(res)), 0.3)
+			lim := math.Max(3*1.4826*median64(res), 0.3)
 			ps = slices.DeleteFunc(ps, func(p pair) bool {
 				px, py := m.At(p.x+cx, p.y+cy)
 				return math.Hypot(p.sx-px, p.sy-py) > lim

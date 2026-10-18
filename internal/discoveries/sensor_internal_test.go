@@ -240,11 +240,13 @@ func TestHotPixelWalkedByRotationAndScaleIsNotAMover(t *testing.T) {
 
 func TestMarkarianChainHotPixelsAreNotMovers(t *testing.T) {
 	t.Parallel()
-	// Unknown movers 27939 and 54782 of Markarian Chain Panel 6's
-	// 2026-02-15 night were master-dark hot pixels at sensor (1399, 382) and
-	// (78, 325), walked across the sky by the night's field rotation. fit is
-	// each sub's map fitted to its registered and raw frames' stars, foot
-	// the footprint's, which put them up to 6 px apart on the sensor.
+	// Unknown movers 27939, 54782 and 27936 of Markarian Chain Panel 6's
+	// 2026-02-15 night were master-dark hot pixels at sensor (1399, 382),
+	// (78, 325) and (5046, 1135), walked across the sky by the night's field
+	// rotation. fit is each sub's map fitted to its registered and raw
+	// frames' stars, foot the footprint's, which put them up to 6 px apart
+	// on the sensor. 27936's six detections span 36 minutes, too short for
+	// the static test.
 	night := []string{"08:07:41", "08:12:49", "08:18:01", "08:33:23", "08:38:31", "08:43:43", "08:59:05", "09:04:13", "09:09:25",
 		"09:14:53", "09:24:19", "09:29:31", "09:34:43", "09:39:51", "09:45:03", "09:50:15", "09:55:23", "10:00:35", "10:05:57",
 		"10:11:05", "10:16:17", "10:21:29", "11:16:39", "11:21:47", "11:26:59", "11:32:27", "11:37:35", "11:42:47", "11:47:59"}
@@ -267,6 +269,13 @@ func TestMarkarianChainHotPixelsAreNotMovers(t *testing.T) {
 		{17, 72.22, 319.35, [6]float64{0.9989397, 0.002072772, 5.553176, -0.002002627, 0.9989038, 6.231609}, [6]float64{1, 0.001263813, 0.5333334, -0.001263813, 1, 2.776456}},
 		{18, 71.28, 320.75, [6]float64{0.9990688, 0.002321626, 5.948672, -0.002267395, 0.999036, 4.776406}, [6]float64{1, 0.00228939, -0.264653, -0.00228939, 1, 5.349875}},
 		{20, 67.91, 321.30, [6]float64{0.9989263, 0.002766792, 9.340803, -0.00271398, 0.9988906, 4.51814}, [6]float64{1, 0.002726704, 2.23612, -0.002726704, 1, 5.012953}},
+	}, {
+		{12, 5048.06, 1132.49, [6]float64{0.9991023, 0.0009043746, 1.400422, -0.0008210097, 0.9990604, 7.727288}, [6]float64{1, 0.0007905248, 0, -0.0007905248, 1, 4.252564}},
+		{14, 5045.41, 1135.35, [6]float64{0.998958, 0.00137348, 4.314275, -0.001291369, 0.9989191, 7.283404}, [6]float64{1, 0.001253842, -2.244188, -0.001253842, 1, 3.242607}},
+		{15, 5046.13, 1137.46, [6]float64{0.9990855, 0.001615872, 2.594458, -0.001545014, 0.9990491, 6.485619}, [6]float64{1, 0.0007625171, -0.6864585, -0.0007625171, 1, 2.512871}},
+		{16, 5043.73, 1138.58, [6]float64{0.9988774, 0.001835, 5.918586, -0.001765543, 0.9988353, 6.59202}, [6]float64{1, 0.0009421915, 0.809203, -0.0009421915, 1, 2.417317}},
+		{17, 5043.48, 1140.06, [6]float64{0.9989397, 0.002072772, 5.553176, -0.002002627, 0.9989038, 6.231609}, [6]float64{1, 0.001263813, 0.5333334, -0.001263813, 1, 2.776456}},
+		{19, 5039.60, 1144.04, [6]float64{0.9988577, 0.002536785, 9.345644, -0.002484037, 0.99882, 4.972097}, [6]float64{1, 0.002509064, 1.799115, -0.002509064, 1, 5.535622}},
 	}}
 	const scale = 1.915
 	times := make([]time.Time, len(night))
@@ -293,8 +302,8 @@ func TestMarkarianChainHotPixelsAreNotMovers(t *testing.T) {
 		links, _ := linkMovers(times, dets, scale, 6248*4176)
 		return links
 	}
-	if links := link(false); len(links) != 2 {
-		t.Errorf("mapped by their footprints both hot pixels link, as they did: %d tracks", len(links))
+	if links := link(false); len(links) != 3 {
+		t.Errorf("mapped by their footprints the three hot pixels link, as they did: %d tracks", len(links))
 	}
 	if links := link(true); len(links) != 0 {
 		t.Errorf("mapped by their registrations the hot pixels link as %d movers", len(links))
