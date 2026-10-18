@@ -64,6 +64,8 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		return *ps
 	}
 	switch {
+	case known.Reported != "":
+		return Suggestion{State: app.VetKnown, Say: sayAlreadyKnown, Confidence: High, Why: sentence(known.Reported)}
 	case flags.RefContaminated:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: reference image contaminated", Confidence: confirm(),
 			Why: joinSentences(notChanged(ownFlat, c), evidence(groups, check.RefClean), fmt.Sprintf("That made this spot look %s on the new nights.", direction))}
@@ -78,7 +80,7 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		return Suggestion{State: app.VetKnown, Say: "Known asteroid or comet", Confidence: High, Why: moving.Evidence}
 	}
 	if known.Listed != "" {
-		return Suggestion{State: app.VetKnown, Say: "Already known", Confidence: High, Why: sentence(known.Listed)}
+		return Suggestion{State: app.VetKnown, Say: sayAlreadyKnown, Confidence: High, Why: sentence(known.Listed)}
 	}
 	if ps != nil && (ps.State == app.VetArtifact || ps.State == app.VetKnown) {
 		return *ps

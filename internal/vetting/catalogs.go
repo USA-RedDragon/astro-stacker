@@ -16,6 +16,9 @@ import (
 // star; nearArcsec how close a different entry is still worth naming.
 const (
 	listedArcsec = 2.5
+	// tnsArcsec is how close a TNS report must be: reported transient
+	// positions are often a few arcsec off.
+	tnsArcsec    = 4.0
 	nearArcsec   = 30.0
 	simbadArcsec = 5.0
 	expectArcsec = 2.0
@@ -48,6 +51,10 @@ type Known struct {
 	// Listed names the catalog entry that already knows the star as
 	// variable or transient, empty when none does.
 	Listed string
+	// Reported is the TNS report at the spot, empty when none: a transient
+	// TNS knows outranks the image checks, since its own light can sit in
+	// the reference.
+	Reported string
 	// Name is the star's best known designation, when SIMBAD has one.
 	Name string
 	// Expected is "young star" or "supergiant" when SIMBAD lists the star
@@ -229,13 +236,14 @@ func tnsCheck(m Mirrors, ra, dec float64, k *Known) check.Check {
 	if m.TNS == nil || m.TNS() == nil {
 		return check.Skipped(check.TNS, "Not run: the local copy of the transient reports is off.")
 	}
-	hits := m.TNS().Near(ra, dec, listedArcsec)
+	hits := m.TNS().Near(ra, dec, tnsArcsec)
 	if len(hits) == 0 {
 		return check.New(check.TNS, check.Pass, "No match.")
 	}
 	h := hits[0]
 	name := strings.TrimSpace(h.Prefix + " " + h.Name)
 	k.Listed = cmpOr(k.Listed, "reported to TNS as "+name)
+	k.Reported = "reported to TNS as " + name
 	return check.New(check.TNS, check.Fail, fmt.Sprintf("Reported as %s on %s, %.1f arcsec away.", name, h.Discovered.Format("2006-01-02"), h.SepArcsec))
 }
 
