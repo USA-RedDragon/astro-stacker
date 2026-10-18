@@ -349,14 +349,27 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 			l.Matches = append(l.Matches, Match{Catalog: catalogFilter, Name: c.Filter, Note: fmt.Sprintf("found in %s's own comparison; under the threshold in the filters combined", c.Filter)})
 		}
 		checked, failed = confirmByZTF(ctx, &l, res, k.ZTF, &ztfAsked, checked, failed)
-		if c.GaiaG == nil && c.Sign > 0 && c.SubSharp > maxSubSharpness {
-			l.Matches = append(l.Matches, Match{Catalog: catalogDefect, Name: "sharp in its subs", Note: fmt.Sprintf("%.1f times a star's sharpness in its subs; held as a likely defect pixel", c.SubSharp)})
-		}
+		l.Matches = append(l.Matches, heldWhy(c)...)
 		annotateTNS(&l, res)
 		out[i] = l
 	}
 	holdMany(out)
 	return out, tracks, checked, failed
+}
+
+// heldWhy are the matches telling why a new source is held at low
+// confidence for itself: far sharper than a star in its subs, or weak
+// against the noise around it.
+func heldWhy(c Candidate) []Match {
+	var out []Match
+	if c.GaiaG == nil && c.Sign > 0 && c.SubSharp > maxSubSharpness {
+		out = append(out, Match{Catalog: catalogDefect, Name: "sharp in its subs", Note: fmt.Sprintf("%.1f times a star's sharpness in its subs; held as a likely defect pixel", c.SubSharp)})
+	}
+	if c.locallyFaint() {
+		out = append(out, Match{Catalog: catalogNoise, Name: "noisy spot",
+			Note: fmt.Sprintf("%.1f times the noise of the picture around it, though %.1f times the whole picture's; held under %.0f", c.LocalSNR, c.SNR, minLocalSNR)})
+	}
+	return out
 }
 
 // maxNewSources is the most new sources (where no star was) one night may
@@ -370,6 +383,10 @@ const maxNewSources = 10
 // catalogDefect is the match of a new source held for being far sharper
 // than a star in its subs.
 const catalogDefect = "defect"
+
+// catalogNoise is the match of a new source held for being weak against
+// the noise of the picture around it.
+const catalogNoise = "noise"
 
 // catalogFilter is the match of a change only one filter's own
 // comparison found.

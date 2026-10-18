@@ -195,6 +195,9 @@ type Candidate struct {
 	// SkyFixed says the subs it is in put it on sensor pixels more than
 	// skyFixedPx apart: its light moves with the sky across the dithers.
 	SkyFixed bool
+	// LocalSNR is the change's strength against the noise of the
+	// difference around it rather than the whole picture's.
+	LocalSNR float64
 	// Filter is the filter whose own comparison found the change, when
 	// the filters combined did not.
 	Filter string
@@ -673,6 +676,10 @@ type cand struct {
 	// refLight is, per filter, the reference's light in the aperture the
 	// change is measured in.
 	refLight map[string]float64
+	// noiseScale is how many times the picture's noise the difference's
+	// noise around the change is, at least 1: the per-sub test scales each
+	// sub's error by it.
+	noiseScale float64
 }
 
 // Run compares the night with its reference.
@@ -1013,6 +1020,7 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 	sigmaNight := res.HFRNight / hfrToSigma
 	sharpLimit := maxSharpness * psfSharpness(math.Max(res.HFRNight, res.HFRRef)/hfrToSigma)
 	var cands []cand
+	var noise *noiseMap
 	for _, sign := range []int{1, -1} {
 		name := signName(sign)
 		sd := &Plane{W: W, H: H, Data: make([]float32, W*H)}
@@ -1022,7 +1030,8 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 		objs := Extract(sd, drms, nil, DetectSigma, 3)
 		fn := Funnel{Raw: len(objs)}
 		for _, o := range objs {
-			snr := Aperture(sd, o.X, o.Y, apertureR) / res.ApSigma
+			flux := Aperture(sd, o.X, o.Y, apertureR)
+			snr := flux / res.ApSigma
 			if snr < DetectSigma {
 				continue
 			}
@@ -1042,6 +1051,12 @@ func (in *Input) findChanges(diff *Plane, drms []float32, ref *Plane, edge, bmas
 			fn.PSFLike++
 			var c cand
 			c.X, c.Y, c.Sign, c.SNR, c.A, c.B, c.NPix = o.X, o.Y, sign, snr, o.A, o.B, o.NPix
+			if noise == nil {
+				m := newNoiseMap(diff, ref, edge, res.ApSigma)
+				noise = &m
+			}
+			local := noise.at(o.X, o.Y)
+			c.LocalSNR, c.noiseScale = flux/local, local/res.ApSigma
 			c.RA, c.Dec = in.WCS.SkyOf(o.X, o.Y)
 			c.DiffFlux = Aperture(diff, o.X, o.Y, residualR)
 			c.RefFlux = Aperture(ref, o.X, o.Y, residualR)
@@ -1368,7 +1383,7 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			}
 			cc := c.Candidate
 			cc.SubSharp, cc.SkyFixed = m.inSubs(star)
-			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && cc.SubSharp > maxSubSharpness)
+			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && cc.SubSharp > maxSubSharpness) || cc.locallyFaint()
 			if cc.LowConf {
 				fn.LowConfident++
 			} else {
@@ -1405,9 +1420,9 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 func (c *cand) subTest() (*cand, perSubStats) {
 	if c.Filter != "" {
 		m := c.only(c.Filter)
-		return m, perSub(m.fluxes, m.errs)
+		return m, perSub(m.fluxes, c.scaled(m.errs))
 	}
-	st := perSub(c.fluxes, c.errs)
+	st := perSub(c.fluxes, c.scaled(c.errs))
 	if st.reason == "" {
 		return c, st
 	}
@@ -1422,12 +1437,32 @@ func (c *cand) subTest() (*cand, perSubStats) {
 			}
 		}
 		if len(fl) >= minFilterSubs {
-			if fs := perSub(fl, er); fs.reason == "" {
+			if fs := perSub(fl, c.scaled(er)); fs.reason == "" {
 				return c, fs
 			}
 		}
 	}
 	return c, st
+}
+
+// scaled is the subs' errors errs scaled by the change's noiseScale: each
+// sub's empty-aperture noise is the whole sub's, and on M 31's bulge a sub
+// is as much noisier there as the night's difference is.
+func (c *cand) scaled(errs []float64) []float64 {
+	if !(c.noiseScale > 1) {
+		return errs
+	}
+	out := make([]float64, len(errs))
+	for i, e := range errs {
+		out[i] = e * c.noiseScale
+	}
+	return out
+}
+
+// locallyFaint says whether a brightening where no star was is weaker than
+// minLocalSNR against the noise around it.
+func (c Candidate) locallyFaint() bool {
+	return c.GaiaG == nil && c.Sign > 0 && c.LocalSNR > 0 && c.LocalSNR < minLocalSNR
 }
 
 // residual says why a change on reference light is the light's
