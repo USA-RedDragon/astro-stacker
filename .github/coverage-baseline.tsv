@@ -162,12 +162,13 @@ internal/goals/fit.go	92	87
 internal/goals/image.go	124	120
 internal/goals/mask.go	42	35
 internal/goals/measure.go	261	245
+internal/goals/passcut.go	96	88
 internal/goals/plateau.go	21	20
 internal/goals/progress.go	104	93
 internal/goals/readiness.go	28	27
 internal/goals/settings.go	14	14
 internal/goals/signals.go	54	49
-internal/goals/tsgoals.go	353	319
+internal/goals/tsgoals.go	372	335
 internal/goals/zeropoint.go	143	127
 internal/goalswitch/goalswitch.go	106	84
 internal/halpha/halpha.go	177	154
@@ -237,7 +238,7 @@ internal/ninapath/ninapath.go	9	9
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	207	178
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -290,7 +291,7 @@ internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/schedglobal.go	53	48
-internal/schedcmd/service.go	234	205
+internal/schedcmd/service.go	234	203
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/templates.go	30	28
 internal/schedcmd/window.go	58	53
