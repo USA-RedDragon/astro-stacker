@@ -37,7 +37,7 @@ func (s *Service) Star(ctx context.Context, src app.DiscoverySource) (StarData, 
 	var out StarData
 	ra, dec := src.RA, src.Dec
 	out.RA, out.Dec = ra, dec
-	g, nb, err := s.gaiaAt(ctx, ra, dec)
+	g, nb, err := s.gaiaAt(ctx, ra, dec, s.refMag(ctx, src.ID))
 	if err != nil {
 		return out, err
 	}
@@ -68,9 +68,22 @@ func (s *Service) Star(ctx context.Context, src app.DiscoverySource) (StarData, 
 	return out, nil
 }
 
+// refMag is the median reference magnitude of source id's changes, NaN
+// when none has one or the database is off.
+func (s *Service) refMag(ctx context.Context, id int) float64 {
+	if s.App == nil || id == 0 {
+		return math.NaN()
+	}
+	var cands []app.DiscoveryCandidate
+	if err := s.App.WithContext(ctx).Select("kind", "ref_mag").Where("source_id = ?", id).Find(&cands).Error; err != nil {
+		return math.NaN()
+	}
+	return refMagOf(cands)
+}
+
 // gaiaAt is the Gaia star the vet takes for the spot, as identify picks
 // it, with the other stars within neighbourArcsec.
-func (s *Service) gaiaAt(ctx context.Context, ra, dec float64) (*starcat.GaiaStar, []starcat.GaiaStar, error) {
+func (s *Service) gaiaAt(ctx context.Context, ra, dec, refMag float64) (*starcat.GaiaStar, []starcat.GaiaStar, error) {
 	if s.Gaia == nil {
 		return nil, nil, ErrNoGaia
 	}
@@ -81,13 +94,7 @@ func (s *Service) gaiaAt(ctx context.Context, ra, dec float64) (*starcat.GaiaSta
 	sort.Slice(stars, func(i, j int) bool {
 		return arcsec(ra, dec, stars[i].RA, stars[i].Dec) < arcsec(ra, dec, stars[j].RA, stars[j].Dec)
 	})
-	best := -1
-	for i, g := range stars {
-		gra, gdec := g.At(epochYear(s.now()))
-		if arcsec(ra, dec, gra, gdec) <= starArcsec && (best < 0 || g.G < stars[best].G-1) {
-			best = i
-		}
-	}
+	best := pickStar(stars, ra, dec, epochYear(s.now()), refMag)
 	if best < 0 {
 		return nil, stars, nil
 	}
