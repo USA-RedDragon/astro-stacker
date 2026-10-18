@@ -9,10 +9,12 @@ import (
 	"math"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
@@ -39,7 +41,9 @@ func registeredKey(object, filter, frameKey string) string {
 	return path.Join("registered", ninapath.Folder(object), ninapath.Folder(filter), strings.TrimSuffix(path.Base(frameKey), path.Ext(frameKey))+registeredExt)
 }
 
-func encodeRegistered(src []byte) ([]byte, *imagedata.Image, error) {
+// encodeRegistered encodes a registered sub as 16-bit XISF, with its map
+// to the sensor (imagedata.PropSensorMap) when sensor has one.
+func encodeRegistered(src []byte, sensor []float64) ([]byte, *imagedata.Image, error) {
 	im, err := imagedata.Decode(src)
 	if err != nil {
 		return nil, nil, err
@@ -57,6 +61,9 @@ func encodeRegistered(src []byte) ([]byte, *imagedata.Image, error) {
 	}
 	props, keywords := pixInsightSolution(cards, im.H)
 	props = append(props, imagedata.Pedestal16Properties()...)
+	if len(sensor) == 6 {
+		props = append(props, imagedata.Property{ID: imagedata.PropSensorMap, Value: sensor, Rows: 2})
+	}
 	plane := im.Plane(0)
 	codes := make([]uint16, len(plane))
 	for i, v := range plane {
@@ -69,12 +76,19 @@ func encodeRegistered(src []byte) ([]byte, *imagedata.Image, error) {
 	return out.Bytes(), im, nil
 }
 
-func encodeRegisteredFile(src, dst string) error {
+// encodeRegisteredFile encodes the registered sub src into dst, with its
+// map to the sensor fitted to the stars of cal, the calibrated sub it was
+// registered from, when cal is set.
+func encodeRegisteredFile(src, cal, dst string) error {
 	b, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	enc, _, err := encodeRegistered(b)
+	var sensor []float64
+	if cal != "" {
+		sensor = registeredSensor(b, cal)
+	}
+	enc, _, err := encodeRegistered(b, sensor)
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", path.Base(src), err)
 	}
@@ -87,6 +101,37 @@ func encodeRegisteredFile(src, dst string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// registeredSensor fits a registered sub's map to the sensor to the stars
+// of cal, the calibrated sub it was registered from; nil when they don't
+// match.
+func registeredSensor(reg []byte, cal string) []float64 {
+	ri, err := imagedata.Decode(reg)
+	if err != nil {
+		return nil
+	}
+	b, err := os.ReadFile(cal)
+	if err != nil {
+		slog.Warn("Could not read a calibrated sub to map its registration to the sensor", "file", path.Base(cal), "error", err)
+		return nil
+	}
+	ci, err := imagedata.Decode(b)
+	if err != nil {
+		slog.Warn("Could not decode a calibrated sub to map its registration to the sensor", "file", path.Base(cal), "error", err)
+		return nil
+	}
+	m, rms, n, ok := discoveries.FitSensor(discoveries.PlaneOf(ri), discoveries.PlaneOf(ci))
+	if !ok {
+		slog.Warn("Could not map a registered sub to the sensor", "file", path.Base(cal), "stars", n, "rms_px", rms)
+		return nil
+	}
+	return m.Coefficients()
+}
+
+// calibratedOf is the calibrated sub Siril registered into reg.
+func calibratedOf(reg string) string {
+	return filepath.Join(filepath.Dir(reg), strings.TrimPrefix(filepath.Base(reg), "r_"))
 }
 
 type subStats struct {
@@ -518,7 +563,7 @@ func (p *Pipeline) convertRegistered(ctx context.Context, store registeredStore,
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("get: %w", err)
 	}
-	enc, orig, err := encodeRegistered(old)
+	enc, orig, err := encodeRegistered(old, nil)
 	if err != nil {
 		return 0, int64(len(old)), 0, fmt.Errorf("encode: %w", err)
 	}

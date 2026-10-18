@@ -212,7 +212,7 @@ func (p *Pipeline) storeRegistered(ctx context.Context, object, filter string, c
 		}
 		key := registeredKey(object, filter, c.c.frame.Key)
 		local := strings.TrimSuffix(reg, filepath.Ext(reg)) + registeredExt
-		if err := encodeRegisteredFile(reg, local); err != nil {
+		if err := encodeRegisteredFile(reg, calibratedOf(reg), local); err != nil {
 			return nil, 0, err
 		}
 		if err := p.upload(ctx, local, key, registeredContentType); err != nil {

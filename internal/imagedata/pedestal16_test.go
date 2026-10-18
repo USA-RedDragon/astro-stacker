@@ -3,6 +3,7 @@ package imagedata_test
 import (
 	"bytes"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -79,4 +80,24 @@ func TestUInt16WithoutMappingStaysNormalized(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(t, im)
+}
+
+func TestNumericPropertiesRoundTrip(t *testing.T) {
+	t.Parallel()
+	sensor := []float64{0.9988992, 0.0004024997, 3.989904, -0.0003049149, 0.9988521, 8.748185}
+	props := append(imagedata.Pedestal16Properties(), imagedata.Property{ID: imagedata.PropSensorMap, Value: sensor, Rows: 2})
+	var buf bytes.Buffer
+	if err := imagedata.WriteXISF16(&buf, 3, 2, pixels(), nil, props); err != nil {
+		t.Fatal(err)
+	}
+	im, err := imagedata.Decode(buf.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := im.Numbers[imagedata.PropSensorMap]; !slices.Equal(got, sensor) {
+		t.Errorf("sensor map %v, want %v", got, sensor)
+	}
+	if got := im.Numbers[imagedata.PropCodeStep]; len(got) != 1 || got[0] != imagedata.Pedestal16Step {
+		t.Errorf("code step %v, want %v", got, imagedata.Pedestal16Step)
+	}
 }

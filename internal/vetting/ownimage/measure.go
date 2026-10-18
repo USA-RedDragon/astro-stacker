@@ -45,7 +45,7 @@ type rec struct {
 
 // subInfo is what is known of a sub as a whole.
 type subInfo struct {
-	fm  sensorMap
+	fm  discoveries.SensorMap
 	sat float64
 }
 
@@ -126,8 +126,8 @@ func measureSpot(p *discoveries.Plane, sp *spotPlan, info subInfo, si int, fits 
 		return nil, errOffData
 	}
 	r := &rec{edge: noDistance, satNear: noDistance}
-	if info.fm.ok {
-		r.sx, r.sy = info.fm.at(sp.x, sp.y)
+	if info.fm.OK {
+		r.sx, r.sy = info.fm.At(sp.x, sp.y)
 		r.sensOK = true
 	}
 	measureLocal(p, sp, info, r)
@@ -253,7 +253,7 @@ func stream(parent context.Context, d Data, subs []Sub, plans []*spotPlan, threa
 					slog.Warn("Could not read a sub for vetting", "key", subs[i].Key, "error", err)
 					continue
 				}
-				info := subInfo{fm: footprint(p), sat: planeMax(p)}
+				info := subInfo{fm: discoveries.SensorMapOf(p), sat: planeMax(p)}
 				fits := &subFits{p: p, shapes: map[*tile]shapeFit{}, stars: map[fitKey]fitOut{}}
 				for _, sp := range plans {
 					if !sp.inFrame {

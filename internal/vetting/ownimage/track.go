@@ -48,8 +48,8 @@ type TrackSub struct {
 	Detected bool      `json:"detected"`
 	X        float64   `json:"x"`
 	Y        float64   `json:"y"`
-	// SX and SY are the sensor pixel under X and Y, and U and V the sub's
-	// shift against the frame, when its covered area gave them.
+	// SX and SY are the sensor pixel under X and Y, and U and V how far the
+	// registration moved that pixel, when the sub's map to the sensor is known.
 	SX     float64 `json:"sx"`
 	SY     float64 `json:"sy"`
 	U      float64 `json:"u"`
@@ -372,7 +372,7 @@ func streamTracks(parent context.Context, d Data, subs []Sub, masters map[string
 }
 
 func measureTrackSub(p *discoveries.Plane, si int, plans []*trackPlan, mu *sync.Mutex) {
-	fm := footprint(p)
+	fm := discoveries.SensorMapOf(p)
 	for _, tp := range plans {
 		for k, i := range tp.subs {
 			if i != si {
@@ -392,9 +392,9 @@ func measureTrackSub(p *discoveries.Plane, si int, plans []*trackPlan, mu *sync.
 			tp.stamps[k] = st
 			tp.stars[k] = stars
 			tp.rows[k].Sigma = sig
-			if fm.ok {
-				tp.rows[k].SX, tp.rows[k].SY = fm.at(r.X, r.Y)
-				tp.rows[k].U, tp.rows[k].V = fm.u, fm.v
+			if fm.OK {
+				tp.rows[k].SX, tp.rows[k].SY = fm.At(r.X, r.Y)
+				tp.rows[k].U, tp.rows[k].V = r.X-tp.rows[k].SX, r.Y-tp.rows[k].SY
 				tp.rows[k].Sensor = true
 			}
 			mu.Unlock()

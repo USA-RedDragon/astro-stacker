@@ -238,7 +238,7 @@ func (p *Pipeline) stackNightBatch(ctx context.Context, stack *app.Stack, night 
 		}
 		key := registeredKey(stack.Object, stack.Filter, c.c.frame.Key)
 		local := strings.TrimSuffix(registered[i], filepath.Ext(registered[i])) + registeredExt
-		if err := encodeRegisteredFile(registered[i], local); err != nil {
+		if err := encodeRegisteredFile(registered[i], "", local); err != nil {
 			return err
 		}
 		if err := p.upload(ctx, local, key, registeredContentType); err != nil {

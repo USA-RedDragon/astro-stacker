@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/siril"
@@ -130,7 +132,7 @@ func TestRegisteredEncodingRoundTrip(t *testing.T) {
 	t.Parallel()
 	const w, h = 120, 80
 	fit, data := registeredFITS(t, w, h, 1)
-	enc, orig, err := encodeRegistered(fit)
+	enc, orig, err := encodeRegistered(fit, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +144,7 @@ func TestRegisteredEncodingRoundTrip(t *testing.T) {
 	if err := os.WriteFile(oldFile, fit, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := encodeRegisteredFile(oldFile, newFile); err != nil {
+	if err := encodeRegisteredFile(oldFile, "", newFile); err != nil {
 		t.Fatal(err)
 	}
 	oldSub, ow, oh, err := readSub(oldFile)
@@ -191,10 +193,97 @@ func TestRegisteredEncodingRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRegisteredSubKeepsItsMapToTheSensor(t *testing.T) {
+	t.Parallel()
+	const w, h = 700, 500
+	theta, scale, u, v := 0.002, 1.0012, 3.5, -2.25
+	c, s := math.Cos(theta), math.Sin(theta)
+	toSensor := func(x, y float64) (float64, float64) {
+		x, y = x-w/2, y-h/2
+		return scale*(c*x+s*y) + w/2 + u, scale*(-s*x+c*y) + h/2 + v
+	}
+	toReg := func(sx, sy float64) (float64, float64) {
+		x, y := (sx-w/2-u)/scale, (sy-h/2-v)/scale
+		return c*x - s*y + w/2, s*x + c*y + h/2
+	}
+	r := rand.New(rand.NewPCG(4, 4))
+	cal, reg := make([]float32, w*h), make([]float32, w*h)
+	star := func(d []float32, x, y, f float64) {
+		for yy := max(0, int(y)-8); yy <= min(h-1, int(y)+8); yy++ {
+			for xx := max(0, int(x)-8); xx <= min(w-1, int(x)+8); xx++ {
+				dx, dy := float64(xx)-x, float64(yy)-y
+				d[yy*w+xx] += float32(f * math.Exp(-(dx*dx+dy*dy)/(2*1.6*1.6)))
+			}
+		}
+	}
+	for range 250 {
+		x, y, f := r.Float64()*w, r.Float64()*h, 0.02*math.Exp(3*r.Float64())
+		star(cal, x, y, f)
+		rx, ry := toReg(x, y)
+		star(reg, rx, ry, f)
+	}
+	for i := range cal {
+		cal[i] += float32(0.01 + 0.0003*r.NormFloat64())
+		reg[i] += float32(0.01 + 0.0003*r.NormFloat64())
+		if sx, sy := toSensor(float64(i%w), float64(i/w)); sx < 0 || sy < 0 || sx > w-1 || sy > h-1 {
+			reg[i] = 0
+		}
+	}
+	dir := t.TempDir()
+	write := func(name string, data []float32) string {
+		var buf bytes.Buffer
+		if err := imagedata.WriteFITS(&buf, w, h, 1, data, nil); err != nil {
+			t.Fatal(err)
+		}
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, buf.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	write("seq_00002.fit", cal)
+	regFile := write("r_seq_00002.fit", reg)
+	if got := calibratedOf(regFile); got != filepath.Join(dir, "seq_00002.fit") {
+		t.Fatalf("calibrated sub %s", got)
+	}
+	read := func(f string) *discoveries.Plane {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		im, err := imagedata.Decode(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return discoveries.PlaneOf(im)
+	}
+	out := filepath.Join(dir, "r_seq_00002.xisf")
+	if err := encodeRegisteredFile(regFile, calibratedOf(regFile), out); err != nil {
+		t.Fatal(err)
+	}
+	p := read(out)
+	if p.Sensor == nil {
+		t.Fatal("the registered sub kept no map to the sensor")
+	}
+	for _, q := range [][2]float64{{20, 20}, {w - 20, 20}, {20, h - 20}, {w - 20, h - 20}} {
+		wx, wy := toSensor(q[0], q[1])
+		gx, gy := p.Sensor.At(q[0], q[1])
+		if d := math.Hypot(gx-wx, gy-wy); d > 0.1 {
+			t.Errorf("(%v, %v) maps to (%.2f, %.2f) on the sensor, want (%.2f, %.2f)", q[0], q[1], gx, gy, wx, wy)
+		}
+	}
+	if err := encodeRegisteredFile(regFile, filepath.Join(dir, "missing.fit"), out); err != nil {
+		t.Fatal(err)
+	}
+	if read(out).Sensor != nil {
+		t.Error("a sub with no calibrated frame to match kept a map to the sensor")
+	}
+}
+
 func TestCompareEncodedCatchesDamage(t *testing.T) {
 	t.Parallel()
 	fit, _ := registeredFITS(t, 40, 30, 2)
-	enc, orig, err := encodeRegistered(fit)
+	enc, orig, err := encodeRegistered(fit, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
