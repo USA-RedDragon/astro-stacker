@@ -104,7 +104,7 @@ func Names() map[string]string {
 		NEOWISE:   "NEOWISE",
 		VSX:       "VSX",
 		GaiaVari:  "Gaia variability",
-		SurveyVar: "ATLAS, ZTF and ASAS-SN variable lists",
+		SurveyVar: "Survey variable star lists",
 		TNS:       "Transient reports (TNS)",
 		SIMBAD:    "SIMBAD",
 		Stays:     "Stays in place",
