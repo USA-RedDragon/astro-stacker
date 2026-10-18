@@ -6,6 +6,7 @@
 package eclfacts
 
 import (
+	"cmp"
 	"maps"
 	"math"
 	"slices"
@@ -261,9 +262,13 @@ func solve(ps []point, keep []bool, e *period.Ephemeris) *bandFit {
 	return &bandFit{depths: d, diffErr: math.Sqrt(de), core: core, chi2: chi2, n: n}
 }
 
-// Twin compares a star's two dips: DepthZ is the largest difference of
-// their depths in any well sampled band, in sigma, with that band's
-// depths; PhaseZ how far the second dip sits from mid-cycle, in sigma.
+// Twin compares a star's two dips: DepthZ is the difference of their
+// depths in a well sampled band where both dips are fainter than normal,
+// in sigma, with that band's depths: the only band's when one band can
+// tell, else the second largest among bands where the same dip is the
+// deeper, so one band's systematics cannot split the dips alone; Band is
+// empty when no band can tell or bands disagree. PhaseZ is how far
+// the second dip sits from mid-cycle, in sigma.
 type Twin struct {
 	Band     string  `json:"band"`
 	Depth1   Depth   `json:"depth1"`
@@ -285,15 +290,35 @@ func twin(pts []point, e *period.Ephemeris) *Twin {
 	}
 	fits := fitBands(pts, e)
 	t := &Twin{Phase2: e.Eclipses[1].Phase}
+	type diff struct {
+		key  string
+		f    *bandFit
+		z, d float64
+	}
+	var ds []diff
 	for _, key := range slices.Sorted(maps.Keys(fits)) {
 		f := fits[key]
-		if f.core[0] < minCore || f.core[1] < minCore || !(f.diffErr > 0) {
+		if f.core[0] < minCore || f.core[1] < minCore || !(f.diffErr > 0) || f.depths[0].Value <= 0 || f.depths[1].Value <= 0 {
 			continue
 		}
-		z := math.Abs(f.depths[0].Value-f.depths[1].Value) / f.diffErr
-		if t.Band == "" || z > t.DepthZ {
-			t.Band, t.Depth1, t.Depth2, t.DepthZ = key, f.depths[0], f.depths[1], z
+		d := f.depths[0].Value - f.depths[1].Value
+		ds = append(ds, diff{key: key, f: f, z: math.Abs(d) / f.diffErr, d: d})
+	}
+	slices.SortStableFunc(ds, func(a, b diff) int { return cmp.Compare(b.z, a.z) })
+	if len(ds) > 1 {
+		same := ds[:1]
+		for _, x := range ds[1:] {
+			if (x.d > 0) == (ds[0].d > 0) {
+				same = append(same, x)
+			}
 		}
+		ds = nil
+		if len(same) > 1 {
+			ds = same[1:2]
+		}
+	}
+	if len(ds) > 0 {
+		t.Band, t.Depth1, t.Depth2, t.DepthZ = ds[0].key, ds[0].f.depths[0], ds[0].f.depths[1], ds[0].z
 	}
 	t.Phase2, t.PhaseErr = fitPhase2(pts, e)
 	if t.PhaseErr > 0 {

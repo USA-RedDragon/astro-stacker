@@ -57,6 +57,35 @@ func TestTwinFindsEqualDipsAlike(t *testing.T) {
 	}
 }
 
+// TestTwinNeedsTwoBands is the case of source 1688: equal dips in ZTF r,
+// and a second band whose dips differ by a few sigma from its own
+// systematics. With two bands measured, one band alone cannot make the
+// dips differ.
+func TestTwinNeedsTwoBands(t *testing.T) {
+	t.Parallel()
+	e := ephem(0.5, 0.3, 0.3)
+	r := sample(e, 1500, 0.02, 4)
+	odd := ephem(0.5, 0.36, 0.18)
+	odd.Eclipses[0].Depth = map[string]float64{"ATLAS o": 0.36}
+	odd.Eclipses[1].Depth = map[string]float64{"ATLAS o": 0.18}
+	rng := rand.New(rand.NewPCG(5, 1))
+	o := lc.Series{Survey: lc.ATLAS, Band: "o"}
+	for i := range 1500 {
+		tt := 2458300 + float64(i)*1.29 + 0.2*rng.Float64()
+		o.Points = append(o.Points, lc.Point{BJD: tt, Mag: 15 + odd.Predict(tt, "ATLAS o") + 0.03*rng.NormFloat64(), Err: 0.03})
+	}
+	s := Summarize([]lc.Series{r, o}, e)
+	if s.Twin.DepthZ >= 3 {
+		t.Errorf("equal dips in r, unequal only in ATLAS o: %.1f sigma apart in %s", s.Twin.DepthZ, s.Twin.Band)
+	}
+	g := sample(ephem(0.5, 0.4, 0.2), 1500, 0.02, 6)
+	g.Band = "g"
+	s = Summarize([]lc.Series{sample(ephem(0.5, 0.4, 0.2), 1500, 0.02, 7), g}, ephem(0.5, 0.4, 0.2))
+	if s.Twin.DepthZ < 5 {
+		t.Errorf("unequal dips in r and g: only %.1f sigma apart", s.Twin.DepthZ)
+	}
+}
+
 func TestTwinTellsOffCentreDip(t *testing.T) {
 	t.Parallel()
 	e := ephem(0.52, 0.3, 0.3)
