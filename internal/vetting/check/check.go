@@ -51,6 +51,8 @@ const (
 	Fold      = "fold"
 	Half      = "half"
 	Double    = "double"
+	Echo      = "echo"
+	Compare   = "compare"
 	TESS      = "tess"
 	OwnTiming = "own_timing"
 	ATLAS     = "atlas"
@@ -94,6 +96,8 @@ func Names() map[string]string {
 		Fold:      "Folded dips line up",
 		Half:      "Half the period ruled out",
 		Double:    "Double the period ruled out",
+		Echo:      "Not an echo of the day, month or year",
+		Compare:   "Nearby steady stars stay flat",
 		TESS:      "TESS",
 		OwnTiming: "Your dip lands at the predicted time",
 		ATLAS:     "ATLAS",

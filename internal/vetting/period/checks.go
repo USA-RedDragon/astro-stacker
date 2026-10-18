@@ -179,8 +179,14 @@ func (a *analysis) checks(fits []SurveyFit) []check.Check {
 	switch a.kind {
 	case KindEclipsing:
 		out = append(out, a.foldEclipse(), a.halfEclipse(), a.doubleEclipse())
+		if a.rob != nil {
+			out = append(out, a.echoRow(), a.comparisonRow())
+		}
 	case KindSinusoidal:
 		out = append(out, a.foldSine(), a.halfSine(), a.doubleSine())
+		if a.rob != nil {
+			out = append(out, a.echoRow(), a.comparisonRow())
+		}
 	case KindFlat, KindIrregular:
 		why := "No period to fold."
 		out = append(out, a.periodRow(), check.New(check.Fold, check.NotRun, why),

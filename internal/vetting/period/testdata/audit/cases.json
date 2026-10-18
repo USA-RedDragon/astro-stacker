@@ -1,0 +1,2451 @@
+[
+ {
+  "key": "167",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "eclipsing",
+  "period": 0.9977268486248942,
+  "t0": 2459619.262098464,
+  "g": 16.223905563354492,
+  "ephemeris": {
+   "period": 0.9977268486248942,
+   "period_err": 3.082094152048183e-06,
+   "t0": 2459619.262098464,
+   "t0_err": 0.0017907136295731152,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.09461993851015309,
+     "shape": 0.36011397526370065,
+     "depth": {
+      "ZTF g": 0.23020389253169166,
+      "ZTF i": 0.10178572289265024,
+      "ZTF r": 0.18228452538833795
+     }
+    },
+    {
+     "phase": 0.15348369162691075,
+     "width": 0.16026652684154127,
+     "shape": 2.888607063908864,
+     "depth": {
+      "ZTF g": 0.22791927495949274,
+      "ZTF i": 0.0963298237074363,
+      "ZTF r": 0.04367840858723208
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 0.9977 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "235",
+  "group": "cand",
+  "want": "alias",
+  "kind": "sinusoidal",
+  "period": 1.0029234257883053,
+  "t0": 2456673.1818783097,
+  "g": 17.721921920776367,
+  "ephemeris": {
+   "period": 1.0029234257883053,
+   "period_err": 8.487905833270691e-07,
+   "t0": 2456673.1818783097,
+   "t0_err": 0.0022100245626607375,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "NEOWISE W1": 0,
+    "NEOWISE W2": 0.07052172206670496,
+    "TESS": 0.0005845486039064404,
+    "ZTF g": 1.1501205395631382,
+    "ZTF i": 0.5586813976988575,
+    "ZTF r": 1.3009292152284253
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 1.003 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "skip"
+  }
+ },
+ {
+  "key": "255",
+  "group": "cand",
+  "want": "alias",
+  "kind": "sinusoidal",
+  "period": 0.9975456344979451,
+  "t0": 2458278.0285311816,
+  "g": 17.453149795532227,
+  "ephemeris": {
+   "period": 0.9975456344979451,
+   "period_err": 2.836047084510622e-06,
+   "t0": 2458278.0285311816,
+   "t0_err": 0.003349435934032825,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.46746202408058757,
+    "ZTF i": 0.3444288720674331,
+    "ZTF r": 0.32289376865172076
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.9975 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "3095",
+  "group": "cand",
+  "want": "alias",
+  "kind": "sinusoidal",
+  "period": 0.499758479865603,
+  "t0": 2458275.919289335,
+  "g": 17.931095123291016,
+  "ephemeris": {
+   "period": 0.499758479865603,
+   "period_err": 2.0646291212801025e-06,
+   "t0": 2458275.919289335,
+   "t0_err": 0.006096558805795202,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.09316994530334866,
+    "ZTF i": 0.1238572180717052,
+    "ZTF r": 0.3901214112857977
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.4998 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "skip",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "4272",
+  "group": "cand",
+  "want": "alias",
+  "kind": "sinusoidal",
+  "period": 0.9997318452395556,
+  "t0": 2458218.882266583,
+  "g": 15.226917266845703,
+  "ephemeris": {
+   "period": 0.9997318452395556,
+   "period_err": 4.578053887122272e-06,
+   "t0": 2458218.882266583,
+   "t0_err": 0.00538781663889069,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.1031442069466413,
+    "ZTF i": 0.019141188048013274,
+    "ZTF r": 0.12851543974196936
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.9997 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "fail",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "4838",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "eclipsing",
+  "period": 2.997789879053921,
+  "t0": 2458834.6928363773,
+  "g": 14.338849067687988,
+  "ephemeris": {
+   "period": 2.997789879053921,
+   "period_err": 1.843460474530158e-05,
+   "t0": 2458834.6928363773,
+   "t0_err": 0.0010179540290092702,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.014346444588028605,
+     "shape": 0.3,
+     "depth": {
+      "NEOWISE W1": 0,
+      "NEOWISE W2": 0,
+      "TESS": 0,
+      "ZTF g": 0.015226634461049254,
+      "ZTF r": 0.12414273236230966
+     }
+    },
+    {
+     "phase": 0.5165991232632279,
+     "width": 0.05590938983770221,
+     "shape": 7.070706721059597,
+     "depth": {
+      "NEOWISE W1": 0.020721111566862387,
+      "NEOWISE W2": 0.03829429622096219,
+      "TESS": 0.0010500973347051011,
+      "ZTF g": 0,
+      "ZTF r": 0.002123984212065445
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 2.998 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "fail",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "fail",
+   "fold": "pass",
+   "half": "pass",
+   "double": "skip",
+   "tess": "fail",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "fail",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "skip"
+  }
+ },
+ {
+  "key": "4978",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 0.9974678695413545,
+  "t0": 2458206.77063256,
+  "g": 15.193535804748535,
+  "ephemeris": {
+   "period": 0.9974678695413545,
+   "period_err": 1.9257161916205502e-05,
+   "t0": 2458206.77063256,
+   "t0_err": 0.03004306057916835,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.04018233459136,
+    "ZTF i": 0,
+    "ZTF r": 0.002282891435325303
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.9975 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "fail",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "9124",
+  "group": "cand",
+  "want": "real-period",
+  "kind": "eclipsing",
+  "period": 3.9703077927803,
+  "t0": 2458828.47988112,
+  "g": 14.699719429016113,
+  "ephemeris": {
+   "period": 3.9703077927803,
+   "period_err": 2.9090680460187327e-06,
+   "t0": 2458828.47988112,
+   "t0_err": 0.0011074068380318854,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.025322529415311972,
+     "shape": 1.5972515936993443,
+     "depth": {
+      "NEOWISE W1": 0.17554634808375544,
+      "NEOWISE W2": 0.17418518651172693,
+      "ZTF g": 0.14817206486973905,
+      "ZTF r": 0.13638446078334088
+     }
+    },
+    {
+     "phase": 0.4981082669984449,
+     "width": 0.02248910186704184,
+     "shape": 0.4529408423393523,
+     "depth": {
+      "NEOWISE W1": 0.11785189372115575,
+      "NEOWISE W2": 0.14186267026582516,
+      "ZTF g": 0.10226827307522707,
+      "ZTF r": 0.14445387048747932
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 3.97 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "fail",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "fail",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "16040",
+  "group": "cand",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 2.741972351806654,
+  "t0": 2458142.2208542847,
+  "g": 17.084394454956055,
+  "ephemeris": {
+   "period": 2.741972351806654,
+   "period_err": 2.6329093284877497e-06,
+   "t0": 2458142.2208542847,
+   "t0_err": 0.0014043451840677435,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.06984335955257616,
+     "shape": 8,
+     "depth": {
+      "NEOWISE W1": 0.31608094100662737,
+      "NEOWISE W2": 0.2310098709267886,
+      "ZTF g": 0.5341360094350093,
+      "ZTF r": 0.5238299983913097
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 2.742 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "fail",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "16528",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 0.997397231013542,
+  "t0": 2458207.394626662,
+  "g": 16.611116409301758,
+  "ephemeris": {
+   "period": 0.997397231013542,
+   "period_err": 1.2547985389766054e-05,
+   "t0": 2458207.394626662,
+   "t0_err": 0.018800106943748538,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0,
+    "ZTF r": 0.04819381972769312
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.9974 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "fail",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "17073",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 60.09525067812466,
+  "t0": 2455332.6289355853,
+  "g": 14.733240127563477,
+  "ephemeris": {
+   "period": 60.09525067812466,
+   "period_err": 0.043721702238171144,
+   "t0": 2455332.6289355853,
+   "t0_err": 2.441751805696096,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "NEOWISE W1": 0.08551394785668834,
+    "NEOWISE W2": 0.10849182258607339
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 60.095 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "fail",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "pass",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "17511",
+  "group": "cand",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 38.43966620123387,
+  "t0": 2458146.0121488576,
+  "g": 16.597902297973633,
+  "ephemeris": {
+   "period": 38.43966620123387,
+   "period_err": 9.531646731110352e-05,
+   "t0": 2458146.0121488576,
+   "t0_err": 0.004699715597570966,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.006612161133059173,
+     "shape": 4.650579146443929,
+     "depth": {
+      "ZTF g": 0.46948022126797834,
+      "ZTF r": 0.4510529567403563
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 38.44 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "24224",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 1.032014821350765,
+  "t0": 2458257.1820437196,
+  "g": 18.0,
+  "ephemeris": {
+   "period": 1.032014821350765,
+   "period_err": 2.7599908244467276e-05,
+   "t0": 2458257.1820437196,
+   "t0_err": 0.032506118929622775,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF i": 1.129062638234731,
+    "ZTF r": 0.396155771390482
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 1.032 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "fail",
+   "edge": "pass",
+   "own_lc": "skip",
+   "own_change": "skip",
+   "own_quiet": "skip",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "26697",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 0.9974673044777048,
+  "t0": 2458205.537464946,
+  "g": 16.02158546447754,
+  "ephemeris": {
+   "period": 0.9974673044777048,
+   "period_err": 1.1969331412728805e-05,
+   "t0": 2458205.537464946,
+   "t0_err": 0.01586047165410729,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.027529942263339532,
+    "ZTF i": 0,
+    "ZTF r": 0.021503082974898037
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.9975 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "28513",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 0.9997436609382676,
+  "t0": 2458254.8231673674,
+  "g": 14.023818016052246,
+  "ephemeris": {
+   "period": 0.9997436609382676,
+   "period_err": 1.1351123388839197e-05,
+   "t0": 2458254.8231673674,
+   "t0_err": 0.01500417919674853,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.01652284316956625,
+    "ZTF i": 0.006216898118323159,
+    "ZTF r": 0.013538026095051517
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.9997 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "fail",
+   "ztf": "skip",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "28741",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 0.499195226593345,
+  "t0": 2458207.0133817005,
+  "g": 15.467446327209473,
+  "ephemeris": {
+   "period": 0.499195226593345,
+   "period_err": 1.6433682836968934e-06,
+   "t0": 2458207.0133817005,
+   "t0_err": 0.005032097160507814,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.13222049654604223,
+    "ZTF r": 0.09157023699842308
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.4992 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "33898",
+  "group": "cand",
+  "want": "real-period",
+  "kind": "sinusoidal",
+  "period": 0.464798144189358,
+  "t0": 2458359.949440682,
+  "g": 14.243171691894531,
+  "ephemeris": {
+   "period": 0.464798144189358,
+   "period_err": 1.430376159788712e-06,
+   "t0": 2458359.949440682,
+   "t0_err": 0.004271353755011104,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.1193499889113063,
+    "ZTF r": 0.08901179159896418
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.4648 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "33899",
+  "group": "cand",
+  "want": "alias",
+  "kind": "sinusoidal",
+  "period": 1.0341386040169844,
+  "t0": 2458359.6849914957,
+  "g": 14.731825828552246,
+  "ephemeris": {
+   "period": 1.0341386040169844,
+   "period_err": 1.1115669016143512e-05,
+   "t0": 2458359.6849914957,
+   "t0_err": 0.014436709137371629,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.07433363407053639,
+    "ZTF r": 0.08426647242579233
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 1.034 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "fail",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "33903",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 0.9953183003223914,
+  "t0": 2458205.3230322227,
+  "g": 16.384340286254883,
+  "ephemeris": {
+   "period": 0.9953183003223914,
+   "period_err": 9.469386452435218e-06,
+   "t0": 2458205.3230322227,
+   "t0_err": 0.013322233696268218,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.15798115766046575,
+    "ZTF r": 0.10640231465772247
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.9953 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "fail",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "34867",
+  "group": "cand",
+  "want": "drifts",
+  "kind": "sinusoidal",
+  "period": 50.18697186143612,
+  "t0": 2458341.2411475233,
+  "g": 15.856147766113281,
+  "ephemeris": {
+   "period": 50.18697186143612,
+   "period_err": 0.016800201105129014,
+   "t0": 2458341.2411475233,
+   "t0_err": 0.4680718665897352,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.14244377557128546,
+    "ZTF r": 0.10055669576316242
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 50.187 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "skip",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "35413",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 1.0020873303178803,
+  "t0": 2458269.445677571,
+  "g": 17.020122528076172,
+  "ephemeris": {
+   "period": 1.0020873303178803,
+   "period_err": 7.676212263277997e-06,
+   "t0": 2458269.445677571,
+   "t0_err": 0.009337838764716055,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.07727129591663856,
+    "ZTF i": 0.03297574216047196,
+    "ZTF r": 0.04395157585672414
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 1.002 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "35873",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 1.0011698385308936,
+  "t0": 2458269.260133068,
+  "g": 17.52530288696289,
+  "ephemeris": {
+   "period": 1.0011698385308936,
+   "period_err": 3.996112261673775e-06,
+   "t0": 2458269.260133068,
+   "t0_err": 0.004423186905656825,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.45506449753190514,
+    "ZTF i": 0.26841370682327903,
+    "ZTF r": 0.31956875112625555
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 1.001 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "skip",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "41958",
+  "group": "cand",
+  "want": "alias",
+  "kind": "sinusoidal",
+  "period": 0.8923280528502878,
+  "t0": 2458428.169171525,
+  "g": 15.730477333068848,
+  "ephemeris": {
+   "period": 0.8923280528502878,
+   "period_err": 2.1137454683412822e-05,
+   "t0": 2458428.169171525,
+   "t0_err": 0.022834993302853893,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.04179730864831068,
+    "ZTF r": 0.0672755793598636
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.8923 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "43556",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 0.4984167671197183,
+  "t0": 2458268.690971167,
+  "g": 18.0,
+  "ephemeris": {
+   "period": 0.4984167671197183,
+   "period_err": 6.027992577413484e-06,
+   "t0": 2458268.690971167,
+   "t0_err": 0.014387877144846307,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF r": 0.43999301142200564
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.4984 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "skip",
+   "edge": "pass",
+   "own_lc": "skip",
+   "own_change": "skip",
+   "own_quiet": "skip",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "fail",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "49093",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 0.9974388826815165,
+  "t0": 2458206.810412787,
+  "g": 14.922837257385254,
+  "ephemeris": {
+   "period": 0.9974388826815165,
+   "period_err": 1.729761477794552e-05,
+   "t0": 2458206.810412787,
+   "t0_err": 0.03201793743001134,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "ZTF g": 0.038864050136197155,
+    "ZTF r": 0.0008650991498932688
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 0.9974 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "49921",
+  "group": "cand",
+  "want": "not-real",
+  "kind": "sinusoidal",
+  "period": 19.945803963197086,
+  "t0": 2455334.4907097914,
+  "g": 15.010409355163574,
+  "ephemeris": {
+   "period": 19.945803963197086,
+   "period_err": 0.004557442234847588,
+   "t0": 2455334.4907097914,
+   "t0_err": 0.7809700865845061,
+   "kind": "sinusoidal",
+   "eclipses": [],
+   "amplitude": {
+    "NEOWISE W1": 0.07022774714963666,
+    "NEOWISE W2": 0.08884973870869749
+   }
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new variable star, repeats every 19.946 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "skip",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "skip",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "skip"
+  }
+ },
+ {
+  "key": "c45029",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 21.08148,
+  "t0": null,
+  "g": 15.969381332397461,
+  "ephemeris": {
+   "period": 21.081475697808916,
+   "period_err": 2.006705950600577e-05,
+   "t0": 2458133.2652830207,
+   "t0_err": 0.0014093107176832971,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.01379563415532984,
+     "shape": 3.4512315247610195,
+     "depth": {
+      "ZTF g": 0.43964849491763935,
+      "ZTF r": 0.40960662594323305
+     }
+    },
+    {
+     "phase": 0.5713765956214119,
+     "width": 0.009933643386117982,
+     "shape": 3.1134745522075895,
+     "depth": {
+      "NEOWISE W1": 0.34737501422691286,
+      "NEOWISE W2": 0.08940576301495248,
+      "ZTF g": 0.4066401958908613,
+      "ZTF r": 0.4129725958170968
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 21.081 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "pass",
+   "atlas": "skip",
+   "neowise": "fail",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c43141",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 4.129667,
+  "t0": null,
+  "g": 16.266735076904297,
+  "ephemeris": {
+   "period": 4.129667418682499,
+   "period_err": 3.1025465877204033e-06,
+   "t0": 2458115.448778639,
+   "t0_err": 0.0011898527294406703,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.028655041774019147,
+     "shape": 5.194862440204653,
+     "depth": {
+      "NEOWISE W1": 0.4866702149363282,
+      "NEOWISE W2": 0.3545543675474657,
+      "ZTF g": 0.5425548059028157,
+      "ZTF r": 0.5238837489390936
+     }
+    },
+    {
+     "phase": 0.5012333117987327,
+     "width": 0.03478806508676096,
+     "shape": 8,
+     "depth": {
+      "NEOWISE W1": 0.24658117389736928,
+      "NEOWISE W2": 0.30512713323696244,
+      "ZTF g": 0.031074511782600598,
+      "ZTF r": 0.06769319396183986
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 4.13 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "fail",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c33629",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 5.39172,
+  "t0": null,
+  "g": 15.263520240783691,
+  "ephemeris": {
+   "period": 5.39172050135027,
+   "period_err": 5.3781164756740705e-06,
+   "t0": 2458143.456452924,
+   "t0_err": 0.0016350614680658714,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.017996415008280545,
+     "shape": 3.0244207307554754,
+     "depth": {
+      "NEOWISE W1": 0.1843325794911512,
+      "NEOWISE W2": 0.15830680866600488,
+      "ZTF g": 0.34850610353152717,
+      "ZTF r": 0.31230874577728795
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 5.392 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c33136",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 44.554,
+  "t0": null,
+  "g": 15.015499114990234,
+  "ephemeris": {
+   "period": 44.553980722394705,
+   "period_err": 0.00010682680270442292,
+   "t0": 2458140.203957306,
+   "t0_err": 0.003502828119874655,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.006051930883282612,
+     "shape": 1.0777516819502224,
+     "depth": {
+      "ZTF g": 0.5418547960907999,
+      "ZTF r": 0.44181882745033224
+     }
+    },
+    {
+     "phase": 0.22101638162023773,
+     "width": 0.008538841387410945,
+     "shape": 1.4547753765641673,
+     "depth": {
+      "ZTF g": 0.20265010464290067,
+      "ZTF r": 0.22990500824064664
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 44.554 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "pass",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c30141",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 15.22282,
+  "t0": null,
+  "g": 16.067501068115234,
+  "ephemeris": {
+   "period": 15.2228883076087,
+   "period_err": 1.0972288995547092e-05,
+   "t0": 2458112.723274673,
+   "t0_err": 0.0009490507905468858,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.011284947610897553,
+     "shape": 8,
+     "depth": {
+      "TESS": 0.8133345790493095,
+      "ZTF g": 0.8377595766898381
+     }
+    },
+    {
+     "phase": 0.4398905973199541,
+     "width": 0.017797762847882443,
+     "shape": 2.6101050063728755,
+     "depth": {
+      "TESS": 0.26438425976187174,
+      "ZTF g": 0.2541252984135321,
+      "ZTF r": 0.29370225549310097
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 15.223 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "pass",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c23081",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 11.944118,
+  "t0": null,
+  "g": 15.388794898986816,
+  "ephemeris": {
+   "period": 11.944124343772346,
+   "period_err": 7.032246666392264e-06,
+   "t0": 2459285.564279491,
+   "t0_err": 0.0005051855552894122,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.01918992817947691,
+     "shape": 8,
+     "depth": {
+      "ATLAS c": 0.3484013857579354,
+      "ATLAS o": 0.6339520723273696,
+      "ZTF g": 0.5535986185384447,
+      "ZTF i": 0.5412223337245964,
+      "ZTF r": 0.5514731110245069
+     }
+    },
+    {
+     "phase": 0.65222659263551,
+     "width": 0.028139072316309837,
+     "shape": 8,
+     "depth": {
+      "ATLAS c": 0.3206943272719723,
+      "ATLAS o": 0.5396318730026612,
+      "ZTF g": 0.4644746019005001,
+      "ZTF r": 0.4578194181684259
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 11.944 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "pass",
+   "atlas": "pass",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c21142",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 7.625329,
+  "t0": null,
+  "g": 14.90601634979248,
+  "ephemeris": {
+   "period": 7.625327765131798,
+   "period_err": 3.119881278930604e-06,
+   "t0": 2458272.102634713,
+   "t0_err": 0.0006512418595085212,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.04189500121634654,
+     "shape": 7.548911321972956,
+     "depth": {
+      "ATLAS c": 0.3262797976667154,
+      "ATLAS o": 0.5643850757472123,
+      "NEOWISE W1": 0.374638233199093,
+      "NEOWISE W2": 0.34284342177513466,
+      "ZTF g": 0.5301378486173571,
+      "ZTF r": 0.5263252193731459
+     }
+    },
+    {
+     "phase": 0.482989705463568,
+     "width": 0.04014647095812009,
+     "shape": 8,
+     "depth": {
+      "ATLAS c": 0.3206022138775586,
+      "ATLAS o": 0.5135259855263629,
+      "NEOWISE W1": 0.4300812898465872,
+      "NEOWISE W2": 0.39496547265811804,
+      "ZTF g": 0.5444324811685707,
+      "ZTF r": 0.5218880512268855
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 7.625 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "pass",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c49572",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 4.111827,
+  "t0": null,
+  "g": 14.859153747558594,
+  "ephemeris": {
+   "period": 4.111826139727958,
+   "period_err": 4.417874234706774e-06,
+   "t0": 2458826.0056760227,
+   "t0_err": 0.0013866189249653236,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.024527289525462445,
+     "shape": 1.9512374517264255,
+     "depth": {
+      "NEOWISE W1": 0.15413469504797056,
+      "NEOWISE W2": 0.2184535970806863,
+      "ZTF g": 0.16216043621643786,
+      "ZTF r": 0.16094643775900044
+     }
+    },
+    {
+     "phase": 0.49597568747233234,
+     "width": 0.030439037448287836,
+     "shape": 3.156332832045302,
+     "depth": {
+      "NEOWISE W1": 0.12062599002322844,
+      "NEOWISE W2": 0.1601293954367157,
+      "ZTF g": 0.14403707077168698,
+      "ZTF r": 0.1415176316181339
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 4.112 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c16658",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 13.72664,
+  "t0": null,
+  "g": 16.84149169921875,
+  "ephemeris": {
+   "period": 13.726632440640092,
+   "period_err": 1.813557465962274e-05,
+   "t0": 2458149.2280248823,
+   "t0_err": 0.002016554392780923,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.017916520967188664,
+     "shape": 8,
+     "depth": {
+      "NEOWISE W1": 0.7678913389693593,
+      "ZTF g": 0.43496249481660354,
+      "ZTF r": 0.4775068689836459
+     }
+    },
+    {
+     "phase": 0.492867004092689,
+     "width": 0.01509160229452297,
+     "shape": 8,
+     "depth": {
+      "ZTF r": 0.5707745482286849
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 13.727 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "pass",
+   "atlas": "skip",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c15362",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 52.392,
+  "t0": null,
+  "g": 15.121661186218262,
+  "ephemeris": {
+   "period": 52.39618160814674,
+   "period_err": 0.0007902872057323354,
+   "t0": 2458101.970697101,
+   "t0_err": 0.022297021447638326,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.002590118040659521,
+     "shape": 1.3703857123733463,
+     "depth": {
+      "ZTF r": 0.22824017944457028
+     }
+    },
+    {
+     "phase": 0.39806668319530814,
+     "width": 0.003012981693644442,
+     "shape": 0.3,
+     "depth": {
+      "ZTF r": 0.16796676917721692
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 52.396 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "skip",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c6014",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 6.69011,
+  "t0": null,
+  "g": 16.785463333129883,
+  "ephemeris": {
+   "period": 6.6901081978929104,
+   "period_err": 4.386212570334577e-06,
+   "t0": 2458132.50489197,
+   "t0_err": 0.0008166313814617786,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.02374079625169722,
+     "shape": 8,
+     "depth": {
+      "NEOWISE W1": 0.4982312133016799,
+      "NEOWISE W2": 0.46504031503974386,
+      "ZTF r": 0.6631645357217543
+     }
+    },
+    {
+     "phase": 0.501398790130625,
+     "width": 0.01800984974420322,
+     "shape": 3.735670555752747,
+     "depth": {
+      "NEOWISE W1": 0.3285383563807209,
+      "NEOWISE W2": 0.4741682934370306,
+      "ZTF r": 0.4220301364488014
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 6.69 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "fail",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c1688",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 13.5715,
+  "t0": null,
+  "g": 16.64461898803711,
+  "ephemeris": {
+   "period": 6.7857403631588395,
+   "period_err": 1.162622443829616e-05,
+   "t0": 2458329.884551363,
+   "t0_err": 0.0019335092624993971,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.013821890844290736,
+     "shape": 0.7097276498542876,
+     "depth": {
+      "ATLAS c": 0.1430068669062077,
+      "ATLAS o": 0.18470478266296847,
+      "NEOWISE W1": 0.08453593529510411,
+      "NEOWISE W2": 0.11939102738636723,
+      "ZTF g": 0.1711872305435974,
+      "ZTF r": 0.16983417408901383
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 6.786 days"
+  },
+  "app_checks": {
+   "hot_pixel": "skip",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "fail",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "fail",
+   "own_quiet": "fail",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "fail",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "pass",
+   "neowise": "fail",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c618",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 2.256397,
+  "t0": null,
+  "g": 18.08119773864746,
+  "ephemeris": {
+   "period": 2.2563969876833516,
+   "period_err": 7.734928586609703e-07,
+   "t0": 2458841.0738453465,
+   "t0_err": 0.0003461537271627043,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.11962900330880054,
+     "shape": 8,
+     "depth": {
+      "NEOWISE W1": 0.28042066283604833,
+      "TESS": 1.1532448517334937,
+      "ZTF g": 2.3649286022128684,
+      "ZTF r": 1.8802615391380106
+     }
+    },
+    {
+     "phase": 0.5012543429930786,
+     "width": 0.11328334067605096,
+     "shape": 5.241445786017781,
+     "depth": {
+      "NEOWISE W1": 0.029391269574913004,
+      "TESS": 0.2080093515405652,
+      "ZTF g": 0.0710448650059083,
+      "ZTF i": 0.16248726598765054,
+      "ZTF r": 0.12397114343295772
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 2.256 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "fail",
+   "tess": "fail",
+   "own_timing": "skip",
+   "atlas": "skip",
+   "neowise": "fail",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c2301",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 39.6865,
+  "t0": null,
+  "g": 15.461854934692383,
+  "ephemeris": {
+   "period": 39.685414432561615,
+   "period_err": 0.0003215261805110838,
+   "t0": 2459021.6937285843,
+   "t0_err": 0.012192097808767153,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.14212269970219527,
+     "shape": 8,
+     "depth": {
+      "ATLAS c": 0.10231009268950818,
+      "ATLAS o": 0.4063262843225631,
+      "NEOWISE W1": 0.3450605874499841,
+      "NEOWISE W2": 0.3377416216409957,
+      "ZTF g": 0.4302048177691426,
+      "ZTF i": 0.3785640595945559,
+      "ZTF r": 0.45906103230553547
+     }
+    },
+    {
+     "phase": 0.5006649632679817,
+     "width": 0.12624015559565943,
+     "shape": 7.525336583077161,
+     "depth": {
+      "ATLAS c": 0.08896981536215756,
+      "ATLAS o": 0.36098767602473825,
+      "NEOWISE W1": 0.3183294709554396,
+      "NEOWISE W2": 0.3350899967492946,
+      "ZTF g": 0.29878849434245547,
+      "ZTF r": 0.2992085414335638
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 39.685 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "skip",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "fail",
+   "ztf": "pass",
+   "fold": "fail",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "skip",
+   "atlas": "pass",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c4046",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 14.62491,
+  "t0": null,
+  "g": 14.244114875793457,
+  "ephemeris": {
+   "period": 14.624907892828634,
+   "period_err": 1.9631846489788233e-05,
+   "t0": 2459075.342500089,
+   "t0_err": 0.0018118725562582523,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.010893697104653256,
+     "shape": 1.5702159093690622,
+     "depth": {
+      "ATLAS c": 0.18380420883605242,
+      "ATLAS o": 0.22011983064186613,
+      "NEOWISE W1": 0.2684984852565455,
+      "NEOWISE W2": 0.2618066126408402,
+      "ZTF g": 0.23453028327529163
+     }
+    },
+    {
+     "phase": 0.6681358696635988,
+     "width": 0.015415403568192158,
+     "shape": 2.9519514256598,
+     "depth": {
+      "ATLAS c": 0.1859597435709086,
+      "ATLAS o": 0.2226385677239352,
+      "ZTF g": 0.2118284826385396
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 14.625 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "skip",
+   "own_timing": "pass",
+   "atlas": "pass",
+   "neowise": "pass",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "c571",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 15.84854,
+  "t0": null,
+  "g": 15.052408218383789,
+  "ephemeris": {
+   "period": 15.848524404468025,
+   "period_err": 7.047283907768116e-06,
+   "t0": 2458841.8590752915,
+   "t0_err": 0.0006215718675322056,
+   "kind": "eclipsing",
+   "eclipses": [
+    {
+     "phase": 0,
+     "width": 0.010547829324788162,
+     "shape": 8,
+     "depth": {
+      "TESS": 0.44375682244878123,
+      "ZTF g": 0.4532012046641634,
+      "ZTF r": 0.46817659892201724
+     }
+    },
+    {
+     "phase": 0.6783002157865666,
+     "width": 0.01653584404887378,
+     "shape": 2.0487232542539826,
+     "depth": {
+      "TESS": 0.19155284589463387,
+      "ZTF g": 0.279339364273247,
+      "ZTF i": 0.27197130580698525,
+      "ZTF r": 0.27451670461802824
+     }
+    }
+   ]
+  },
+  "app": {
+   "state": "real",
+   "say": "Looks like a new eclipsing binary, repeats every 15.849 days"
+  },
+  "app_checks": {
+   "hot_pixel": "pass",
+   "ref_clean": "pass",
+   "trail": "pass",
+   "psf": "pass",
+   "edge": "pass",
+   "own_lc": "pass",
+   "own_change": "pass",
+   "own_quiet": "pass",
+   "ztf": "pass",
+   "fold": "pass",
+   "half": "pass",
+   "double": "pass",
+   "tess": "pass",
+   "own_timing": "pass",
+   "atlas": "skip",
+   "neowise": "skip",
+   "vsx": "pass",
+   "gaia_vari": "pass",
+   "survey_vars": "pass",
+   "tns": "pass",
+   "simbad": "pass",
+   "stays": "pass"
+  }
+ },
+ {
+  "key": "ctlIC1396",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 19.11938,
+  "t0": null,
+  "g": 14.846537590026855,
+  "ephemeris": null,
+  "app": null,
+  "app_checks": null
+ },
+ {
+  "key": "ctlNAN",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 34.40645,
+  "t0": null,
+  "g": 14.239095687866211,
+  "ephemeris": null,
+  "app": null,
+  "app_checks": null
+ },
+ {
+  "key": "ctlM31",
+  "group": "control",
+  "want": "real",
+  "kind": "eclipsing",
+  "period": 9.98715,
+  "t0": null,
+  "g": 15.043442726135254,
+  "ephemeris": null,
+  "app": null,
+  "app_checks": null
+ }
+]
