@@ -496,6 +496,7 @@ func (s *Service) RequestImaging(ctx context.Context, id int, kind string, mid t
 	var hit *Predicted
 	for _, p := range Predict(e, st.Facts.Deeper, ra, dec, mid.Add(-requestMatch), mid.Add(requestMatch)) {
 		if p.Kind == kind {
+			p = st.withPhaseError(p, e)
 			hit = &p
 			break
 		}
