@@ -11,7 +11,7 @@ import (
 // 2.8 px from a G 15.77 star, moved it by 0.15.
 func TestNewSourceOnAStar(t *testing.T) {
 	t.Parallel()
-	m31 := Galaxy{Name: "M 31", RA: 10.6847, Dec: 41.2690, Major: 190, Minor: 60, LocalGroup: true}
+	m31 := m31Galaxy()
 	f := func(v float64) *float64 { return &v }
 	for _, tc := range []struct {
 		name      string

@@ -216,7 +216,7 @@ func TestANightOfManyNewSourcesHoldsThem(t *testing.T) {
 	mk := func(n int) *Result {
 		res := &Result{}
 		for i := range n {
-			res.Candidates = append(res.Candidates, Candidate{RA: 313 + float64(i)/100, Dec: 46.5, Sign: 1, SNR: 20, PresentIn: 7, SubsTested: 7})
+			res.Candidates = append(res.Candidates, Candidate{X: float64(i) * 100, RA: 313 + float64(i)/100, Dec: 46.5, Sign: 1, SNR: 20, PresentIn: 7, SubsTested: 7})
 		}
 		return res
 	}
@@ -243,8 +243,8 @@ func TestANightOfManyNewSourcesHoldsThem(t *testing.T) {
 	for _, l := range ls {
 		switch {
 		case l.RA == nova.RA:
-			if l.Class != ClassNewVariable {
-				t.Errorf("the real transient on a night of 3,300 defects: %s %+v", l.Class, l.Matches)
+			if l.Class != ClassLowConfidence || l.Matches[len(l.Matches)-1].Catalog != catalogMany {
+				t.Errorf("a source fixed on the sky on a night of 3,300 brightenings where no star was: %s %+v", l.Class, l.Matches)
 			}
 		case l.Class != ClassLowConfidence:
 			t.Errorf("a defect stayed %s", l.Class)
