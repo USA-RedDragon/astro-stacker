@@ -24,6 +24,8 @@ type RequestView struct {
 	ID    int    `json:"id"`
 	State string `json:"state"`
 	Note  string `json:"note"`
+	// Auto says the app asked for it, for the star's seasonal timings.
+	Auto bool `json:"auto"`
 }
 
 // TimeSpan is a UTC span.
@@ -198,7 +200,7 @@ func matchRequest(reqs []app.EclipseRequest, id int, p Predicted) *RequestView {
 	if best == nil || best.State == app.EclipseCancel {
 		return nil
 	}
-	return &RequestView{ID: best.ID, State: best.State, Note: best.Note}
+	return &RequestView{ID: best.ID, State: best.State, Note: best.Note, Auto: best.Auto}
 }
 
 // withPhaseError adds the second dip's own phase error to its timing

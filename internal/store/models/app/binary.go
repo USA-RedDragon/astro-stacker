@@ -72,7 +72,10 @@ type EclipseRequest struct {
 	Note        string `gorm:"type:text;not null;default:''"`
 	// Attempt counts earlier requests of the same eclipse that failed or
 	// were cancelled; each attempt is a project of its own.
-	Attempt   int `gorm:"not null;default:0"`
+	Attempt int `gorm:"not null;default:0"`
+	// Auto says the app asked for it to time the star's eclipses each
+	// season, not the user.
+	Auto      bool `gorm:"not null;default:false"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

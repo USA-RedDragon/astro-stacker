@@ -88,6 +88,7 @@ type TimingRecord struct {
 	Lines      []LateLine   `json:"lines"`
 	Trends     []TrendView  `json:"trends"`
 	Updated    *Updated     `json:"updated"`
+	Season     *SeasonView  `json:"season"`
 }
 
 // TimingSummary is the timing line of a My discoveries card.
