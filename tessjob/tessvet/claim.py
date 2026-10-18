@@ -34,10 +34,12 @@ def _iso(t: float) -> str:
 class Lease:
     """One held claim. lost is set when a renewal finds that another worker has taken it."""
 
-    def __init__(self, claims: "Claims", key: str, gaia_id: str, etag: str, expires: float, claimed: float):
+    def __init__(self, claims: "Claims", key: str, gaia_id: str, etag: str, expires: float, claimed: float,
+                 info: dict | None = None):
         self.claims = claims
         self.key = key
         self.gaia_id = gaia_id
+        self.info = info or {}
         self.etag = etag
         self.expires = expires
         self.claimed = claimed
@@ -54,7 +56,7 @@ class Lease:
             now = self.claims.clock()
             expires = now + self.claims.ttl
             try:
-                etag = self.claims.store.put_if(self.key, self.claims.doc(self.gaia_id, self.claimed, expires),
+                etag = self.claims.store.put_if(self.key, self.claims.doc(self.gaia_id, self.claimed, expires, self.info),
                                                 self.etag)
             except Exception as e:
                 log.warning("could not renew the claim on %s: %s", self.gaia_id, e)
@@ -104,16 +106,35 @@ class Claims:
         self.ttl = ttl
         self.clock = clock
 
-    def doc(self, gaia_id: str, claimed: float, expires: float) -> bytes:
-        return json.dumps({"gaia_id": gaia_id, "worker": self.worker,
+    def doc(self, gaia_id: str, claimed: float, expires: float, info: dict | None = None) -> bytes:
+        return json.dumps({**(info or {}), "gaia_id": gaia_id, "worker": self.worker,
                            "claimed_at": _iso(claimed), "renewed_at": _iso(self.clock()),
                            "expires_at": _iso(expires), "expires": expires}, indent=1).encode()
 
-    def take(self, request_key: str, gaia_id: str) -> Lease | None:
-        """Claim the request, or None when a live claim by another worker holds it."""
+    def others(self) -> list[dict]:
+        """The live claims of other workers."""
+        out = []
+        now = self.clock()
+        for key in self.store.keys(CLAIMS):
+            cur = self.store.get_versioned(key)
+            if cur is None:
+                continue
+            try:
+                doc = json.loads(cur[0])
+                if doc.get("worker") != self.worker and float(doc["expires"]) > now:
+                    out.append(doc)
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+        return out
+
+    def take(self, request_key: str, gaia_id: str, info: dict | None = None) -> Lease | None:
+        """Claim the request, or None when a live claim by another worker holds it.
+
+        info is written into the claim for other workers to read, such as the star's field and position.
+        """
         key = claim_key(request_key)
         now = self.clock()
-        data = self.doc(gaia_id, now, now + self.ttl)
+        data = self.doc(gaia_id, now, now + self.ttl, info)
         etag = self.store.put_if(key, data, None)
         if etag is None:
             cur = self.store.get_versioned(key)
@@ -132,4 +153,4 @@ class Claims:
                 etag = self.store.put_if(key, data, cur[1])
         if etag is None:
             return None
-        return Lease(self, key, gaia_id, etag, now + self.ttl, now)
+        return Lease(self, key, gaia_id, etag, now + self.ttl, now, info)
