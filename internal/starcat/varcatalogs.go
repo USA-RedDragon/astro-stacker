@@ -142,7 +142,7 @@ func ASASSNVariables() *VarCatalog {
 // VarCatalogs returns the survey catalogues of variable stars.
 func VarCatalogs() []*VarCatalog {
 	return []*VarCatalog{GaiaVariability(), ATLASVariables(), ZTFVariables(), ASASSNVariables(),
-		TESSEBNew(), TESSEBKnown(), TESSEBPrsa(), ZTFSuspected(), TESSRotation(), GCVSExtragalactic()}
+		TESSEBNew(), TESSEBKnown(), TESSEBPrsa(), ZTFSuspected(), TESSRotation(), GCVSExtragalactic(), MaizVariability()}
 }
 
 // fixedLine reads the fields of a fixed-width record by their 1-based
