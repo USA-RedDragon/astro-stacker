@@ -65,7 +65,7 @@ func catalogChecks(ctx context.Context, m Mirrors, sb Simbad, ra, dec float64, g
 	var k Known
 	k.Checks = append(k.Checks, vsxCheck(ctx, m, ra, dec, &k))
 	k.Checks = append(k.Checks, gaiaVariCheck(ctx, m, ra, dec, gaiaID, &k))
-	k.Checks = append(k.Checks, surveyVarCheck(ctx, m, ra, dec, &k))
+	k.Checks = append(k.Checks, surveyVarCheck(ctx, m, ra, dec, gaiaID, &k))
 	k.Checks = append(k.Checks, tnsCheck(m, ra, dec, &k))
 	k.Checks = append(k.Checks, simbadCheck(ctx, sb, ra, dec, &k))
 	return k
@@ -116,24 +116,56 @@ func gaiaVariCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int64
 	return check.New(check.GaiaVari, check.Pass, "Not listed.")
 }
 
-// surveyLists are the local copies of the survey variable star lists the
-// catalog check reads: key in Mirrors.Variables, who lists the star, and
-// a short name for a list that could not be read.
-func surveyLists() []struct{ key, who, short string } {
-	return []struct{ key, who, short string }{
-		{"atlas-var", "ATLAS", "ATLAS"},
-		{"ztf-var", "ZTF", "ZTF"},
-		{"asassn-var", "ASAS-SN", "ASAS-SN"},
-		{"ztf-sus", "ZTF's list of suspected variables (Chen 2020)", "ZTF suspected"},
-		{"tess-eb-new", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS new binaries"},
-		{"tess-eb-known", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS known binaries"},
-		{"tess-eb-prsa", "the TESS eclipsing binary catalog (Prsa 2022)", "TESS sectors 1 to 26 binaries"},
-		{"tess-rot", "the TESS rotation periods of young stars (Kounkel 2022)", "TESS rotation"},
-		{"gcvs-evs", "the GCVS list of variables in other galaxies", "GCVS other galaxies"},
+// surveyList is a local copy of a survey variable star list the catalog
+// check reads: key in Mirrors.Variables, who lists the star, and a short
+// name for a list that could not be read. listed, when set, says what the
+// list's entries within listedArcsec tell of the star, empty when they do
+// not list it as variable; otherwise any entry lists it.
+type surveyList struct {
+	key, who, short string
+	listed          func(stars []starcat.VarStar, ra, dec float64, gaiaID int64) string
+}
+
+func surveyLists() []surveyList {
+	return []surveyList{
+		{"atlas-var", "ATLAS", "ATLAS", nil},
+		{"ztf-var", "ZTF", "ZTF", nil},
+		{"asassn-var", "ASAS-SN", "ASAS-SN", nil},
+		{"ztf-sus", "ZTF's list of suspected variables (Chen 2020)", "ZTF suspected", nil},
+		{"tess-eb-new", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS new binaries", nil},
+		{"tess-eb-known", "the TESS eclipsing binary catalog (Kostov 2025)", "TESS known binaries", nil},
+		{"tess-eb-prsa", "the TESS eclipsing binary catalog (Prsa 2022)", "TESS sectors 1 to 26 binaries", nil},
+		{"tess-rot", "the TESS rotation periods of young stars (Kounkel 2022)", "TESS rotation", nil},
+		{"gcvs-evs", "the GCVS list of variables in other galaxies", "GCVS other galaxies", nil},
+		{"maiz-var", "Maiz Apellaniz 2023", "Gaia brightness spread", maizListed},
 	}
 }
 
-func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, k *Known) check.Check {
+// maizListed reads the Maiz Apellaniz 2023 list, which holds every Gaia
+// DR3 star to G 17, variable or not: the star is its entry with the
+// star's Gaia DR3 source_id, or without one its nearest, and the list
+// names it as variable when its spread in G is at least three times its
+// uncertainty.
+func maizListed(stars []starcat.VarStar, ra, dec float64, gaiaID int64) string {
+	var star *starcat.VarStar
+	for i := range stars {
+		s := &stars[i]
+		switch {
+		case gaiaID != 0:
+			if s.ID == gaiaID {
+				star = s
+			}
+		case star == nil || arcsec(ra, dec, s.RA, s.Dec) < arcsec(ra, dec, star.RA, star.Dec):
+			star = s
+		}
+	}
+	if star == nil || !starcat.MaizVariesInG(star) {
+		return ""
+	}
+	return fmt.Sprintf("Maiz Apellaniz 2023 lists it as varying in Gaia's own measurements, with a spread of %.3f mag in G", star.Amp)
+}
+
+func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int64, k *Known) check.Check {
 	names := surveyLists()
 	var listed, failed []string
 	for _, n := range names {
@@ -145,6 +177,12 @@ func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, k *Known) c
 		stars, err := v.Cone(ctx, ra, dec, listedArcsec/3600, nil)
 		if err != nil {
 			failed = append(failed, n.short)
+			continue
+		}
+		if n.listed != nil {
+			if l := n.listed(stars, ra, dec, gaiaID); l != "" {
+				listed = append(listed, l)
+			}
 			continue
 		}
 		for _, s := range stars {
