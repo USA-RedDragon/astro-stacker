@@ -548,6 +548,7 @@ func TestOnPostgres(t *testing.T) { //nolint:tparallel
 		"earlier":  checkARangeCountsTheEarlierSourcesThatNeedALook,
 		"listed":   checkACatalogListedSourceIsKnown,
 		"artifact": checkAVettedArtifactLeavesNeedsALook,
+		"emptied":  checkARerunsEmptiedSourceGoes,
 	} {
 		t.Run(name, func(t *testing.T) {
 			db := pg.Session(&gorm.Session{NewDB: true})
@@ -556,5 +557,70 @@ func TestOnPostgres(t *testing.T) { //nolint:tparallel
 			}
 			check(t, prepare(t, db))
 		})
+	}
+}
+
+// TestARerunsEmptiedSourceGoes is 2218 (Cygnus Loop Panel 2, 2026-10-12):
+// its mover was found on 2026-10-15, the rerun of 2026-10-18 found no
+// mover there, and the source stayed with no candidates and an unsure vet.
+func TestARerunsEmptiedSourceGoes(t *testing.T) {
+	t.Parallel()
+	checkARerunsEmptiedSourceGoes(t, open(t))
+}
+
+func checkARerunsEmptiedSourceGoes(t *testing.T, db *gorm.DB) {
+	ctx := context.Background()
+	if err := db.AutoMigrate(&app.BinaryFacts{}); err != nil {
+		t.Fatal(err)
+	}
+	run := runID(t, db, cygnus, oct5, bb)
+	track := func(ra float64) string {
+		return fmt.Sprintf(`{"points":[{"time":"2026-10-06T04:00:00Z","ra":%f,"dec":28.7}],"rate_arcsec_per_min":0.3,"pa_deg":30}`, ra)
+	}
+	cands := []app.DiscoveryCandidate{
+		{ID: 1, RunID: run, Object: cygnus, Night: day(oct5), Group: bb, Kind: app.DiscoveryKindMover, Class: discoveries.ClassUnknownMover, RA: 314.1, Dec: 28.7, Track: track(314.1)},
+		{ID: 2, RunID: run, Object: cygnus, Night: day(oct5), Group: bb, Kind: app.DiscoveryKindMover, Class: discoveries.ClassUnknownMover, RA: 314.3, Dec: 28.7, Track: track(314.3)},
+		{ID: 3, RunID: run, Object: cygnus, Night: day(oct5), Group: bb, Kind: app.DiscoveryKindMover, Class: discoveries.ClassUnknownMover, RA: 314.5, Dec: 28.7, Track: track(314.5)},
+	}
+	if err := db.Create(&cands).Error; err != nil {
+		t.Fatal(err)
+	}
+	by := all(t, db)
+	gone, vetted, kept := by[1].Source.ID, by[2].Source.ID, by[3].Source.ID
+	for _, id := range []int{gone, vetted, kept} {
+		if err := db.Create(&app.DiscoveryVet{SourceID: id, State: "done", Suggested: app.VetUnsure, Confidence: "low"}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := time.Date(2026, 10, 16, 3, 0, 0, 0, time.UTC)
+	if _, err := discoverysource.Vet(ctx, db, vetted, app.VetArtifact, "", &at); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&app.BinaryFacts{SourceID: kept}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("run_id = ?", run).Delete(&app.DiscoveryCandidate{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := discoverysource.Sync(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var left []int
+	db.Model(&app.DiscoverySource{}).Order("id").Pluck("id", &left)
+	if len(left) != 2 || left[0] != vetted || left[1] != kept {
+		t.Errorf("sources left %v, want the vetted %d and the one with binary facts %d", left, vetted, kept)
+	}
+	var vets []int
+	db.Model(&app.DiscoveryVet{}).Order("source_id").Pluck("source_id", &vets)
+	if len(vets) != 2 || vets[0] != vetted || vets[1] != kept {
+		t.Errorf("vets left for %v", vets)
+	}
+	again := cands[1]
+	again.ID, again.SourceID, again.Vetting, again.VetNote, again.VettedAt = 4, nil, "", "", nil
+	if err := db.Create(&again).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := all(t, db)[4].Source; got.ID != vetted || got.Vetting != app.VetArtifact {
+		t.Errorf("rerun finding the vetted mover again got source %d (%q), want %d", got.ID, got.Vetting, vetted)
 	}
 }

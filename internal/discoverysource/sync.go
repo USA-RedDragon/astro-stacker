@@ -37,6 +37,35 @@ func Sync(ctx context.Context, db *gorm.DB) error {
 			return err
 		}
 	}
+	return db.Transaction(pruneEmpty)
+}
+
+// pruneEmpty removes the sources a rerun left with no candidates, and
+// their vets, unless the user vetted them or something else keeps them:
+// a rerun replaces its run's candidates, and a source whose candidates it
+// did not find again is never listed or vetted again. On 2026-10-19, 863
+// of 1831 mover sources and 23124 of 66788 change sources were such, some
+// still carrying the unsure or artifact vet of their old candidates.
+func pruneEmpty(tx *gorm.DB) error {
+	q := tx.Model(&app.DiscoverySource{}).Select("id").Where("vetting = ''").
+		Where("NOT EXISTS (?)", tx.Model(&app.DiscoveryCandidate{}).Select("1").Where("discovery_candidates.source_id = discovery_sources.id"))
+	for _, m := range []any{&app.BinaryBook{}, &app.BinaryFacts{}, &app.EclipseRequest{}, &app.EclipseTiming{}, &app.ShareImage{}} {
+		if tx.Migrator().HasTable(m) {
+			q = q.Where("id NOT IN (?)", tx.Model(m).Select("source_id"))
+		}
+	}
+	var ids []int
+	if err := q.Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	for chunk := range slices.Chunk(ids, updateChunk) {
+		if err := tx.Where("source_id IN ?", chunk).Delete(&app.DiscoveryVet{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&app.DiscoverySource{}, chunk).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
