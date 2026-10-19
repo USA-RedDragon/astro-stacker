@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 )
@@ -229,5 +230,36 @@ func TestRealMoverBesideStarsIsNotRefuted(t *testing.T) {
 	t.Logf("%s %s", c.Status, c.Evidence)
 	if ts.Beside < 4 || v != StackConfirmed {
 		t.Errorf("a real mover beside two stars, there in its unused frames, was not confirmed: beside %d, %s", ts.Beside, v)
+	}
+}
+
+// TestLongTrackStacksTheFramesItCrossed is 23765 (Cygnus Loop, 2026-09-04):
+// found in 6 of the 10 H-alpha frames over 378 minutes, and absent from the
+// frames it crossed but was not found in, which lay more than 90 minutes
+// from its detections' middle. Light only in the frames it was found in
+// must not confirm it.
+func TestLongTrackStacksTheFramesItCrossed(t *testing.T) {
+	t.Parallel()
+	f := newTrackField()
+	base := f.subs[0].Start
+	for k := range f.subs {
+		f.subs[k].Start = base.Add(time.Duration(k) * 30 * time.Minute)
+	}
+	det := []int{0, 5, 6, 7, 8, 9}
+	for _, k := range det {
+		x, y := f.line(k)
+		f.subs[k].extra = trailed(x, y)
+	}
+	ts := runStack(t, f, f.stackSpot(f.line, det, moverFlux18/2))
+	c, v := StackCheck(&ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if ts.Unused != 4 {
+		t.Errorf("stacked %d of the 4 frames it crossed but was not found in", ts.Unused)
+	}
+	if ts.UnusedSNR > 2 || ts.UnusedInjected < StackInjMin {
+		t.Errorf("unused frames %.1f against %.1f", ts.UnusedSNR, ts.UnusedInjected)
+	}
+	if v == StackConfirmed {
+		t.Errorf("light only in its detection frames was confirmed")
 	}
 }
