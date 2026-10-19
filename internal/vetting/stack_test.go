@@ -199,3 +199,31 @@ func TestStackRunsOnTheFilterTheLightWasFoundIn(t *testing.T) {
 		t.Errorf("no light reported anywhere: %s %s", v, c.Evidence)
 	}
 }
+
+func TestStackRefutesAtTheDetectionHold(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		obs, inj float64
+		n, subs  int
+		want     ownimage.StackVerdict
+	}{
+		{"fake between the hold and 5, spot no higher than empty places", 1.0, 4.7, 7, 7, ownimage.StackRefuted},
+		{"fake between the hold and 5, spot above empty places", 3.0, 4.7, 7, 7, ownimage.StackUntested},
+		{"faint real light near the hold is not confirmed", 4.6, 4.7, 7, 7, ownimage.StackUntested},
+		{"fewer frames than the detection tested", 1.0, 4.7, 4, 16, ownimage.StackUntested},
+		{"fake under the hold, spot under it too", 1.0, 4.4, 7, 7, ownimage.StackRefuted},
+	}
+	for _, c := range cases {
+		e := auditLight / c.inj
+		n := ownimage.FluxNight{Night: "2025-01-21", Filter: lum, N: c.n, Flux: c.obs * e, Err: e, Local: e, Empty99: 2.6 * e, Flagged: true}
+		reps := auditReps("2025-01-21")
+		for k, r := range reps {
+			r.subs = c.subs
+			reps[k] = r
+		}
+		if ch, v := transientStack(curveOf(n), reps); v != c.want {
+			t.Errorf("%s: %s, want %s: %s", c.name, v, c.want, ch.Evidence)
+		}
+	}
+}

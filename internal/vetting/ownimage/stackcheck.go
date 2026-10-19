@@ -105,6 +105,10 @@ type StackFacts struct {
 	Control99      float64
 	HasControl     bool
 	Unused         []StackUnused
+	// RefuteMin, when above zero and under StackInjMin, is the least the
+	// fake must show at for the stack to refute it; confirming still needs
+	// StackInjMin.
+	RefuteMin float64
 }
 
 func (u StackUnused) testable() bool { return u.Inj >= StackInjMin }
@@ -154,6 +158,9 @@ func JudgeStack(f StackFacts) (StackVerdict, string) {
 		return StackRefuted, ""
 	}
 	if !(f.Inj >= StackInjMin) {
+		if f.RefuteMin > 0 && f.Inj >= f.RefuteMin && f.Obs < stackFake*f.Inj && testable == 0 && f.HasControl && !(f.Peak > f.Control99) {
+			return StackRefuted, StackNoAboveControls
+		}
 		return StackUntested, ""
 	}
 	if f.Obs < stackFake*f.Inj && testable == 0 && f.HasControl && !(f.Peak > f.Control99) {
