@@ -294,9 +294,16 @@ func (a *analysis) flatRow(s string, si surveyInfo) check.Check {
 		}
 	}
 	strict := s == lc.ZTF || s == lc.ATLAS
+	reached := fmt.Sprintf("%s reach the reported %s mag %s.", plural(seen, "point", "points"), size, word)
+	if s == lc.ZTF && seen >= 2 && len(nights) >= reachNights {
+		if runs, backed := a.backedFades(si.groups, c); backed >= fadeNights {
+			a.fades = a.testFades(runs, backed, c)
+			return a.fadeRow(id, label, si, level, scatter, reached)
+		}
+	}
 	switch {
 	case seen >= 2 && len(nights) >= reachNights:
-		return check.New(id, check.Pass, fmt.Sprintf("%s %s reach the reported %s mag %s.", txt, plural(seen, "point", "points"), size, word))
+		return check.New(id, check.Pass, txt+" "+reached)
 	case math.Abs(c) < 5*scatter:
 		return check.New(id, check.NotRun, fmt.Sprintf("%s Too noisy to show a %s mag %s.", txt, size, word))
 	case strict:

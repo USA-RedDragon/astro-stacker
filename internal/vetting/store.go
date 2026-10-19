@@ -110,7 +110,7 @@ const (
 const (
 	moverPipeline     = "mover:8"
 	transientPipeline = "transient:8"
-	starPipeline      = "star:7"
+	starPipeline      = "star:8"
 )
 
 func pipelineOf(s discoverysource.Summary) string {

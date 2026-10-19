@@ -34,6 +34,7 @@ type analysis struct {
 	bandCache []*band
 	bandsDone bool
 	rob       *Robust
+	fades     *Fades
 }
 
 func analyzeSeries(d *data, own []lc.Series, opts Options, at *Ephemeris) (*Result, error) {
@@ -77,6 +78,7 @@ func analyzeSeries(d *data, own []lc.Series, opts Options, at *Ephemeris) (*Resu
 		res.Robust = a.rob
 	}
 	res.Checks = a.checks(res.Fits)
+	res.Fades = a.fades
 	if a.kind == KindFlat || a.kind == KindIrregular {
 		return res, ErrNoPeriod
 	}
