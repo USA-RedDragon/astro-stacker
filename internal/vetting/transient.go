@@ -885,6 +885,22 @@ func atlasLevels(rows []surveys.ATLASRow, flagged []time.Time) []atlasNight {
 	return out
 }
 
+// atlasMagSlack is how much brighter than the reported new light an ATLAS
+// detection may be and still confirm it: forced photometry beside a bright
+// star measures the star.
+const atlasMagSlack = 1.0
+
+// brightestReported is the brightest new light the detection reported.
+func brightestReported(reps map[string]reported) (float64, bool) {
+	best, ok := 0.0, false
+	for _, r := range reps {
+		if r.ok && r.mag > 0 && (!ok || r.mag < best) {
+			best, ok = r.mag, true
+		}
+	}
+	return best, ok
+}
+
 func mjdDate(mjd float64) string {
 	return lc.MJDTime(mjd).Format(time.DateOnly)
 }
@@ -917,8 +933,13 @@ func atlasCheckTransient(fx transientFacts) check.Check {
 		}
 	}
 	if best.flux/best.err >= seenSNR && best.flux > 0 {
+		mag := atlasZero - 2.5*math.Log10(best.flux)
+		if rep, ok := brightestReported(fx.reps); ok && mag < rep-atlasMagSlack {
+			return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s, far brighter than the %.1f your frames reported; that is a nearby star's light, not the new light.",
+				mag, mjdDate(best.mjd), rep))
+		}
 		return check.New(check.TransATLAS, check.Pass, fmt.Sprintf("ATLAS saw it on %s at magnitude %.1f in its %s band (signal to noise %.0f, from %d frames).",
-			mjdDate(best.mjd), atlasZero-2.5*math.Log10(best.flux), atlasBand(best.band), best.flux/best.err, best.count))
+			mjdDate(best.mjd), mag, atlasBand(best.band), best.flux/best.err, best.count))
 	}
 	peakFlux := 0.0
 	peakNight := ""
