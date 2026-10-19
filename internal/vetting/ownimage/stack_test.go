@@ -408,3 +408,37 @@ func TestBroadbandTrackIgnoresNarrowbandFrames(t *testing.T) {
 		t.Errorf("H-alpha frames changed a broadband track's stack: %s %+v against %s %+v", hv, ha, pv, plain)
 	}
 }
+
+func TestMoverSelfShare(t *testing.T) {
+	t.Parallel()
+	// 10 subs of one night weighted 1 to 2 beside 200 deep subs of 1.5:
+	// a mover of 200 px an hour, 6 minutes apart, meets only its own sub's
+	// share; one standing still meets the whole night's, and the fixture's
+	// own, 10 px an hour, its neighbours' too.
+	f := newTrackField()
+	subs, err := f.Subs(context.Background(), synthObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total, night float64
+	for _, s := range subs {
+		total += s.Weight
+		if nightKey(s.Night) == flaggedDay {
+			night += s.Weight
+		}
+	}
+	sp := &stackPlan{tp: newTrackPlan(subs, f.spot(func(k int) (float64, float64) { return trackX0 + trackVX*f.hours(k), trackY0 + trackVY*f.hours(k) }, 8), synthW, synthH),
+		weight: map[string]float64{synthLum: total}}
+	own := subs[3].Weight / total
+	if got := sp.selfShare(subs, 3, 1.4); got < 3*own || got > night/total {
+		t.Errorf("10 px an hour: share %.4f, the night's %.4f", got, night/total)
+	}
+	sp.tp.vx, sp.tp.vy = 200, 100
+	if got := sp.selfShare(subs, 3, 1.4); math.Abs(got-own) > 0.002 {
+		t.Errorf("fast mover: share %.4f, its own sub's %.4f", got, own)
+	}
+	sp.tp.vx, sp.tp.vy = 0, 0
+	if got := sp.selfShare(subs, 3, 1.4); math.Abs(got-night/total) > 1e-9 {
+		t.Errorf("still: share %.4f, the night's %.4f", got, night/total)
+	}
+}
