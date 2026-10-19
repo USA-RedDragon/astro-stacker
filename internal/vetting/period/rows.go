@@ -221,6 +221,13 @@ func (a *analysis) sineRow(s string, si surveyInfo, fits []SurveyFit) check.Chec
 		base, mag2(amp), bandLabel(a.d.groups[best]), fmtPeriod(a.sine.P, a.sine.res.sigma(0)), blendNote(si)))
 }
 
+// reachNights is how many nights a flat survey light curve's points must
+// reach the reported change on to count as seeing it: 17060 (Cygnus Loop
+// Panel 2) had 1,274 ZTF r points steady at 0.011 mag scatter and its two
+// points that reached the reported 0.22 mag fade both came from one night,
+// MJD 60141, while the user's own frames showed no change on 11 nights.
+const reachNights = 2
+
 func (a *analysis) flatRow(s string, si surveyInfo) check.Check {
 	id := surveyID(s)
 	best, bestN := -1, 0
@@ -275,18 +282,20 @@ func (a *analysis) flatRow(s string, si surveyInfo) check.Check {
 	}
 	size := mag2(math.Abs(c))
 	seen := 0
+	nights := map[float64]bool{}
 	for _, g := range si.groups {
 		for _, se := range a.d.groups[g].series {
 			for _, p := range a.d.series[se].raw {
 				if math.Copysign(1, c)*p.y >= 0.6*math.Abs(c) {
 					seen++
+					nights[math.Floor(p.t)] = true
 				}
 			}
 		}
 	}
 	strict := s == lc.ZTF || s == lc.ATLAS
 	switch {
-	case seen >= 2:
+	case seen >= 2 && len(nights) >= reachNights:
 		return check.New(id, check.Pass, fmt.Sprintf("%s %s reach the reported %s mag %s.", txt, plural(seen, "point", "points"), size, word))
 	case math.Abs(c) < 5*scatter:
 		return check.New(id, check.NotRun, fmt.Sprintf("%s Too noisy to show a %s mag %s.", txt, size, word))
