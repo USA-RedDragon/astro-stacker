@@ -77,3 +77,27 @@ func TestNewSourceFluxCurveGivesItsMagnitude(t *testing.T) {
 		t.Errorf("%d quiet nights", quiet)
 	}
 }
+
+func TestDegenerateSubIsLeftOut(t *testing.T) {
+	t.Parallel()
+	// M 15, 2026-10-18 (68912): the one Green sub measured, at 3.9e-9 with
+	// an error of 9.9e-10, beside Blue, Luminance and Red subs of the usual
+	// errors, from the night's zero points.
+	zero := map[string]float64{"Blue": 12.12, "Green": 12.28, "Luminance": 13.28, "Red": 12.41}
+	var pts []FluxPoint
+	for i, f := range []string{"Blue", "Luminance", "Red", "Blue", "Luminance", "Red", "Blue", "Red"} {
+		e := map[string]float64{"Blue": 5.1e-4, "Luminance": 1.2e-3, "Red": 8.7e-4}[f]
+		pts = append(pts, FluxPoint{FrameID: i, Night: "2026-10-18", Filter: f, Flux: e, Err: e * math.Sqrt(5)})
+	}
+	pts = append(pts, FluxPoint{FrameID: 99, Night: "2026-10-18", Filter: "Green", Flux: 3.9e-9, Err: 9.9e-10},
+		FluxPoint{FrameID: 100, Night: "2026-10-18", Filter: "H-a", Flux: 1e-3, Err: 2e-3})
+	got := dropDegenerate(pts, zero)
+	if len(got) != 9 {
+		t.Fatalf("kept %d of 10", len(got))
+	}
+	for _, p := range got {
+		if p.FrameID == 99 {
+			t.Errorf("the master's own stamp kept: %+v", p)
+		}
+	}
+}

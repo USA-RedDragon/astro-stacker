@@ -191,6 +191,7 @@ func buildFluxCurve(subs []Sub, sp *spotPlan, e *ensemble, skip map[int]bool) *F
 		c.Points = append(c.Points, FluxPoint{FrameID: s.FrameID, BJD: lc.BJD(midTime(s), sp.spot.RA, sp.spot.Dec), Night: nightKey(s.Night), Filter: s.Filter,
 			Flux: fl / t, Err: fe / t})
 	}
+	c.Points = dropDegenerate(c.Points, c.Zero)
 	if len(c.Points) == 0 {
 		return nil
 	}
@@ -225,6 +226,43 @@ func buildFluxCurve(subs []Sub, sp *spotPlan, e *ensemble, skip map[int]bool) *F
 	}
 	nightsOf(c, subs, sp, e, skip, scatter)
 	return c
+}
+
+// degenerateErr is the least share of the curve's median error a sub's
+// error may have, both put on the comparison stars' Gaia G scale. Subs
+// are weighted by the inverse square of their error; on that scale the
+// subs' errors differ by about 5 times between filters (M 15: 58 to 95;
+// Cygnus Loop Panel 2: 45 to 200) and by the square root of the exposure
+// within one. On M 15's 2026-10-18 one Green sub stood at an error of
+// 1.2e-4 there, its stamp the 2-sub Green master's own; it outweighed the
+// night's 12 other subs, and the stack read the fake as magnitude 32.2
+// and 0.0 in the night's unused frames.
+const degenerateErr = 0.01
+
+// dropDegenerate leaves out the points whose error, on the zero points'
+// common scale, is under degenerateErr of the median.
+func dropDegenerate(pts []FluxPoint, zero map[string]float64) []FluxPoint {
+	common := func(p FluxPoint) (float64, bool) {
+		zp, ok := zero[p.Filter]
+		return p.Err * math.Pow(10, 0.4*(fluxZero-zp)), ok
+	}
+	var errs []float64
+	for _, p := range pts {
+		if e, ok := common(p); ok {
+			errs = append(errs, e)
+		}
+	}
+	if len(errs) == 0 {
+		return pts
+	}
+	lim := degenerateErr * median(errs)
+	out := pts[:0]
+	for _, p := range pts {
+		if e, ok := common(p); !ok || e >= lim {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // nightsOf fills a curve's nights, single filters and all combined, and
