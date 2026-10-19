@@ -256,12 +256,16 @@ func (f *Fetcher) prefetchZTF(ctx context.Context, field Field, progress func(do
 		return err
 	}
 	same := m != nil && sepArcsec(m.RA, m.Dec, field.RA, field.Dec) < 1 && math.Abs(m.Radius-fieldRadius(field)) < 1e-6
-	if same && m.Complete && (f.ZTFRelease == "" || f.ZTFRelease == m.Release) {
+	recheck := isFresh(ctx) && f.ZTFRelease == "" && m != nil && expired(m.Updated, f.now(), ZTFReleaseMaxAge)
+	if same && m.Complete && (f.ZTFRelease == "" || f.ZTFRelease == m.Release) && !recheck {
 		return nil
 	}
 	release, err := f.ztfRelease(ctx)
 	if err != nil {
 		return err
+	}
+	if same && m.Complete && m.Release == release {
+		return f.putZTFManifest(ctx, field, m)
 	}
 	if !same || m.Release != release {
 		m = &ZTFManifest{Release: release, RA: field.RA, Dec: field.Dec, Radius: fieldRadius(field), Files: map[string]ZTFFileEntry{}}

@@ -98,6 +98,12 @@ func (f *Fetcher) tess(ctx context.Context, field Field, t Target) Fetch {
 	if err := json.Unmarshal(b, &st); err != nil {
 		return failed(lc.TESS, "damaged TESS status: %v", err)
 	}
+	recheck := isFresh(ctx) && expired(st.UpdatedAt, f.now(), TESSMaxAge)
+	if recheck {
+		if err := f.tessRequest(ctx, field, t); err != nil {
+			recheck = false
+		}
+	}
 	if len(st.SectorsAvailable) == 0 {
 		return Fetch{Survey: lc.TESS, State: Uncovered, Note: "TESS has not observed the star"}
 	}
@@ -149,6 +155,10 @@ func (f *Fetcher) tess(ctx context.Context, field Field, t Target) Fetch {
 	}
 	if fe.State == Done && len(fe.Sectors) == 0 {
 		fe.State = Failed
+	}
+	if recheck && fe.State == Done {
+		fe.State = Pending
+		notes = append(notes, "the TESS job is looking for newer sectors")
 	}
 	fe.Note = strings.Join(notes, "; ")
 	return fe
