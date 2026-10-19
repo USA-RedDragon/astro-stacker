@@ -330,7 +330,8 @@ func stale(st Star) bool {
 }
 
 // Tick works out stale facts and files, makes share pictures whose colour
-// picture changed, and follows the imaging requests.
+// picture changed, follows the imaging requests and drafts again those
+// whose eclipse a newer ephemeris moved out of their window.
 func (s *Service) Tick(ctx context.Context) error {
 	stars, err := s.Binaries(ctx)
 	if err != nil {
@@ -374,8 +375,13 @@ func (s *Service) Tick(ctx context.Context) error {
 	}
 	if fresh, err := s.Binaries(ctx); err != nil {
 		errs = append(errs, err)
-	} else if err := s.autoRequests(ctx, fresh); err != nil {
-		errs = append(errs, err)
+	} else {
+		if err := s.redraftMoved(ctx, fresh); err != nil {
+			errs = append(errs, err)
+		}
+		if err := s.autoRequests(ctx, fresh); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -508,7 +514,7 @@ func (s *Service) Plan(ctx context.Context, days int, all bool) (EclipsePlan, er
 		return EclipsePlan{}, err
 	}
 	var reqs []app.EclipseRequest
-	if err := s.DB.WithContext(ctx).Where("state <> ?", app.EclipseCancel).Find(&reqs).Error; err != nil {
+	if err := s.DB.WithContext(ctx).Where("state NOT IN ?", []string{app.EclipseCancel, app.EclipseMoved}).Find(&reqs).Error; err != nil {
 		return EclipsePlan{}, err
 	}
 	in := PlanInput{Stars: stars, Loc: s.loc(), From: s.now().Truncate(time.Minute), All: all, Requests: reqs}

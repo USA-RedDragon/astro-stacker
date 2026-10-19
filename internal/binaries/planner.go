@@ -187,7 +187,7 @@ func (s Star) ownEclipse() bool {
 func matchRequest(reqs []app.EclipseRequest, id int, p Predicted) *RequestView {
 	var best *app.EclipseRequest
 	for i, r := range reqs {
-		if r.SourceID != id || r.Kind != p.Kind {
+		if r.SourceID != id || r.Kind != p.Kind || r.State == app.EclipseMoved {
 			continue
 		}
 		if d := r.Mid.Sub(p.Mid); d < -requestMatch || d > requestMatch {

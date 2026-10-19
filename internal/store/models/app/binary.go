@@ -50,6 +50,10 @@ const (
 	EclipseFailed  = "failed"
 	EclipseDone    = "done"
 	EclipseCancel  = "cancelled"
+	// EclipseMoved is a request withdrawn because newer survey data moved
+	// its eclipse out of its window; the eclipse is asked for again at its
+	// new time.
+	EclipseMoved = "moved"
 )
 
 // EclipseRequest asks the scheduler to image one predicted eclipse of a

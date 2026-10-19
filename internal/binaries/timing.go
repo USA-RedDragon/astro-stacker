@@ -187,7 +187,7 @@ func matchTiming(rows []app.EclipseTiming, id int, kind string, utc time.Time, p
 	tol := min(time.Duration(p/4*86400e9), 12*time.Hour)
 	for i := range rows {
 		r := &rows[i]
-		if r.SourceID == id && r.Kind == kind && absDur(r.Predicted.Sub(utc)) < tol {
+		if r.SourceID == id && r.Kind == kind && r.State != app.EclipseMoved && absDur(r.Predicted.Sub(utc)) < tol {
 			return r
 		}
 	}
@@ -285,7 +285,7 @@ func matchReq(reqs []app.EclipseRequest, id int, kind string, utc time.Time) *ap
 	var best *app.EclipseRequest
 	for i := range reqs {
 		r := &reqs[i]
-		if r.SourceID == id && r.Kind == kind && absDur(r.Mid.Sub(utc)) <= requestMatch && (best == nil || r.ID > best.ID) {
+		if r.SourceID == id && r.Kind == kind && r.State != app.EclipseMoved && absDur(r.Mid.Sub(utc)) <= requestMatch && (best == nil || r.ID > best.ID) {
 			best = r
 		}
 	}
