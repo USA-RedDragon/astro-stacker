@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedsettle"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting"
@@ -312,47 +313,36 @@ func (s *Service) send(ctx context.Context, snap *planning.Snapshot, orig, objec
 	return s.DB.WithContext(ctx).Save(n).Error
 }
 
-// cancelOpen withdraws a source's waiting and sent nights still to come.
+// cancelOpen withdraws a source's waiting and sent nights still to come:
+// each is marked cancelled at once and owes the scheduler a withdraw,
+// which settle keeps at until it is done.
 func (s *Service) cancelOpen(ctx context.Context, sourceID int) error {
 	var open []app.DiscoveryWatchNight
 	if err := s.DB.WithContext(ctx).Where("source_id = ? AND state IN ?", sourceID, []string{app.EclipseWaiting, app.EclipseSent}).
 		Find(&open).Error; err != nil {
 		return err
 	}
+	now := s.now()
 	var errs []error
 	for i := range open {
 		n := &open[i]
-		if n.State == app.EclipseSent && !n.End.After(s.now()) {
+		if n.State == app.EclipseSent && !n.End.After(now) {
 			continue
 		}
-		underWay := n.State == app.EclipseSent && !n.Start.After(s.now())
-		if underWay {
-			if err := s.closeProject(ctx, n); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-		} else if n.CreateCmd != "" && s.Commands != nil {
-			if _, err := s.Commands.Undo(ctx, n.CreateCmd, Author); err != nil {
-				if !errors.Is(err, schedcmd.ErrNotUndoable) {
-					errs = append(errs, err)
-					continue
-				}
-				if err := s.closeProject(ctx, n); err != nil {
-					errs = append(errs, err)
-					continue
-				}
-			}
+		n.State, n.Note, n.UpdatedAt = app.EclipseCancel, "Withdrawn: the watch no longer asks for imaging.", now
+		if n.CreateCmd != "" {
+			n.Settle = schedsettle.Withdraw
 		}
-		n.State, n.Note, n.UpdatedAt = app.EclipseCancel, "Withdrawn: the watch no longer asks for imaging.", s.now()
 		if err := s.DB.WithContext(ctx).Save(n).Error; err != nil {
 			errs = append(errs, err)
 		}
 	}
+	errs = append(errs, s.settle(ctx, now, sourceID))
 	return errors.Join(errs...)
 }
 
-// follow marks nights the scheduler refused as failed, and closes the
-// project of each night that has passed.
+// follow marks nights the scheduler refused as failed, and marks each
+// night that has passed done, owing the scheduler its project's close.
 func (s *Service) follow(ctx context.Context, now time.Time) error {
 	if s.Commands == nil {
 		return nil
@@ -369,16 +359,51 @@ func (s *Service) follow(ctx context.Context, now time.Time) error {
 		case err == nil && refused(rec.Status):
 			n.State, n.Note = app.EclipseFailed, "The scheduler did not take it: "+cmpOr(rec.Message, string(rec.Status))
 		case now.After(n.End.Add(time.Hour)):
-			if err := s.closeProject(ctx, n); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			n.State, n.Note = app.EclipseDone, "The night has passed."
+			n.State, n.Note, n.Settle = app.EclipseDone, "The night has passed.", schedsettle.Close
 		default:
 			continue
 		}
 		n.UpdatedAt = now
 		if err := s.DB.WithContext(ctx).Save(n).Error; err != nil {
+			errs = append(errs, err)
+		}
+	}
+	errs = append(errs, s.settle(ctx, now, 0))
+	return errors.Join(errs...)
+}
+
+// settle takes a step on every night of a source, or of all with 0, that
+// still owes the scheduler a withdraw or a close, and clears what is done.
+func (s *Service) settle(ctx context.Context, now time.Time, sourceID int) error {
+	if s.Commands == nil {
+		return nil
+	}
+	q := s.DB.WithContext(ctx).Where("settle <> ''")
+	if sourceID != 0 {
+		q = q.Where("source_id = ?", sourceID)
+	}
+	var owed []app.DiscoveryWatchNight
+	if err := q.Find(&owed).Error; err != nil {
+		return err
+	}
+	snaps := &schedsettle.Snapshots{Read: s.Snapshot}
+	var errs []error
+	for i := range owed {
+		n := &owed[i]
+		done, closeCmd, err := schedsettle.Step(ctx, s.Commands, snaps, schedsettle.Ask{Owe: n.Settle, ProjectGUID: n.ProjectGUID,
+			CreateCmd: n.CreateCmd, CloseCmd: n.CloseCmd, CloseID: "discovery-watch-close-" + n.ProjectGUID, Author: Author,
+			Start: n.Start, End: n.End}, now)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("night %d: %w", n.ID, err))
+		}
+		if !done && closeCmd == n.CloseCmd {
+			continue
+		}
+		n.CloseCmd = closeCmd
+		if done {
+			n.Settle = ""
+		}
+		if err := s.DB.WithContext(ctx).Model(n).Select("settle", "close_cmd").Updates(n).Error; err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -394,42 +419,6 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// closeProject closes a night's project in Target Scheduler.
-func (s *Service) closeProject(ctx context.Context, n *app.DiscoveryWatchNight) error {
-	if s.Snapshot == nil || s.Commands == nil {
-		return nil
-	}
-	snap, err := s.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	for _, p := range snap.Projects {
-		if p.GUID != n.ProjectGUID || p.State == "Closed" {
-			continue
-		}
-		raw, err := json.Marshal(schedcmd.EditPayload{Entity: "project", ID: int64(p.ID), GUID: p.GUID, Name: p.Name,
-			Changes: []schedcmd.FieldChange{{Field: "state", Before: json.RawMessage(stateNumber(p.State)), After: json.RawMessage("3")}}})
-		if err != nil {
-			return err
-		}
-		rec, err := s.Commands.SubmitOnce(ctx, "discovery-watch-close-"+n.ProjectGUID, schedcmd.KindProjectEdit, raw, Author)
-		if err != nil {
-			return err
-		}
-		n.CloseCmd = rec.ID
-	}
-	return nil
-}
-
-func stateNumber(name string) string {
-	for k, v := range schedcmd.ProjectStates() {
-		if v == name {
-			return fmt.Sprint(k)
-		}
-	}
-	return "1"
 }
 
 // ErrNotWatched says the source has no watch under way.
