@@ -95,4 +95,10 @@ type Frame struct {
 	PreviewKey   *string
 	PreviewError *string `gorm:"type:text"`
 	PreviewAt    *time.Time
+	// CalPreviewKey is the same preview calibrated with the best masters
+	// already built (calpreview), CalPreviewNote what it was calibrated
+	// with or why it was not. Both are left empty for older lights.
+	CalPreviewKey  *string
+	CalPreviewNote *string `gorm:"type:text"`
+	CalPreviewAt   *time.Time
 }

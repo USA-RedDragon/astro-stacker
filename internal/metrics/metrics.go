@@ -42,6 +42,8 @@ var (
 		[]string{"command", resultLabel})
 	PreviewsRendered = promauto.NewCounterVec(prometheus.CounterOpts{Namespace: ns, Name: "previews_rendered_total",
 		Help: "Sub previews rendered, by result."}, []string{resultLabel})
+	CalibratedPreviewSeconds = promauto.NewHistogram(prometheus.HistogramOpts{Namespace: ns, Name: "calibrated_preview_seconds",
+		Help: "Time added by calibrating a sub's preview after the raw one is out.", Buckets: []float64{.05, .1, .25, .5, 1, 2, 5, 10, 30}})
 	FramesIndexed = promauto.NewCounter(prometheus.CounterOpts{Namespace: ns, Name: "frames_indexed_total",
 		Help: "Frames whose headers were indexed."})
 	EventListeners = promauto.NewGauge(prometheus.GaugeOpts{Namespace: ns, Name: "event_listeners",

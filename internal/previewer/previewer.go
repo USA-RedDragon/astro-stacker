@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"mime"
 	"net/url"
 	"path"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/activity"
+	"github.com/USA-RedDragon/astro-stacker/internal/calpreview"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
 	"github.com/USA-RedDragon/astro-stacker/internal/metrics"
@@ -30,6 +32,10 @@ import (
 // batchSize bounds how many frames are claimed per pass, so newly indexed
 // subs don't wait behind the whole backlog.
 const batchSize = 64
+
+// CalibrateWithin is how recent a light must be to get a calibrated preview,
+// so a backlog of old lights does not load masters nobody looks at.
+const CalibrateWithin = 36 * time.Hour
 
 type Previewer struct {
 	client      *minio.Client
@@ -45,6 +51,10 @@ type Previewer struct {
 	Wake *wake.Signal
 	// Task, if set, hears the backlog's progress.
 	Task *activity.Task
+	// Calibrator, if set, also renders a calibrated preview of each light
+	// taken within CalibrateWithin of now.
+	Calibrator      *calpreview.Calibrator
+	CalibrateWithin time.Duration
 }
 
 func New(client *minio.Client, source, dest string, db *gorm.DB, concurrency int, opts preview.Options) *Previewer {
@@ -54,6 +64,11 @@ func New(client *minio.Client, source, dest string, db *gorm.DB, concurrency int
 // Key returns where a frame's preview is stored.
 func Key(frameKey string) string {
 	return "previews/" + strings.TrimSuffix(frameKey, path.Ext(frameKey)) + ".jpg"
+}
+
+// CalibratedKey returns where a frame's calibrated preview is stored.
+func CalibratedKey(frameKey string) string {
+	return "previews-calibrated/" + strings.TrimSuffix(frameKey, path.Ext(frameKey)) + ".jpg"
 }
 
 // Run renders previews until ctx is cancelled, sleeping interval when idle
@@ -165,7 +180,7 @@ func (p *Previewer) RenderBatch(ctx context.Context) (int, error) {
 }
 
 func (p *Previewer) renderOne(ctx context.Context, f app.Frame) (bool, error) {
-	jpg, err := p.render(ctx, f.Key)
+	im, jpg, err := p.render(ctx, f.Key)
 	if ctx.Err() == nil {
 		metrics.PreviewsRendered.WithLabelValues(map[bool]string{true: "ok", false: "failed"}[err == nil]).Inc()
 	}
@@ -179,8 +194,7 @@ func (p *Previewer) renderOne(ctx context.Context, f app.Frame) (bool, error) {
 		updates["preview_error"] = msg
 	} else {
 		key := Key(f.Key)
-		if _, putErr := p.client.PutObject(ctx, p.dest, key, bytes.NewReader(jpg), int64(len(jpg)),
-			minio.PutObjectOptions{ContentType: "image/jpeg", CacheControl: "private, max-age=86400"}); putErr != nil {
+		if putErr := p.put(ctx, key, jpg); putErr != nil {
 			// Upload failures are transient; leave the row untouched to retry.
 			return false, fmt.Errorf("upload: %w", putErr)
 		}
@@ -193,25 +207,87 @@ func (p *Previewer) renderOne(ctx context.Context, f app.Frame) (bool, error) {
 	}
 	if err == nil && f.Type == "LIGHT" {
 		p.Events.Publish(events.Event{Type: events.TypePreview, Object: f.Object, Filter: f.Filter, Key: f.Key})
+		p.calibrated(ctx, f, im)
 	}
 	return true, err
 }
 
-func (p *Previewer) render(ctx context.Context, key string) ([]byte, error) {
+// calibrated renders and records the calibrated preview of a recent light,
+// after its raw preview is out. A failure leaves the raw preview standing
+// and is recorded as the note.
+func (p *Previewer) calibrated(ctx context.Context, f app.Frame, im *imagedata.Image) {
+	if p.Calibrator == nil || f.DateObs == nil || time.Since(*f.DateObs) > p.CalibrateWithin {
+		return
+	}
+	start := time.Now()
+	factor := binFactor(im.W, p.opts)
+	res, err := p.Calibrator.Calibrate(ctx, f, preview.Bin(im, factor), factor)
+	if ctx.Err() != nil {
+		return
+	}
+	updates := map[string]any{"cal_preview_at": time.Now(), "cal_preview_key": nil}
+	switch {
+	case err != nil:
+		slog.Warn("Could not calibrate preview", "key", f.Key, "error", err)
+		updates["cal_preview_note"] = "Not calibrated: " + err.Error()
+	case res.Image == nil:
+		updates["cal_preview_note"] = res.Note
+	default:
+		jpg, err := preview.Render(res.Image, p.opts)
+		if err == nil {
+			key := CalibratedKey(f.Key)
+			if err = p.put(ctx, key, jpg); err == nil {
+				updates["cal_preview_key"] = key
+			}
+		}
+		if err != nil {
+			slog.Warn("Could not save calibrated preview", "key", f.Key, "error", err)
+			updates["cal_preview_note"] = "Not calibrated: " + err.Error()
+		} else {
+			updates["cal_preview_note"] = res.Note
+		}
+	}
+	took := time.Since(start)
+	metrics.CalibratedPreviewSeconds.Observe(took.Seconds())
+	slog.Info("Calibrated preview", "key", f.Key, "duration", took.Round(time.Millisecond),
+		"masters_loaded", res.Loaded, "note", updates["cal_preview_note"])
+	if err := p.db.WithContext(ctx).Model(&app.Frame{}).
+		Where("id = ? AND e_tag = ?", f.ID, f.ETag).Updates(updates).Error; err != nil {
+		slog.Warn("Could not record calibrated preview", "key", f.Key, "error", err)
+		return
+	}
+	p.Events.Publish(events.Event{Type: events.TypePreview, Object: f.Object, Filter: f.Filter, Key: f.Key})
+}
+
+func binFactor(w int, opts preview.Options) int {
+	if opts.MaxWidth <= 0 {
+		opts = preview.DefaultOptions()
+	}
+	return max(1, int(math.Ceil(float64(w)/float64(opts.MaxWidth))))
+}
+
+func (p *Previewer) put(ctx context.Context, key string, jpg []byte) error {
+	_, err := p.client.PutObject(ctx, p.dest, key, bytes.NewReader(jpg), int64(len(jpg)),
+		minio.PutObjectOptions{ContentType: "image/jpeg", CacheControl: "private, max-age=86400"})
+	return err
+}
+
+func (p *Previewer) render(ctx context.Context, key string) (*imagedata.Image, []byte, error) {
 	obj, err := p.client.GetObject(ctx, p.source, key, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer obj.Close()
 	b, err := io.ReadAll(obj)
 	if err != nil {
-		return nil, fmt.Errorf("download: %w", err)
+		return nil, nil, fmt.Errorf("download: %w", err)
 	}
 	im, err := imagedata.Decode(b)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return preview.Render(im, p.opts)
+	jpg, err := preview.Render(im, p.opts)
+	return im, jpg, err
 }
 
 // Signer presigns preview URLs for browsers, and reads previews for

@@ -350,3 +350,19 @@ func (p *Pipeline) measureBiasMasters(ctx context.Context) {
 		}()
 	}
 }
+
+// MasterSetKey is the set_key of the master built from a set's frames, as
+// recorded in calibration_masters.
+func MasterSetKey(typ string, frames []app.Frame) string { return setKey(typ, frames) }
+
+// ImportedMasterFile is where the stacker keeps its bias-subtracted copy of a
+// master made elsewhere, under its work directory.
+func ImportedMasterFile(workDir string, set calmatch.Set) string {
+	return filepath.Join(workDir, "masters", importedKey(set)+".fit")
+}
+
+// BuiltMasterFile is where the stacker keeps a master it built, under its
+// work directory.
+func BuiltMasterFile(workDir, setKey string) string {
+	return filepath.Join(workDir, "masters", setKey+".fit")
+}
