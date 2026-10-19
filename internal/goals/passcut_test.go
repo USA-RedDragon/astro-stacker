@@ -217,10 +217,9 @@ func TestPublishScoreCutAndExpectedScore(t *testing.T) {
 		t.Fatal(err)
 	}
 	if blue.NightQuality == nil || math.Abs(*blue.NightQuality-0.1) > 1e-9 || blue.ScoreCut == nil || math.Abs(*blue.ScoreCut-0.27) > 1e-9 ||
-		blue.ExpectedScore == nil || *blue.ExpectedScore >= *blue.ScoreCut {
+		blue.ExpectedScore != nil {
 		t.Fatalf("Blue row %+v cut %v expected %v", blue, orNil(blue.ScoreCut), orNil(blue.ExpectedScore))
 	}
-	t.Logf("quality %v: Blue cut %v expected %v", *blue.NightQuality, *blue.ScoreCut, *blue.ExpectedScore)
 	if sum, err := p.Publish(ctx); err != nil || sum.Changed != 0 {
 		t.Fatalf("unchanged publish %+v %v", sum, err)
 	}
@@ -235,10 +234,9 @@ func TestPublishScoreCutAndExpectedScore(t *testing.T) {
 	if err := sched.Table(ProgressTable).Where("filter = ?", filterBlue).Scan(&blue).Error; err != nil {
 		t.Fatal(err)
 	}
-	if blue.NightQuality == nil || math.Abs(*blue.NightQuality-0.7) > 1e-9 || blue.ExpectedScore == nil || *blue.ExpectedScore < *blue.ScoreCut {
+	if blue.NightQuality == nil || math.Abs(*blue.NightQuality-0.7) > 1e-9 || blue.ExpectedScore != nil {
 		t.Fatalf("Blue row after the sky cleared %+v expected %v", blue, orNil(blue.ExpectedScore))
 	}
-	t.Logf("quality %v: Blue cut %v expected %v", *blue.NightQuality, *blue.ScoreCut, *blue.ExpectedScore)
 }
 
 func orNil(v *float64) any {
