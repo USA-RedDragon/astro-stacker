@@ -723,7 +723,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		flags, curve, ownChecks = own.Flags, own.Curve, own.Checks
 	}
 	if !st.found && isTransient(sum) {
-		rep.FadesRead = true
+		rep.FadesRead, rep.FadeNightsRead = true, true
 		s.vetTransient(ctx, f, sum, rep, own, ownChecks, known, s.movingCheck(ctx, sum, runs, surveys.Fetch{}), flags)
 		return rep, nil
 	}
@@ -781,8 +781,10 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	rep.Groups = groupsOf(sum, ownChecks, fx, pr, timing, known, moving)
 	rep.Charts = chartsOf(sum, curve, fx, pr, change)
 	rep.FadesRead = fx.ztf.State == surveys.Done || fx.ztf.State == surveys.Uncovered
+	rep.FadeNightsRead = rep.FadesRead
 	if pr != nil {
 		rep.Fades = pr.Fades
+		rep.ZTFFadeNights = eveningDates(pr.SteadyFadeNights)
 		rep.Ephemeris = pr.Ephemeris
 		rep.Survey, rep.SurveyDoubled = surveySummaries(series, pr.Ephemeris)
 	}

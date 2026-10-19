@@ -41,6 +41,10 @@ type analysis struct {
 	bandsDone bool
 	rob       *Robust
 	fades     *Fades
+	steadyAt  []float64
+	steadyRun bool
+	comps     []map[string][]compPt
+	compsRead bool
 	tessComps []TESSComp
 }
 
@@ -86,6 +90,7 @@ func analyzeSeries(d *data, own, ztf []lc.Series, opts Options, at *Ephemeris) (
 	}
 	res.Checks = a.checks(res.Fits)
 	res.Fades = a.fades
+	res.SteadyFadeNights = a.steadyAt
 	if a.kind == KindFlat || a.kind == KindIrregular {
 		return res, ErrNoPeriod
 	}

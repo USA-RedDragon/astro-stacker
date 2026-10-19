@@ -87,6 +87,12 @@ type Result struct {
 	// Fades is how a flat star's ZTF fades compare with nearby stars,
 	// when its fading points back each other up on two or more nights.
 	Fades *Fades `json:"fades,omitempty"`
+	// SteadyFadeNights are the BJDs of the first fading point of each ZTF
+	// night two or more fading points back up on which the star fades
+	// beyond nearby stars that stay at their normal level, from one such
+	// night up. Fades counts them only from fadeNights backed nights; the
+	// verdict reads Fades alone.
+	SteadyFadeNights []float64 `json:"steady_fade_nights,omitempty"`
 }
 
 // Options bound the search. MinPeriod and MaxPeriod are in days, 0.2
