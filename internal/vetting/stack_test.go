@@ -2,6 +2,7 @@ package vetting
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
@@ -43,10 +44,10 @@ func TestAuditedTransientsStackToTheirKnownAnswers(t *testing.T) {
 		{"60465, bulge", []ownimage.FluxNight{auditNight("2025-10-26", 0.8, 12.1, true), auditNight("2025-10-27", -0.3, 8.4, false)}, ownimage.StackRefuted},
 		{"60670, bulge", []ownimage.FluxNight{auditNight("2025-10-15", 2.7, 6.3, true), auditNight("2025-10-17", 0.0, 5.9, false), auditNight("2025-10-18", 0.3, 3.6, false)}, ownimage.StackRefuted},
 		{"35876, bulge", []ownimage.FluxNight{auditNight("2025-10-18", 1.9, 10.1, true), auditNight("2025-10-19", -0.7, 5.2, false)}, ownimage.StackRefuted},
-		{"60345, bulge with no later night", []ownimage.FluxNight{auditNight("2025-10-27", 0.3, 12.7, true)}, ownimage.StackDoubtful},
+		{"60345, bulge with no later night", []ownimage.FluxNight{auditNight("2025-10-27", 0.3, 12.7, true)}, ownimage.StackRefuted},
 		{"35878, bulge", []ownimage.FluxNight{auditNight("2025-10-18", 3.3, 7.9, true), auditNight("2025-10-19", 1.0, 4.7, false)}, ownimage.StackDoubtful},
 		{"58090, on a star", []ownimage.FluxNight{auditNight("2025-11-21", 3.5, 5.7, true), auditNight("2025-11-22", -1.5, 7.6, false)}, ownimage.StackDoubtful},
-		{"66053, a star's wing", []ownimage.FluxNight{auditNight("2025-01-21", 0.4, 4.3, true)}, ownimage.StackUntested},
+		{"66053, a star's wing", []ownimage.FluxNight{auditNight("2025-01-21", 0.4, 4.3, true)}, ownimage.StackRefuted},
 	}
 	for _, c := range cases {
 		fc := curveOf(c.nights...)
@@ -90,5 +91,43 @@ func TestStackFreshFramesMustShowIt(t *testing.T) {
 	n.FreshFlux = 3.5 * n.FreshErr
 	if c, v := transientStack(curveOf(n), auditReps("2026-10-11")); v != ownimage.StackConfirmed {
 		t.Errorf("fresh frames showing it: %s %s", v, c.Evidence)
+	}
+}
+
+func TestStackRefutesLightTooWeakToHaveBeenFound(t *testing.T) {
+	t.Parallel()
+	// needs-a-look-12: 60762 (Andromeda, 2025-10-17) was reported at signal
+	// to noise 8.5 in 17 subs; 15 of them in Red show the spot at 0.8 where
+	// a fake of its light shows at 2.6. 34178 (Horsehead Nebula,
+	// 2025-11-16): 4 of 10 subs in Green, 1.7 against 2.5.
+	cases := []struct {
+		name          string
+		obs, inj      float64
+		n, subs       int
+		want          ownimage.StackVerdict
+		wantEvidence  string
+		wantFailCheck bool
+	}{
+		{"60762", 0.8, 2.6, 15, 17, ownimage.StackRefuted, "too faint to have been found", true},
+		{"34178", 1.7, 2.5, 4, 10, ownimage.StackRefuted, "too faint to have been found", true},
+		{"faint real light at the spot", 4.8, 4.4, 12, 12, ownimage.StackUntested, "", false},
+		{"reported light at the hold", 3.0, 4.6, 12, 12, ownimage.StackUntested, "", false},
+		{"fewer frames than the detection tested", 1.0, 2.6, 4, 16, ownimage.StackUntested, "", false},
+	}
+	for _, c := range cases {
+		e := auditLight / c.inj
+		n := ownimage.FluxNight{Night: "2025-10-17", Filter: lum, N: c.n, Flux: c.obs * e, Err: e, Local: e, Empty99: 2.6 * e, Flagged: true}
+		reps := auditReps("2025-10-17")
+		for k, r := range reps {
+			r.subs = c.subs
+			reps[k] = r
+		}
+		ch, v := transientStack(curveOf(n), reps)
+		if v != c.want {
+			t.Errorf("%s: %s, want %s: %s", c.name, v, c.want, ch.Evidence)
+		}
+		if (ch.Status == check.Fail) != c.wantFailCheck || !strings.Contains(ch.Evidence, c.wantEvidence) {
+			t.Errorf("%s: %s %q", c.name, ch.Status, ch.Evidence)
+		}
 	}
 }

@@ -1505,9 +1505,9 @@ func (c *cand) scaled(errs []float64) []float64 {
 }
 
 // locallyFaint says whether a brightening where no star was is weaker than
-// minLocalSNR against the noise around it.
+// MinLocalSNR against the noise around it.
 func (c Candidate) locallyFaint() bool {
-	return c.GaiaG == nil && c.Sign > 0 && c.LocalSNR > 0 && c.LocalSNR < minLocalSNR
+	return c.GaiaG == nil && c.Sign > 0 && c.LocalSNR > 0 && c.LocalSNR < MinLocalSNR
 }
 
 // residual says why a change on reference light is the light's

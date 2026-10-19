@@ -33,6 +33,9 @@ const (
 // 2026acsi (source 182), a real nova, measured 6.2 where its reported
 // light alone gives 5.8.
 const (
+	// StackNoAboveControls is the why of a stack refuted with no unused frame
+	// able to show the source: it stands no higher than empty places.
+	StackNoAboveControls = "no higher than empty places"
 	// StackInjMin is the least a fake must show at for a stack to judge,
 	// the 5 sigma the audits asked of an unused frame.
 	StackInjMin = 5.0
@@ -82,8 +85,13 @@ func (u StackUnused) flat() bool { return u.SNR < stackFlat }
 // JudgeStack weighs a stack to confirm: confirmed when the source shows at
 // stackReal of its fake or more, above the controls, and in the required
 // unused frames that could show it; refuted when it shows under stackFake
-// of its fake and every unused frame that could show it is flat; doubtful
-// otherwise, with why.
+// of its fake and every unused frame that could show it is flat, or, with
+// no unused frame able to show it, when it does not stand above the
+// controls either; doubtful otherwise, with why. The frames that found it
+// then show nothing a fake of its light would and nothing empty sky does
+// not: 58729 (Horsehead Nebula, 2025-11-21) stacked to 3.0 against a fake's
+// 10.8 and empty places' 4.2, and 54898 (Crab Nebula, 2026-02-05), fitted
+// beside a star, to 1.3 against 5.8 and 3.0.
 func JudgeStack(f StackFacts) (StackVerdict, string) {
 	if !(f.Inj >= StackInjMin) {
 		return StackUntested, ""
@@ -103,6 +111,9 @@ func JudgeStack(f StackFacts) (StackVerdict, string) {
 	}
 	if f.Obs < stackFake*f.Inj && testable > 0 && flat == testable {
 		return StackRefuted, ""
+	}
+	if f.Obs < stackFake*f.Inj && testable == 0 && f.HasControl && !(f.Peak > f.Control99) {
+		return StackRefuted, StackNoAboveControls
 	}
 	var why []string
 	if f.Obs < stackReal*f.Inj {
@@ -147,6 +158,9 @@ func StackCheck(ts *TrackStack) (check.Check, StackVerdict) {
 	case StackUntested:
 		return check.Skipped(check.MoverStack, fmt.Sprintf("Not clear. A fake of its brightness shows at only %.1f in its frames, too faint for the stack to tell. ", ts.Injected)+ev), v
 	case StackRefuted:
+		if why == StackNoAboveControls {
+			return check.New(check.MoverStack, check.Fail, ev+" It is not there: a real object of the brightness it was found at would show far more strongly, and it stands no higher than the controls."), v
+		}
 		return check.New(check.MoverStack, check.Fail, ev+" It is not there: a real object of the brightness it was found at would show far more strongly, and the frames it was not found in show nothing clear (signal to noise under 2)."), v
 	case StackDoubtful:
 		return check.New(check.MoverStack, check.Fail, ev+" Not confirmed: "+why+"."), v

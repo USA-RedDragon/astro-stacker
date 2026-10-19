@@ -382,7 +382,7 @@ func heldWhy(c Candidate) []Match {
 	}
 	if c.locallyFaint() {
 		out = append(out, Match{Catalog: catalogNoise, Name: "noisy spot",
-			Note: fmt.Sprintf("%.1f times the noise of the picture around it, though %.1f times the whole picture's; held under %.0f", c.LocalSNR, c.SNR, minLocalSNR)})
+			Note: fmt.Sprintf("%.1f times the noise of the picture around it, though %.1f times the whole picture's; held under %.0f", c.LocalSNR, c.SNR, MinLocalSNR)})
 	}
 	return out
 }

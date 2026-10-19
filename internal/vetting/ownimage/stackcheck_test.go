@@ -82,8 +82,12 @@ func TestStackJudgement(t *testing.T) {
 		why  string
 	}{
 		{"too faint to tell", StackFacts{Obs: 1, Peak: 1, Inj: 4.9, HasControl: true, Control99: 3}, StackUntested, ""},
-		{"no unused frames to rule it out", StackFacts{Obs: 1, Peak: 1, Inj: 10, HasControl: true, Control99: 3}, StackDoubtful, "only 10%"},
-		{"unused frames too faint to judge", StackFacts{Obs: 1, Peak: 1, Inj: 10, HasControl: true, Control99: 3, Unused: []StackUnused{{SNR: 0, Inj: 4, Required: true}}}, StackDoubtful, ""},
+		{"no unused frames, no higher than the controls", StackFacts{Obs: 1, Peak: 1, Inj: 10, HasControl: true, Control99: 3}, StackRefuted, StackNoAboveControls},
+		{"58729, no unused frames", StackFacts{Obs: 3.0, Peak: 3.0, Inj: 10.8, HasControl: true, Control99: 4.2}, StackRefuted, StackNoAboveControls},
+		{"54898, wing fit, no unused frames", StackFacts{Obs: 1.3, Peak: 1.3, Inj: 5.8, HasControl: true, Control99: 3.0}, StackRefuted, StackNoAboveControls},
+		{"no unused frames, above the controls", StackFacts{Obs: 4, Peak: 4, Inj: 10, HasControl: true, Control99: 3}, StackDoubtful, "only 40%"},
+		{"no unused frames, no controls", StackFacts{Obs: 1, Peak: 1, Inj: 10}, StackDoubtful, "could not be measured"},
+		{"unused frames too faint to judge", StackFacts{Obs: 1, Peak: 1, Inj: 10, HasControl: true, Control99: 3, Unused: []StackUnused{{SNR: 0, Inj: 4, Required: true}}}, StackRefuted, StackNoAboveControls},
 		{"in a crowded field", StackFacts{Obs: 9, Peak: 9, Inj: 10, HasControl: true, Control99: 11, Unused: shows}, StackDoubtful, "controls"},
 		{"no controls", StackFacts{Obs: 9, Peak: 9, Inj: 10, Unused: shows}, StackDoubtful, "could not be measured"},
 		{"unused too weak", StackFacts{Obs: 9, Peak: 9, Inj: 10, HasControl: true, Control99: 3, Unused: []StackUnused{{SNR: 3.2, Inj: 20, Required: true}}}, StackDoubtful, "too weakly"},
