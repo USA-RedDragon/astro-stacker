@@ -1143,6 +1143,10 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: ZTF saw this spot brighten before", Confidence: Low, Why: ev(check.TransZTF)}
 	}
 	if st(check.TransATLAS) == check.Pass || st(check.TransZTF) == check.Pass {
+		if fx.stackV == ownimage.StackRefuted && st(check.TransWing) == check.Fail {
+			return Suggestion{State: app.VetArtifact, Say: "Artifact: a bright star's wing, and your frames stacked at the spot do not show it", Confidence: Medium,
+				Why: joinSentences(ev(check.TransWing), ev(check.TransStack), "A survey's light this near a star can be the star's own.")}
+		}
 		if fx.stackV == ownimage.StackRefuted {
 			return Suggestion{State: app.VetUnsure, Say: "Not sure: a survey saw it, but your frames stacked at the spot do not show it", Confidence: Low,
 				Why: joinSentences(ev(check.TransStack), ev(check.TransATLAS), ev(check.TransZTF))}
