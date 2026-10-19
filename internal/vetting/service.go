@@ -58,7 +58,12 @@ type Service struct {
 	// StackCap is the most moving objects a run stacks along their
 	// motion; 0 is stackPerRun.
 	StackCap int
+	// Build names this build, stamped on each report it writes; a run
+	// stops when another build is announced while it goes.
+	Build    string
 	stacked  int
+	started  time.Time
+	replaced bool
 }
 
 // RunOptions narrow a run: Objects to those targets, IDs to those
@@ -89,15 +94,21 @@ func (s *Service) now() time.Time {
 // for by hand go first, in the order asked, and sources a stopped run
 // left behind go last. Past the budget no new target starts, and a
 // target under way starts no new source after its first; the rest wait
-// for the next run.
+// for the next run. It first announces its build, and stops, leaving the
+// rest for the newer build, when a newer one is announced while it goes.
 func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
+	if err := Announce(ctx, s.App, s.Build, s.now()); err != nil {
+		return Stats{}, err
+	}
 	unlock, err := Lock(ctx, s.App)
 	if err != nil {
 		return Stats{}, err
 	}
 	defer unlock()
 	s.stacked = 0
+	s.replaced = false
 	start := s.now()
+	s.started = start
 	stale, err := requeueStale(ctx, s.App, start)
 	if err != nil {
 		return Stats{}, err
@@ -122,6 +133,10 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 		}
 		if !stop.IsZero() && s.now().After(stop) {
 			slog.Info("Vetting budget used up", "targets_left", len(bs)-i)
+			break
+		}
+		if s.replaced {
+			slog.Warn("A newer vetting build was announced; leaving the rest to it", "targets_left", len(bs)-i)
 			break
 		}
 		s.Mem.Step()
@@ -281,7 +296,7 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 	}
 	fail := func(err error) (int, int) {
 		for _, d := range dues {
-			if e := save(ctx, s.App, d.Summary.Source.ID, d.Hash, nil, err, s.now()); e != nil {
+			if e := save(ctx, s.App, d.Summary.Source.ID, d.Hash, s.stampOf(d), nil, err, s.now()); e != nil {
 				slog.Error("Could not save the vetting", "source", d.Summary.Source.ID, "error", e)
 			}
 		}
@@ -320,17 +335,49 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 		}
 		id := d.Summary.Source.ID
 		rep, err := s.checkSource(ctx, w, d.Summary)
+		if s.supersededNow(ctx) {
+			left := make([]int, 0, len(dues)-i)
+			for _, r := range dues[i:] {
+				left = append(left, r.Summary.Source.ID)
+			}
+			if err := release(ctx, s.App, left, s.now()); err != nil {
+				slog.Error("Could not hand back the sources left", "object", object, "error", err)
+			}
+			slog.Warn("A newer vetting build was announced; not saving this build's verdicts", "object", object, "sources_left", len(left))
+			return done, failed
+		}
 		if err != nil {
 			failed++
 			slog.Warn("Vetting failed", "source", id, "error", err)
 		} else {
 			done++
 		}
-		if e := save(ctx, s.App, id, d.Hash, rep, err, s.now()); e != nil {
+		if e := save(ctx, s.App, id, d.Hash, s.stampOf(d), rep, err, s.now()); errors.Is(e, errNewerVet) {
+			slog.Warn("Not overwriting a newer pipeline's vetting", "source", id, "pipeline", pipelineOf(d.Summary))
+		} else if e != nil {
 			slog.Error("Could not save the vetting", "source", id, "error", e)
 		}
 	}
 	return done, failed
+}
+
+func (s *Service) stampOf(d Due) stamp {
+	return stamp{pipeline: pipelineOf(d.Summary), build: s.Build}
+}
+
+// supersededNow says newer vetting code was announced since the run
+// started; once it has, it stays so for the rest of the run.
+func (s *Service) supersededNow(ctx context.Context) bool {
+	if s.replaced {
+		return true
+	}
+	ann, ok, err := announced(ctx, s.App)
+	if err != nil {
+		slog.Warn("Could not read the announced vetting build", "error", err)
+		return false
+	}
+	s.replaced = ok && superseded(ann, s.Build, s.started)
+	return s.replaced
 }
 
 // objectWork is what one target's sources are checked from: their

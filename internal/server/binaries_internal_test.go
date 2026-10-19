@@ -52,7 +52,7 @@ func binaryServer(t *testing.T) (*gin.Engine, app.DiscoverySource, app.Discovery
 func binaryServerDB(t *testing.T) (*gin.Engine, *gorm.DB, app.DiscoverySource, app.DiscoverySource) {
 	t.Helper()
 	db := memStore(t).DB()
-	if err := db.AutoMigrate(&app.DiscoverySource{}, &app.DiscoveryVet{}, &app.BinaryBook{}, &app.BinaryFacts{}, &app.BinarySetting{},
+	if err := db.AutoMigrate(&app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}, &app.BinaryBook{}, &app.BinaryFacts{}, &app.BinarySetting{},
 		&app.EclipseRequest{}, &app.ShareImage{}, &app.EclipseTiming{}); err != nil {
 		t.Fatal(err)
 	}

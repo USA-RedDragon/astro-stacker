@@ -86,7 +86,7 @@ func newDiscoveryAPI(t *testing.T) *discoveryAPI {
 	t.Helper()
 	appStore := memStore(t)
 	db := appStore.DB()
-	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.Stack{}); err != nil {
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}, &app.Stack{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&[]app.Stack{{Object: objM33, Filter: "Luminance"}, {Object: objM33, Filter: "H-a"}}).Error; err != nil {

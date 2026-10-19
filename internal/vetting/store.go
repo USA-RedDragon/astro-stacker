@@ -29,13 +29,17 @@ type Status struct {
 	Error       string     `json:"error"`
 	RequestedAt *time.Time `json:"requested_at"`
 	FinishedAt  *time.Time `json:"finished_at"`
+	// Stale says the report came from code a newer deploy replaced; the
+	// next run vets the source again.
+	Stale bool `json:"stale,omitempty"`
 }
 
-func statusOf(id int, row *app.DiscoveryVet) (Status, error) {
+func statusOf(id int, row *app.DiscoveryVet, ann app.VetBuild, haveAnn bool) (Status, error) {
 	if row == nil {
 		return Status{SourceID: id, State: StateNone}, nil
 	}
 	st := Status{SourceID: id, State: row.State, Error: row.Error, RequestedAt: row.RequestedAt, FinishedAt: row.FinishedAt}
+	st.Stale = row.Report != "" && staleRow(ann, haveAnn, *row, "")
 	if row.Report != "" {
 		var r Report
 		if err := json.Unmarshal([]byte(row.Report), &r); err != nil {
@@ -51,12 +55,16 @@ func Load(ctx context.Context, db *gorm.DB, id int) (Status, error) {
 	var row app.DiscoveryVet
 	err := db.WithContext(ctx).Where("source_id = ?", id).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return statusOf(id, nil)
+		return statusOf(id, nil, app.VetBuild{}, false)
 	}
 	if err != nil {
 		return Status{}, err
 	}
-	return statusOf(id, &row)
+	ann, haveAnn, err := announced(ctx, db)
+	if err != nil {
+		return Status{}, err
+	}
+	return statusOf(id, &row, ann, haveAnn)
 }
 
 // Request queues source id for a fresh run, keeping its last report until
@@ -100,9 +108,9 @@ const (
 // Pipeline versions of the sources with checks of their own: a source
 // whose pipeline changes gets a new input hash and is vetted again.
 const (
-	moverPipeline     = "mover:5"
-	transientPipeline = "transient:5"
-	starPipeline      = "star:4"
+	moverPipeline     = "mover:6"
+	transientPipeline = "transient:6"
+	starPipeline      = "star:5"
 )
 
 func pipelineOf(s discoverysource.Summary) string {
@@ -129,8 +137,9 @@ func hashOf(s discoverysource.Summary) string {
 }
 
 // Pick lists the sources due: new and not vetted by the user with no
-// report, an older report version, changed candidates or survey answers
-// still to collect, and any run requested by hand. ids narrows the pick
+// report, an older report version or pipeline, a report another build
+// wrote after the newest build was announced, changed candidates or
+// survey answers still to collect, and any run requested by hand. ids narrows the pick
 // to those sources, due or not.
 func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids []int) ([]Due, error) {
 	list, err := summaries(ctx, db, objects, ids)
@@ -139,6 +148,10 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 	}
 	var rows []app.DiscoveryVet
 	if err := db.WithContext(ctx).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	ann, haveAnn, err := announced(ctx, db)
+	if err != nil {
 		return nil, err
 	}
 	vets := map[int]app.DiscoveryVet{}
@@ -153,7 +166,7 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 	for _, s := range list {
 		h := hashOf(s)
 		v, seen := vets[s.Source.ID]
-		if forced[s.Source.ID] || due(s, h, v, seen, now) {
+		if forced[s.Source.ID] || due(s, h, v, seen, now) || (seen && v.State == StateDone && staleRow(ann, haveAnn, v, pipelineOf(s)) && dueAgain(s)) {
 			d := Due{Summary: s, Hash: h}
 			if seen && asked(v) {
 				d.AskedAt = v.RequestedAt
@@ -175,11 +188,17 @@ func asked(v app.DiscoveryVet) bool {
 	return v.RequestedAt != nil && (v.StartedAt == nil || v.RequestedAt.After(*v.StartedAt))
 }
 
+// dueAgain says the job still vets the source on its own: new and not
+// vetted by the user.
+func dueAgain(s discoverysource.Summary) bool {
+	return discoveries.IsNew(s.Class) && s.Source.Vetting == ""
+}
+
 func due(s discoverysource.Summary, hash string, v app.DiscoveryVet, seen bool, now time.Time) bool {
 	if seen && asked(v) {
 		return true
 	}
-	if !discoveries.IsNew(s.Class) || s.Source.Vetting != "" {
+	if !dueAgain(s) {
 		return false
 	}
 	if !seen {
@@ -291,11 +310,31 @@ func markRunning(ctx context.Context, db *gorm.DB, ids []int, now time.Time) err
 	return nil
 }
 
-func save(ctx context.Context, db *gorm.DB, id int, hash string, r *Report, runErr error, now time.Time) error {
-	up := map[string]any{"finished_at": now, colUpdatedAt: now, "version": Version, "input_hash": hash}
+// stamp names the code that wrote a vetting: its pipeline and build.
+type stamp struct {
+	pipeline string
+	build    string
+}
+
+// errNewerVet says the stored vetting came from a newer pipeline, which
+// an older run does not overwrite.
+var errNewerVet = errors.New("a newer pipeline already vetted the source")
+
+func save(ctx context.Context, db *gorm.DB, id int, hash string, by stamp, r *Report, runErr error, now time.Time) error {
+	var have app.DiscoveryVet
+	err := db.WithContext(ctx).Select("pipeline").Where("source_id = ?", id).First(&have).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if newerPipeline(have.Pipeline, by.pipeline) {
+		return errNewerVet
+	}
+	up := map[string]any{"finished_at": now, colUpdatedAt: now, "version": Version, "input_hash": hash,
+		"pipeline": by.pipeline, "build": by.build}
 	if runErr != nil {
 		up["state"], up["error"] = StateFailed, runErr.Error()
 	} else {
+		r.Pipeline, r.Build = by.pipeline, by.build
 		b, err := json.Marshal(r)
 		if err != nil {
 			return err
@@ -304,5 +343,9 @@ func save(ctx context.Context, db *gorm.DB, id int, hash string, r *Report, runE
 		up["suggested"], up["confidence"] = r.Suggestion.State, r.Suggestion.Confidence
 		up["pending"] = strings.Join(r.Pending, ",")
 	}
-	return db.WithContext(ctx).Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Updates(up).Error
+	q := db.WithContext(ctx).Model(&app.DiscoveryVet{}).Where("source_id = ?", id)
+	if have.Pipeline != "" {
+		q = q.Where("pipeline = ?", have.Pipeline)
+	}
+	return q.Updates(up).Error
 }

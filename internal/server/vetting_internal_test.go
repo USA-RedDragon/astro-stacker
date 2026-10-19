@@ -13,7 +13,7 @@ import (
 func TestSourceChecksQueueAndRead(t *testing.T) {
 	t.Parallel()
 	a := newDiscoveryAPI(t)
-	if err := a.db.AutoMigrate(&app.DiscoveryVet{}); err != nil {
+	if err := a.db.AutoMigrate(&app.DiscoveryVet{}, &app.VetBuild{}); err != nil {
 		t.Fatal(err)
 	}
 	var page DiscoverySpotList

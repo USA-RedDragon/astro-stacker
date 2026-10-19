@@ -58,7 +58,7 @@ func checkRequeue(t *testing.T, db *gorm.DB) {
 	if err := markRunning(ctx, db, []int{newID}, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if err := save(ctx, db, newID, due[0].Hash, &Report{Version: Version}, nil, now.Add(2*time.Minute)); err != nil {
+	if err := save(ctx, db, newID, due[0].Hash, stamp{pipeline: starPipeline}, &Report{Version: Version}, nil, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if due, _ := Pick(ctx, db, now.Add(3*time.Minute), nil, nil); len(due) != 0 {
