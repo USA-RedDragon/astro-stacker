@@ -107,7 +107,10 @@ func (s *Service) moverReport(ctx context.Context, w *objectWork, sum discoverys
 // does, and those of the nights after. With a bright star's wing fitted
 // at the spot, the wing fit's light stands for the stack: 66053 and the
 // nine spots of Andromeda's 2025-01-21 showed light in a plain fit and
-// none in the wing fit. When the stack holds every sub the detection
+// none in the wing fit. The unused frames, measured without the wing fit,
+// then do not count: 56176 (Caldwell 14, 2026-01-10) stood 0.6 sigma above
+// its far nights in the wing fit while 2026-01-13's plain fit held the
+// star's wing at 2.9. When the stack holds every sub the detection
 // tested, a fake that shows at discoveries.MinLocalSNR or more there may
 // refute it, under ownimage.StackInjMin too: the detection claimed light
 // at that hold in these same subs, and tooWeakToFind refutes under it, so
@@ -151,7 +154,9 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	}
 	if p.FreshErr > 0 {
 		u := ownimage.StackUnused{SNR: p.FreshSNR(), Inj: fake / p.FreshErr, Required: true}
-		f.Unused = append(f.Unused, u)
+		if !wing {
+			f.Unused = append(f.Unused, u)
+		}
 		words = append(words, fmt.Sprintf("In %s of that night the detection did not use it shows at %.1f, where the fake shows at %.1f.", ownimage.FrameWord(p.FreshN), u.SNR, u.Inj))
 	}
 	for _, n := range inFilter(fc, p.Filter) {
@@ -159,7 +164,9 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 			continue
 		}
 		u := ownimage.StackUnused{SNR: n.SNR(), Inj: fake / n.Err}
-		f.Unused = append(f.Unused, u)
+		if !wing {
+			f.Unused = append(f.Unused, u)
+		}
 		words = append(words, fmt.Sprintf("On %s it shows at %.1f, where the fake shows at %.1f.", n.Night, u.SNR, u.Inj))
 	}
 	ev := strings.Join(append([]string{lead}, words...), " ")
