@@ -278,11 +278,11 @@ func seenThrough(site sky.Site, ra, dec float64, p Predicted) bool {
 	return true
 }
 
-// clash says the eclipse was asked for before, in any state, or its
+// clash says the eclipse was asked for before, in any state but moved, or its
 // window overlaps an open request of any star.
 func clash(reqs []app.EclipseRequest, id int, p Predicted, start, end, now time.Time) bool {
 	for _, r := range reqs {
-		if r.SourceID == id && r.Kind == p.Kind && absDur(r.Mid.Sub(p.Mid)) <= requestMatch {
+		if r.SourceID == id && r.Kind == p.Kind && r.State != app.EclipseMoved && absDur(r.Mid.Sub(p.Mid)) <= requestMatch {
 			return true
 		}
 		if open(r) && r.End.After(now) && r.Start.Before(end) && start.Before(r.End) {
