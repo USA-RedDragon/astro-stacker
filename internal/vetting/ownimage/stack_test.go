@@ -36,9 +36,10 @@ func runStack(t *testing.T, f *trackField, s TrackSpot) TrackStack {
 // lineTrail is how far the line's mover moves over one exposure.
 func lineTrail() [2]float64 { return [2]float64{3 * trackVX / 12, 3 * trackVY / 12} }
 
-// trailed is a source of light fl moving along lineTrail over the
-// exposure, about (x, y).
-func trailed(x, y, fl float64) [][3]float64 {
+// trailed is a source of half the light of magnitude 18 moving along
+// lineTrail over the exposure, about (x, y).
+func trailed(x, y float64) [][3]float64 {
+	const fl = moverFlux18 / 2
 	pts := trailPoints(lineTrail())
 	out := make([][3]float64, 0, len(pts))
 	for _, q := range pts {
@@ -58,7 +59,7 @@ func TestRealMoverStacksLikeItsFake(t *testing.T) {
 	const fl = moverFlux18 / 2
 	for k := range f.subs {
 		x, y := f.line(k)
-		f.subs[k].extra = trailed(x, y, fl)
+		f.subs[k].extra = trailed(x, y)
 	}
 	ts := runStack(t, f, f.stackSpot(f.line, []int{1, 2, 3, 4, 5, 6}, fl))
 	c, v := StackCheck(&ts)
@@ -111,7 +112,7 @@ func TestFakeFollowsTheLightPutIn(t *testing.T) {
 	const fl = moverFlux18 / 2
 	for k := range f.subs {
 		x, y := f.line(k)
-		f.subs[k].extra = trailed(x, y, fl)
+		f.subs[k].extra = trailed(x, y)
 	}
 	ts := runStack(t, f, f.stackSpot(f.line, []int{1, 2, 3, 4, 5, 6}, 2*fl))
 	if ts.SNR > 0.6*ts.Injected || ts.SNR < 0.4*ts.Injected {
@@ -143,7 +144,7 @@ func TestRealMoverPastAStarStacksItsClearFrames(t *testing.T) {
 	const fl = moverFlux18 / 2
 	for k := range f.subs {
 		x, y := f.line(k)
-		f.subs[k].extra = trailed(x, y, fl)
+		f.subs[k].extra = trailed(x, y)
 	}
 	x4, y4 := f.line(4)
 	f.stars = append(f.stars, synthStar{x: x4 - 0.7, y: y4 + 0.9, g: 15.5, bprp: 1})
@@ -167,7 +168,7 @@ func TestRealMoverOnStarsMostOfItsFramesIsNotRefuted(t *testing.T) {
 	const fl = moverFlux18 / 2
 	for k := range f.subs {
 		x, y := f.line(k)
-		f.subs[k].extra = trailed(x, y, fl)
+		f.subs[k].extra = trailed(x, y)
 	}
 	x3, y3 := f.line(3)
 	x4, y4 := f.line(4)
