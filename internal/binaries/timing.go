@@ -512,10 +512,17 @@ func bestMinimum(c *ownimage.Curve, d minima.Dip) (minima.Minimum, string, strin
 	return best, "", failWhy(tries), false
 }
 
+// failWhy is why no attempt timed the dip: the one reason every filter
+// alone shares, or each filter's own. When every filter alone has too
+// few frames, it gives how many each has and why all of them together
+// gave no timing.
 func failWhy(tries []attempt) string {
 	var alone []attempt
-	for _, a := range tries {
-		if !a.Joint {
+	var joint *attempt
+	for i, a := range tries {
+		if a.Joint {
+			joint = &tries[i]
+		} else {
 			alone = append(alone, a)
 		}
 	}
@@ -528,6 +535,13 @@ func failWhy(tries []attempt) string {
 	same := true
 	for _, a := range alone[1:] {
 		same = same && a.Why == alone[0].Why
+	}
+	if same && alone[0].Why == minima.ReasonFew && joint != nil {
+		counts := make([]string, len(alone))
+		for i, a := range alone {
+			counts[i] = fmt.Sprintf("%s %d", a.Filter, a.Points)
+		}
+		return fmt.Sprintf("%s in any one filter (%s measured), and with all filters together %s", minima.ReasonFew, strings.Join(counts, ", "), joint.Why)
 	}
 	if same {
 		return alone[0].Why
