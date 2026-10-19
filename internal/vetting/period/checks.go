@@ -71,6 +71,9 @@ const (
 	// from its sector's median: 16040's sector 41 minima on slow waves
 	// are fitted 0.3 to 2 times as deep with errors as large.
 	tessDepthZ = 3.0
+	// tessRedMin is how many stretches outside the dips a sector needs
+	// for its slow drifts to be measured.
+	tessRedMin = 4
 )
 
 type tessFit struct {
@@ -136,18 +139,25 @@ func (a *analysis) tessMinima() []tessMin {
 
 // tessJudge times and judges one sector's minima. A dip's depth is
 // judged against the median of its minima in the sector, leaving out the
-// minima skip marks, where other stars dim with the star.
+// minima skip marks, where other stars dim with the star. Each minimum's
+// errors take in the sector's slow drifts on the dip's time scale.
 func (a *analysis) tessJudge(se *series, fits []tessFit, skip []bool) ([]tessMin, []float64) {
 	m := a.ecl
 	sw, ssw := make([]float64, len(m.dips)), make([]float64, len(m.dips))
 	scales := make([][]float64, len(m.dips))
+	red := make([]float64, len(m.dips))
+	for k, dp := range m.dips {
+		if d := m.depth[se.group][k]; d > 0 {
+			red[k] = a.tessRed(se, dp.width*m.P) / d
+		}
+	}
 	for i, f := range fits {
 		if skip != nil && skip[i] {
 			continue
 		}
 		scales[f.k] = append(scales[f.k], f.sf.scale)
-		if f.sf.scaleErr > 0 {
-			w := 1 / (f.sf.scaleErr * f.sf.scaleErr)
+		if e := math.Hypot(f.sf.scaleErr, red[f.k]); e > 0 {
+			w := 1 / (e * e)
 			sw[f.k] += w
 			ssw[f.k] += w * f.sf.scale
 		}
@@ -164,21 +174,82 @@ func (a *analysis) tessJudge(se *series, fits []tessFit, skip []bool) ([]tessMin
 		if seen {
 			ratio = sf.scale / ref
 		} else if wide, ok := a.tessShift(se, f.k, f.tm, 3*half, 2*half); ok && wide.scaleErr > 0 &&
-			wide.scale >= tessScaleBand && wide.scale >= tessSeenZ*wide.scaleErr {
+			wide.scale >= tessScaleBand && wide.scale >= tessSeenZ*math.Hypot(wide.scaleErr, red[f.k]) {
 			sf, ratio = wide, 1
 		} else {
 			faint = true
 		}
 		lag := sf.tau * 1440
+		scaleErr := math.Hypot(sf.scaleErr, red[f.k])
+		tauErr := sf.tauErr
+		if sf.scaleErr > 0 {
+			tauErr *= scaleErr / sf.scaleErr
+		}
 		deep := ratio > 1-tessScaleBand && ratio < 1+tessScaleBand
 		if seen && !deep {
-			deep = math.Abs(sf.scale-ref) <= tessDepthZ*sf.scaleErr
+			deep = math.Abs(sf.scale-ref) <= tessDepthZ*scaleErr
 		}
-		good := !faint && deep && math.Abs(lag) <= 5*math.Hypot(sf.tauErr*1440, f.pred)+5
-		out = append(out, tessMin{sector: se.sector, lag: lag, err: sf.tauErr * 1440, pred: f.pred, good: good, faint: faint})
+		good := !faint && deep && math.Abs(lag) <= 5*math.Hypot(tauErr*1440, f.pred)+5
+		out = append(out, tessMin{sector: se.sector, lag: lag, err: tauErr * 1440, pred: f.pred, good: good, faint: faint})
 		taus = append(taus, sf.tau)
 	}
 	return out, taus
+}
+
+// tessRed is the scatter, beyond what their errors explain, of the means
+// of se's points outside every dip over stretches half long: the
+// sector's slow drifts on a dip's time scale. 2301's sector 84 drifts by
+// 0.002 mag over days against the 0.005 mag TESS shows of its dips, and
+// 1688's sector 41 by 0.04 mag over hours against its 0.14 mag dip. It is
+// 0 with fewer than tessRedMin stretches.
+func (a *analysis) tessRed(se *series, half float64) float64 {
+	m := a.ecl
+	maxGap := math.Max(half/4, tessGapCad*tessCadence(se.raw))
+	var means, white []float64
+	var n, sy, se2, start, last float64
+	flush := func() {
+		if n >= 3 && last-start >= 0.7*half {
+			means = append(means, sy/n)
+			white = append(white, se2/(n*n))
+		}
+		n, sy, se2 = 0, 0, 0
+	}
+	for _, p := range se.raw {
+		t := p.t - a.f.tref
+		in := false
+		for _, dp := range m.dips {
+			u := math.Mod((t-m.T0)/m.P-dp.phase, 1)
+			u -= math.Round(u)
+			if math.Abs(u) < dp.width {
+				in = true
+				break
+			}
+		}
+		if in {
+			continue
+		}
+		if n > 0 && (t-start > half || t-last > maxGap) {
+			flush()
+		}
+		if n == 0 {
+			start = t
+		}
+		n++
+		sy += p.y
+		se2 += p.e * p.e
+		last = t
+	}
+	flush()
+	if len(means) < tessRedMin {
+		return 0
+	}
+	mid := median(means)
+	dev := make([]float64, len(means))
+	for i, x := range means {
+		dev[i] = math.Abs(x - mid)
+	}
+	s := 1.4826 * median(dev)
+	return math.Sqrt(math.Max(0, s*s-median(white)))
 }
 
 // tessShift fits dip k's shape to the points of se within win of the
