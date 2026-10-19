@@ -518,6 +518,13 @@ func (w *win) lacks() bool {
 	return s < 0.3 && (1-s)/e > 5
 }
 
+// parityWindows measures each dip's depth on odd and even cycles, per
+// band, as a share of the fitted depth. Each cycle gets its own depth
+// against a local baseline, the median of its points just outside the
+// dips when it has enough of them (TESS), and the median of its points in
+// the dip when it has enough; the cycles of a parity are then combined
+// with cycles far from their median dropped, so one bad stretch of a
+// light curve cannot set a parity's depth.
 func (a *analysis) parityWindows() [][2]*win {
 	m := a.ecl
 	out := make([][2]*win, len(m.dips))
@@ -527,35 +534,87 @@ func (a *analysis) parityWindows() [][2]*win {
 				dsum: map[string]float64{}, dnorm: map[string]float64{}, gy: map[int][2]float64{}, gd: map[int][2]float64{}}
 		}
 	}
+	type key struct{ k, g, cyc int }
+	type cyc struct {
+		in   []obs
+		sh   []float64
+		base []float64
+	}
+	cycles := map[key]*cyc{}
+	get := func(c key) *cyc {
+		x := cycles[c]
+		if x == nil {
+			x = &cyc{}
+			cycles[c] = x
+		}
+		return x
+	}
 	a.rawPoints(func(se *series, p obs) {
+		inAny := false
 		for k := range m.dips {
-			sh, _ := m.shapeAt(p.t, k)
+			if sh, _ := m.shapeAt(p.t, k); sh > 0 {
+				inAny = true
+			}
+		}
+		for k, dp := range m.dips {
+			sh, u := m.shapeAt(p.t, k)
+			n := int(math.Round((p.t-m.T0)/m.P - dp.phase))
+			c := key{k, p.g, n}
+			if !inAny && math.Abs(u) < 2*dp.width {
+				get(c).base = append(get(c).base, p.y)
+				continue
+			}
 			if sh < 0.5 {
 				continue
 			}
-			cyc := int(math.Round((p.t-m.T0)/m.P - m.dips[k].phase))
-			par := ((cyc % 2) + 2) % 2
-			w := out[k][par]
-			mm := m.depth[p.g][k] * sh
-			wt := 1 / (p.e * p.e)
-			gy := w.gy[p.g]
-			gy[0] += wt * p.y * mm
-			gy[1] += wt * mm * mm
-			w.gy[p.g] = gy
+			x := get(c)
+			x.in = append(x.in, p)
+			x.sh = append(x.sh, sh)
+			w := out[k][((n%2)+2)%2]
 			w.surveys[se.survey] = true
 			if f, ok := w.first[se.survey]; !ok || p.t < f {
 				w.first[se.survey] = p.t
-				w.cycle[se.survey] = cyc
+				w.cycle[se.survey] = n
 			}
 			if se.sector > 0 {
 				w.sectors[se.sector] = true
 			}
-			gd := w.gd[p.g]
-			gd[0] += wt * p.y * sh
-			gd[1] += wt * sh * sh
-			w.gd[p.g] = gd
 		}
 	})
+	type est struct{ s, e float64 }
+	per := map[[3]int][]est{}
+	for c, x := range cycles {
+		if len(x.in) == 0 {
+			continue
+		}
+		dd := m.depth[c.g][c.k]
+		if dd == 0 {
+			continue
+		}
+		base := 0.0
+		if len(x.base) >= parityBasePts {
+			base = median(x.base)
+		}
+		if s, e, ok := cycleScale(x.in, x.sh, dd, base); ok {
+			pk := [3]int{c.k, ((c.cyc % 2) + 2) % 2, c.g}
+			per[pk] = append(per[pk], est{s, e})
+		}
+	}
+	for pk, es := range per {
+		ss, ee := make([]float64, len(es)), make([]float64, len(es))
+		for i, x := range es {
+			ss[i], ee[i] = x.s, x.e
+		}
+		s, e, ok := clippedMean(ss, ee)
+		if !ok {
+			continue
+		}
+		w := out[pk[0]][pk[1]]
+		g := pk[2]
+		w.gy[g] = [2]float64{s / (e * e), 1 / (e * e)}
+		dd := m.depth[g][pk[0]]
+		w.gd[g] = [2]float64{s * dd / (e * e * dd * dd), 1 / (e * e * dd * dd)}
+	}
 	for k := range out {
 		for p := range 2 {
 			w := out[k][p]
@@ -575,6 +634,89 @@ func (a *analysis) parityWindows() [][2]*win {
 		}
 	}
 	return out
+}
+
+const (
+	// parityBasePts is the fewest points just outside the dips a cycle
+	// needs for its own baseline.
+	parityBasePts = 5
+	// parityMedianPts is the fewest points in a dip for a cycle's depth
+	// to be their median.
+	parityMedianPts = 5
+	// parityClip is how many robust sigma a cycle may sit from the rest
+	// before it is dropped.
+	parityClip = 5.0
+)
+
+// cycleScale is one cycle's depth as a share of the fitted depth dd from
+// its points in a dip with shapes sh, against baseline base. A cycle with
+// parityMedianPts points or more (TESS) takes the median of its points'
+// scaled depths, its error from their spread: the magnitude errors of a
+// faint star's points shrink as the star brightens, so weighting by them
+// pulls a dip toward the bright points. Fewer points take their weighted
+// mean.
+func cycleScale(pts []obs, sh []float64, dd, base float64) (float64, float64, bool) {
+	n := len(pts)
+	if n == 0 {
+		return 0, 0, false
+	}
+	r := make([]float64, n)
+	re := make([]float64, n)
+	for i, p := range pts {
+		mm := dd * sh[i]
+		r[i], re[i] = (p.y-base)/mm, math.Abs(p.e/mm)
+	}
+	if n < parityMedianPts {
+		var sw, swr float64
+		for i := range r {
+			w := 1 / (re[i] * re[i])
+			sw += w
+			swr += w * r[i]
+		}
+		return swr / sw, 1 / math.Sqrt(sw), true
+	}
+	med := median(r)
+	e := 1.2533 * mad(r, med) / math.Sqrt(float64(n))
+	return med, math.Max(e, median(re)/math.Sqrt(float64(n))/2), true
+}
+
+// clippedMean combines per-cycle depths s with errors e: cycles over
+// parityClip robust sigma from the median are dropped, and the weighted
+// mean of the rest has its error grown by any scatter beyond the errors.
+func clippedMean(s, e []float64) (float64, float64, bool) {
+	if len(s) == 0 {
+		return 0, 0, false
+	}
+	c := median(s)
+	z := make([]float64, len(s))
+	for i := range s {
+		z[i] = (s[i] - c) / e[i]
+	}
+	spread := math.Max(1, mad(z, 0))
+	var sw, swy float64
+	var kept []int
+	for i := range s {
+		if math.Abs(z[i]) > parityClip*spread {
+			continue
+		}
+		w := 1 / (e[i] * e[i])
+		sw += w
+		swy += w * s[i]
+		kept = append(kept, i)
+	}
+	if sw == 0 {
+		return 0, 0, false
+	}
+	mean, err := swy/sw, 1/math.Sqrt(sw)
+	if len(kept) > 2 {
+		chi := 0.0
+		for _, i := range kept {
+			r := (s[i] - mean) / e[i]
+			chi += r * r
+		}
+		err *= math.Max(1, math.Sqrt(chi/float64(len(kept)-1)))
+	}
+	return mean, err, true
 }
 
 // realDip says band g shows dip k as a dip on both odd and even cycles:
@@ -661,15 +803,24 @@ func agreeing(d []float64) int {
 	return max(pos, len(d)-pos)
 }
 
+// tessOnlyNegative says a window's depth comes from TESS alone and is
+// negative: the star brighter in the dip than out of it, which TESS
+// systematics give and no eclipse does.
+func tessOnlyNegative(w *win) bool {
+	s, _ := w.scale()
+	return s < 0 && len(w.surveys) == 1 && w.surveys[lc.TESS]
+}
+
 // parityConflict fails the double check when a dip is missing on odd or
 // even cycles, or differs in depth between them: in the only band that
 // can tell, or in two bands that agree, so one band's systematics cannot
-// double the period alone.
+// double the period alone. A negative depth from TESS alone never fails
+// it.
 func (a *analysis) parityConflict(ws [][2]*win, dbl string) (check.Check, bool) {
 	m := a.ecl
 	for k := range ws {
 		for p := range 2 {
-			if ws[k][p].lacks() && ws[k][1-p].shows() {
+			if ws[k][p].lacks() && ws[k][1-p].shows() && !tessOnlyNegative(ws[k][p]) {
 				return check.New(check.Double, check.Fail, fmt.Sprintf("%s is missing on %s cycles, so the true period may be %s days.",
 					capitalize(a.dipName(k)), parityName(p), dbl)), true
 			}
@@ -682,6 +833,9 @@ func (a *analysis) parityConflict(ws [][2]*win, dbl string) (check.Check, bool) 
 				continue
 			}
 			se, so := e[0]/e[1], o[0]/o[1]
+			if a.d.groups[g].survey == lc.TESS && (se < 0 || so < 0) {
+				continue
+			}
 			ee, eo := 1/math.Sqrt(e[1]), 1/math.Sqrt(o[1])
 			if ee > 0.25 || eo > 0.25 {
 				continue
