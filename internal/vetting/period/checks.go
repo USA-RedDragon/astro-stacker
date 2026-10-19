@@ -67,6 +67,10 @@ const (
 	tessCoverU    = 0.8
 	tessSeenZ     = 5.0
 	tessScaleBand = 0.5
+	// tessDepthZ is how many of its own errors a minimum's depth may sit
+	// from its sector's median: 16040's sector 41 minima on slow waves
+	// are fitted 0.3 to 2 times as deep with errors as large.
+	tessDepthZ = 3.0
 )
 
 type tessFit struct {
@@ -116,49 +120,65 @@ func (a *analysis) tessMinima() []tessMin {
 		if len(fits) == 0 {
 			continue
 		}
-		sw, ssw := make([]float64, len(m.dips)), make([]float64, len(m.dips))
-		scales := make([][]float64, len(m.dips))
-		for _, f := range fits {
-			scales[f.k] = append(scales[f.k], f.sf.scale)
-			if f.sf.scaleErr > 0 {
-				w := 1 / (f.sf.scaleErr * f.sf.scaleErr)
-				sw[f.k] += w
-				ssw[f.k] += w * f.sf.scale
-			}
-		}
-		first := len(out)
-		taus := make([]float64, 0, len(fits))
-		for _, f := range fits {
-			half := m.dips[f.k].width * m.P
-			ref := median(scales[f.k])
-			seen := sw[f.k] > 0 && ssw[f.k]/sw[f.k] >= tessSeenZ/math.Sqrt(sw[f.k]) && ref > 0
-			sf := f.sf
-			faint := false
-			ratio := 0.0
-			if seen {
-				ratio = sf.scale / ref
-			} else if wide, ok := a.tessShift(se, f.k, f.tm, 3*half, 2*half); ok && wide.scaleErr > 0 &&
-				wide.scale >= tessScaleBand && wide.scale >= tessSeenZ*wide.scaleErr {
-				sf, ratio = wide, 1
-			} else {
-				faint = true
-			}
-			lag := sf.tau * 1440
-			good := !faint && math.Abs(lag) <= 5*math.Hypot(sf.tauErr*1440, f.pred)+5 &&
-				ratio > 1-tessScaleBand && ratio < 1+tessScaleBand
-			out = append(out, tessMin{sector: se.sector, lag: lag, err: sf.tauErr * 1440, pred: f.pred, good: good, faint: faint})
-			taus = append(taus, sf.tau)
-		}
-		mine := out[first:]
+		mine, taus := a.tessJudge(se, fits, nil)
 		if slices.ContainsFunc(mine, func(x tessMin) bool { return !x.good && !x.faint }) {
-			for i, sh := range a.tessShared(se.sector, se.group, fits, taus) {
-				if sh && !mine[i].good && !mine[i].faint {
-					mine[i].shared = true
+			if sh := a.tessShared(se.sector, se.group, fits, taus); slices.Contains(sh, true) {
+				mine, _ = a.tessJudge(se, fits, sh)
+				for i := range mine {
+					mine[i].shared = sh[i] && !mine[i].good && !mine[i].faint
 				}
 			}
 		}
+		out = append(out, mine...)
 	}
 	return out
+}
+
+// tessJudge times and judges one sector's minima. A dip's depth is
+// judged against the median of its minima in the sector, leaving out the
+// minima skip marks, where other stars dim with the star.
+func (a *analysis) tessJudge(se *series, fits []tessFit, skip []bool) ([]tessMin, []float64) {
+	m := a.ecl
+	sw, ssw := make([]float64, len(m.dips)), make([]float64, len(m.dips))
+	scales := make([][]float64, len(m.dips))
+	for i, f := range fits {
+		if skip != nil && skip[i] {
+			continue
+		}
+		scales[f.k] = append(scales[f.k], f.sf.scale)
+		if f.sf.scaleErr > 0 {
+			w := 1 / (f.sf.scaleErr * f.sf.scaleErr)
+			sw[f.k] += w
+			ssw[f.k] += w * f.sf.scale
+		}
+	}
+	out := make([]tessMin, 0, len(fits))
+	taus := make([]float64, 0, len(fits))
+	for _, f := range fits {
+		half := m.dips[f.k].width * m.P
+		ref := median(scales[f.k])
+		seen := sw[f.k] > 0 && ssw[f.k]/sw[f.k] >= tessSeenZ/math.Sqrt(sw[f.k]) && ref > 0
+		sf := f.sf
+		faint := false
+		ratio := 0.0
+		if seen {
+			ratio = sf.scale / ref
+		} else if wide, ok := a.tessShift(se, f.k, f.tm, 3*half, 2*half); ok && wide.scaleErr > 0 &&
+			wide.scale >= tessScaleBand && wide.scale >= tessSeenZ*wide.scaleErr {
+			sf, ratio = wide, 1
+		} else {
+			faint = true
+		}
+		lag := sf.tau * 1440
+		deep := ratio > 1-tessScaleBand && ratio < 1+tessScaleBand
+		if seen && !deep {
+			deep = math.Abs(sf.scale-ref) <= tessDepthZ*sf.scaleErr
+		}
+		good := !faint && deep && math.Abs(lag) <= 5*math.Hypot(sf.tauErr*1440, f.pred)+5
+		out = append(out, tessMin{sector: se.sector, lag: lag, err: sf.tauErr * 1440, pred: f.pred, good: good, faint: faint})
+		taus = append(taus, sf.tau)
+	}
+	return out, taus
 }
 
 // tessShift fits dip k's shape to the points of se within win of the
