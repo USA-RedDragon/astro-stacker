@@ -45,3 +45,26 @@ func TestTESSTimingBlendedSectors(t *testing.T) {
 		})
 	}
 }
+
+// TestTESSDepthAtJointFit runs the vet on 21142 with all nine TESS
+// sectors and the field's other stars as the vet fetched them on
+// 2026-10-19. Sector 58 shows four secondaries at about half the joint
+// depth and the last, on time to 5.6 +- 3.2 min, at full depth: a
+// minimum as deep as the joint fit is not a miss.
+func TestTESSDepthAtJointFit(t *testing.T) {
+	t.Parallel()
+	if underRace {
+		t.Skip("too slow under the race detector")
+	}
+	series, comps := caseSeries(t, filepath.Join("testdata/tessdepth", "21142.csv.zst"))
+	tc := readTESSComps(t, filepath.Join("testdata/tessdepth", "21142.comps.csv.zst"))
+	r, err := Analyze(series, Options{Comparisons: func() [][]lc.Series { return comps }, TESSComparisons: func() []TESSComp { return tc }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := rows(r)[check.TESS]
+	t.Logf("%.6f %s %s", r.Ephemeris.Period, row.Status, row.Evidence)
+	if row.Status != check.Pass {
+		t.Errorf("TESS row %s: %s", row.Status, row.Evidence)
+	}
+}
