@@ -57,8 +57,30 @@ type tessMin struct {
 	err    float64
 	pred   float64
 	good   bool
+	faint  bool
 }
 
+const (
+	tessGapU      = 0.4
+	tessGapCad    = 2.5
+	tessCoverU    = 0.8
+	tessSeenZ     = 5.0
+	tessScaleBand = 0.5
+)
+
+type tessFit struct {
+	k    int
+	tm   float64
+	sf   shiftFit
+	pred float64
+}
+
+// tessMinima times every TESS minimum whose ingress and egress both have
+// points. TESS sectors blend the star with its neighbours differently, so
+// a dip's depth is judged against the same dip's other minima in its own
+// sector. When a sector's minima of a dip do not show at the predicted
+// times, each is searched over a wider window: a dip found there misses
+// the predicted time, and with none the minimum is too faint to time.
 func (a *analysis) tessMinima() []tessMin {
 	m := a.ecl
 	if m == nil {
@@ -66,10 +88,12 @@ func (a *analysis) tessMinima() []tessMin {
 	}
 	var out []tessMin
 	for _, se := range a.d.series {
-		if se.survey != lc.TESS || len(se.raw) == 0 {
+		if se.survey != lc.TESS || len(se.raw) < 2 {
 			continue
 		}
+		cad := tessCadence(se.raw)
 		t0, t1 := se.raw[0].t-a.f.tref, se.raw[len(se.raw)-1].t-a.f.tref
+		var fits []tessFit
 		for k, dp := range m.dips {
 			half := dp.width * m.P
 			for c := math.Floor((t0-m.T0)/m.P - dp.phase - 1); ; c++ {
@@ -77,42 +101,105 @@ func (a *analysis) tessMinima() []tessMin {
 				if tm > t1+half {
 					break
 				}
-				if tm < t0-half {
+				if tm < t0-half || !tessCovered(se, a.f.tref, tm, half, cad) {
 					continue
 				}
-				var pts []obs
-				var left, right, core bool
-				for _, p := range se.raw {
-					dt := p.t - a.f.tref - tm
-					if math.Abs(dt) >= 1.5*half {
-						continue
-					}
-					u := dt / half
-					left = left || (u < -0.3 && u > -1)
-					right = right || (u > 0.3 && u < 1)
-					core = core || math.Abs(u) <= 0.3
-					pts = append(pts, obs{t: dt, y: p.y - m.offset[se.idx], e: math.Hypot(p.e, 0.002)})
-				}
-				if !left || !right || !core || len(pts) < 5 {
-					continue
-				}
-				depth := m.depth[se.group][k]
-				prof := func(p obs, tau float64) float64 {
-					sh := shapeOnly((p.t-tau)/m.P, dp.width, dp.shape)
-					return depth * sh
-				}
-				sf, ok := fitShift(pts, prof, 0.5*half, false)
+				sf, ok := a.tessShift(se, k, tm, 1.5*half, 0.5*half)
 				if !ok {
 					continue
 				}
 				pred := math.Hypot(m.res.sigma(1), c*m.res.sigma(0)) * 1440
-				lag := sf.tau * 1440
-				good := math.Abs(lag) <= 5*math.Hypot(sf.tauErr*1440, pred)+5 && sf.scale > 0.5 && sf.scale < 1.5
-				out = append(out, tessMin{sector: se.sector, lag: lag, err: sf.tauErr * 1440, pred: pred, good: good})
+				fits = append(fits, tessFit{k: k, tm: tm, sf: sf, pred: pred})
 			}
+		}
+		if len(fits) == 0 {
+			continue
+		}
+		sw, ssw := make([]float64, len(m.dips)), make([]float64, len(m.dips))
+		scales := make([][]float64, len(m.dips))
+		for _, f := range fits {
+			scales[f.k] = append(scales[f.k], f.sf.scale)
+			if f.sf.scaleErr > 0 {
+				w := 1 / (f.sf.scaleErr * f.sf.scaleErr)
+				sw[f.k] += w
+				ssw[f.k] += w * f.sf.scale
+			}
+		}
+		for _, f := range fits {
+			half := m.dips[f.k].width * m.P
+			ref := median(scales[f.k])
+			seen := sw[f.k] > 0 && ssw[f.k]/sw[f.k] >= tessSeenZ/math.Sqrt(sw[f.k]) && ref > 0
+			sf := f.sf
+			faint := false
+			ratio := 0.0
+			if seen {
+				ratio = sf.scale / ref
+			} else if wide, ok := a.tessShift(se, f.k, f.tm, 3*half, 2*half); ok && wide.scaleErr > 0 &&
+				wide.scale >= tessScaleBand && wide.scale >= tessSeenZ*wide.scaleErr {
+				sf, ratio = wide, 1
+			} else {
+				faint = true
+			}
+			lag := sf.tau * 1440
+			good := !faint && math.Abs(lag) <= 5*math.Hypot(sf.tauErr*1440, f.pred)+5 &&
+				ratio > 1-tessScaleBand && ratio < 1+tessScaleBand
+			out = append(out, tessMin{sector: se.sector, lag: lag, err: sf.tauErr * 1440, pred: f.pred, good: good, faint: faint})
 		}
 	}
 	return out
+}
+
+// tessShift fits dip k's shape to the points of se within win of the
+// predicted minimum tm, shifted by up to maxShift.
+func (a *analysis) tessShift(se *series, k int, tm, win, maxShift float64) (shiftFit, bool) {
+	m := a.ecl
+	dp := m.dips[k]
+	var pts []obs
+	for _, p := range se.raw {
+		dt := p.t - a.f.tref - tm
+		if math.Abs(dt) < win {
+			pts = append(pts, obs{t: dt, y: p.y - m.offset[se.idx], e: math.Hypot(p.e, 0.002)})
+		}
+	}
+	if len(pts) < 5 {
+		return shiftFit{}, false
+	}
+	depth := m.depth[se.group][k]
+	prof := func(p obs, tau float64) float64 {
+		return depth * shapeOnly((p.t-tau)/m.P, dp.width, dp.shape)
+	}
+	return fitShift(pts, prof, maxShift, false)
+}
+
+// tessCovered says the points of se leave no gap wider than tessGapU
+// half widths, or tessGapCad cadences, within tessCoverU half widths of
+// the minimum at tm: a dip seen on one side only trades its depth for its
+// time.
+func tessCovered(se *series, tref, tm, half, cad float64) bool {
+	maxGap := math.Max(tessGapU, tessGapCad*cad/half)
+	last := -tessCoverU
+	for _, p := range se.raw {
+		u := (p.t - tref - tm) / half
+		if u < -tessCoverU {
+			continue
+		}
+		if u > tessCoverU {
+			break
+		}
+		if u-last > maxGap {
+			return false
+		}
+		last = u
+	}
+	return tessCoverU-last <= maxGap
+}
+
+func tessCadence(raw []obs) float64 {
+	d := make([]float64, 0, len(raw)-1)
+	for i := 1; i < len(raw); i++ {
+		d = append(d, raw[i].t-raw[i-1].t)
+	}
+	return median(d)
 }
 
 func (a *analysis) surveyFits() []SurveyFit {
@@ -157,6 +244,9 @@ func (a *analysis) surveyFits() []SurveyFit {
 			}
 			if gr.survey == lc.TESS {
 				for _, x := range tm {
+					if x.faint {
+						continue
+					}
 					sf.Minima++
 					sf.MaxLagM = math.Max(sf.MaxLagM, math.Abs(x.lag))
 					if !x.good {
