@@ -184,11 +184,11 @@ func TestWingOfABrightStarIsFittedWithEachFramesOwnShape(t *testing.T) {
 	if w.G != 13.8 || math.Abs(w.SepPx-5) > 0.5 {
 		t.Errorf("wrong star: %+v", *w)
 	}
-	if w.Sigma >= wingSigma {
+	if w.Sigma >= WingSigma {
 		t.Errorf("the star's wing alone stood at %.1f sigma", w.Sigma)
 	}
 	c = build(0.3)
-	if w := c.Wing; w == nil || !w.Measured || w.Sigma < wingSigma {
+	if w := c.Wing; w == nil || !w.Measured || w.Sigma < WingSigma {
 		t.Errorf("new light beside the star: %+v", w)
 	}
 }

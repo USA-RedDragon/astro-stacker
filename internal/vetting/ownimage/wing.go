@@ -19,12 +19,12 @@ const (
 	// show the spot's usual level next to the star: a slow nova must not
 	// be in its own baseline.
 	wingFarDays = 120
-	// wingSigma is the least excess over the usual level, in its errors,
+	// WingSigma is the least excess over the usual level, in its errors,
 	// for new light to stand clear of the star's wing: with the star
 	// fitted by each sub's own star shape, 66053 showed -0.4, -0.3 and
 	// -0.1 sigma on its three nights, AT 2026uti, 2.8 px from a G 15.77
 	// star, +4.9 to +18.3.
-	wingSigma = 3.0
+	WingSigma = 3.0
 	// epsfMinG and epsfMaxG bound the stars each sub's own star shape is
 	// built from, epsfStars how many of the nearest isolated ones, at
 	// least epsfMin of them, and epsfReach how far they may be.
@@ -340,7 +340,14 @@ type Wing struct {
 	Sigma  float64 `json:"sigma"`
 	// Err is the excess's error, in the spot's light units.
 	Err float64 `json:"err,omitempty"`
-	Far int     `json:"far"`
+	// Floor is the part of Err no number of subs takes away: how much the
+	// wing's light at the spot moves from one far night to the next.
+	Floor float64 `json:"floor,omitempty"`
+	// NightErr is the error of the night's mean light from its N subs
+	// alone, the part of Err more subs take away.
+	NightErr float64 `json:"night_err,omitempty"`
+	N        int     `json:"n,omitempty"`
+	Far      int     `json:"far"`
 	// Measured is false when too few subs or far nights could be fitted.
 	Measured bool `json:"measured"`
 }
@@ -380,7 +387,10 @@ func wingNights(subs []Sub, sp *spotPlan, e *ensemble) *Wing {
 		}
 		return true
 	}
-	type level struct{ m, e float64 }
+	type level struct {
+		m, e float64
+		n    int
+	}
 	farLv := map[string][]float64{}
 	nights := map[key]level{}
 	for k, v := range vals {
@@ -392,7 +402,7 @@ func wingNights(subs []Sub, sp *spotPlan, e *ensemble) *Wing {
 		if n >= 3 && sd/math.Sqrt(float64(n)) > e {
 			e = sd / math.Sqrt(float64(n))
 		}
-		nights[k] = level{m, e}
+		nights[k] = level{m, e, n}
 		if far(k.night) {
 			farLv[k.filter] = append(farLv[k.filter], m)
 		}
@@ -412,6 +422,7 @@ func wingNights(subs []Sub, sp *spotPlan, e *ensemble) *Wing {
 		if s > best {
 			best = s
 			out.Night, out.Filter, out.Excess, out.Sigma, out.Err, out.Far, out.Measured = k.night, k.filter, lv.m-base, s, err, len(fl), true
+			out.Floor, out.NightErr, out.N = math.Hypot(spread, spread/math.Sqrt(float64(len(fl)))), lv.e, lv.n
 		}
 	}
 	return out
