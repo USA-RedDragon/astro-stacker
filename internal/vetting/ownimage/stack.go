@@ -51,6 +51,12 @@ const (
 	stackMaxUnused = 40
 	stackShare     = 0.7
 	stackMinPlaces = 50
+	// stackWide is how far from the path the noise places reach when too
+	// few of those within stackOuter are clear of stars.
+	stackWide = float64(stackHalf - stackR - 1)
+	// stackGlowShare is the least share of the detection frames whose path
+	// must lie on stars the master shows for the stack to blame their glow.
+	stackGlowShare = 2.0 / 3
 )
 
 // TrackStack is a moving object's frames stacked along its fitted motion:
@@ -88,6 +94,14 @@ type TrackStack struct {
 	Unused         int     `json:"unused"`
 	UnusedSNR      float64 `json:"unused_snr"`
 	UnusedInjected float64 `json:"unused_injected"`
+	// OnStars counts the detection frames whose path lies on stars the
+	// master shows, and Glow says the path is masked by them in too many
+	// detection frames to stack, as with 48654 (Cygnus Loop, 2026-09-07):
+	// all six detections sat 2.5 to 3.2 px from a G 14.70 or G 16.49 star,
+	// and an offline stack without the star mask showed 0.75 against a
+	// fake's 14.1.
+	OnStars int  `json:"on_stars,omitempty"`
+	Glow    bool `json:"glow,omitempty"`
 	// Note says why nothing was stacked.
 	Note string `json:"note,omitempty"`
 }
@@ -106,6 +120,7 @@ type stackFrame struct {
 	w        float64
 	flux     float64
 	measured bool
+	onStar   bool
 }
 
 type stackPlan struct {
@@ -433,7 +448,30 @@ func (sp *stackPlan) sub(p *discoveries.Plane, si int, subs []Sub) {
 		fr.flux = light / apertureShare(own, fr.trail)
 		fr.w = placeWeight(fr.f)
 		fr.measured = ok && fr.w > 0
+		fr.onStar = maskedOnFrame(sb, fr.d)
 	}
+}
+
+// maskedOnFrame says the star mask, not the frame's edge, leaves out
+// pixels within stackR of the box's middle: the sub covers them all, and
+// the difference leaves some out.
+func maskedOnFrame(sb []float32, d []float32) bool {
+	masked := false
+	for dy := -stackR; dy <= stackR; dy++ {
+		for dx := -stackR; dx <= stackR; dx++ {
+			if dx*dx+dy*dy > stackR*stackR {
+				continue
+			}
+			k := (stackHalf+dy)*stackSide + stackHalf + dx
+			if isNaN32(sb[k]) {
+				return false
+			}
+			if isNaN32(d[k]) {
+				masked = true
+			}
+		}
+	}
+	return masked
 }
 
 // transparency is a frame's light against its master's, the median over
@@ -693,12 +731,15 @@ func (s stackSet) peakAt(u, v float64) float64 {
 
 // places are the whole pixel offsets from the path, every step px, between
 // stackInner and stackOuter.
-func places(step int) [][2]float64 {
+func places(step int) [][2]float64 { return placesTo(step, stackOuter) }
+
+// placesTo are places reaching outer px from the path.
+func placesTo(step int, outer float64) [][2]float64 {
 	var out [][2]float64
-	for v := -int(stackOuter); v <= int(stackOuter); v += step {
-		for u := -int(stackOuter); u <= int(stackOuter); u += step {
+	for v := -int(outer); v <= int(outer); v += step {
+		for u := -int(outer); u <= int(outer); u += step {
 			r := math.Hypot(float64(u), float64(v))
-			if r >= stackInner && r <= stackOuter {
+			if r >= stackInner && r <= outer {
 				out = append(out, [2]float64{float64(u), float64(v)})
 			}
 		}
@@ -787,10 +828,27 @@ func finishStack(sp *stackPlan, res *TrackStack) {
 		return
 	}
 	res.Frames, res.Mag = len(det), sp.mag
-	ps := places(1)
+	if f, _ := (stackSet{frames: det}).at(0, 0, false); !finite(f) {
+		open, on := pathClear(det)
+		res.OnStars = on
+		if len(open) >= stackMinFrames {
+			det = open
+			res.Frames = len(det)
+		}
+	}
 	ds := stackSet{frames: det}
-	med, sd, ok := ds.noise(ps)
 	f, _ := ds.at(0, 0, false)
+	ps := places(1)
+	med, sd, ok := ds.noise(ps)
+	if !ok {
+		ps = placesTo(1, stackWide)
+		med, sd, ok = ds.noise(ps)
+	}
+	if !finite(f) && float64(res.OnStars) >= math.Max(stackMinFrames, stackGlowShare*float64(res.Frames)) {
+		res.Glow = true
+		unusedStack(unused, res)
+		return
+	}
 	if !ok || !finite(f) {
 		res.Note = "The stack's noise or its light on the path could not be measured: too much of the box is masked by stars or lies off the frames."
 		return
@@ -818,14 +876,41 @@ func finishStack(sp *stackPlan, res *TrackStack) {
 		res.RandomAbove = float64(above) / float64(len(rnd))
 	}
 	wrongStacks(det, med, sd, res)
-	if len(unused) >= stackMinFrames {
-		us := stackSet{frames: unused}
-		um, usd, uok := us.noise(ps)
-		uf, _ := us.at(0, 0, false)
-		if uok && finite(uf) {
-			if mid, _, _, iok := us.injected(um, usd); iok {
-				res.Unused, res.UnusedSNR, res.UnusedInjected = len(unused), (uf-um)/usd, mid
-			}
+	unusedStack(unused, res)
+}
+
+// pathClear are the frames whose path can be measured, and the count of
+// the others whose path lies on stars the master shows.
+func pathClear(frames []*stackFrame) ([]*stackFrame, int) {
+	var out []*stackFrame
+	on := 0
+	for _, fr := range frames {
+		if finite(bilinear(fr.f, stackHalf+fr.fx, stackHalf+fr.fy)) {
+			out = append(out, fr)
+			continue
+		}
+		if fr.onStar {
+			on++
+		}
+	}
+	return out, on
+}
+
+// unusedStack stacks the frames the detection did not use along the path,
+// with fakes, when enough of them cover it.
+func unusedStack(unused []*stackFrame, res *TrackStack) {
+	if len(unused) < stackMinFrames {
+		return
+	}
+	us := stackSet{frames: unused}
+	um, usd, uok := us.noise(places(1))
+	if !uok {
+		um, usd, uok = us.noise(placesTo(1, stackWide))
+	}
+	uf, _ := us.at(0, 0, false)
+	if uok && finite(uf) {
+		if mid, _, _, iok := us.injected(um, usd); iok {
+			res.Unused, res.UnusedSNR, res.UnusedInjected = len(unused), (uf-um)/usd, mid
 		}
 	}
 }
