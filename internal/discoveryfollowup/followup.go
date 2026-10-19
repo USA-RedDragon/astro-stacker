@@ -510,6 +510,12 @@ func KeepLimits(s *schedcmd.ProjectSettings, p planning.Project) {
 	}
 }
 
+// PickPlan is the plan imaged for a find in group: in the group's
+// filters, Luminance first in broadband, enabled before disabled.
+func PickPlan(plans []planning.Plan, group string) (planning.Plan, bool) {
+	return pickPlan(plans, group)
+}
+
 // pickPlan is the plan a follow-up images: in the group's filters,
 // Luminance first in broadband, enabled before disabled.
 func pickPlan(plans []planning.Plan, group string) (planning.Plan, bool) {
