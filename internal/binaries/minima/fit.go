@@ -68,9 +68,12 @@ type Minimum struct {
 	// scatter than white noise would; the formal error is widened by it.
 	Red float64 `json:"red"`
 	// Check is the second method's time, when the points allow it, and
-	// Agree whether it lands within three of the combined errors.
-	Check *Check `json:"check,omitempty"`
-	Agree bool   `json:"agree"`
+	// Agree whether it lands where the two methods' chance spread at the
+	// fit, Spread, allows; with no Spread, within three of the combined
+	// errors.
+	Check  *Check  `json:"check,omitempty"`
+	Spread *Spread `json:"spread,omitempty"`
+	Agree  bool    `json:"agree"`
 }
 
 const (
@@ -276,16 +279,26 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 			return m, why, false
 		}
 	}
+	var beadDiffs []float64
 	if len(use) >= beadMin {
-		m.Bead = bead(use, ng, fd, span, slope, best)
+		m.Bead, beadDiffs = bead(use, ng, fd, span, slope, best)
 		m.Red = redFactor(use, best.resid)
 	}
 	m.Err = math.Max(m.Formal*math.Max(1, m.Red), m.Bead)
-	if c, ok := KvW(normalized(use, best), m.T, fd.Half); ok {
-		m.Check = &c
-		m.Agree = math.Abs(c.T-m.T) <= agreeSigma*math.Hypot(c.Err, m.Err)
-	} else {
+	c, ok := KvW(normalized(use, best), m.T, fd.Half)
+	if !ok {
 		m.Agree = true
+		return m, "", true
+	}
+	m.Check = &c
+	if s, ok := checkSpread(use, ng, d, fd, span, slope, best, m.Red); ok {
+		if len(beadDiffs) >= 3 {
+			s.BeadSD = stddev(beadDiffs)
+		}
+		m.Spread = &s
+		m.Agree = agrees(m.T-c.T, s)
+	} else {
+		m.Agree = math.Abs(c.T-m.T) <= agreeSigma*math.Hypot(c.Err, m.Err)
 	}
 	return m, "", true
 }
@@ -816,33 +829,36 @@ func solveAt(pts []Point, ng int, d Dip, tau float64, slope bool) ([][]float64, 
 
 // bead is the spread of the fitted middle when the residuals of the best
 // fit are moved along the night one place at a time: noise that drifts
-// over the night shows here when the formal error misses it.
-func bead(pts []Point, ng int, d Dip, span float64, slope bool, best fitOut) float64 {
+// over the night shows here when the formal error misses it. With it
+// come the fitted middle less the second method's on each moved night
+// the second method times.
+func bead(pts []Point, ng int, d Dip, span float64, slope bool, best fitOut) (float64, []float64) {
 	n := len(pts)
 	shifts := min(n-1, beadShifts)
 	taus := make([]float64, 0, shifts)
+	var diffs []float64
 	shifted := make([]Point, n)
-	reach := math.Min(span, beadReach*best.formal)
-	lo, hi := math.Max(-span, best.tau-reach), math.Min(span, best.tau+reach)
-	for j := range shifts {
+	hit := refit(ng, []Dip{d}, span, slope, best, shifts, beadSteps, func(j int) []Point {
 		k := 1 + j*(n-1)/shifts
 		for i, p := range pts {
 			o := (i + k) % n
 			shifted[i] = Point{T: p.T, Y: best.model[i] + best.resid[o]/pts[o].E*p.E, E: p.E, G: p.G}
 		}
-		f, fail := fitShapeIn(shifted, ng, d, lo, hi, beadSteps, slope)
-		if fail != fitDone {
-			continue
-		}
-		if edge := (hi - lo) / beadSteps; f.tau <= lo+edge || f.tau >= hi-edge {
-			return reach
-		}
+		return shifted
+	}, func(f fitOut, fd Dip, ps []Point) {
 		taus = append(taus, f.tau)
+		t := fd.Mid + f.tau
+		if c, ok := KvW(normalized(ps, f), t, fd.Half); ok {
+			diffs = append(diffs, t-c.T)
+		}
+	})
+	if hit {
+		return math.Min(span, beadReach*best.formal), diffs
 	}
 	if len(taus) < 3 {
-		return 0
+		return 0, diffs
 	}
-	return stddev(taus)
+	return stddev(taus), diffs
 }
 
 // redFactor is how much drifting noise widens the error, from the

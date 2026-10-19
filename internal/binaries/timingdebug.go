@@ -70,7 +70,12 @@ type DebugTry struct {
 	After      int    `json:"after"`
 	CheckOC    *num   `json:"check_oc_minutes,omitempty"`
 	CheckErr   *num   `json:"check_err_minutes,omitempty"`
-	Agree      bool   `json:"agree"`
+	// ChanceMean and ChanceSD are the mean and spread of the fit's middle
+	// less the second method's over nights made up at the fit, in
+	// minutes.
+	ChanceMean *num `json:"chance_mean_minutes,omitempty"`
+	ChanceSD   *num `json:"chance_sd_minutes,omitempty"`
+	Agree      bool `json:"agree"`
 }
 
 // DebugScan is the dip fitted with its middle Minutes from the predicted
@@ -224,6 +229,10 @@ func debugTry(a attempt, mid float64) DebugTry {
 	if c := m.Check; c != nil {
 		oc, ce := num((c.T-mid)*1440), num(c.Err*1440)
 		t.CheckOC, t.CheckErr = &oc, &ce
+	}
+	if s := m.Spread; s != nil {
+		mean, sd := num(s.Mean*1440), num(s.Sigma()*1440)
+		t.ChanceMean, t.ChanceSD = &mean, &sd
 	}
 	return t
 }

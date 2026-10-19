@@ -377,11 +377,21 @@ func (s *Service) timeEvent(ctx context.Context, st Star, ev event) (app.Eclipse
 		}
 		if !m.Agree {
 			row.State = app.TimingDoubtful
-			row.Note = fmt.Sprintf("The two ways of finding the middle disagree by %.1f minutes, more than their errors allow, so this timing is left out of the trends.",
-				math.Abs(m.Check.T-m.T)*1440)
+			row.Note = doubtNote(m)
 		}
 	}
 	return row, nil
+}
+
+// doubtNote says why a timing whose two methods disagree is left out of
+// the trends.
+func doubtNote(m minima.Minimum) string {
+	gap := (m.T - m.Check.T) * 1440
+	if s := m.Spread; s != nil {
+		return fmt.Sprintf("The two ways of finding the middle differ by %.1f minutes; on nights made up to match this one they differ by %.1f ± %.1f minutes, so this timing is left out of the trends.",
+			gap, s.Mean*1440, s.Sigma()*1440)
+	}
+	return fmt.Sprintf("The two ways of finding the middle disagree by %.1f minutes, more than their errors allow, so this timing is left out of the trends.", math.Abs(gap))
 }
 
 func spotOf(st Star, ev event) ownimage.Spot {
