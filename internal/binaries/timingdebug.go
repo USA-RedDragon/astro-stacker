@@ -62,14 +62,17 @@ type DebugTry struct {
 	Formal     num    `json:"formal_minutes"`
 	Bead       num    `json:"bead_minutes"`
 	Red        num    `json:"red"`
-	Depth      num    `json:"depth"`
-	DepthErr   num    `json:"depth_err"`
-	Width      num    `json:"width"`
-	Slope      bool   `json:"slope"`
-	Before     int    `json:"before"`
-	After      int    `json:"after"`
-	CheckOC    *num   `json:"check_oc_minutes,omitempty"`
-	CheckErr   *num   `json:"check_err_minutes,omitempty"`
+	// Drift is how far a plausible slow curved drift could move the
+	// middle, in minutes, added in quadrature to the error.
+	Drift    num  `json:"drift_minutes"`
+	Depth    num  `json:"depth"`
+	DepthErr num  `json:"depth_err"`
+	Width    num  `json:"width"`
+	Slope    bool `json:"slope"`
+	Before   int  `json:"before"`
+	After    int  `json:"after"`
+	CheckOC  *num `json:"check_oc_minutes,omitempty"`
+	CheckErr *num `json:"check_err_minutes,omitempty"`
 	// ChanceMean and ChanceSD are the mean and spread of the fit's middle
 	// less the second method's over nights made up at the fit, in
 	// minutes.
@@ -221,7 +224,7 @@ func debugPoints(c *ownimage.Curve, minutes func(float64) num) []DebugPoint {
 func debugTry(a attempt, mid float64) DebugTry {
 	m := a.Min
 	t := DebugTry{Filter: a.Filter, Joint: a.Joint, Points: a.Points, OK: a.OK, Why: a.Why, OCMinutes: num((m.T - mid) * 1440),
-		ErrMinutes: num(m.Err * 1440), Formal: num(m.Formal * 1440), Bead: num(m.Bead * 1440), Red: num(m.Red), Depth: num(m.Depth),
+		ErrMinutes: num(m.Err * 1440), Formal: num(m.Formal * 1440), Bead: num(m.Bead * 1440), Red: num(m.Red), Drift: num(m.Drift * 1440), Depth: num(m.Depth),
 		DepthErr: num(m.DepthErr), Width: num(m.Width), Slope: m.Slope, Before: m.Before, After: m.After, Agree: m.Agree}
 	if m.T == 0 {
 		t.OCMinutes = num(math.NaN())

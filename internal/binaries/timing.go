@@ -20,7 +20,7 @@ import (
 
 // TimingVersion is the version of the rules that time eclipses; timings
 // from an older one are measured again.
-const TimingVersion = 3
+const TimingVersion = 4
 
 // Photometry measures a star in the user's own frames.
 type Photometry interface {

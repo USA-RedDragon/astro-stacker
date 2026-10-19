@@ -205,7 +205,7 @@ func TestTimeWrongShapeOnPartNight(t *testing.T) {
 			}
 			m, why, ok := Time(pts, d)
 			if !ok {
-				if !strings.HasPrefix(why, ReasonSides) && !strings.HasPrefix(why, ReasonDrift) {
+				if !strings.HasPrefix(why, ReasonSides) && !strings.HasPrefix(why, ReasonDrift) && !strings.HasPrefix(why, ReasonCurve) {
 					t.Errorf("%s, night %d: refused with %q", c.name, i, why)
 				}
 				continue
