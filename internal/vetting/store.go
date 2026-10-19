@@ -117,6 +117,10 @@ const (
 	realPendingAfter = 6 * time.Hour
 )
 
+// RefreshEvery is how often a source the user marked real, or one under
+// watch, is vetted again on its own.
+const RefreshEvery = refreshEvery
+
 // Pipeline versions of the sources with checks of their own: a source
 // whose pipeline changes gets a new input hash and is vetted again.
 const (
@@ -172,6 +176,13 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 	for _, r := range rows {
 		vets[r.SourceID] = r
 	}
+	watches, err := discoverysource.WatchesOf(db.WithContext(ctx), nil)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		list[i].Watch = watches[list[i].Source.ID]
+	}
 	forced := map[int]bool{}
 	for _, id := range ids {
 		forced[id] = true
@@ -217,11 +228,17 @@ func userReal(s discoverysource.Summary) bool {
 	return s.Source.Vetting == app.VetReal && s.Source.Kind != kindMover
 }
 
+// refreshed says the job vets the source again weekly with fresh survey
+// data: marked real by the user, or a change under watch for more fades.
+func refreshed(s discoverysource.Summary) bool {
+	return userReal(s) || (s.Watched() && s.Source.Kind != kindMover)
+}
+
 func due(s discoverysource.Summary, hash string, v app.DiscoveryVet, seen bool, now time.Time) bool {
 	if seen && asked(v) {
 		return true
 	}
-	byUser := userReal(s)
+	byUser := refreshed(s)
 	if !dueAgain(s) && !byUser {
 		return false
 	}

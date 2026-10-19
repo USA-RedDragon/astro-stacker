@@ -253,3 +253,68 @@ func TestTicksAndThousands(t *testing.T) {
 		t.Error("thousands")
 	}
 }
+
+func TestWatchedRefreshPickSQLite(t *testing.T) {
+	t.Parallel()
+	db := testdb.SQLite(t, "vetwatch")
+	ctx := context.Background()
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}, &app.DiscoveryWatch{}); err != nil {
+		t.Fatal(err)
+	}
+	night := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
+	srcs := []app.DiscoverySource{
+		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.1, Dec: 41.1, Night: night},
+		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.2, Dec: 41.2, Night: night},
+		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.3, Dec: 41.3, Night: night},
+	}
+	if err := db.Create(&srcs).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := range srcs {
+		c := app.DiscoveryCandidate{RunID: 1, Object: objAnd, Night: night, Kind: srcs[i].Kind, Class: discoveries.ClassNewVariable, SourceID: &srcs[i].ID}
+		if err := db.Create(&c).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	plain, watched, ended := srcs[0].ID, srcs[1].ID, srcs[2].ID
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	list, err := summaries(ctx, db, nil, []int{plain, watched, ended})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range list {
+		if err := markRunning(ctx, db, []int{s.Source.ID}, now); err != nil {
+			t.Fatal(err)
+		}
+		r := &Report{Version: Version, Suggestion: Suggestion{State: app.VetReal, Confidence: Low}}
+		if err := save(ctx, db, s.Source.ID, hashOf(s), stamp{pipeline: starPipeline}, r, nil, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := now
+	if err := db.Create(&[]app.DiscoveryWatch{{SourceID: watched, StartedAt: now, LastFadeAt: now},
+		{SourceID: ended, StartedAt: now, LastFadeAt: now, EndedAt: &at, EndReason: app.WatchEndFades}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	pick := func(at time.Time) map[int]bool {
+		t.Helper()
+		due, err := Pick(ctx, db, at, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[int]bool{}
+		for _, d := range due {
+			out[d.Summary.Source.ID] = true
+			if d.Summary.Source.ID == watched && !refreshed(d.Summary) {
+				t.Error("a watched source should be vetted with fresh survey data")
+			}
+		}
+		return out
+	}
+	if got := pick(now.Add(6 * 24 * time.Hour)); len(got) != 0 {
+		t.Fatalf("nothing is due six days after a run: %v", got)
+	}
+	if got := pick(now.Add(refreshEvery)); len(got) != 1 || !got[watched] {
+		t.Fatalf("seven days on only the watched source is due: %v", got)
+	}
+}

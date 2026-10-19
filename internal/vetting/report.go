@@ -108,6 +108,12 @@ type Report struct {
 	// Pending names surveys whose data is still being fetched; a later
 	// run fills them in.
 	Pending []string `json:"pending,omitempty"`
+	// FadesRead says the report knows the star's ZTF fades: ZTF was read
+	// or does not cover it, or the find is a transient with no star. Fades
+	// is how they compare with nearby stars, nil when no fade was backed
+	// up on two or more nights.
+	FadesRead bool          `json:"fades_read,omitempty"`
+	Fades     *period.Fades `json:"fades,omitempty"`
 }
 
 // State of a source's vetting run.

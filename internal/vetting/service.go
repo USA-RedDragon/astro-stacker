@@ -414,7 +414,7 @@ func (s *Service) prepare(ctx context.Context, object string, dues []Due) (*obje
 	s.Report.Set(object+": pulling survey data", 0, 0, "")
 	if s.Surveys != nil && !s.ReadOnly {
 		pctx := ctx
-		if slices.ContainsFunc(dues, func(d Due) bool { return userReal(d.Summary) }) {
+		if slices.ContainsFunc(dues, func(d Due) bool { return refreshed(d.Summary) }) {
 			pctx = surveys.Fresh(ctx)
 		}
 		if err := s.Surveys.PrefetchProgress(pctx, f, func(done, total int) {
@@ -702,7 +702,7 @@ type fetches struct {
 func (f fetches) all() []surveys.Fetch { return []surveys.Fetch{f.ztf, f.atlas, f.tess, f.neowise} }
 
 func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverysource.Summary, runs map[int]app.DiscoveryRun, own *ownimage.Result) (*Report, error) {
-	if userReal(sum) {
+	if refreshed(sum) {
 		ctx = surveys.Fresh(ctx)
 	}
 	ra, dec := sum.Source.RA, sum.Source.Dec
@@ -723,6 +723,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		flags, curve, ownChecks = own.Flags, own.Curve, own.Checks
 	}
 	if !st.found && isTransient(sum) {
+		rep.FadesRead = true
 		s.vetTransient(ctx, f, sum, rep, own, ownChecks, known, s.movingCheck(ctx, sum, runs, surveys.Fetch{}), flags)
 		return rep, nil
 	}
@@ -730,7 +731,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	var fx fetches
 	if s.Surveys != nil && sum.Source.Kind != kindMover {
 		fx.ztf = s.Surveys.ZTF(ctx, f, st.target)
-		if userReal(sum) || (!artifact && known.Listed == "" && worthMore(fx.ztf, curve, sum)) {
+		if refreshed(sum) || (!artifact && known.Listed == "" && worthMore(fx.ztf, curve, sum)) {
 			fx.neowise = s.Surveys.NEOWISE(ctx, f, st.target)
 			fx.atlas = s.Surveys.ATLAS(ctx, f, st.target)
 			fx.tess = s.Surveys.TESS(ctx, f, st.target)
@@ -779,7 +780,9 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	moving := s.movingCheck(ctx, sum, runs, fx.ztf)
 	rep.Groups = groupsOf(sum, ownChecks, fx, pr, timing, known, moving)
 	rep.Charts = chartsOf(sum, curve, fx, pr, change)
+	rep.FadesRead = fx.ztf.State == surveys.Done || fx.ztf.State == surveys.Uncovered
 	if pr != nil {
+		rep.Fades = pr.Fades
 		rep.Ephemeris = pr.Ephemeris
 		rep.Survey, rep.SurveyDoubled = surveySummaries(series, pr.Ephemeris)
 	}
