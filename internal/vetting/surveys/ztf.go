@@ -491,8 +491,8 @@ func (f *Fetcher) ztf(ctx context.Context, field Field, t Target) Fetch {
 
 // ztfMany reads the ZTF light curves of several stars, each tile of the
 // field's files read once for all of them; stars outside a complete pull
-// go one by one through ztf.
-func (f *Fetcher) ztfMany(ctx context.Context, field Field, ts []Target) []Fetch {
+// go one by one through ztf, or with tilesOnly are left uncovered.
+func (f *Fetcher) ztfMany(ctx context.Context, field Field, ts []Target, tilesOnly bool) []Fetch {
 	out := make([]Fetch, len(ts))
 	m, err := f.ztfManifest(ctx, field)
 	if err != nil && !isNotFound(err) {
@@ -509,6 +509,10 @@ func (f *Fetcher) ztfMany(ctx context.Context, field Field, ts []Target) []Fetch
 		at[i] = pos{ra, dec}
 		if m != nil && m.Complete && sepArcsec(m.RA, m.Dec, ra, dec) <= m.Radius*3600 {
 			in = append(in, i)
+			continue
+		}
+		if tilesOnly {
+			out[i] = Fetch{Survey: lc.ZTF, State: Uncovered, Note: "outside the field's ZTF files"}
 			continue
 		}
 		out[i] = f.ztf(ctx, field, t)

@@ -119,7 +119,13 @@ func (f *Fetcher) ZTF(ctx context.Context, field Field, t Target) Fetch { return
 // ZTFStars is the ZTF light curves of several stars of one field, read
 // together so each of the field's tiles is read once.
 func (f *Fetcher) ZTFStars(ctx context.Context, field Field, ts []Target) []Fetch {
-	return f.ztfMany(ctx, field, ts)
+	return f.ztfMany(ctx, field, ts, false)
+}
+
+// ZTFStarsFromFiles is ZTFStars from the field's ZTF files alone: a star
+// outside a complete pull is left uncovered rather than asked of IRSA.
+func (f *Fetcher) ZTFStarsFromFiles(ctx context.Context, field Field, ts []Target) []Fetch {
+	return f.ztfMany(ctx, field, ts, true)
 }
 
 // ATLAS is the star's ATLAS forced photometry, queued on first use.

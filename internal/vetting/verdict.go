@@ -99,7 +99,14 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		return *ps
 	}
 	if pr != nil && pr.Fades.Confirms() {
-		return Suggestion{State: app.VetReal, Say: "Looks like a new variable star, fades now and then", Confidence: Medium,
+		say, conf := "Looks like a new variable star, brightens now and then", Medium
+		if c.Fainter {
+			say = "Looks like a new variable star, fades now and then"
+		}
+		if status(groups, check.OwnChange) != check.Pass {
+			conf = Low
+		}
+		return Suggestion{State: app.VetReal, Say: say, Confidence: conf,
 			Why: joinSentences(evidence(groups, check.ZTF), "No catalog lists the star as variable.")}
 	}
 	pending := ""

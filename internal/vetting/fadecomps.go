@@ -43,8 +43,9 @@ func (s *Service) fadeTargets(ctx context.Context, st star) ([]surveys.Target, e
 	return out, nil
 }
 
-// fadeNeighbours are the ZTF light curves of the stars around st, read
-// as the star's own are, or nil when fewer than fadeMinStars have points.
+// fadeNeighbours are the ZTF light curves of the stars around st, from
+// the field's ZTF files only, or nil when fewer than fadeMinStars have
+// points there.
 func (s *Service) fadeNeighbours(ctx context.Context, f surveys.Field, st star) [][]lc.Series {
 	if s.Surveys == nil {
 		return nil
@@ -58,7 +59,7 @@ func (s *Service) fadeNeighbours(ctx context.Context, f surveys.Field, st star) 
 		return nil
 	}
 	var out [][]lc.Series
-	for _, fe := range s.Surveys.ZTFStars(ctx, f, ts) {
+	for _, fe := range s.Surveys.ZTFStarsFromFiles(ctx, f, ts) {
 		if fe.State == surveys.Done && len(fe.Series) > 0 {
 			out = append(out, fe.Series)
 		}
