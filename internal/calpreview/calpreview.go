@@ -138,7 +138,7 @@ func (c *Calibrator) Calibrate(ctx context.Context, f app.Frame, light *imagedat
 	for i := range out.Data {
 		out.Data[i] -= b.Data[i]
 	}
-	k := 0.0
+	var k float64
 	if dark.match.Set != nil {
 		d, err := c.load(ctx, dark, b, factor, light, loaded)
 		if err != nil {
