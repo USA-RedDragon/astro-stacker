@@ -229,9 +229,12 @@ func (p *Publisher) passInputs(ctx context.Context, now time.Time) (PassInputs, 
 	return in, nil
 }
 
-func (r *progressRow) setPass(in PassInputs, objects []string, quality *float64, minScore float64) {
+// setPass publishes the score cut only: the expected score from absolute
+// night quality held out broadband that passes when low targets drag the
+// night down, so it stays unpublished until it is measured per target.
+func (r *progressRow) setPass(in PassInputs, objects []string, _ *float64, minScore float64) {
 	r.ScoreCut = in.ScoreCut(objects, r.Filter, minScore)
-	r.ExpectedScore = in.ExpectedScore(objects, r.Filter, quality)
+	r.ExpectedScore = nil
 }
 
 func (r progressRow) samePass(o progressRow) bool {
