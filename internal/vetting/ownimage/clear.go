@@ -21,6 +21,13 @@ const (
 	haloArcsec = 60.0
 	haloV      = 8.0
 	haloSlope  = 0.13
+	// ringArcsec is how far the reflection ring of a star of V ringV or
+	// brighter reaches. Starless spots on Horsehead Nebula stood 0.9 per
+	// arcmin of radius 6' to 7' from Alnilam (V 1.69), 2.0 to 3.2 from 7'
+	// to 10' and 0.2 to 0.9 from 10' to 20': 33725 and 34238 sat 8.1' and
+	// 8.7' from it.
+	ringArcsec = 600.0
+	ringV      = 2.5
 )
 
 // Halo is the bright star whose halo reaches the spot.
@@ -31,7 +38,13 @@ type Halo struct {
 }
 
 // haloReach is how far, in arcsec, a star of magnitude v spreads light.
-func haloReach(v float64) float64 { return haloArcsec * math.Pow(10, haloSlope*(haloV-v)) }
+func haloReach(v float64) float64 {
+	r := haloArcsec * math.Pow(10, haloSlope*(haloV-v))
+	if v <= ringV {
+		r = math.Max(r, ringArcsec)
+	}
+	return r
+}
 
 // haloAt finds the bright star whose halo reaches farthest past the spot,
 // from Gaia's stars around it and the brightest Hipparcos stars.

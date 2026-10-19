@@ -232,15 +232,19 @@ func TestRingAroundAGalaxysNucleus(t *testing.T) {
 
 func TestHaloReach(t *testing.T) {
 	t.Parallel()
-	if r := haloReach(1.7); math.Abs(r/60-6.6) > 0.1 {
-		t.Errorf("V 1.7 reaches %.2f arcmin, want 6.6", r/60)
+	if r := haloReach(1.7); r != ringArcsec {
+		t.Errorf("V 1.7 reaches %.2f arcmin, want its ring's 10", r/60)
+	}
+	if r := haloReach(3); math.Abs(r/60-4.5) > 0.1 {
+		t.Errorf("V 3 reaches %.2f arcmin, want 4.5", r/60)
 	}
 	if r := haloReach(8); r != 60 {
 		t.Errorf("V 8 reaches %.0f arcsec", r)
 	}
 	// Alnilam (V 1.69) lay 6.2' from 33729 and 5.9' from 67098; Alnitak
-	// (V 1.74) 2.4' from 64804.
-	for _, sep := range []float64{6.2, 5.9, 2.4} {
+	// (V 1.74) 2.4' from 64804; Alnilam 8.1' from 33725 and 8.7' from
+	// 34238.
+	for _, sep := range []float64{6.2, 5.9, 2.4, 8.1, 8.7} {
 		if sep*60 > haloReach(1.74) {
 			t.Errorf("a spot %.1f arcmin from Alnitak is outside its halo", sep)
 		}
