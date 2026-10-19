@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 )
@@ -129,5 +131,49 @@ func TestStackRefutesLightTooWeakToHaveBeenFound(t *testing.T) {
 		if (ch.Status == check.Fail) != c.wantFailCheck || !strings.Contains(ch.Evidence, c.wantEvidence) {
 			t.Errorf("%s: %s %q", c.name, ch.Status, ch.Evidence)
 		}
+	}
+}
+
+func TestStackRefutesLightLostInAStarsWing(t *testing.T) {
+	t.Parallel()
+	wingCurve := func(sigma, err, floor, nightErr float64, n int) *ownimage.FluxCurve {
+		fc := curveOf(auditNight("2025-11-02", 0.5, 2.0, true))
+		fc.Wing = &ownimage.Wing{G: 16.3, SepPx: 6.0, Night: "2025-11-02", Filter: lum, Excess: sigma * err, Sigma: sigma, Err: err,
+			Floor: floor, NightErr: nightErr, N: n, Far: 5, Measured: true}
+		return fc
+	}
+	reps := func(subs int) map[string]reported {
+		r := auditReps("2025-11-02")
+		k := discoveries.GroupBroadband + "\x00" + "2025-11-02"
+		x := r[k]
+		x.subs = subs
+		r[k] = x
+		return r
+	}
+	// 35030 (Horsehead Nebula, 2025-11-02): the reported light stood 2.6
+	// times the wing's own night to night wobble, the spot 2.3.
+	floor := auditLight / 2.6
+	c, v := transientStack(wingCurve(2.3, floor, floor, floor/3, 12), reps(12))
+	if v != ownimage.StackRefuted || c.Status != check.Fail || !strings.Contains(c.Evidence, "cannot be told from the star's wing") {
+		t.Errorf("35030: %s %s %s", v, c.Status, c.Evidence)
+	}
+	// 54894 (Crab Nebula, 2026-02-05): a fake at 2.8 in the wing fit, its
+	// error from the night's own subs.
+	e := auditLight / 2.8
+	if _, v := transientStack(wingCurve(0.4, e, e/10, e, 12), reps(12)); v != ownimage.StackRefuted {
+		t.Errorf("54894: %s", v)
+	}
+	// The same with four times the subs tested would stand at 5.6.
+	if _, v := transientStack(wingCurve(0.4, e, e/10, e, 12), reps(48)); v != ownimage.StackUntested {
+		t.Errorf("more subs could lift it clear: %s", v)
+	}
+	// AT 2026uti-like light standing clear of the wing is not refuted.
+	if _, v := transientStack(wingCurve(9.5, e, e/10, e, 12), reps(12)); v == ownimage.StackRefuted {
+		t.Errorf("new light beside a star refuted: %s", v)
+	}
+	st := ownOnly()
+	st[check.TransStack], st[check.TransWing] = check.Fail, check.Fail
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetArtifact || s.Say != "Artifact: a bright star's wing" {
+		t.Errorf("wing and refuted stack: %+v", s)
 	}
 }

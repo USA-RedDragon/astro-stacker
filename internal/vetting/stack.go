@@ -128,12 +128,12 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	}
 	lead := fmt.Sprintf("Stacked over its %s of %s in %s it shows at signal to noise %.1f; a fake of the light the detection reported (magnitude %.1f) shows at %.1f in the same frames.",
 		ownimage.FrameWord(p.N), p.Night, p.Filter, f.Obs, rep.mag, f.Inj) + rep.basis()
-	wing := false
+	wing, wingLight := false, 0.0
 	if w := fc.Wing; w != nil && w.Measured && w.Err > 0 {
 		wrep := reportedFor(reps, w.Filter, w.Night)
 		if wl, wok := wrep.flux(fc, w.Filter); wok {
-			wing = true
-			f.Obs, f.Peak, f.Inj = w.Sigma, w.Sigma, wl*fc.RespOf(w.Filter)/w.Err
+			wing, wingLight = true, wl*fc.RespOf(w.Filter)
+			f.Obs, f.Peak, f.Inj = w.Sigma, w.Sigma, wingLight/w.Err
 			lead = fmt.Sprintf("Fitted beside a star of magnitude %.1f %.1f px away with each frame's own star shape, its frames of %s in %s show it %.1f times its error above its level on far nights; a fake of the light the detection reported (magnitude %.1f) shows at %.1f.",
 				w.G, w.SepPx, w.Night, w.Filter, w.Sigma, wrep.mag, f.Inj)
 		}
@@ -159,6 +159,11 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	v, why := ownimage.JudgeStack(f)
 	if v == ownimage.StackUntested && !wing {
 		if c, ok := tooWeakToFind(f, p.N, rep.subs, ev); ok {
+			return c, ownimage.StackRefuted
+		}
+	}
+	if v == ownimage.StackUntested && wing {
+		if c, ok := lostInWing(fc.Wing, wingLight, rep.subs, ev); ok {
 			return c, ownimage.StackRefuted
 		}
 	}
@@ -197,4 +202,31 @@ func tooWeakToFind(f ownimage.StackFacts, n, subs int, ev string) (check.Check, 
 	}
 	return check.New(check.TransStack, check.Fail, ev+fmt.Sprintf(" It is too faint to have been found: over all %d subs the detection tested, the light it reported would stand at about %.1f and the spot at %.1f, both under the %.1f against the noise around a spot that a detection needs.",
 		max(subs, n), inj, obs, discoveries.MinLocalSNR)), true
+}
+
+// lostInWing refutes new light beside a bright star when, with the star
+// fitted in each sub's own star shape, the spot stands under
+// ownimage.WingSigma above its level on far nights and the light the
+// detection reported would stand under ownimage.WingSigma too with the
+// wing fitted over all the subs the detection tested: the night's own
+// noise shrinks by the square root of the subs, but not how much the
+// wing's light at the spot moves from one far night to the next. The
+// detection's light is then the wing's. AT 2026uti, 2.8 px from a G
+// 15.77 star, stood +4.9 to +18.3.
+func lostInWing(w *ownimage.Wing, light float64, subs int, ev string) (check.Check, bool) {
+	if w == nil || !w.Measured || !(w.Floor > 0) || !(light > 0) || w.Sigma >= ownimage.WingSigma || w.Far <= 0 {
+		return check.Check{}, false
+	}
+	e := w.NightErr
+	if w.N > 0 && subs > w.N {
+		e *= math.Sqrt(float64(w.N) / float64(subs))
+	}
+	spread := w.Floor / math.Sqrt(1+1/float64(w.Far))
+	err := math.Hypot(math.Max(e, spread), spread/math.Sqrt(float64(w.Far)))
+	k := light / err
+	if k >= ownimage.WingSigma {
+		return check.Check{}, false
+	}
+	return check.New(check.TransStack, check.Fail, ev+fmt.Sprintf(" It cannot be told from the star's wing: fitted with the star over all %d subs the detection tested, the light it reported would stand at only %.1f, under the %.0f new light beside a star needs, as the wing's light at the spot moves from one far night to the next.",
+		max(subs, w.N), k, ownimage.WingSigma)), true
 }

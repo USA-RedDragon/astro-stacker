@@ -646,7 +646,7 @@ func wingCheck(fc *ownimage.FluxCurve) check.Check {
 	}
 	ev := fmt.Sprintf("Fitting %s with each frame's own star shape, the spot on %s in %s stood %.1f times its error above its level on %d nights 120 days or more away.",
 		where, w.Night, w.Filter, w.Sigma, w.Far)
-	if w.Sigma < 3 {
+	if w.Sigma < ownimage.WingSigma {
 		return check.New(check.TransWing, check.Fail, ev+" The star's wing explains the light.")
 	}
 	return check.New(check.TransWing, check.Pass, ev)
@@ -1321,6 +1321,8 @@ func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.S
 		return ok
 	}
 	switch {
+	case stack == ownimage.StackRefuted && st(check.TransWing) == check.Fail:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: a bright star's wing", Confidence: Medium, Why: joinSentences(ev(check.TransWing), ev(check.TransStack))}
 	case stack == ownimage.StackRefuted:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: not there when your frames are stacked at the spot", Confidence: Medium, Why: ev(check.TransStack)}
 	case st(check.TransNext) == check.Fail:
