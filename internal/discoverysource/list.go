@@ -107,11 +107,13 @@ type Counts struct {
 	Known     int `json:"known"`
 	Movers    int `json:"movers"`
 	NewMovers int `json:"new_movers"`
-	Low       int `json:"low"`
-	Vetted    int `json:"vetted"`
-	Artifacts int `json:"artifacts"`
-	Unsure    int `json:"unsure"`
-	All       int `json:"all"`
+	// KnownMovers counts the moving objects a catalog names.
+	KnownMovers int `json:"known_movers"`
+	Low         int `json:"low"`
+	Vetted      int `json:"vetted"`
+	Artifacts   int `json:"artifacts"`
+	Unsure      int `json:"unsure"`
+	All         int `json:"all"`
 	// LookEarlier counts the sources that need a look and were last seen
 	// before Since, so the range leaves them out.
 	LookEarlier int `json:"look_earlier"`
@@ -129,8 +131,11 @@ func countOf(list []Summary) Counts {
 		}
 		if s.In(ViewMovers) {
 			c.Movers++
-			if s.Class == discoveries.ClassUnknownMover {
+			if s.Look() {
 				c.NewMovers++
+			}
+			if s.Class == discoveries.ClassKnownAsteroid || s.Listed {
+				c.KnownMovers++
 			}
 		}
 		if s.In(ViewLow) {

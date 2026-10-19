@@ -379,6 +379,18 @@ func TestMoversStayPerTrack(t *testing.T) {
 	if len(list) != 2 || counts.Movers != 2 || counts.NewMovers != 1 || counts.Look != 1 || counts.Known != 1 {
 		t.Fatalf("movers %d, counts %+v", len(list), counts)
 	}
+	for _, s := range list {
+		if s.Class != discoveries.ClassUnknownMover {
+			continue
+		}
+		if err := db.Create(&app.DiscoveryVet{SourceID: s.Source.ID, State: "done", Suggested: app.VetArtifact, Confidence: "medium"}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, counts, err = discoverysource.List(ctx, db, discoverysource.Filter{View: discoverysource.ViewMovers})
+	if err != nil || counts.NewMovers != 0 || counts.KnownMovers != 1 || counts.Artifacts != 1 || counts.Look != 0 {
+		t.Fatalf("after an artifact vet: counts %+v %v", counts, err)
+	}
 	list, _, err = discoverysource.List(ctx, db, discoverysource.Filter{Search: "randoross"})
 	if err != nil || len(list) != 1 || list[0].Best.ID != 1 {
 		t.Errorf("search by asteroid name: %d %v", len(list), err)
