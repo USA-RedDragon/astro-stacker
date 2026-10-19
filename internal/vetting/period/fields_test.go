@@ -25,14 +25,15 @@ func fieldModel(tt float64) float64 {
 // twoFields is a ZTF r light curve merged from two ZTF fields whose zero
 // points differ by fieldOffset: 1100 nights in the first, and in the
 // second 300 nights, or with inEclipse 90 points inside the dip and 30
-// outside it.
+// outside it. A second eclipse a quarter as deep at phase 0.5 makes
+// fieldP the orbit.
 func twoFields(depth float64, inEclipse bool, seed uint64) lc.Series {
 	rng := lcg(seed)
 	s := lc.Series{Survey: lc.ZTF, Band: "r", Dilution: 1}
 	add := func(tt, off float64, src int64) {
 		m := 15.6 + off + 0.02*rng.gauss()
 		if depth > 0 {
-			m += fieldModel(tt) * depth / fieldDepth
+			m += (fieldModel(tt) + fieldDepth/4*shapeOnly(wrapPhase((tt-fieldT0)/fieldP-0.5), 0.04, 1.2)) * depth / fieldDepth
 		}
 		s.Points = append(s.Points, lc.Point{BJD: tt, Mag: m, Err: 0.02, Src: src})
 	}

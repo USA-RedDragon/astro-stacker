@@ -426,11 +426,17 @@ func (a *analysis) halfEclipse() check.Check {
 	m := a.ecl
 	half := fmtPeriod(m.P/2, m.res.sigma(0)/2)
 	if a.half.doubled {
+		if a.half.reason == reasonDark {
+			return check.New(check.Half, check.Pass, a.half.dark.doubledWords(fmtPeriod(a.half.from, m.res.sigma(0)/2)))
+		}
 		return check.New(check.Half, check.Pass, a.halfReason(a.half.reason, fmtPeriod(a.half.from, m.res.sigma(0)/2)))
 	}
 	if len(m.dips) == 2 {
 		if why := a.dipsDiffer(m); why != "" {
 			return check.New(check.Half, check.Pass, a.halfReason(why, half))
+		}
+		if d := a.halfDark(m); d.decided {
+			return check.New(check.Half, check.Pass, d.doubledWords(half))
 		}
 		return check.New(check.Half, check.Fail, fmt.Sprintf("The two dips match in depth and sit half a cycle apart, so the period may be %s days.", half))
 	}
@@ -704,7 +710,8 @@ func (a *analysis) parityPass(ws [][2]*win, shown int, dbl string) check.Check {
 		return check.New(check.Double, check.Pass, "Ruled out: "+txt)
 	}
 	if len(a.ecl.dips) == 1 {
-		return check.New(check.Double, check.NotRun, fmt.Sprintf("%s, so two equal dips every %s days fit the data too.", SameDepthOddEven, dbl))
+		return check.New(check.Double, check.NotRun, fmt.Sprintf("%s, so two equal dips every %s days fit the data too. The vet keeps the shorter period because %s.",
+			SameDepthOddEven, dbl, a.darkCompanion(a.ecl).keptWords()))
 	}
 	if shown == 4 {
 		return check.New(check.Double, check.Pass, "Ruled out: both dips show on odd and even cycles at the same depth.")

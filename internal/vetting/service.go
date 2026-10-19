@@ -595,6 +595,7 @@ type star struct {
 	found      bool
 	target     surveys.Target
 	bp, rp     float64
+	plx, plxE  float64
 	neighbours []surveys.Neighbour
 }
 
@@ -677,6 +678,7 @@ func (s *Service) identify(ctx context.Context, ra, dec, refMag float64) (star, 
 	g := stars[best]
 	out.found = true
 	out.bp, out.rp = float64(g.BP), float64(g.RP)
+	out.plx, out.plxE = finite(g.Parallax), finite(float64(g.ParallaxError))
 	out.target = surveys.Target{GaiaID: g.SourceID, RA: g.RA, Dec: g.Dec, PMRA: finite(g.PMRA), PMDec: finite(g.PMDec), G: float64(g.G)}
 	for i, n := range stars {
 		if i == best || math.IsNaN(float64(n.G)) || math.IsNaN(n.RA) || math.IsNaN(n.Dec) {
@@ -753,7 +755,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	change := changeOf(sum)
 	var pr *period.Result
 	if sum.Source.Kind != kindMover && len(series) > 0 {
-		opts := period.Options{ChangeMag: change.Mag}
+		opts := period.Options{ChangeMag: change.Mag, G: finite(st.target.G), Parallax: st.plx, ParallaxErr: st.plxE}
 		if !change.Fainter {
 			opts.ChangeMag = -change.Mag
 		}
