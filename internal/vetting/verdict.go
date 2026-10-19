@@ -106,8 +106,12 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		}
 	}
 	if ztfFlat {
+		own := "Your own measurements show a change, so it may be new or brief."
+		if status(groups, check.OwnChange) != check.Pass {
+			own = "Your own frames did not measure the change, so only the detection says it changed."
+		}
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: no survey saw it change", Confidence: Low,
-			Why: joinSentences(evidence(groups, check.ZTF), "Your own measurements show a change, so it may be new or brief.") + pending}
+			Why: joinSentences(evidence(groups, check.ZTF), own) + pending}
 	}
 	return Suggestion{State: app.VetUnsure, Say: sayNotSure, Confidence: Low, Why: "The checks found nothing against it, and nothing that confirms it." + pending}
 }
