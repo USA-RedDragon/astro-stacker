@@ -57,13 +57,43 @@ const (
 	stackFlat       = 2.0
 )
 
+// StackColourAllowance is how much fainter, in magnitudes against the
+// Gaia G calibrated stars of each filter's master, a moving object may be
+// in a filter it was not found in before flat frames in that filter refute
+// it. Asteroids and comets shine by reflected sunlight: asteroids have V-R
+// about 0.4 to 0.5 and B-V about 0.7 to 0.9, against the Sun's 0.36 and
+// 0.65, BP-RP about 0.9 to 1.1. The stars that set a zero point have a
+// median BP-RP of about 0.8 to 1.8, and a magnitude of BP-RP moves a blue
+// filter about 1.1 magnitudes against a red one, so a reflected-light body
+// is off the stars' scale by under a magnitude between any two filters,
+// the worst a blue filter against a red one in a field of reddened stars.
+// A comet's gas adds light in broadband (C2, CN) and takes none away; a
+// track found in broadband is not tested in narrowband, which passes only
+// the dust's light. A source bright in a narrowband filter and absent in
+// broadband is line emission, and no line emitter moves like a body of the
+// solar system. 1.5 magnitudes clears the worst colour with a margin for
+// the zero points' scatter. 23765 (Cygnus Loop, 2026-09-04), found in
+// H-alpha at G-scale magnitude 17.07, stacked to -0.84 in the night's 14
+// red, green and blue frames along its path, where a fake of that
+// magnitude by each filter's zero point showed 53.6 and one 1.5 magnitudes
+// fainter about 13.5.
+const StackColourAllowance = 1.5
+
+// StackNoColour is the why of a stack refuted by frames in filters the
+// source was not found in.
+const StackNoColour = "flat in other filters"
+
 // StackUnused is frames the detection did not use, stacked at the source:
 // SNR what they show, Inj what a fake of its brightness shows in them.
 // Required ones must show it for the stack to confirm it; the others only
 // count against it.
+// Colour ones are frames in filters it was not found in, Inj there a fake
+// StackColourAllowance magnitudes fainter than it was found at: flat where
+// that fake shows, they refute it whatever else the stack shows.
 type StackUnused struct {
 	SNR, Inj float64
 	Required bool
+	Colour   bool
 }
 
 // StackFacts are what a stack to confirm measured, in signal to noise:
@@ -85,7 +115,9 @@ func (u StackUnused) shows() bool {
 
 func (u StackUnused) flat() bool { return u.SNR < stackFlat }
 
-// JudgeStack weighs a stack to confirm: confirmed when the source shows at
+// JudgeStack weighs a stack to confirm: refuted when frames in filters it
+// was not found in are flat where a fake StackColourAllowance magnitudes
+// fainter shows; otherwise confirmed when the source shows at
 // stackReal of its fake or more, above the controls, and in the required
 // unused frames that could show it; refuted when it shows under stackFake
 // of its fake and every unused frame that could show it is flat, or, with
@@ -100,6 +132,11 @@ func (u StackUnused) flat() bool { return u.SNR < stackFlat }
 // star, stacked to 1.2 against a fake's 4.4, and the 7 frames of that night
 // the detection did not use to -0.2 against 7.8.
 func JudgeStack(f StackFacts) (StackVerdict, string) {
+	for _, u := range f.Unused {
+		if u.Colour && u.testable() && u.flat() {
+			return StackRefuted, StackNoColour
+		}
+	}
 	var testable, flat, missing int
 	for _, u := range f.Unused {
 		if !u.testable() {
@@ -148,6 +185,9 @@ func StackCheck(ts *TrackStack) (check.Check, StackVerdict) {
 	if ts == nil {
 		return check.Skipped(check.MoverStack, "Not run: the other checks already settle it."), StackUntested
 	}
+	if c, ok := colourCheck(ts); ok {
+		return c, StackRefuted
+	}
 	if ts.Note != "" {
 		return check.Skipped(check.MoverStack, "Not measured. "+ts.Note), StackUntested
 	}
@@ -164,6 +204,9 @@ func StackCheck(ts *TrackStack) (check.Check, StackVerdict) {
 	}
 	if ts.Unused > 0 {
 		f.Unused = []StackUnused{{SNR: ts.UnusedSNR, Inj: ts.UnusedInjected, Required: true}}
+	}
+	if ts.Other > 0 {
+		f.Unused = append(f.Unused, colourUnused(ts))
 	}
 	v, why := JudgeStack(f)
 	ev := stackWords(ts)
@@ -200,7 +243,36 @@ func stackWords(ts *TrackStack) string {
 	} else {
 		ev += " No frames of the same night that the detection did not use cross its path."
 	}
+	if ts.Other > 0 {
+		ev += " " + colourWords(ts)
+	}
 	return ev
+}
+
+func colourUnused(ts *TrackStack) StackUnused {
+	return StackUnused{SNR: ts.OtherSNR, Inj: ts.OtherFaint, Colour: true}
+}
+
+func colourWords(ts *TrackStack) string {
+	return fmt.Sprintf("In the %s of the same night in %s, filters it was not found in, that cross its path it shows at %.1f, where a fake of its magnitude, given each filter's light by that filter's stars, shows at %.1f, and one %.1f magnitudes fainter at %.1f.",
+		FrameWord(ts.Other), joinAnd(ts.OtherFilters), ts.OtherSNR, ts.OtherInjected, StackColourAllowance, ts.OtherFaint)
+}
+
+// colourCheck refutes a track whose frames in filters it was not found in
+// are flat where a fake StackColourAllowance magnitudes fainter than it
+// was found at shows.
+func colourCheck(ts *TrackStack) (check.Check, bool) {
+	if ts.Other == 0 {
+		return check.Check{}, false
+	}
+	if v, why := JudgeStack(StackFacts{Unused: []StackUnused{colourUnused(ts)}}); v != StackRefuted || why != StackNoColour {
+		return check.Check{}, false
+	}
+	ev := colourWords(ts)
+	if ts.Note == "" && !ts.Glow && ts.Frames > 0 && ts.Injected > 0 {
+		ev = stackWords(ts)
+	}
+	return check.New(check.MoverStack, check.Fail, ev+fmt.Sprintf(" It is not there: those frames show nothing clear (signal to noise under 2), and a moving object shines by reflected sunlight, which no asteroid or comet colour makes %.1f magnitudes fainter there than in the filter it was found in.", StackColourAllowance)), true
 }
 
 // glowCheck judges a track whose path lies on stars the masters show in

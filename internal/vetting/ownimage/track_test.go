@@ -28,15 +28,28 @@ const (
 type trackField struct {
 	*synthField
 	master synthSub
+	// more are the masters of other filters, by filter.
+	more map[string]synthSub
 }
 
+func filterMasterKey(filter string) string { return "stacks/Synth/" + filter + "/master.fit" }
+
 func (t *trackField) Masters(context.Context, string) (map[string]string, error) {
-	return map[string]string{synthLum: masterKey}, nil
+	out := map[string]string{synthLum: masterKey}
+	for f := range t.more {
+		out[f] = filterMasterKey(f)
+	}
+	return out, nil
 }
 
 func (t *trackField) Load(ctx context.Context, key string) (*discoveries.Plane, error) {
 	if key == masterKey {
 		return t.render(t.master), nil
+	}
+	for f, m := range t.more {
+		if key == filterMasterKey(f) {
+			return t.render(m), nil
+		}
 	}
 	return t.synthField.Load(ctx, key)
 }

@@ -72,6 +72,14 @@ const (
 	// their light within 4.5 px in any frame.
 	stackBesideLight  = 2.0
 	stackBesideWidths = 4.0
+	// stackZPStars is how many Gaia stars, the nearest to the path of
+	// those the shape is fitted on, set a filter master's zero point, the
+	// median of G + 2.5 log10 of their light, and stackZPMin the fewest of
+	// them the master must fit for one. The audit of 23765 (Cygnus Loop,
+	// 2026-09-04) fitted 29 in each filter, and in H-alpha the zero point
+	// gave a source of its magnitude 0.00608, its detections 0.00634.
+	stackZPStars = 30
+	stackZPMin   = 10
 )
 
 // TrackStack is a moving object's frames stacked along its fitted motion:
@@ -109,6 +117,17 @@ type TrackStack struct {
 	Unused         int     `json:"unused"`
 	UnusedSNR      float64 `json:"unused_snr"`
 	UnusedInjected float64 `json:"unused_injected"`
+	// Other counts the frames in filters it was not found in that it
+	// crossed in the same window as the unused ones, OtherFilters those
+	// filters, OtherSNR their stack on the path, OtherInjected a fake of
+	// its magnitude given each filter's light by that filter master's
+	// Gaia zero point, and OtherFaint one StackColourAllowance magnitudes
+	// fainter.
+	Other         int      `json:"other,omitempty"`
+	OtherFilters  []string `json:"other_filters,omitempty"`
+	OtherSNR      float64  `json:"other_snr,omitempty"`
+	OtherInjected float64  `json:"other_injected,omitempty"`
+	OtherFaint    float64  `json:"other_faint,omitempty"`
 	// OnStars counts the detection frames whose path lies on stars the
 	// master shows, and Glow says the path is masked by them in too many
 	// detection frames to stack, as with 48654 (Cygnus Loop, 2026-09-07):
@@ -132,6 +151,8 @@ type TrackStack struct {
 type stackFrame struct {
 	k        int
 	det      bool
+	other    bool
+	filter   string
 	dt       float64
 	fx, fy   float64
 	sigma    float64
@@ -147,6 +168,8 @@ type stackFrame struct {
 type stackPlan struct {
 	tp     *trackPlan
 	shape  []*starModel
+	zstars []*starModel
+	zlight map[string]float64
 	frames []*stackFrame
 	mbox   map[int][]float32
 	msig   map[string]float64
@@ -183,7 +206,7 @@ func StackTracks(ctx context.Context, d Data, object string, spots []TrackSpot, 
 	}
 	plans := make([]*stackPlan, len(spots))
 	for i, s := range spots {
-		sp, err := newStackPlan(ctx, d, w, width, height, subs, s)
+		sp, err := newStackPlan(ctx, d, w, width, height, subs, masters, s)
 		if err != nil {
 			return nil, err
 		}
@@ -198,9 +221,10 @@ func StackTracks(ctx context.Context, d Data, object string, spots []TrackSpot, 
 	return out, nil
 }
 
-func newStackPlan(ctx context.Context, d Data, w *discoveries.WCS, width, height int, subs []Sub, s TrackSpot) (*stackPlan, error) {
+func newStackPlan(ctx context.Context, d Data, w *discoveries.WCS, width, height int, subs []Sub, masters map[string]string, s TrackSpot) (*stackPlan, error) {
 	tp := newTrackPlan(subs, s, width, height)
-	sp := &stackPlan{tp: tp, mbox: map[int][]float32{}, msig: map[string]float64{}, mflux: map[string][]float64{}}
+	sp := &stackPlan{tp: tp, mbox: map[int][]float32{}, msig: map[string]float64{}, mflux: map[string][]float64{}, zlight: map[string]float64{}}
+	sp.light, sp.mag = trackLight(s.Points)
 	if len(tp.subs) == 0 {
 		sp.note = "None of the night's frames cover the object's path."
 		return sp, nil
@@ -232,25 +256,37 @@ func newStackPlan(ctx context.Context, d Data, w *discoveries.WCS, width, height
 		dt   time.Duration
 		past time.Duration
 	}
-	var unused []cand
+	if sp.mag > 0 {
+		otherRows(tp, subs, masters, s, width, height)
+	}
+	var unused, other []cand
 	for k, r := range tp.rows {
 		dt := r.Time.Sub(mid)
 		past := max(first.Sub(r.Time), r.Time.Sub(last), 0)
+		_, found := sp.light[r.Filter]
 		switch {
 		case r.Detected:
-			sp.addFrame(k, true, dt, r)
-		case past <= stackUnused:
+			sp.addFrame(k, dt, r).det = true
+		case past > stackUnused:
+		case found:
 			unused = append(unused, cand{k, dt, past})
+		case sp.mag > 0:
+			other = append(other, cand{k, dt, past})
 		}
 	}
-	sort.Slice(unused, func(a, b int) bool {
-		if unused[a].past != unused[b].past {
-			return unused[a].past < unused[b].past
-		}
-		return unused[a].dt.Abs() < unused[b].dt.Abs()
-	})
+	for _, cs := range [][]cand{unused, other} {
+		sort.Slice(cs, func(a, b int) bool {
+			if cs[a].past != cs[b].past {
+				return cs[a].past < cs[b].past
+			}
+			return cs[a].dt.Abs() < cs[b].dt.Abs()
+		})
+	}
 	for _, c := range unused[:min(len(unused), stackMaxUnused)] {
-		sp.addFrame(c.k, false, c.dt, tp.rows[c.k])
+		sp.addFrame(c.k, c.dt, tp.rows[c.k])
+	}
+	for _, c := range other[:min(len(other), stackMaxUnused)] {
+		sp.addFrame(c.k, c.dt, tp.rows[c.k]).other = true
 	}
 	mx, my := tp.at(mid)
 	ra, dec := w.SkyOf(mx, my)
@@ -260,16 +296,69 @@ func newStackPlan(ctx context.Context, d Data, w *discoveries.WCS, width, height
 	}
 	if f != nil && f.grid != nil {
 		sp.shape = f.shapeStars(mx, my, shapeBright)
+		sp.zstars = f.shapeStars(mx, my, stackZPStars)
 	}
-	sp.light, sp.mag = trackLight(s.Points)
 	return sp, nil
 }
 
-func (sp *stackPlan) addFrame(k int, det bool, dt time.Duration, r TrackSub) {
+// otherRows adds to a track's rows the subs of its night in other filter
+// groups, with a master, whose frame covers its path. A track found in
+// broadband gets none: a narrowband filter passes only a comet's dust
+// light, which the gas light a broadband filter also passes may far
+// exceed.
+func otherRows(tp *trackPlan, subs []Sub, masters map[string]string, s TrackSpot, width, height int) {
+	if s.Group == discoveries.GroupBroadband {
+		return
+	}
+	nk := nightKey(s.Night)
+	margin := float64(stampHalf + 1)
+	for i, sub := range subs {
+		if nightKey(sub.Night) != nk || discoveries.GroupOf(sub.Filter) == s.Group || masters[sub.Filter] == "" {
+			continue
+		}
+		row := TrackSub{FrameID: sub.FrameID, Filter: sub.Filter, Time: midTime(sub), Exposure: sub.Exposure}
+		row.X, row.Y = tp.at(row.Time)
+		if row.X < margin || row.Y < margin || row.X > float64(width)-margin || row.Y > float64(height)-margin {
+			continue
+		}
+		tp.subs = append(tp.subs, i)
+		tp.rows = append(tp.rows, row)
+	}
+}
+
+func (sp *stackPlan) addFrame(k int, dt time.Duration, r TrackSub) *stackFrame {
 	x, y := sp.tp.at(r.Time)
 	h := r.Exposure / 3600
-	sp.frames = append(sp.frames, &stackFrame{k: k, det: det, dt: dt.Hours(), fx: x - math.Round(x), fy: y - math.Round(y),
-		trail: [2]float64{sp.tp.vx * h, sp.tp.vy * h}})
+	fr := &stackFrame{k: k, filter: r.Filter, dt: dt.Hours(), fx: x - math.Round(x), fy: y - math.Round(y),
+		trail: [2]float64{sp.tp.vx * h, sp.tp.vy * h}}
+	sp.frames = append(sp.frames, fr)
+	return fr
+}
+
+// zeroPoint is an image's zero point, the median of G + 2.5 log10 of the
+// light of each Gaia star of stars it fits with the shape fitted on shape,
+// and how many it fitted.
+func zeroPoint(p *discoveries.Plane, shape, stars []*starModel) (float64, int) {
+	if len(shape) == 0 || len(stars) == 0 {
+		return 0, 0
+	}
+	sig, sx, sy, ok := fitShape(p, shape)
+	if !ok {
+		return 0, 0
+	}
+	var zps []float64
+	for _, m := range stars {
+		if !(m.g > 0) {
+			continue
+		}
+		if o := fitStar(p, m, sig, sx, sy, true); o.ok && o.flux > 0 {
+			zps = append(zps, m.g+2.5*math.Log10(o.flux))
+		}
+	}
+	if len(zps) == 0 {
+		return 0, 0
+	}
+	return median(zps), len(zps)
 }
 
 // trackLight is the total light of a point source of the track's median
@@ -377,10 +466,12 @@ func streamStacks(ctx context.Context, d Data, subs []Sub, masters map[string]st
 
 func (sp *stackPlan) master(p *discoveries.Plane, filter string, subs []Sub, mu *sync.Mutex) {
 	var boxes map[int][]float32
+	other := false
 	for _, fr := range sp.frames {
 		if subs[sp.tp.subs[fr.k]].Filter != filter {
 			continue
 		}
+		other = other || fr.other
 		if boxes == nil {
 			boxes = map[int][]float32{}
 		}
@@ -392,9 +483,18 @@ func (sp *stackPlan) master(p *discoveries.Plane, filter string, subs []Sub, mu 
 		return
 	}
 	sig, fl := starLight(p, sp.shape)
+	zl := 0.0
+	if other {
+		if zp, n := zeroPoint(p, sp.shape, sp.zstars); n >= stackZPMin {
+			zl = math.Pow(10, -0.4*(sp.mag-zp))
+		}
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	sp.msig[filter], sp.mflux[filter] = sig, fl
+	if zl > 0 {
+		sp.zlight[filter] = zl
+	}
 	for k, b := range boxes {
 		sp.mbox[k] = b
 	}
@@ -481,6 +581,9 @@ func (sp *stackPlan) sub(p *discoveries.Plane, si int, subs []Sub) {
 		fr.f = fitPlaces(fr.d, width)
 		light, ok := sp.lightIn(filter)
 		fr.flux = light / apertureShare(own, fr.trail)
+		if fr.other {
+			fr.flux, ok = sp.zlight[filter], sp.zlight[filter] > 0
+		}
 		fr.w = placeWeight(fr.f)
 		fr.measured = ok && fr.w > 0
 		fr.onStar = maskedOnFrame(sb, fr.d)
@@ -843,11 +946,16 @@ func trials() [][2]float64 {
 // injected is the fakes' signal to noise in a stack: each one's light with
 // the stack's own at its place, the median and the middle two thirds.
 func (s stackSet) injected(med, sd float64) (mid, lo, hi float64, ok bool) {
+	return s.injectedAt(med, sd, 1)
+}
+
+// injectedAt is injected with fakes of scale times each frame's light.
+func (s stackSet) injectedAt(med, sd, scale float64) (mid, lo, hi float64, ok bool) {
 	var v []float64
 	for _, t := range trials() {
 		f, a := s.at(t[0], t[1], true)
 		if finite(f) && finite(a) {
-			v = append(v, (f+a-med)/sd)
+			v = append(v, (f+scale*a-med)/sd)
 		}
 	}
 	if len(v) < stackTrials/2 {
@@ -875,18 +983,22 @@ func finishStack(sp *stackPlan, res *TrackStack) {
 	if sp.note != "" {
 		return
 	}
-	var det, unused []*stackFrame
+	var det, unused, other []*stackFrame
 	for _, fr := range sp.frames {
 		if !fr.measured {
 			continue
 		}
-		if fr.det {
+		switch {
+		case fr.det:
 			det = append(det, fr)
-		} else {
+		case fr.other:
+			other = append(other, fr)
+		default:
 			unused = append(unused, fr)
 		}
 	}
 	sp.frames = nil
+	otherStack(other, res)
 	if len(det) < stackMinFrames {
 		res.Note = fmt.Sprintf("Only %d of its detection frames could be measured against their masters; at least %d are needed.", len(det), stackMinFrames)
 		return
@@ -982,6 +1094,39 @@ func unusedStack(unused []*stackFrame, res *TrackStack) {
 			res.Unused, res.UnusedSNR, res.UnusedInjected = len(unused), (uf-um)/usd, mid
 		}
 	}
+}
+
+// otherStack stacks the frames in filters the detection did not find it in
+// along the path, with fakes of its magnitude in each filter and fakes
+// StackColourAllowance magnitudes fainter, when enough of them cover it.
+func otherStack(other []*stackFrame, res *TrackStack) {
+	if len(other) < stackMinFrames {
+		return
+	}
+	ot := stackSet{frames: other}
+	m, sd, ok := ot.noise(places(1))
+	if !ok {
+		m, sd, ok = ot.noise(placesTo(1, stackWide))
+	}
+	f, _ := ot.at(0, 0, false)
+	if !ok || !finite(f) {
+		return
+	}
+	mid, _, _, iok := ot.injected(m, sd)
+	faint, _, _, fok := ot.injectedAt(m, sd, math.Pow(10, -0.4*StackColourAllowance))
+	if !iok || !fok {
+		return
+	}
+	seen := map[string]bool{}
+	var filters []string
+	for _, fr := range other {
+		if !seen[fr.filter] {
+			seen[fr.filter] = true
+			filters = append(filters, fr.filter)
+		}
+	}
+	sort.Strings(filters)
+	res.Other, res.OtherFilters, res.OtherSNR, res.OtherInjected, res.OtherFaint = len(other), filters, (f-m)/sd, mid, faint
 }
 
 // wrongStacks stacks the detection frames along a grid of wrong motions,
