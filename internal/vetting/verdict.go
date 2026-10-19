@@ -98,12 +98,20 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 	if ps != nil {
 		return *ps
 	}
+	if pr != nil && pr.Fades.Confirms() {
+		return Suggestion{State: app.VetReal, Say: "Looks like a new variable star, fades now and then", Confidence: Medium,
+			Why: joinSentences(evidence(groups, check.ZTF), "No catalog lists the star as variable.")}
+	}
 	pending := ""
 	for _, f := range fx.all() {
 		if f.State == surveys.Pending {
 			pending = " Survey data still being fetched may settle it."
 			break
 		}
+	}
+	if ztfFlat && pr != nil && pr.Fades.FieldProblem() {
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: nearby stars change with it in ZTF", Confidence: Low,
+			Why: joinSentences(evidence(groups, check.ZTF), "Its survey changes come from the sky or the camera, so only your own frames speak for it.") + pending}
 	}
 	if ztfFlat {
 		own := "Your own measurements show a change, so it may be new or brief."

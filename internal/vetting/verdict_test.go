@@ -63,3 +63,28 @@ func TestSuggestion(t *testing.T) {
 		t.Errorf("binary %+v", s)
 	}
 }
+
+func TestSurveyFadesVerdict(t *testing.T) {
+	t.Parallel()
+	sum := discoverysource.Summary{Source: app.DiscoverySource{Kind: app.DiscoveryKindChange}}
+	own := check.New(check.OwnChange, check.Pass, "The star faded by 0.21 mag.")
+	cases := []struct {
+		name  string
+		fades *period.Fades
+		ztf   check.Status
+		want  string
+		say   string
+	}{
+		{"15523 dipper", &period.Fades{Nights: 4, Steady: 4, Stars: 30}, check.Pass, app.VetReal, "Looks like a new variable star, fades now and then"},
+		{"field", &period.Fades{Nights: 4, Field: 4, Stars: 30}, check.Fail, app.VetUnsure, "Not sure: nearby stars change with it in ZTF"},
+		{"untested", &period.Fades{Nights: 3}, check.Pass, app.VetUnsure, sayNotSure},
+	}
+	for _, c := range cases {
+		pr := &period.Result{Fades: c.fades}
+		groups := []Group{{ID: check.GroupOwn, Checks: []check.Check{own}}, {ID: check.GroupSurveys, Checks: []check.Check{check.New(check.ZTF, c.ztf, "")}}}
+		s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{})
+		if s.State != c.want || s.Say != c.say {
+			t.Errorf("%s: %+v, want %s %q", c.name, s, c.want, c.say)
+		}
+	}
+}

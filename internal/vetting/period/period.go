@@ -84,6 +84,9 @@ type Result struct {
 	// Robust is how the period stands up to the tests for false periods,
 	// when one was found.
 	Robust *Robust `json:"robust,omitempty"`
+	// Fades is how a flat star's ZTF fades compare with nearby stars,
+	// when its fading points back each other up on two or more nights.
+	Fades *Fades `json:"fades,omitempty"`
 }
 
 // Options bound the search. MinPeriod and MaxPeriod are in days, 0.2
@@ -91,12 +94,15 @@ type Result struct {
 // magnitudes, positive for a fade; a flat survey light curve is checked
 // against it. Comparisons, when set, gives the ZTF light curves of nearby
 // steady stars of the same brightness, asked for only once a period is
-// found.
+// found. Neighbours, when set, gives the ZTF light curves of the stars
+// around it to test a flat star's fades against, asked for only when
+// fading ZTF points back each other up on two or more nights.
 type Options struct {
 	MinPeriod   float64
 	MaxPeriod   float64
 	ChangeMag   float64
 	Comparisons func() [][]lc.Series
+	Neighbours  func() [][]lc.Series
 }
 
 // Analyze searches series for a period and tests it. series holds every
