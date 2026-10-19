@@ -1317,12 +1317,16 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		}
 		return Suggestion{State: app.VetReal, Say: "Looks like " + what + ", seen by a survey too", Confidence: conf, Why: joinSentences(why...)}
 	}
-	return ownFramesSuggest(groups, what, pendingNote, fx.stackV)
+	return ownFramesSuggest(groups, what, pendingNote, fx.stackV, fx.flux != nil && fx.flux.Halo != nil)
 }
 
 // ownFramesSuggest is the suggestion for new light no survey has seen,
-// from the user's own frames alone.
-func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.StackVerdict) Suggestion {
+// from the user's own frames alone. Inside a bright star's halo a stack
+// that does not confirm the light makes it an artifact: the halo's own
+// light comes and goes with the sky, and on Horsehead Nebula's 2025-11-16,
+// 11-17 and 11-21 the spots 3' to 9' from Alnilam stacked to 40% to 53%
+// of their fakes while the detection found dozens more around it.
+func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.StackVerdict, halo bool) Suggestion {
 	ev := func(id string) string { return evidence(groups, id) }
 	st := func(id string) check.Status { return status(groups, id) }
 	has := func(id string) bool {
@@ -1342,6 +1346,9 @@ func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.S
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: galaxy nucleus residual", Confidence: Medium, Why: ev(check.TransNucleus)}
 	case st(check.TransZTFImages) == check.Fail:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: ZTF looked the same night and saw nothing", Confidence: Medium, Why: ev(check.TransZTFImages)}
+	case stack == ownimage.StackDoubtful && halo:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: a bright star's halo, and your frames stacked at the spot do not confirm it", Confidence: Medium,
+			Why: joinSentences(ev(check.TransClear), ev(check.TransStack), "New light this faint inside a bright star's halo is the halo's own.")}
 	case stack == ownimage.StackDoubtful:
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: your frames stacked at the spot do not confirm it", Confidence: Low, Why: ev(check.TransStack) + pendingNote}
 	case st(check.PSF) != check.Pass:

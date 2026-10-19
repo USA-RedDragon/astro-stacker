@@ -227,3 +227,45 @@ func TestStackRefutesAtTheDetectionHold(t *testing.T) {
 		}
 	}
 }
+
+func TestStackWingFitIgnoresPlainUnusedFrames(t *testing.T) {
+	t.Parallel()
+	// 56176 (Caldwell 14, 2026-01-10), 9.8 px from a G 15.8 star: 0.6 sigma
+	// in the wing fit where a fake shows at 7.1, and 2.9 on 2026-01-13 in a
+	// plain fit that holds the star's wing.
+	fc := curveOf(auditNight("2026-01-10", 2.6, 6.0, true), auditNight("2026-01-13", 2.9, 6.6, false))
+	e := auditLight / 7.1
+	fc.Wing = &ownimage.Wing{G: 15.8, SepPx: 9.8, Night: "2026-01-10", Filter: lum, Excess: 0.6 * e, Sigma: 0.6, Err: e, Measured: true}
+	c, v := transientStack(fc, auditReps("2026-01-10"))
+	if v != ownimage.StackRefuted {
+		t.Errorf("56176: %s %s", v, c.Evidence)
+	}
+	st := ownOnly()
+	st[check.TransStack], st[check.TransWing] = check.Fail, check.Fail
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: v}); s.Say != "Artifact: a bright star's wing" {
+		t.Errorf("56176: %+v", s)
+	}
+	fc.Wing.Sigma, fc.Wing.Excess = 9.5, 9.5*e
+	if _, v := transientStack(fc, auditReps("2026-01-10")); v != ownimage.StackConfirmed {
+		t.Errorf("new light beside a star not confirmed: %s", v)
+	}
+}
+
+func TestDoubtfulStackInABrightStarsHaloIsAnArtifact(t *testing.T) {
+	t.Parallel()
+	// 33729 (Horsehead Nebula, 2025-11-17), 6.2' from Alnilam: 4.0 where a
+	// fake shows at 10.0, above the empty places' 2.5.
+	st := ownOnly()
+	st[check.TransStack], st[check.TransClear] = check.Fail, check.Fail
+	halo := transientFacts{stackV: ownimage.StackDoubtful, flux: &ownimage.FluxCurve{Halo: &ownimage.Halo{V: 1.69, SepArcsec: 372, Reach: 600}}}
+	if s := transientSuggest(transientGroups(st), halo); s.State != app.VetArtifact || !strings.Contains(s.Say, "halo") {
+		t.Errorf("33729: %+v", s)
+	}
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackDoubtful, flux: &ownimage.FluxCurve{}}); s.State != app.VetUnsure {
+		t.Errorf("doubtful by the edge: %+v", s)
+	}
+	st[check.TransStack] = check.Pass
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackConfirmed, flux: halo.flux}); s.State == app.VetArtifact {
+		t.Errorf("confirmed light in a halo refuted: %+v", s)
+	}
+}
