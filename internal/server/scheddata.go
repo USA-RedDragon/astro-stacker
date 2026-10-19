@@ -341,10 +341,15 @@ type TonightSub struct {
 	ProcessedAt   *time.Time `json:"processed_at,omitempty"`
 	UploadedAt    *time.Time `json:"uploaded_at,omitempty"`
 	PreviewURL    string     `json:"preview_url,omitempty"`
-	Width         *int       `json:"width"`
-	Height        *int       `json:"height"`
-	Indexed       bool       `json:"indexed"`
-	previewKey    string
+	// CalibratedURL is the preview calibrated with the best masters already
+	// built; CalibratedNote says with which, or why it was not calibrated.
+	CalibratedURL  string `json:"calibrated_url,omitempty"`
+	CalibratedNote string `json:"calibrated_note,omitempty"`
+	Width          *int   `json:"width"`
+	Height         *int   `json:"height"`
+	Indexed        bool   `json:"indexed"`
+	previewKey     string
+	calKey         string
 }
 
 type TonightSubs struct {
@@ -452,6 +457,12 @@ func LoadTonightSubs(ctx context.Context, sched, appDB *gorm.DB, signer *preview
 		if u, err := signer.URL(ctx, out.Subs[i].previewKey); err == nil {
 			out.Subs[i].PreviewURL = u
 		}
+		if out.Subs[i].calKey == "" {
+			continue
+		}
+		if u, err := signer.URL(ctx, out.Subs[i].calKey); err == nil {
+			out.Subs[i].CalibratedURL = u
+		}
 	}
 	if n := len(out.Subs); n > 0 {
 		l := out.Subs[n-1]
@@ -483,7 +494,8 @@ func newestPreview(ctx context.Context, db *gorm.DB, signer *previewer.Signer) (
 		return TonightSub{}, false, err
 	}
 	var f app.Frame
-	err := db.WithContext(ctx).Select("key", "last_modified", "object", "filter", "exposure", "gain", "ccd_temp", "width", "height", "date_obs", "preview_key").
+	err := db.WithContext(ctx).Select("key", "last_modified", "object", "filter", "exposure", "gain", "ccd_temp", "width", "height", "date_obs", "preview_key",
+		"cal_preview_key", "cal_preview_note").
 		Where("type = ? AND preview_key IS NOT NULL AND date_obs IS NOT NULL", lightType).
 		Order("date_obs DESC").Limit(1).Take(&f).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -496,19 +508,27 @@ func newestPreview(ctx context.Context, db *gorm.DB, signer *previewer.Signer) (
 	if err != nil {
 		return TonightSub{}, false, err
 	}
+	var cal string
+	if f.CalPreviewKey != nil {
+		if cal, err = signer.URL(ctx, *f.CalPreviewKey); err != nil {
+			return TonightSub{}, false, err
+		}
+	}
 	return TonightSub{
-		Time:       f.DateObs.UTC(),
-		Target:     f.Object,
-		Filter:     f.Filter,
-		Exposure:   f.Exposure,
-		Gain:       f.Gain,
-		CCDTemp:    f.CCDTemp,
-		File:       path.Base(f.Key),
-		UploadedAt: uploadedAt(f.LastModified),
-		PreviewURL: u,
-		Width:      f.Width,
-		Height:     f.Height,
-		Indexed:    true,
+		CalibratedURL:  cal,
+		CalibratedNote: deref(f.CalPreviewNote),
+		Time:           f.DateObs.UTC(),
+		Target:         f.Object,
+		Filter:         f.Filter,
+		Exposure:       f.Exposure,
+		Gain:           f.Gain,
+		CCDTemp:        f.CCDTemp,
+		File:           path.Base(f.Key),
+		UploadedAt:     uploadedAt(f.LastModified),
+		PreviewURL:     u,
+		Width:          f.Width,
+		Height:         f.Height,
+		Indexed:        true,
 	}, true, nil
 }
 
@@ -546,13 +566,15 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 		Width        *int
 		Height       *int
 		PreviewKey   *string
+		CalKey       *string `gorm:"column:cal_preview_key"`
+		CalNote      *string `gorm:"column:cal_preview_note"`
 		Status       *string
 		Score        *float64
 		Weight       *float64
 		ProcessedAt  *time.Time
 	}
 	q := db.WithContext(ctx).Table("frames f").
-		Select("f.key, f.object, f.last_modified, f.gain, f.ccd_temp, f.width, f.height, f.preview_key, sf.status, sf.score, sf.weight, sf.processed_at").
+		Select("f.key, f.object, f.last_modified, f.gain, f.ccd_temp, f.width, f.height, f.preview_key, f.cal_preview_key, f.cal_preview_note, sf.status, sf.score, sf.weight, sf.processed_at").
 		Where("f.type = ? AND f.object IN ? AND (f.date_obs IS NULL OR f.date_obs >= ?)", lightType, names, since.Add(-12*time.Hour))
 	hasStack, err := tables.Has(ctx, db, &app.StackFrame{})
 	if err != nil {
@@ -561,7 +583,7 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 	if hasStack {
 		q = q.Joins("LEFT JOIN stack_frames sf ON sf.frame_id = f.id")
 	} else {
-		q = q.Select("f.key, f.object, f.last_modified, f.gain, f.ccd_temp, f.width, f.height, f.preview_key")
+		q = q.Select("f.key, f.object, f.last_modified, f.gain, f.ccd_temp, f.width, f.height, f.preview_key, f.cal_preview_key, f.cal_preview_note")
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return err
@@ -580,6 +602,8 @@ func linkStacker(ctx context.Context, db *gorm.DB, subs []TonightSub, since time
 		subs[i].CCDTemp = r.CCDTemp
 		subs[i].Width, subs[i].Height = r.Width, r.Height
 		subs[i].previewKey = deref(r.PreviewKey)
+		subs[i].calKey = deref(r.CalKey)
+		subs[i].CalibratedNote = deref(r.CalNote)
 		subs[i].UploadedAt = uploadedAt(r.LastModified)
 		subs[i].Indexed = true
 		if r.Status != nil {

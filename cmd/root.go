@@ -13,6 +13,7 @@ import (
 
 	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
+	"github.com/USA-RedDragon/astro-stacker/internal/calpreview"
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
 	"github.com/USA-RedDragon/astro-stacker/internal/calreq"
 	"github.com/USA-RedDragon/astro-stacker/internal/catalog"
@@ -175,6 +176,8 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 			pv.Events = broker
 			pv.Wake = newFrames
 			pv.Task = reg.Task(activity.KindPreviews, "Previews")
+			pv.Calibrator = &calpreview.Calibrator{DB: appStore.DB(), Client: s3, Source: cfg.S3.Bucket, Dest: cfg.S3.ProcessedBucket, WorkDir: cfg.Stacking.WorkDir}
+			pv.CalibrateWithin = previewer.CalibrateWithin
 			go pv.Run(indexCtx, time.Duration(cfg.Previews.IntervalSeconds)*time.Second)
 			slog.Info("Preview renderer started", "bucket", cfg.S3.ProcessedBucket, "concurrency", cfg.Previews.Concurrency)
 		}
