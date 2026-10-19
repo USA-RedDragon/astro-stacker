@@ -57,6 +57,17 @@ const (
 	// stackGlowShare is the least share of the detection frames whose path
 	// must lie on stars the master shows for the stack to blame their glow.
 	stackGlowShare = 2.0 / 3
+	// stackBesideLight is the least light, in times the object's, and
+	// stackBesideWidths the farthest, in star widths, a star the master
+	// shows may be from the path for its leftover light to pass for the
+	// object's in the stack. 67203 (Cygnus Loop, 2025-11-10) sat 2.2 to
+	// 3.9 px from stars of 3.1 to 7.4 times its light, star width 1.0 to
+	// 1.1 px, in all 7 detection frames, and stacked to 11.4 against a
+	// fake's 12.0 while its 3 unused frames showed -0.5 against 9.0. The
+	// known asteroids 632, 27926 and 27934 had no star of even 2 times
+	// their light within 4.5 px in any frame.
+	stackBesideLight  = 2.0
+	stackBesideWidths = 4.0
 )
 
 // TrackStack is a moving object's frames stacked along its fitted motion:
@@ -102,6 +113,11 @@ type TrackStack struct {
 	// fake's 14.1.
 	OnStars int  `json:"on_stars,omitempty"`
 	Glow    bool `json:"glow,omitempty"`
+	// Beside counts the detection frames stacked whose path passes beside
+	// a star the master shows, of stackBesideLight times its light or more
+	// within stackBesideWidths star widths: their leftover light is no
+	// proof of the object, as with 67203.
+	Beside int `json:"beside,omitempty"`
 	// Note says why nothing was stacked.
 	Note string `json:"note,omitempty"`
 }
@@ -121,6 +137,7 @@ type stackFrame struct {
 	flux     float64
 	measured bool
 	onStar   bool
+	beside   bool
 }
 
 type stackPlan struct {
@@ -449,7 +466,36 @@ func (sp *stackPlan) sub(p *discoveries.Plane, si int, subs []Sub) {
 		fr.w = placeWeight(fr.f)
 		fr.measured = ok && fr.w > 0
 		fr.onStar = maskedOnFrame(sb, fr.d)
+		fr.beside = starBeside(m, sigRef, stackHalf+fr.fx, stackHalf+fr.fy) >= stackBesideLight*fr.flux
 	}
+}
+
+// starBeside is the light of the brightest star the master box m shows
+// within stackBesideWidths star widths of (cx, cy), in the master's units:
+// the star shape fitted with its own sky level at each whole pixel there.
+func starBeside(m []float64, sigma, cx, cy float64) float64 {
+	if !(sigma > 0) {
+		return 0
+	}
+	v := make([]float32, len(m))
+	for k, x := range m {
+		v[k] = float32(x)
+	}
+	r := stackBesideWidths * sigma
+	best := 0.0
+	for j := int(math.Floor(cy - r)); j <= int(math.Ceil(cy+r)); j++ {
+		for i := int(math.Floor(cx - r)); i <= int(math.Ceil(cx+r)); i++ {
+			if i < stackR || j < stackR || i >= stackSide-stackR || j >= stackSide-stackR || math.Hypot(float64(i)-cx, float64(j)-cy) > r {
+				continue
+			}
+			var num float64
+			ss, ok := fitWeights(v, stackSide, i, j, sigma, func(k int, c float64) { num += c * float64(v[k]) })
+			if ok {
+				best = math.Max(best, num/ss*2*math.Pi*sigma*sigma)
+			}
+		}
+	}
+	return best
 }
 
 // maskedOnFrame says the star mask, not the frame's edge, leaves out
@@ -834,6 +880,11 @@ func finishStack(sp *stackPlan, res *TrackStack) {
 		if len(open) >= stackMinFrames {
 			det = open
 			res.Frames = len(det)
+		}
+	}
+	for _, fr := range det {
+		if fr.beside {
+			res.Beside++
 		}
 	}
 	ds := stackSet{frames: det}

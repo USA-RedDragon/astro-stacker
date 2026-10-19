@@ -526,6 +526,8 @@ func moverSuggest(groups []Group, flags ownimage.TrackFlags, known *knownBody, s
 		return Suggestion{State: app.VetArtifact, Say: sayNotStar, Confidence: Medium, Why: ev(check.MoverShape)}
 	case flags.Faint:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: not there when measured again", Confidence: Medium, Why: ev(check.MoverFrames)}
+	case stack != nil && *stack == ownimage.StackRefuted && strings.Contains(ev(check.MoverStack), ownimage.StarGlow):
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: the glow of stars its path runs by", Confidence: Medium, Why: ev(check.MoverStack)}
 	case stack != nil && *stack == ownimage.StackRefuted:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: not there when its frames are stacked along its motion", Confidence: Medium, Why: ev(check.MoverStack)}
 	}

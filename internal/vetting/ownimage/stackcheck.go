@@ -8,6 +8,9 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 )
 
+// StarGlow is how a stack check refuting a track as star glow says so.
+const StarGlow = "It is the glow of those stars, not a moving object"
+
 // StackVerdict is what stacking a source's frames says of it.
 type StackVerdict string
 
@@ -151,6 +154,9 @@ func StackCheck(ts *TrackStack) (check.Check, StackVerdict) {
 	if ts.Glow {
 		return glowCheck(ts)
 	}
+	if besideStars(ts) {
+		return besideCheck(ts)
+	}
 	f := StackFacts{Obs: ts.SNR, Peak: ts.Peak, Inj: ts.Injected}
 	if ts.Wrong > 0 || ts.Random > 0 {
 		f.HasControl = true
@@ -213,7 +219,40 @@ func glowCheck(ts *TrackStack) (check.Check, StackVerdict) {
 		ev += " No frames of the same night that the detection did not use cross its path."
 	}
 	if ts.Unused > 0 && u.testable() {
-		return check.New(check.MoverStack, check.Fail, ev+" It is the glow of those stars, not a moving object: away from them, where a real object would stand clear, it is not there."), StackRefuted
+		return check.New(check.MoverStack, check.Fail, ev+" "+StarGlow+": away from them, where a real object would stand clear, it is not there."), StackRefuted
 	}
-	return check.New(check.MoverStack, check.Fail, ev+" It is the glow of those stars, not a moving object: its detections sit on stars in most of its frames."), StackRefuted
+	return check.New(check.MoverStack, check.Fail, ev+" "+StarGlow+": its detections sit on stars in most of its frames."), StackRefuted
+}
+
+// besideStars says the path passes beside stars in most of the stacked
+// detection frames, and the frames the detection did not use cannot show
+// it there: the stack's light may then be the stars' leftover light alone.
+func besideStars(ts *TrackStack) bool {
+	if float64(ts.Beside) < math.Max(stackMinFrames, stackGlowShare*float64(ts.Frames)) {
+		return false
+	}
+	u := StackUnused{SNR: ts.UnusedSNR, Inj: ts.UnusedInjected}
+	return ts.Unused == 0 || !u.testable() || !u.shows()
+}
+
+// besideCheck judges a track beside stars: star glow when the frames the
+// detection did not use could show it away from them and are flat, and
+// not clear otherwise.
+func besideCheck(ts *TrackStack) (check.Check, StackVerdict) {
+	ev := fmt.Sprintf("In %d of its %s its path passes within %.0f star widths of a star your masters show at %.0f times its light or more, whose leftover light a stack there cannot tell from it.",
+		ts.Beside, FrameWord(ts.Frames), stackBesideWidths, stackBesideLight)
+	u := StackUnused{SNR: ts.UnusedSNR, Inj: ts.UnusedInjected}
+	if ts.Unused == 0 || !u.testable() {
+		if ts.Unused > 0 {
+			ev += fmt.Sprintf(" In %s of the same night the detection did not use, a fake of its brightness shows at only %.1f, too faint to tell.", FrameWord(ts.Unused), u.Inj)
+		} else {
+			ev += " No frames of the same night that the detection did not use cross its path."
+		}
+		return check.Skipped(check.MoverStack, "Not clear. "+ev), StackUntested
+	}
+	ev += fmt.Sprintf(" In %s of the same night the detection did not use it shows at %.1f, where a fake of its brightness shows at %.1f.", FrameWord(ts.Unused), u.SNR, u.Inj)
+	if !u.flat() {
+		return check.Skipped(check.MoverStack, "Not clear. "+ev+" Away from the stars it may be there."), StackUntested
+	}
+	return check.New(check.MoverStack, check.Fail, ev+" "+StarGlow+": away from them, where a real object would stand clear, it is not there."), StackRefuted
 }
