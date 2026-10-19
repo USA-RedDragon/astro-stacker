@@ -229,7 +229,8 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 // tests for false periods, or nil when it passes them. Nearby steady stars
 // that plainly show the same signal make it an artifact; ones that come
 // close leave it unsure. Eclipses that TESS shows deep and on time pass
-// the other tests whatever ZTF says.
+// the other tests whatever ZTF says, unless ZTF and ATLAS rule out the
+// TESS depth at the star.
 func periodDoubt(e *period.Ephemeris, r *period.Robust, groups []Group, known Known) *Suggestion {
 	ecl := e.Kind == period.KindEclipsing
 	what, cycle, drift, is, does := "variable star", "cycle", "drifts", "is", "does"
@@ -248,6 +249,10 @@ func periodDoubt(e *period.Ephemeris, r *period.Robust, groups []Group, known Kn
 			s.Say = fmt.Sprintf("Artifact: nearby steady stars show the same %s", cycle)
 			s.Why = joinSentences(evidence(groups, check.Compare), fmt.Sprintf("The %s-day period comes from the sky or the camera, not the star.", ps))
 		}
+	case r.TESSOnly:
+		s = Suggestion{State: app.VetArtifact, Say: "Artifact: the dips show only in TESS", Confidence: Medium,
+			Why: joinSentences(fmt.Sprintf("TESS shows a %.2f mag dip every %s days, but ZTF and ATLAS measure it at %.2f mag or less at the same times.", r.TESSDepth, ps, r.GroundDepth),
+				"Their small pixels split the stars TESS's 21 arcsec pixels blend, so the dips are another star's or TESS's noise, not this star's.")}
 	case tess:
 		return nil
 	case !slowOK && known.Expected != "":

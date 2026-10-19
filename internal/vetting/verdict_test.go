@@ -88,3 +88,23 @@ func TestSurveyFadesVerdict(t *testing.T) {
 		}
 	}
 }
+
+func TestTESSOnlyDipsAreArtifact(t *testing.T) {
+	t.Parallel()
+	// 17189 (Cygnus Loop Panel 2): two 0.09 mag TESS dips every 26.82863
+	// days that ZTF and ATLAS, inside the dips on 24 nights, measure at
+	// 0.01 mag. The TESS check passed and once made it real.
+	sum := discoverysource.Summary{Source: app.DiscoverySource{Kind: app.DiscoveryKindChange}}
+	pr := &period.Result{Ephemeris: &period.Ephemeris{Period: 26.828629, Kind: period.KindEclipsing, Eclipses: []period.Eclipse{{Phase: 0, Width: 0.007}}},
+		Robust: &period.Robust{Stable: true, CompPass: true, Real: true, TESSOnly: true, TESSDepth: 0.087, GroundDepth: 0.012}}
+	groups := []Group{{ID: check.GroupSurveys, Checks: []check.Check{check.New(check.ZTF, check.Fail, ""), check.New(check.ATLAS, check.Fail, ""),
+		check.New(check.TESS, check.Pass, ""), check.New(check.Echo, check.Pass, "")}}}
+	s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{Fainter: true})
+	if s.State != app.VetArtifact || s.Say != "Artifact: the dips show only in TESS" {
+		t.Errorf("17189: %+v, want the TESS-only artifact", s)
+	}
+	pr.Robust.TESSOnly, pr.Robust.TESS = false, true
+	if s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{Fainter: true}); s.State != app.VetReal {
+		t.Errorf("dips TESS confirms at the star: %+v, want real", s)
+	}
+}

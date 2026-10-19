@@ -42,6 +42,8 @@ const (
 	tessMinSNR    = 5.0
 	tessMinZ      = 5.0
 	tessMinShare  = 0.3
+	groundShare   = 0.5
+	groundRuleZ   = 3.0
 )
 
 // Robust is how a found period stands up to the tests that catch false
@@ -64,6 +66,15 @@ type Robust struct {
 	// TESS says TESS, which watches for weeks without daily gaps, shows
 	// the period: at least two dips on time, or the same smooth cycle.
 	TESS bool `json:"tess,omitempty"`
+	// TESSOnly says TESS shows the deeper dip but ZTF and ATLAS, whose
+	// pixels split the stars TESS's 21 arcsec pixels blend, measure it at
+	// under groundShare of TESS's depth and rule out that share at
+	// groundRuleZ sigma: the dips are another star's or TESS's noise.
+	TESSOnly bool `json:"tess_only,omitempty"`
+	// TESSDepth and GroundDepth are the deeper dip's depths behind
+	// TESSOnly, in magnitudes with blending taken out.
+	TESSDepth   float64 `json:"tess_depth,omitempty"`
+	GroundDepth float64 `json:"ground_depth,omitempty"`
 	// Comparisons is how many nearby stars of the same brightness were
 	// tested; CompSignal how many show the period; CompRatio the star's
 	// signal over their median.
@@ -247,7 +258,10 @@ func (a *analysis) robust(comps [][]lc.Series) *Robust {
 	case KindFlat, KindIrregular:
 		return nil
 	}
-	r.TESS = a.tessConfirms()
+	if a.kind == KindEclipsing {
+		r.TESSOnly, r.TESSDepth, r.GroundDepth = a.tessOnly()
+	}
+	r.TESS = !r.TESSOnly && a.tessConfirms()
 	if r.Echo != "" {
 		r.Confirmed = a.confirm(r.TESS)
 	}
@@ -595,6 +609,46 @@ func (a *analysis) tessDeep() bool {
 		}
 	}
 	return tess > 0 && tess >= tessMinShare*ztf
+}
+
+// tessOnly says the deeper dip TESS sees at tessMinZ sigma is under
+// groundShare of its depth in every ZTF and ATLAS band that has points in
+// it, and one of those bands rules that share out at groundRuleZ sigma,
+// both with blending taken out. 17189 (Cygnus Loop Panel 2) showed a 0.09
+// mag TESS dip every 26.83 days while ZTF and ATLAS, on 24 nights inside
+// the dips, two of them during TESS's dips, measured 0.01 mag or less.
+func (a *analysis) tessOnly() (bool, float64, float64) {
+	m := a.ecl
+	if m == nil {
+		return false, 0, 0
+	}
+	tess, ground := 0.0, 0.0
+	type gd struct{ d, s float64 }
+	var gs []gd
+	for g, gr := range a.d.groups {
+		if !m.active[g][0] {
+			continue
+		}
+		d := undilute(m.depth[g][0], gr.dil)
+		switch gr.survey {
+		case lc.TESS:
+			if m.depth[g][0] >= tessMinZ*m.depthSigma(g, 0) {
+				tess = math.Max(tess, d)
+			}
+		case lc.ZTF, lc.ATLAS:
+			ground = math.Max(ground, d)
+			gs = append(gs, gd{d, m.depthSigma(g, 0) / math.Min(math.Max(gr.dil, 1e-3), 1)})
+		}
+	}
+	if tess == 0 || len(gs) == 0 || ground >= groundShare*tess {
+		return false, 0, 0
+	}
+	for _, x := range gs {
+		if x.d+groundRuleZ*x.s < groundShare*tess {
+			return true, tess, ground
+		}
+	}
+	return false, 0, 0
 }
 
 // tessPeriod is the strongest period in the TESS points, when its cycle
