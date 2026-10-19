@@ -771,7 +771,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		rep.Ephemeris = pr.Ephemeris
 		rep.Survey, rep.SurveyDoubled = surveySummaries(series, pr.Ephemeris)
 	}
-	rep.Suggestion = suggest(sum, flags, curve, known, moving, fx, pr, timing, rep.Groups, change)
+	rep.Suggestion = blendOf(st, change, refMagOf(sum.Members)).notSure(suggest(sum, flags, curve, known, moving, fx, pr, timing, rep.Groups, change))
 	return rep, nil
 }
 
