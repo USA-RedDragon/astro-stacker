@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedsettle"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
@@ -81,16 +81,18 @@ func (s *Service) redraftMoved(ctx context.Context, stars []Star) error {
 		if !ok || !movedOut(r, p) {
 			continue
 		}
-		if err := s.withdraw(ctx, &r); err != nil {
-			errs = append(errs, fmt.Errorf("request %d: %w", r.ID, err))
-			continue
-		}
 		r.State, r.UpdatedAt = app.EclipseMoved, now
+		if r.CreateCmd != "" {
+			r.Settle = schedsettle.Withdraw
+		}
 		r.Note = fmt.Sprintf("Newer survey data moved this eclipse to %s, so this request was withdrawn and the eclipse asked for again.",
 			p.Mid.In(s.loc()).Format("Jan 2 3:04 PM MST"))
 		if err := s.DB.WithContext(ctx).Save(&r).Error; err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if err := s.settle(ctx, r.ID); err != nil {
+			errs = append(errs, err)
 		}
 		if r.Auto {
 			continue
@@ -100,17 +102,4 @@ func (s *Service) redraftMoved(ctx context.Context, stars []Star) error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// withdraw takes a request's project back from the scheduler, or closes
-// it when the scheduler can no longer take it back.
-func (s *Service) withdraw(ctx context.Context, r *app.EclipseRequest) error {
-	if r.CreateCmd == "" {
-		return nil
-	}
-	_, err := s.Commands.Undo(ctx, r.CreateCmd, RequestAuthor)
-	if errors.Is(err, schedcmd.ErrNotUndoable) {
-		return s.closeProject(ctx, r)
-	}
-	return err
 }

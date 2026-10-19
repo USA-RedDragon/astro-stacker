@@ -74,6 +74,9 @@ type EclipseRequest struct {
 	CloseCmd    string
 	State       string `gorm:"not null;index"`
 	Note        string `gorm:"type:text;not null;default:''"`
+	// Settle is what is still owed the scheduler once the project is no
+	// longer wanted, withdraw or close, empty once done.
+	Settle string `gorm:"not null;default:''"`
 	// Attempt counts earlier requests of the same eclipse that failed or
 	// were cancelled; each attempt is a project of its own.
 	Attempt int `gorm:"not null;default:0"`
