@@ -232,22 +232,88 @@ func (a *analysis) eclipseCandidate(c candidate) (*ecFit, halfNote) {
 	w := math.Min(math.Max(0.5*c.width/P, 0.002), 0.25)
 	t0 := a.initT0(P, c.phase)
 	m := fitEclipse(a.f, a.d, ecInit{P: P, T0: t0, dips: []dipP{{0, w, 1}}, freeP: true})
-	if 2*m.P <= a.opts.MaxPeriod {
-		dw := m.dips[0].width / 2
-		b := fitEclipse(a.f, a.d, ecInit{P: 2 * m.P, T0: m.T0, dips: []dipP{{0, dw, m.dips[0].shape}, {0.5, dw, m.dips[0].shape}}, freeP: true})
-		if b.robust < m.robust-modelGap && a.secondaryReal(b) {
-			if why := a.dipsDiffer(b); why != "" {
-				return a.orderDips(b), halfNote{doubled: true, from: m.P, reason: why}
-			}
-		}
-	}
+	one := m
 	if ph, sw, ok := a.findSecondary(m); ok {
 		m2 := fitEclipse(a.f, a.d, ecInit{P: m.P, T0: m.T0, dips: []dipP{m.dips[0], {ph, sw, 1}}, freeP: true})
 		if m2.robust < m.robust-modelGap && a.secondaryReal(m2) {
 			m = m2
 		}
 	}
+	if 2*one.P <= a.opts.MaxPeriod && a.offCentre(m) {
+		if q := a.unlikeHalves(m); q != nil && q.robust < m.robust-modelGap && a.secondaryReal(q) {
+			if why := a.dipsDiffer(q); why != "" {
+				return a.orderDips(q), halfNote{doubled: true, from: m.P, reason: why}
+			}
+		}
+	}
+	if 2*one.P <= a.opts.MaxPeriod && !a.offCentre(m) {
+		dw := one.dips[0].width / 2
+		b := fitEclipse(a.f, a.d, ecInit{P: 2 * one.P, T0: one.T0, dips: []dipP{{0, dw, one.dips[0].shape}, {0.5, dw, one.dips[0].shape}}, freeP: true})
+		if b.robust < one.robust-modelGap && a.secondaryReal(b) {
+			if why := a.dipsDiffer(b); why != "" {
+				return a.orderDips(b), halfNote{doubled: true, from: one.P, reason: why}
+			}
+		}
+	}
 	return a.orderDips(m), halfNote{}
+}
+
+// offCentre says a fit's second dip sits clearly away from phase 0.5. Such
+// a pair rules out twice the period: at 2P its dips would fall at 0, about
+// 0.5 and the two phases between, so both halves of the cycle would be
+// alike whatever the depths.
+func (a *analysis) offCentre(m *ecFit) bool {
+	if len(m.dips) < 2 || !a.secondaryReal(m) {
+		return false
+	}
+	dp := math.Abs(m.dips[1].phase - 0.5)
+	return dp > 0.002 && dp/m.res.sigma(m.iPh[1]) >= 5
+}
+
+// unlikeHalves fits a two dip model's four dips at twice its period, each
+// with its own depth. When both halves of that cycle are alike the period
+// stands and it returns nil. When each dip shows in only one half, the
+// period is half the true one and it returns the two dip fit at twice the
+// period with the dips that show.
+func (a *analysis) unlikeHalves(m *ecFit) *ecFit {
+	d0, d1 := m.dips[0], m.dips[1]
+	ph := d1.phase / 2
+	q := fitEclipse(a.f, a.d, ecInit{P: 2 * m.P, T0: m.T0, freeP: true, dips: []dipP{
+		{0, d0.width / 2, d0.shape}, {ph, d1.width / 2, d1.shape}, {0.5, d0.width / 2, d0.shape}, {0.5 + ph, d1.width / 2, d1.shape}}})
+	var keep []dipP
+	for k := range 2 {
+		on, ok := a.oneHalf(q, k, k+2)
+		if !ok {
+			return nil
+		}
+		keep = append(keep, q.dips[on])
+	}
+	if keep[0].phase > keep[1].phase {
+		keep[0], keep[1] = keep[1], keep[0]
+	}
+	t0 := q.T0 + keep[0].phase*q.P
+	keep[1].phase = frac(keep[1].phase - keep[0].phase)
+	keep[0].phase = 0
+	return fitEclipse(a.f, a.d, ecInit{P: q.P, T0: t0, freeP: true, dips: keep})
+}
+
+// oneHalf says which of dips j and k, the same dip in the two halves of a
+// cycle, shows when the other is under half its depth by at least five
+// sigma in some band.
+func (a *analysis) oneHalf(q *ecFit, j, k int) (int, bool) {
+	for g := range q.depth {
+		if !q.active[g][j] || !q.active[g][k] {
+			continue
+		}
+		hi, lo, on := q.depth[g][j], q.depth[g][k], j
+		if lo > hi {
+			hi, lo, on = lo, hi, k
+		}
+		if hi >= 0.01 && lo < hi/2 && (hi-lo) >= 5*math.Hypot(q.depthSigma(g, j), q.depthSigma(g, k)) {
+			return on, true
+		}
+	}
+	return 0, false
 }
 
 func (a *analysis) secondaryReal(m *ecFit) bool {
@@ -387,8 +453,7 @@ func (a *analysis) dipsDiffer(m *ecFit) string {
 	if z >= 5 && g >= 0 {
 		return "depth"
 	}
-	sp := m.res.sigma(m.iPh[1])
-	if dp := math.Abs(m.dips[1].phase - 0.5); dp > 0.002 && dp/sp >= 5 {
+	if a.offCentre(m) {
 		return "phase"
 	}
 	wz := math.Abs(m.dips[0].width-m.dips[1].width) / math.Hypot(m.res.sigma(m.iW[0]), m.res.sigma(m.iW[1]))

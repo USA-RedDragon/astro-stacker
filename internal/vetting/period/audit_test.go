@@ -60,7 +60,15 @@ func auditCases(t *testing.T) []AuditCase {
 // carry their ZTF object id, one per field and CCD quadrant.
 func auditSeries(t *testing.T, key string) ([]lc.Series, [][]lc.Series) {
 	t.Helper()
-	rows := readCSV(t, filepath.Join(auditDir, key+".csv.zst"))
+	return caseSeries(t, filepath.Join(auditDir, key+".csv.zst"))
+}
+
+// caseSeries reads a case file in the audit's layout: one row per point
+// with who ("t" for the star, "c0", "c1", ... for comparison stars),
+// survey, band, bjd - 2450000, mag, err and the ZTF object id.
+func caseSeries(t *testing.T, path string) ([]lc.Series, [][]lc.Series) {
+	t.Helper()
+	rows := readCSV(t, path)
 	type sk struct{ who, survey, band string }
 	by := map[sk][]lc.Point{}
 	var order []sk
