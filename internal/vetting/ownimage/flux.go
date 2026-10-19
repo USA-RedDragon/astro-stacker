@@ -48,6 +48,37 @@ type FluxNight struct {
 	FreshN    int     `json:"fresh_n,omitempty"`
 	FreshFlux float64 `json:"fresh_flux,omitempty"`
 	FreshErr  float64 `json:"fresh_err,omitempty"`
+	// Shared is the share of new light on the flagged nights that the
+	// filter's master holds and so takes away from every sub measured
+	// against it, and MasterSubs counts that master's subs; both are 0
+	// when the filter's level on unflagged nights takes the master's share
+	// away again, as it does for any filter with a Base. For all filters,
+	// Shared is the filters' share weighted as their light is, and
+	// MasterSubs the fewest subs of a master with a share.
+	Shared     float64 `json:"shared,omitempty"`
+	MasterSubs int     `json:"master_subs,omitempty"`
+}
+
+const (
+	// MaxShared is the largest share of a night's new light its master may
+	// hold for the night to be judged: over it, more than half the light
+	// cancels itself, and the light that is left stands on the master's
+	// own noise as much as on the night's.
+	MaxShared = 0.5
+	// MinMasterSubs is the fewest subs a master with a share must hold: M
+	// 15's Green and Red masters of 2 and 3 subs, all from 2026-10-18,
+	// held all of that night's light.
+	MinMasterSubs = 5
+)
+
+// Kept is the share of new light on the night that its differences
+// against the master show.
+func (n FluxNight) Kept() float64 { return math.Max(0, 1-n.Shared) }
+
+// Judgeable says whether the night's master leaves enough of its new
+// light, from enough subs, to set what the night shows against a fake.
+func (n FluxNight) Judgeable() bool {
+	return n.Shared <= MaxShared && (n.Shared == 0 || n.MasterSubs >= MinMasterSubs)
 }
 
 // SNR is the night's extra light over its error.
@@ -113,6 +144,11 @@ type FluxCurve struct {
 	// light put in at the spot with the subs' own star width: a fake of
 	// any light L shows as L times it.
 	Resp map[string]float64 `json:"resp,omitempty"`
+	// Shared and MasterSubs are, per filter with no Base, the share of the
+	// filter master's weight from the flagged nights' subs and the
+	// master's count of subs, as on FluxNight.
+	Shared     map[string]float64 `json:"shared,omitempty"`
+	MasterSubs map[string]int     `json:"master_subs,omitempty"`
 }
 
 // RespOf is the measurement's response in a filter, or the median of
@@ -224,8 +260,38 @@ func buildFluxCurve(subs []Sub, sp *spotPlan, e *ensemble, skip map[int]bool) *F
 			c.Base[f], c.BaseN[f], scatter[f] = median(v), len(v), robustStd(v)
 		}
 	}
+	c.Shared, c.MasterSubs = masterShares(subs, sp.flagged, c.Base)
 	nightsOf(c, subs, sp, e, skip, scatter)
 	return c
+}
+
+// masterShares is, per filter with no level on unflagged nights in base,
+// the share of its master's weight, the subs' stack weights, from the
+// subs of the flagged nights, and the master's count of subs. Each sub
+// less its master shows new light L of those nights as L less the
+// master's share of it; a filter's level on unflagged nights shows that
+// share too, as light missing, and taking the level away gives L back
+// whatever the share. With no such level the share stays taken away.
+func masterShares(subs []Sub, flagged map[string]bool, base map[string]float64) (map[string]float64, map[string]int) {
+	total, on, n := map[string]float64{}, map[string]float64{}, map[string]int{}
+	for _, s := range subs {
+		if !(s.Weight > 0) {
+			continue
+		}
+		total[s.Filter] += s.Weight
+		n[s.Filter]++
+		if flagged[nightKey(s.Night)] {
+			on[s.Filter] += s.Weight
+		}
+	}
+	shared, count := map[string]float64{}, map[string]int{}
+	for f, w := range on {
+		if _, ok := base[f]; ok || !(w > 0) {
+			continue
+		}
+		shared[f], count[f] = w/total[f], n[f]
+	}
+	return shared, count
 }
 
 // degenerateErr is the least share of the curve's median error a sub's
@@ -393,7 +459,7 @@ func fluxNights(c *FluxCurve, sp *spotPlan, scatter map[string]float64, pns []pr
 		}
 		m, e := nightMean(v, errs, scatter[k.filter])
 		nl := FluxNight{Night: k.night, Filter: k.filter, N: len(g), Flux: m, Err: e, Flagged: sp.flagged[k.night], Thin: len(g) < thinSubs,
-			Local: local[k], Empty99: tail[k], FreshN: len(fv)}
+			Local: local[k], Empty99: tail[k], FreshN: len(fv), Shared: c.Shared[k.filter], MasterSubs: c.MasterSubs[k.filter]}
 		if len(fv) >= thinSubs {
 			nl.FreshFlux, nl.FreshErr = nightMean(fv, fe, scatter[k.filter])
 			if nl.Local > 0 {
@@ -450,6 +516,8 @@ func combineNights(c *FluxCurve, pns []probeNight, ring int) []FluxNight {
 	type acc struct {
 		sw, swf     float64
 		fsw, fswf   float64
+		shared      float64
+		masterSubs  int
 		n, k, fresh int
 		most        int
 		flagged     bool
@@ -472,6 +540,10 @@ func combineNights(c *FluxCurve, pns []probeNight, ring int) []FluxNight {
 		}
 		a.sw += 1 / (e * e)
 		a.swf += f / (e * e)
+		a.shared += n.Shared / (e * e)
+		if n.Shared > 0 && (a.masterSubs == 0 || n.MasterSubs < a.masterSubs) {
+			a.masterSubs = n.MasterSubs
+		}
 		a.weights[n.Filter] = k / (e * e)
 		a.n += n.N
 		a.most = max(a.most, n.N)
@@ -498,7 +570,8 @@ func combineNights(c *FluxCurve, pns []probeNight, ring int) []FluxNight {
 			continue
 		}
 		f, e := a.swf/a.sw, 1/math.Sqrt(a.sw)
-		nl := FluxNight{Night: night, Filter: AllFilters, N: a.n, Flux: f, Err: e, Flagged: a.flagged, Thin: a.most < thinSubs, FreshN: a.fresh}
+		nl := FluxNight{Night: night, Filter: AllFilters, N: a.n, Flux: f, Err: e, Flagged: a.flagged, Thin: a.most < thinSubs, FreshN: a.fresh,
+			Shared: a.shared / a.sw, MasterSubs: a.masterSubs}
 		if a.fsw > 0 {
 			nl.FreshFlux, nl.FreshErr = a.fswf/a.fsw, 1/math.Sqrt(a.fsw)
 		}

@@ -117,7 +117,12 @@ func (s *Service) moverReport(ctx context.Context, w *objectWork, sum discoverys
 // one threshold decides both sides. A real source at the hold stands under
 // stackFake of it, 1.8 sigma low, in 3.6% of nights, and must then also
 // stand no higher than the empty places' 99th percentile. Confirming still
-// needs ownimage.StackInjMin.
+// needs ownimage.StackInjMin. Where a filter's master holds a share of the
+// night's new light that no level on unflagged nights takes away again,
+// every fake measured against that master is put in at the share the
+// master leaves, and a night whose master holds more than
+// ownimage.MaxShared of it, or fewer than ownimage.MinMasterSubs subs, is
+// not judged against its fake.
 func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Check, ownimage.StackVerdict) {
 	if fc == nil {
 		return check.Skipped(check.TransStack, "Not measured yet. The spot's own light could not be measured."), ownimage.StackUntested
@@ -132,12 +137,15 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 		return check.Skipped(check.TransStack, fmt.Sprintf("Not measured. The detection reported no new light in %s on %s to put a fake of in the frames.", p.Filter, p.Night)), ownimage.StackUntested
 	}
 	fake := lf * fc.RespOf(p.Filter)
-	f := ownimage.StackFacts{Obs: p.SNR(), Peak: p.SNR(), Inj: fake / p.Err}
+	f := ownimage.StackFacts{Obs: p.SNR(), Peak: p.SNR(), Inj: fake * p.Kept() / p.Err}
 	if p.Empty99 > 0 {
 		f.HasControl, f.Control99 = true, p.Empty99/p.Err
 	}
 	lead := fmt.Sprintf("Stacked over its %s of %s in %s it shows at signal to noise %.1f; a fake of the light the detection reported (magnitude %.1f) shows at %.1f in the same frames.",
 		ownimage.FrameWord(p.N), p.Night, p.Filter, f.Obs, rep.mag, f.Inj) + rep.basis()
+	if p.Shared > 0 {
+		lead += " " + sharedWords(p)
+	}
 	wing, wingLight := false, 0.0
 	if w := fc.Wing; w != nil && w.Measured && w.Err > 0 {
 		wrep := reportedFor(reps, w.Filter, w.Night)
@@ -148,22 +156,26 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 				w.G, w.SepPx, w.Night, w.Filter, w.Sigma, wrep.mag, f.Inj)
 		}
 	}
+	if !wing && !p.Judgeable() {
+		return check.Skipped(check.TransStack, fmt.Sprintf("Not judged. Stacked over its %s of %s in %s it shows at signal to noise %.1f. ", ownimage.FrameWord(p.N), p.Night, p.Filter, p.SNR())+
+			sharedWords(p)+" "+unjudgeableWords), ownimage.StackUntested
+	}
 	var words []string
 	if f.HasControl {
 		words = append(words, fmt.Sprintf("At empty places around it the same frames give under %.1f in 99 of 100.", f.Control99))
 	}
-	if p.FreshErr > 0 {
-		u := ownimage.StackUnused{SNR: p.FreshSNR(), Inj: fake / p.FreshErr, Required: true}
+	if p.FreshErr > 0 && p.Judgeable() {
+		u := ownimage.StackUnused{SNR: p.FreshSNR(), Inj: fake * p.Kept() / p.FreshErr, Required: true}
 		if !wing || u.Flat() {
 			f.Unused = append(f.Unused, u)
 		}
 		words = append(words, fmt.Sprintf("In %s of that night the detection did not use it shows at %.1f, where the fake shows at %.1f.", ownimage.FrameWord(p.FreshN), u.SNR, u.Inj))
 	}
 	for _, n := range inFilter(fc, p.Filter) {
-		if d := daysBetween(p.Night, n.Night); d < 1 || d > followDays || n.Thin || !(n.Err > 0) {
+		if d := daysBetween(p.Night, n.Night); d < 1 || d > followDays || n.Thin || !(n.Err > 0) || !n.Judgeable() {
 			continue
 		}
-		u := ownimage.StackUnused{SNR: n.SNR(), Inj: fake / n.Err}
+		u := ownimage.StackUnused{SNR: n.SNR(), Inj: fake * n.Kept() / n.Err}
 		if !wing || u.Flat() {
 			f.Unused = append(f.Unused, u)
 		}
@@ -175,7 +187,7 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	}
 	v, why := ownimage.JudgeStack(f)
 	if v == ownimage.StackUntested && !wing {
-		if c, ok := tooWeakToFind(f, p.N, rep.subs, ev); ok {
+		if c, ok := tooWeakToFind(trueLight(f, p.Kept()), p.N, rep.subs, ev); ok {
 			return c, ownimage.StackRefuted
 		}
 	}
@@ -197,6 +209,27 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	case ownimage.StackConfirmed:
 	}
 	return check.New(check.TransStack, check.Pass, ev+" It shows as new light of the brightness reported would, above 99 of 100 empty places."), v
+}
+
+// unjudgeableWords says why a night whose master holds too much of its
+// light is not judged.
+const unjudgeableWords = "So much of the new light cancels itself against the master that what is left cannot be told from the master's own noise; the stack is not judged in this filter."
+
+// sharedWords says what share of the night's new light its master holds.
+func sharedWords(n ownimage.FluxNight) string {
+	return fmt.Sprintf("Your %s master of %s takes %.0f%% of its weight from the flagged nights, with no unflagged night to take that share away again, so it holds that share of their new light and the differences show only the rest; the fake is put in at the same share.",
+		n.Filter, ownimage.FrameWord(n.MasterSubs), 100*n.Shared)
+}
+
+// trueLight is f with the spot's light given back the share its master
+// took away, while the fake stays the light the detection reported: the
+// detection measured its subs against a reference without the night.
+func trueLight(f ownimage.StackFacts, kept float64) ownimage.StackFacts {
+	if kept > 0 && kept < 1 {
+		f.Obs /= kept
+		f.Inj /= kept
+	}
+	return f
 }
 
 // stackNight is the flagged night the stack runs on: the peak, or, when

@@ -278,3 +278,48 @@ func TestDoubtfulStackInABrightStarsHaloIsAnArtifact(t *testing.T) {
 		t.Errorf("confirmed light in a halo refuted: %+v", s)
 	}
 }
+
+// shareNight is a night of n Blue frames that shows z where the reported
+// light, before its master's share, shows at inj, with empty places
+// under 2.5 in 99 of 100, and its master's share and count of subs.
+func shareNight(night string, n int, z, inj, shared float64, subs int) ownimage.FluxNight {
+	e := auditLight / inj
+	return ownimage.FluxNight{Night: night, Filter: "Blue", N: n, Flux: z * e, Err: e, Local: e, Empty99: 2.5 * e, Flagged: true, Shared: shared, MasterSubs: subs}
+}
+
+func TestStackPutsTheFakeInAtTheShareTheMasterLeaves(t *testing.T) {
+	t.Parallel()
+	// 67098 (Horsehead Nebula, 2025-11-21): 4.1 against a fake of 7.7 over
+	// 7 Blue frames, 53%. Its Blue master takes 20.3% of its weight from
+	// that night, but 40 subs of 11 other nights give Blue a level that
+	// takes the master's share away again, so the curve carries no share
+	// and the stack stays doubtful.
+	reps := auditReps("2025-11-21")
+	_, v := transientStack(curveOf(shareNight("2025-11-21", 7, 4.1, 7.7, 0, 0)), reps)
+	if v != ownimage.StackDoubtful {
+		t.Errorf("67098 with its Blue level: %s, want doubtful", v)
+	}
+	// Were there no such level, the master's 20.3% would stay taken away:
+	// the fake then shows at 7.7 times 0.797, 6.1, and 4.1 is 67% of it,
+	// over the 60% that confirms.
+	c, v := transientStack(curveOf(shareNight("2025-11-21", 7, 4.1, 7.7, 0.203, 45)), reps)
+	if v != ownimage.StackConfirmed || !strings.Contains(c.Evidence, "shows at 6.1") || !strings.Contains(c.Evidence, "takes 20% of its weight") {
+		t.Errorf("67098 with no Blue level: %s %s", v, c.Evidence)
+	}
+	// M 15's 2026-10-18 Green master of 2 subs, both that night: all the
+	// night's light cancels itself, and the stack is not judged.
+	m15 := auditReps("2026-10-18")
+	c, v = transientStack(curveOf(shareNight("2026-10-18", 2, 0.0, 6.0, 1, 2)), m15)
+	if v != ownimage.StackUntested || c.Status != check.NotRun || !strings.Contains(c.Evidence, "Not judged") {
+		t.Errorf("M 15's 2-sub Green master: %s %s %s", v, c.Status, c.Evidence)
+	}
+	// M 15's Blue master: 2 subs of 2026-10-16 and 5 of 2026-10-18, too
+	// few unflagged ones for a level, 62% of its weight from the flagged
+	// night.
+	if _, v := transientStack(curveOf(shareNight("2026-10-18", 5, 1.0, 6.0, 0.618, 7)), m15); v != ownimage.StackUntested {
+		t.Errorf("M 15's Blue master: %s, want untested", v)
+	}
+	if c := fluxCheck(curveOf(shareNight("2026-10-18", 2, 0.0, 6.0, 1, 2)), m15); c.Status != check.NotRun {
+		t.Errorf("flux check on a master of the night's own subs: %s %s", c.Status, c.Evidence)
+	}
+}

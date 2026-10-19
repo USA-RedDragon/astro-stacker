@@ -180,13 +180,15 @@ func (r reported) flux(fc *ownimage.FluxCurve, filter string) (float64, bool) {
 	return math.Pow(10, -0.4*(r.mag-zp)), true
 }
 
-// snr is the signal to noise the reported light would give on a night.
+// snr is the signal to noise the reported light would give on a night,
+// less the share of it the night's master holds; none on a night whose
+// master holds too much of it to judge.
 func (r reported) snr(fc *ownimage.FluxCurve, n ownimage.FluxNight) (float64, bool) {
 	f, ok := r.flux(fc, n.Filter)
-	if !ok || !(n.Err > 0) {
+	if !ok || !(n.Err > 0) || !n.Judgeable() {
 		return 0, false
 	}
-	return f / n.Err, true
+	return f * n.Kept() / n.Err, true
 }
 
 // reportedLights is the new light the detection reported, by filter group
@@ -306,6 +308,9 @@ func fluxCheck(fc *ownimage.FluxCurve, reps map[string]reported) check.Check {
 		basis += " The noise is the spread of the same measurement at places around the spot."
 	}
 	z := p.SNR()
+	if !p.Judgeable() && z < seenSNR {
+		return check.Skipped(check.TransFlux, fmt.Sprintf("Not judged. On %s the spot shows at signal to noise %.1f in %s. ", p.Night, z, p.Filter)+sharedWords(p)+basis)
+	}
 	rep := reportedFor(reps, p.Filter, p.Night)
 	inj, injOK := rep.snr(fc, p)
 	switch {
