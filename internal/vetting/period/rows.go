@@ -182,13 +182,18 @@ func (a *analysis) tessRow(si surveyInfo, fits []SurveyFit) check.Check {
 			faint[x.sector] = true
 		}
 	}
+	shared := 0
 	for _, x := range mins {
-		if !x.faint {
+		switch {
+		case x.shared:
+			delete(faint, x.sector)
+			shared++
+		case !x.faint:
 			delete(faint, x.sector)
 			timed = append(timed, x)
 		}
 	}
-	note := faintNote(faint)
+	note := faintNote(faint) + sharedNote(shared)
 	if len(timed) == 0 {
 		f := fits[si.groups[0]]
 		if f.InDip1+f.InDip2 == 0 {
@@ -218,6 +223,15 @@ func (a *analysis) tessRow(si surveyInfo, fits []SurveyFit) check.Check {
 		return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: 1 dip, %s from the predicted time%s.", head, minutes(worst), note))
 	}
 	return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: %s, each within %s of the predicted time%s.", head, plural(len(timed), "dip", "dips"), minutes(worst), note))
+}
+
+// sharedNote counts the dips set aside because other stars in the sector
+// dimmed with the star at the time.
+func sharedNote(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; %s set aside where nearby stars dim at the same time", plural(n, "dip", "dips"))
 }
 
 // faintNote names the sectors whose dips were too faint to time, blended

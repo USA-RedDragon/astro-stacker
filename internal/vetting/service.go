@@ -761,6 +761,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		}
 		opts.Comparisons = func() [][]lc.Series { return s.comparisons(ctx, f, st) }
 		opts.Neighbours = func() [][]lc.Series { return s.fadeNeighbours(ctx, f, st) }
+		opts.TESSComparisons = func() []period.TESSComp { return s.tessComparisons(ctx, f, st, fx.tess.Sectors) }
 		pr, err = period.Analyze(append(series, ownSeries...), opts)
 		if err != nil && !errors.Is(err, period.ErrNoPeriod) {
 			slog.Warn("Period search failed", "source", sum.Source.ID, "error", err)

@@ -106,9 +106,13 @@ type Options struct {
 	ChangeMag   float64
 	Comparisons func() [][]lc.Series
 	Neighbours  func() [][]lc.Series
-	G           float64
-	Parallax    float64
-	ParallaxErr float64
+	// TESSComparisons, when set, gives other stars' TESS light curves
+	// from the sectors of the star's, asked for only when a TESS minimum
+	// misses its time or depth.
+	TESSComparisons func() []TESSComp
+	G               float64
+	Parallax        float64
+	ParallaxErr     float64
 }
 
 // Analyze searches series for a period and tests it. series holds every
