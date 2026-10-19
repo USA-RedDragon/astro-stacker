@@ -107,3 +107,38 @@ func TestStackJudgement(t *testing.T) {
 		}
 	}
 }
+
+// TestBesideStarsKnownAnswers is 67203 (Cygnus Loop, 2025-11-10) as the
+// vet of 2026-10-19 stacked it: 11.4 against a fake's 12.0 in its 7
+// detection frames, every one beside a star of 3 to 7 times its light,
+// and -0.5 against 9.0 in its 3 unused frames. Without frames that can
+// show it away from the stars it is not clear; with ones that show it, it
+// is judged as any stack.
+func TestBesideStarsKnownAnswers(t *testing.T) {
+	t.Parallel()
+	base := TrackStack{Frames: 7, SNR: 11.4, Peak: 12.6, Injected: 12.0, InjectedLo: 11.3, InjectedHi: 13.0,
+		Wrong: 290, Wrong99: 7.3, WrongMax: 8.6, Random: 618, Random99: 5.9, Beside: 7, Unused: 3, UnusedSNR: -0.5, UnusedInjected: 9.0}
+	cases := []struct {
+		name string
+		edit func(*TrackStack)
+		want StackVerdict
+	}{
+		{"67203", func(*TrackStack) {}, StackRefuted},
+		{"67203 with no unused frames", func(ts *TrackStack) { ts.Unused, ts.UnusedSNR, ts.UnusedInjected = 0, 0, 0 }, StackUntested},
+		{"67203 with unused frames too shallow", func(ts *TrackStack) { ts.UnusedInjected = 4 }, StackUntested},
+		{"67203 with unused frames that show it weakly", func(ts *TrackStack) { ts.UnusedSNR = 2.5 }, StackUntested},
+		{"67203 with unused frames that show it", func(ts *TrackStack) { ts.UnusedSNR = 7.9 }, StackConfirmed},
+		{"67203 beside stars in only 4 of its 7 frames", func(ts *TrackStack) { ts.Beside = 4 }, StackDoubtful},
+	}
+	for _, c := range cases {
+		ts := base
+		c.edit(&ts)
+		ch, v := StackCheck(&ts)
+		if v != c.want {
+			t.Errorf("%s: %s, want %s: %s", c.name, v, c.want, ch.Evidence)
+		}
+		if v == StackRefuted && !strings.Contains(ch.Evidence, "glow of those stars") {
+			t.Errorf("%s: refuted for another reason: %s", c.name, ch.Evidence)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package ownimage
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
@@ -178,5 +179,55 @@ func TestRealMoverOnStarsMostOfItsFramesIsNotRefuted(t *testing.T) {
 	t.Logf("%s %s", c.Status, c.Evidence)
 	if v == StackRefuted {
 		t.Errorf("a real mover over two bright stars, clear in its unused frames, was refuted")
+	}
+}
+
+// glowBeside is 67203 (Cygnus Loop, 2025-11-10): a slow track past two
+// stars of about 7 times its light, 3.2 px from one or the other in every
+// detection frame, with leftover light of its own brightness at the path
+// in those frames and none in the frames the detection did not use.
+func glowBeside(real bool) (*trackField, TrackSpot) {
+	f := newTrackField()
+	const fl = moverFlux18 / 2
+	pos := func(k int) (float64, float64) {
+		h := f.hours(k)
+		return 150 + 4*h, 120 + 2*h
+	}
+	ax, ay := pos(2)
+	bx, by := pos(5)
+	f.stars = append(f.stars, synthStar{x: ax + 1.4, y: ay - 2.9, g: 16.6, bprp: 1}, synthStar{x: bx - 1.4, y: by + 2.9, g: 16.7, bprp: 1})
+	det := []int{1, 2, 3, 4, 5, 6}
+	for _, k := range det {
+		x, y := pos(k)
+		f.subs[k].extra = trailed(x, y)
+	}
+	if real {
+		for k := range f.subs {
+			x, y := pos(k)
+			f.subs[k].extra = trailed(x, y)
+		}
+	}
+	return f, f.stackSpot(pos, det, fl)
+}
+
+func TestTrackBesideStarsIsStarGlow(t *testing.T) {
+	t.Parallel()
+	f, s := glowBeside(false)
+	ts := runStack(t, f, s)
+	c, v := StackCheck(&ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if ts.Beside < 4 || v != StackRefuted || c.Status != check.Fail || !strings.Contains(c.Evidence, "glow of those stars") {
+		t.Errorf("a track of leftover light beside two stars was not refuted as star glow: beside %d, %s", ts.Beside, v)
+	}
+}
+
+func TestRealMoverBesideStarsIsNotRefuted(t *testing.T) {
+	t.Parallel()
+	f, s := glowBeside(true)
+	ts := runStack(t, f, s)
+	c, v := StackCheck(&ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if ts.Beside < 4 || v != StackConfirmed {
+		t.Errorf("a real mover beside two stars, there in its unused frames, was not confirmed: beside %d, %s", ts.Beside, v)
 	}
 }

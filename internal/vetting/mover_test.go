@@ -201,6 +201,16 @@ func TestMoverStackSuggestions(t *testing.T) {
 	if s.State != app.VetUnsure || !strings.Contains(s.Say, "not been stacked") {
 		t.Errorf("not stacked: %+v", s)
 	}
+	glow := moverGroups(map[string]check.Status{check.MoverStack: check.Fail})
+	for i, c := range glow[0].Checks {
+		if c.ID == check.MoverStack {
+			glow[0].Checks[i].Evidence = "In 7 of its 7 frames its path passes beside stars. " + ownimage.StarGlow + "."
+		}
+	}
+	s = moverSuggest(glow, ownimage.TrackFlags{}, nil, &refuted)
+	if s.State != app.VetArtifact || !strings.Contains(s.Say, "glow of stars") {
+		t.Errorf("star glow, as 67203: %+v", s)
+	}
 	kb := &knownBody{body: discoveries.Body{Number: "58453", Name: "known"}, offset: 2}
 	s = moverSuggest(moverGroups(map[string]check.Status{check.MoverKnown: check.Fail, check.MoverStack: check.Fail}), ownimage.TrackFlags{}, kb, &refuted)
 	if s.State != app.VetKnown {
