@@ -188,7 +188,7 @@ func TestTimeWrongShapeOnPartNight(t *testing.T) {
 		{"dip 30% narrower than the template", 0.03 / 1.3, 1.6, -0.6, 0},
 		{"dip 30% wider than the template", 0.03 * 1.3, 1.6, -0.6, 0},
 		{"rounder dip than the template", 0.03, 0.8, -0.6, 0},
-		{"dip 30% wider, more of it covered", 0.03 * 1.3, 1.6, -0.95, 30},
+		{"dip 30% wider, more of it covered", 0.03 * 1.3, 1.6, -0.95, 5},
 		{"rounder dip, more of it covered", 0.03, 0.8, -0.95, 15},
 	} {
 		r := &rng{s: 21}
