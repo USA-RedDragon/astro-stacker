@@ -211,8 +211,20 @@ func checkAVettedArtifactLeavesNeedsALook(t *testing.T, db *gorm.DB) {
 	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", "low").Error; err != nil {
 		t.Fatal(err)
 	}
-	if cyg := all(t, db)[15111]; !cyg.Look() || cyg.In(discoverysource.ViewArtifacts) {
-		t.Error("a low-confidence artifact left needs a look")
+	if cyg := all(t, db)[15111]; cyg.Look() || !cyg.In(discoverysource.ViewArtifacts) {
+		t.Error("a low-confidence artifact stayed in needs a look")
+	}
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Updates(map[string]any{"suggested": app.VetUnsure, "confidence": "low"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cyg := all(t, db)[15111]; cyg.Look() || !cyg.In(discoverysource.ViewUnsure) || cyg.In(discoverysource.ViewArtifacts) {
+		t.Error("an undecided source is not under not sure")
+	}
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Updates(map[string]any{"suggested": app.VetReal, "confidence": "medium"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cyg := all(t, db)[15111]; !cyg.Look() || cyg.In(discoverysource.ViewUnsure) {
+		t.Error("a source the vet thinks real is not in needs a look")
 	}
 }
 
@@ -234,8 +246,14 @@ func checkACatalogListedSourceIsKnown(t *testing.T, db *gorm.DB) {
 	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", "medium").Error; err != nil {
 		t.Fatal(err)
 	}
+	if cyg := all(t, db)[15111]; cyg.Look() || !cyg.In(discoverysource.ViewKnown) {
+		t.Error("a medium-confidence catalog match stayed in needs a look")
+	}
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", "low").Error; err != nil {
+		t.Fatal(err)
+	}
 	if cyg := all(t, db)[15111]; !cyg.Look() {
-		t.Error("a medium-confidence match took the source out of needs a look")
+		t.Error("a low-confidence match took the source out of needs a look")
 	}
 }
 
