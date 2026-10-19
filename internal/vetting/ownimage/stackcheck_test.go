@@ -82,6 +82,10 @@ func TestStackJudgement(t *testing.T) {
 		why  string
 	}{
 		{"too faint to tell", StackFacts{Obs: 1, Peak: 1, Inj: 4.9, HasControl: true, Control99: 3}, StackUntested, ""},
+		{"54896, wing fit too faint to tell, its night's unused frames flat", StackFacts{Obs: 1.2, Peak: 1.2, Inj: 4.4, HasControl: true, Control99: 1.9,
+			Unused: []StackUnused{{SNR: -0.2, Inj: 7.8, Required: true}}}, StackRefuted, ""},
+		{"too faint to tell, its unused frames too", StackFacts{Obs: 1, Peak: 1, Inj: 4.4, Unused: []StackUnused{{SNR: 0, Inj: 4, Required: true}}}, StackUntested, ""},
+		{"too faint to tell, its unused frames show it", StackFacts{Obs: 2, Peak: 2, Inj: 4.4, Unused: []StackUnused{{SNR: 6, Inj: 7.8, Required: true}}}, StackUntested, ""},
 		{"no unused frames, no higher than the controls", StackFacts{Obs: 1, Peak: 1, Inj: 10, HasControl: true, Control99: 3}, StackRefuted, StackNoAboveControls},
 		{"58729, no unused frames", StackFacts{Obs: 3.0, Peak: 3.0, Inj: 10.8, HasControl: true, Control99: 4.2}, StackRefuted, StackNoAboveControls},
 		{"54898, wing fit, no unused frames", StackFacts{Obs: 1.3, Peak: 1.3, Inj: 5.8, HasControl: true, Control99: 3.0}, StackRefuted, StackNoAboveControls},
