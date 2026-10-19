@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveryfollowup"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
+	"github.com/USA-RedDragon/astro-stacker/internal/schedsettle"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -532,8 +533,6 @@ var (
 	ErrNoEclipse = errors.New("no predicted eclipse of that star near that time")
 	ErrNotReady  = errors.New("the star's survey facts are not worked out yet")
 	ErrOver      = errors.New("that eclipse's imaging window is over")
-	// ErrCannotCancel says a request's project can no longer be taken back.
-	ErrCannotCancel = errors.New("the request cannot be cancelled")
 )
 
 // RequestImaging asks the scheduler to image one predicted eclipse of a
@@ -614,27 +613,30 @@ func (s *Service) requestImaging(ctx context.Context, id int, kind string, mid t
 	return r, s.DB.WithContext(ctx).Create(&r).Error
 }
 
-// CancelRequest takes an imaging request back: its command is withdrawn
-// or its project removed.
+// CancelRequest takes an imaging request back: it is marked cancelled at
+// once and owes the scheduler a withdraw of its project, which settle
+// keeps at until it is done.
 func (s *Service) CancelRequest(ctx context.Context, id int) (app.EclipseRequest, error) {
 	var r app.EclipseRequest
 	if err := s.DB.WithContext(ctx).First(&r, id).Error; err != nil {
 		return r, err
 	}
-	if r.CreateCmd != "" && s.Commands != nil && (r.State == app.EclipseSent || r.State == app.EclipseWaiting) {
-		if _, err := s.Commands.Undo(ctx, r.CreateCmd, RequestAuthor); err != nil {
-			if errors.Is(err, schedcmd.ErrNotUndoable) {
-				return r, fmt.Errorf("%w: the scheduler cannot take its project back any more; close it in Target Scheduler", ErrCannotCancel)
-			}
-			return r, err
-		}
+	if r.CreateCmd != "" && (r.State == app.EclipseSent || r.State == app.EclipseWaiting) {
+		r.Settle = schedsettle.Withdraw
 	}
 	r.State, r.Note, r.UpdatedAt = app.EclipseCancel, "Cancelled.", s.now()
-	return r, s.DB.WithContext(ctx).Save(&r).Error
+	if err := s.DB.WithContext(ctx).Save(&r).Error; err != nil {
+		return r, err
+	}
+	if err := s.settle(ctx, r.ID); err != nil {
+		slog.Warn("Withdrawing a cancelled eclipse request will be tried again", "request", r.ID, "error", err)
+	}
+	return r, nil
 }
 
 // followRequests marks requests the scheduler refused as failed, and
-// closes the project of each request whose window has passed.
+// marks each request whose window has passed done, owing the scheduler
+// its project's close.
 func (s *Service) followRequests(ctx context.Context) error {
 	if s.Commands == nil {
 		return nil
@@ -650,16 +652,51 @@ func (s *Service) followRequests(ctx context.Context) error {
 		case err == nil && refused(rec.Status):
 			r.State, r.Note = app.EclipseFailed, "The scheduler did not take it: "+cmpOr(rec.Message, string(rec.Status))
 		case s.now().After(r.End.Add(time.Hour)):
-			if err := s.closeProject(ctx, &r); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			r.State, r.Note = app.EclipseDone, "The window has passed."
+			r.State, r.Note, r.Settle = app.EclipseDone, "The window has passed.", schedsettle.Close
 		default:
 			continue
 		}
 		r.UpdatedAt = s.now()
 		if err := s.DB.WithContext(ctx).Save(&r).Error; err != nil {
+			errs = append(errs, err)
+		}
+	}
+	errs = append(errs, s.settle(ctx, 0))
+	return errors.Join(errs...)
+}
+
+// settle takes a step on one request, or on all with 0, that still owes
+// the scheduler a withdraw or a close, and clears what is done.
+func (s *Service) settle(ctx context.Context, id int) error {
+	if s.Commands == nil {
+		return nil
+	}
+	q := s.DB.WithContext(ctx).Where("settle <> ''")
+	if id != 0 {
+		q = q.Where("id = ?", id)
+	}
+	var owed []app.EclipseRequest
+	if err := q.Find(&owed).Error; err != nil {
+		return err
+	}
+	snaps := &schedsettle.Snapshots{Read: s.Snapshot}
+	var errs []error
+	for i := range owed {
+		r := &owed[i]
+		done, closeCmd, err := schedsettle.Step(ctx, s.Commands, snaps, schedsettle.Ask{Owe: r.Settle, ProjectGUID: r.ProjectGUID,
+			CreateCmd: r.CreateCmd, CloseCmd: r.CloseCmd, CloseID: "eclipse-request-close-" + r.ProjectGUID, Author: RequestAuthor,
+			Start: r.Start, End: r.End}, s.now())
+		if err != nil {
+			errs = append(errs, fmt.Errorf("request %d: %w", r.ID, err))
+		}
+		if !done && closeCmd == r.CloseCmd {
+			continue
+		}
+		r.CloseCmd = closeCmd
+		if done {
+			r.Settle = ""
+		}
+		if err := s.DB.WithContext(ctx).Model(r).Select("settle", "close_cmd").Updates(r).Error; err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -682,42 +719,6 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// closeProject closes a passed request's project in Target Scheduler.
-func (s *Service) closeProject(ctx context.Context, r *app.EclipseRequest) error {
-	if s.Snapshot == nil {
-		return nil
-	}
-	snap, err := s.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	for _, p := range snap.Projects {
-		if p.GUID != r.ProjectGUID || p.State == "Closed" {
-			continue
-		}
-		raw, err := json.Marshal(schedcmd.EditPayload{Entity: "project", ID: int64(p.ID), GUID: p.GUID, Name: p.Name,
-			Changes: []schedcmd.FieldChange{{Field: "state", Before: json.RawMessage(stateNumber(p.State)), After: json.RawMessage("3")}}})
-		if err != nil {
-			return err
-		}
-		rec, err := s.Commands.SubmitOnce(ctx, "eclipse-request-close-"+r.ProjectGUID, schedcmd.KindProjectEdit, raw, RequestAuthor)
-		if err != nil {
-			return err
-		}
-		r.CloseCmd = rec.ID
-	}
-	return nil
-}
-
-func stateNumber(name string) string {
-	for k, v := range schedcmd.ProjectStates() {
-		if v == name {
-			return fmt.Sprint(k)
-		}
-	}
-	return "1"
 }
 
 // decodeImage reads a JPEG, as the stacker writes colour pictures.

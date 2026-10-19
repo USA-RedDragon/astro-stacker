@@ -249,8 +249,6 @@ func cancelEclipse(c *gin.Context, svc *binaries.Service) {
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			c.JSON(http.StatusNotFound, gin.H{errorKey: "no such request"})
-		case errors.Is(err, binaries.ErrCannotCancel):
-			c.JSON(http.StatusConflict, gin.H{errorKey: err.Error()})
 		default:
 			serverError(c, err)
 		}
