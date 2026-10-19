@@ -30,15 +30,64 @@ func TestFadesConfirmDipper(t *testing.T) {
 	}
 }
 
-func TestFadesFlatNeighbourStaysFlat(t *testing.T) {
+func TestFadesNeighboursNotConfirmed(t *testing.T) {
 	t.Parallel()
 	_, comps := caseSeries(t, fades15523)
-	for i := range 5 {
+	for i := range comps {
 		others := append(append([][]lc.Series{}, comps[:i]...), comps[i+1:]...)
-		r, _ := Analyze(comps[i], Options{ChangeMag: 0.21, Neighbours: func() [][]lc.Series { return others }})
-		z := rows(r)[check.ZTF]
-		if r.Fades != nil || !strings.HasPrefix(z.Evidence, "Flat: ") {
-			t.Errorf("comparison %d: ZTF row %+v fades %+v, want flat", i+1, z, r.Fades)
+		for _, c := range []float64{0.06, 0.1, -0.1, 0.21, -0.21} {
+			r, _ := Analyze(comps[i], Options{ChangeMag: c, Neighbours: func() [][]lc.Series { return others }})
+			if r.Fades.Confirms() {
+				t.Errorf("comparison %d at %.2f: fades %+v, ZTF row %+v", i+1, c, r.Fades, rows(r)[check.ZTF])
+			}
+		}
+	}
+	r, _ := Analyze(comps[0], Options{ChangeMag: 0.21, Neighbours: func() [][]lc.Series { return comps[1:] }})
+	if z := rows(r)[check.ZTF]; r.Fades != nil || !strings.HasPrefix(z.Evidence, "Flat: ") {
+		t.Errorf("comparison 1: ZTF row %+v fades %+v, want flat", z, r.Fades)
+	}
+}
+
+// noisyStar is a steady star of scatter sigma seen in four exposures a
+// night over 400 nights, with 30 neighbours like it; off moves one small
+// light curve of its own (lc.Point.Src 2), eight points on four nights,
+// that much fainter.
+func noisyStar(seed uint64, sigma, off float64) ([]lc.Series, [][]lc.Series) {
+	rng := lcg(seed)
+	var times []float64
+	for n := range 400 {
+		for k := range 4 {
+			times = append(times, 2458300+float64(n)+0.7+0.02*float64(k))
+		}
+	}
+	mk := func(shift float64) []lc.Series {
+		s := lc.Series{Survey: lc.ZTF, Band: "r", Dilution: 1}
+		for i, t := range times {
+			src, m := int64(1), 16.9+sigma*rng.gauss()
+			if n := i / 4; n%97 == 5 && i%4 < 2 {
+				src, m = 2, m+shift
+			}
+			s.Points = append(s.Points, lc.Point{BJD: t, Mag: m, Err: sigma, Src: src})
+		}
+		return []lc.Series{s}
+	}
+	target := mk(off)
+	comps := make([][]lc.Series, 30)
+	for i := range comps {
+		comps[i] = mk(0)
+	}
+	return target, comps
+}
+
+func TestFadesNoiseNotConfirmed(t *testing.T) {
+	t.Parallel()
+	for seed := range uint64(20) {
+		for _, c := range []struct{ sigma, off, c float64 }{{0.03, 0, 0.1}, {0.03, 0, 0.06}, {0.02, 0, 0.1}, {0.015, 0.1, 0.15}, {0.015, 0.2, 0.15}} {
+			target, comps := noisyStar(seed+1, c.sigma, c.off)
+			r, _ := Analyze(target, Options{ChangeMag: c.c, Neighbours: func() [][]lc.Series { return comps }})
+			if r.Fades.Confirms() {
+				t.Errorf("seed %d %+v: fades %+v, ZTF row %+v", seed, c, r.Fades, rows(r)[check.ZTF])
+			}
 		}
 	}
 }

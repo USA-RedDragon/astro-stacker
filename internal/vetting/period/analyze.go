@@ -31,20 +31,21 @@ type analysis struct {
 	eph       *Ephemeris
 	kind      Kind
 	own       []lc.Series
+	ztf       []lc.Series
 	bandCache []*band
 	bandsDone bool
 	rob       *Robust
 	fades     *Fades
 }
 
-func analyzeSeries(d *data, own []lc.Series, opts Options, at *Ephemeris) (*Result, error) {
+func analyzeSeries(d *data, own, ztf []lc.Series, opts Options, at *Ephemeris) (*Result, error) {
 	if opts.MinPeriod <= 0 {
 		opts.MinPeriod = 0.2
 	}
 	if opts.MaxPeriod <= 0 {
 		opts.MaxPeriod = 60
 	}
-	a := &analysis{d: d, opts: opts, own: own}
+	a := &analysis{d: d, opts: opts, own: own, ztf: ztf}
 	res := &Result{Fits: []SurveyFit{}}
 	if len(d.series) == 0 {
 		res.Checks = noDataChecks()
@@ -597,11 +598,14 @@ func noDataChecks() []check.Check {
 }
 
 func analyze(series []lc.Series, opts Options, at *Ephemeris) (*Result, error) {
-	var own []lc.Series
+	var own, ztf []lc.Series
 	for _, s := range series {
-		if s.Survey == lc.Own {
+		switch s.Survey {
+		case lc.Own:
 			own = append(own, s)
+		case lc.ZTF:
+			ztf = append(ztf, s)
 		}
 	}
-	return analyzeSeries(prepare(series), own, opts, at)
+	return analyzeSeries(prepare(series), own, ztf, opts, at)
 }

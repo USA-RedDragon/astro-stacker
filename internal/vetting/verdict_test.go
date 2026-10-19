@@ -82,7 +82,7 @@ func TestSurveyFadesVerdict(t *testing.T) {
 	for _, c := range cases {
 		pr := &period.Result{Fades: c.fades}
 		groups := []Group{{ID: check.GroupOwn, Checks: []check.Check{own}}, {ID: check.GroupSurveys, Checks: []check.Check{check.New(check.ZTF, c.ztf, "")}}}
-		s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{})
+		s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{Fainter: true})
 		if s.State != c.want || s.Say != c.say {
 			t.Errorf("%s: %+v, want %s %q", c.name, s, c.want, c.say)
 		}

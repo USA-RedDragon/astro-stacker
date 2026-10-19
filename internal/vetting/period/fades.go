@@ -33,6 +33,10 @@ const (
 	// fadeRank is the percentile of the comparisons the star must fade
 	// beyond.
 	fadeRank = 95
+	// fadeAlso is how many comparison stars may reach the change in the
+	// same exposure: 2 and 6 of the stars around 15523 brighten together
+	// on 8 nights, while the rest stay steady.
+	fadeAlso = 0
 )
 
 // Fades is how a flat star's ZTF fades compare with nearby stars in the
@@ -47,14 +51,15 @@ type Fades struct {
 	Stars  int `json:"stars"`
 }
 
-// Confirms says the star fades on its own on enough nights.
+// Confirms says the star fades on its own on enough nights and the
+// nearby stars fade with it on none.
 func (f *Fades) Confirms() bool {
-	return f != nil && f.Steady >= fadeNights && f.Steady > f.Field
+	return f != nil && f.Steady >= fadeNights && f.Field == 0
 }
 
 // FieldProblem says nearby stars fade with it.
 func (f *Fades) FieldProblem() bool {
-	return f != nil && !f.Confirms() && f.Field > 0 && f.Field >= f.Steady
+	return f != nil && f.Field > 0 && f.Field >= f.Steady
 }
 
 type fadePt struct {
@@ -62,18 +67,18 @@ type fadePt struct {
 	band string
 }
 
-// backedFades are the ZTF points of groups that reach fadeReach of the
-// change c, in runs of points within fadeBacked days of each other, and
-// how many of those runs hold two or more points.
-func (a *analysis) backedFades(groups []int, c float64) ([][]fadePt, int) {
+// backedFades are the star's ZTF points that reach fadeReach of the
+// change c, measured from the median of their own light curve
+// (lc.Point.Src) as the comparison stars' are, in runs of points within
+// fadeBacked days of each other, and how many of those runs hold two or
+// more points.
+func (a *analysis) backedFades(c float64) ([][]fadePt, int) {
 	var pts []fadePt
-	sign := math.Copysign(1, c)
-	for _, g := range groups {
-		gr := a.d.groups[g]
-		for _, se := range gr.series {
-			for _, p := range a.d.series[se].raw {
-				if sign*p.y >= fadeReach*math.Abs(c) {
-					pts = append(pts, fadePt{t: p.t, y: sign * p.y, band: gr.band})
+	for _, m := range compOffsets([][]lc.Series{a.ztf}, math.Copysign(1, c)) {
+		for band, ps := range m {
+			for _, p := range ps {
+				if p.d >= fadeReach*math.Abs(c) {
+					pts = append(pts, fadePt{t: p.t, y: p.d, band: band})
 				}
 			}
 		}
@@ -180,8 +185,8 @@ func sameExposure(comps []map[string][]compPt, band string, t float64) []float64
 }
 
 // testFades tests the backed runs of fading points against nearby stars in
-// the same exposures. A night is steady when one of its fading points
-// sits beyond the fadeRank percentile of the nearby stars while their
+// the same exposures. A night is steady when two of its fading points
+// each sit beyond the fadeRank percentile of the nearby stars while their
 // median stays within fadeSteady of normal, and a field night when their
 // median fades by more than fadeSteady.
 func (a *analysis) testFades(runs [][]fadePt, backed int, c float64) *Fades {
@@ -198,7 +203,7 @@ func (a *analysis) testFades(runs [][]fadePt, backed int, c float64) *Fades {
 		if len(r) < 2 {
 			continue
 		}
-		steady, field := false, false
+		steady, field := 0, false
 		for _, p := range r {
 			ds := sameExposure(comps, p.band, p.t)
 			if len(ds) < fadeMinComps {
@@ -208,14 +213,14 @@ func (a *analysis) testFades(runs [][]fadePt, backed int, c float64) *Fades {
 			switch {
 			case med > fadeSteady:
 				field = true
-			case math.Abs(med) <= fadeSteady && p.y > percentile(ds, fadeRank):
-				steady = true
+			case math.Abs(med) <= fadeSteady && p.y > percentile(ds, fadeRank) && reaching(ds, fadeReach*math.Abs(c)) <= fadeAlso:
+				steady++
 			}
 		}
 		switch {
 		case field:
 			f.Field++
-		case steady:
+		case steady >= 2:
 			f.Steady++
 		}
 	}
@@ -231,7 +236,7 @@ func (a *analysis) fadeRow(id, label string, si surveyInfo, level, scatter float
 	stars := plural(f.Stars, "nearby star", "nearby stars")
 	switch {
 	case f.Confirms():
-		return check.New(id, check.Pass, fmt.Sprintf("Fades on %s while %s stay steady: %s", plural(f.Steady, "night", "nights"), stars, base))
+		return check.New(id, check.Pass, fmt.Sprintf("%s on %s while %s stay steady: %s", fadeWord(a.opts.ChangeMag), plural(f.Steady, "night", "nights"), stars, base))
 	case f.FieldProblem():
 		return check.New(id, check.Fail, fmt.Sprintf("Nearby stars %s with it: on %d of %s the %s %s in the same exposures, so the sky or the camera made it, not the star. %s",
 			fadeVerb(a.opts.ChangeMag), f.Field, plural(f.Nights, "night", "nights"), stars, fadeVerb(a.opts.ChangeMag), base))
@@ -248,4 +253,21 @@ func fadeVerb(c float64) string {
 		return "fade"
 	}
 	return "brighten"
+}
+
+func fadeWord(c float64) string {
+	if c > 0 {
+		return "Fades"
+	}
+	return "Brightens"
+}
+
+func reaching(ds []float64, v float64) int {
+	n := 0
+	for _, d := range ds {
+		if d >= v {
+			n++
+		}
+	}
+	return n
 }
