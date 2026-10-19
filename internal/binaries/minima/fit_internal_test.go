@@ -2,6 +2,7 @@ package minima
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
@@ -123,7 +124,7 @@ func TestTimeNeedsBothSides(t *testing.T) {
 	pred := 2461200.5
 	d := testDip(pred)
 	pts := synth(r, pred, d, night{from: pred - 1.6*d.Half, to: pred - 0.05*d.Half, step: 120.0 / 86400, noise: 0.01, depth: 0.4})
-	if _, why, ok := Time(pts, d); ok || why != ReasonSides {
+	if _, why, ok := Time(pts, d); ok || !strings.HasPrefix(why, ReasonSides) {
 		t.Errorf("one side only gave ok=%v, %q", ok, why)
 	}
 }
@@ -165,18 +166,30 @@ func TestKvWMatchesSymmetricMinimum(t *testing.T) {
 	}
 }
 
+// TestTimeWrongShapeOnPartNight times nights whose dip is wider,
+// narrower or rounder than the ephemeris's, the frames starting part way
+// into it. Nights a timing can be trusted on must come out within 3
+// errors; any other night must be refused with the reason that the
+// frames missed a side or that a drift could not be told from the dip.
+// Where 0.95 of the half width before the middle is covered, at least
+// mostTimed of 40 nights must be timed: all of the wider dip's, but a
+// rounder dip fits the ephemeris's shape best at the widest width tried,
+// where its sides come back up further out, so nights whose frames fall
+// short of where that fit has come a quarter of the way back up are
+// refused.
 func TestTimeWrongShapeOnPartNight(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name  string
-		w, a  float64
-		start float64
+		name      string
+		w, a      float64
+		start     float64
+		mostTimed int
 	}{
-		{"dip 30% narrower than the template", 0.03 / 1.3, 1.6, -0.6},
-		{"dip 30% wider than the template", 0.03 * 1.3, 1.6, -0.6},
-		{"rounder dip than the template", 0.03, 0.8, -0.6},
-		{"dip 30% wider, more of it covered", 0.03 * 1.3, 1.6, -0.95},
-		{"rounder dip, more of it covered", 0.03, 0.8, -0.95},
+		{"dip 30% narrower than the template", 0.03 / 1.3, 1.6, -0.6, 0},
+		{"dip 30% wider than the template", 0.03 * 1.3, 1.6, -0.6, 0},
+		{"rounder dip than the template", 0.03, 0.8, -0.6, 0},
+		{"dip 30% wider, more of it covered", 0.03 * 1.3, 1.6, -0.95, 30},
+		{"rounder dip, more of it covered", 0.03, 0.8, -0.95, 15},
 	} {
 		r := &rng{s: 21}
 		var sum float64
@@ -190,8 +203,11 @@ func TestTimeWrongShapeOnPartNight(t *testing.T) {
 			for tt := pred + c.start*d.Half; tt <= pred+1.6*d.Half; tt += 300.0 / 86400 {
 				pts = append(pts, Point{T: tt, Y: 0.4*trueShape(tt-truth) + 0.008*r.normal(), E: 0.008})
 			}
-			m, _, ok := Time(pts, d)
+			m, why, ok := Time(pts, d)
 			if !ok {
+				if !strings.HasPrefix(why, ReasonSides) && !strings.HasPrefix(why, ReasonDrift) {
+					t.Errorf("%s, night %d: refused with %q", c.name, i, why)
+				}
 				continue
 			}
 			n++
@@ -204,9 +220,10 @@ func TestTimeWrongShapeOnPartNight(t *testing.T) {
 				doubtful++
 			}
 		}
-		if c.start < -0.9 && n < 20 {
+		if n < c.mostTimed {
 			t.Errorf("%s: only %d of 40 timed", c.name, n)
 		}
+		t.Logf("%s: %d of 40 timed, %d within 3 errors, %d doubtful", c.name, n, within3, doubtful)
 		if n < 10 {
 			continue
 		}
