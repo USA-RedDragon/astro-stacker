@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,6 +100,7 @@ func newVetCommand() *cobra.Command {
 				Surveys: fetcher,
 				Threads: cfg.Vetting.Threads,
 				WorkDir: cfg.Vetting.WorkDir,
+				Build:   buildRevision(cmd.Root().Annotations["commit"]),
 			}
 			if prefetch {
 				return svc.Prefetch(cmd.Context(), objects)
@@ -238,4 +240,20 @@ func previewVet(cmd *cobra.Command, svc *vetting.Service, ids []int) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return svc.Preview(cmd.Context(), ids, func(r *vetting.Report) error { return enc.Encode(r) })
+}
+
+// buildRevision is the commit the release stamped, or the VCS revision
+// Go recorded in a plain build.
+func buildRevision(stamped string) string {
+	if stamped != "" && stamped != "none" {
+		return stamped
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		for _, st := range bi.Settings {
+			if st.Key == "vcs.revision" {
+				return st.Value
+			}
+		}
+	}
+	return stamped
 }

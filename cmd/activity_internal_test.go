@@ -92,7 +92,7 @@ func TestGoalsItem(t *testing.T) {
 func TestActivityFromTheDatabase(t *testing.T) {
 	t.Parallel()
 	db := testdb.Postgres(t, "activity", "activity")
-	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.JobProgress{},
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}, &app.JobProgress{},
 		&app.Frame{}, &app.Stack{}, &app.StackFrame{}); err != nil {
 		t.Fatal(err)
 	}

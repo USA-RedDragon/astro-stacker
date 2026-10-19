@@ -15,7 +15,7 @@ const objAnd = "Andromeda"
 
 func seedSources(t *testing.T, db *gorm.DB) (int, int, int) {
 	t.Helper()
-	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}); err != nil {
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}); err != nil {
 		t.Fatal(err)
 	}
 	night := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
@@ -61,7 +61,7 @@ func checkPick(t *testing.T, db *gorm.DB) {
 		t.Fatalf("a running source is not picked again: %v", ids(due))
 	}
 	r := &Report{Version: Version, Suggestion: Suggestion{State: app.VetReal, Confidence: High}, Pending: []string{"ATLAS"}}
-	if err := save(ctx, db, newID, due0Hash(ctx, t, db), r, nil, now); err != nil {
+	if err := save(ctx, db, newID, due0Hash(ctx, t, db), stamp{pipeline: starPipeline}, r, nil, now); err != nil {
 		t.Fatal(err)
 	}
 	st, err := Load(ctx, db, newID)
@@ -75,7 +75,7 @@ func checkPick(t *testing.T, db *gorm.DB) {
 		t.Fatalf("a report waiting on ATLAS is run again later: %v", ids(due))
 	}
 	r.Pending = nil
-	if err := save(ctx, db, newID, due0Hash(ctx, t, db), r, nil, now); err != nil {
+	if err := save(ctx, db, newID, due0Hash(ctx, t, db), stamp{pipeline: starPipeline}, r, nil, now); err != nil {
 		t.Fatal(err)
 	}
 	if due, _ := Pick(ctx, db, now.Add(48*time.Hour), nil, nil); len(due) != 0 {

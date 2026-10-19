@@ -86,7 +86,10 @@ type Chart struct {
 
 // Report is one source's vetting.
 type Report struct {
-	Version  int       `json:"version"`
+	Version int `json:"version"`
+	// Pipeline and Build name the code that wrote the report.
+	Pipeline string    `json:"pipeline,omitempty"`
+	Build    string    `json:"build,omitempty"`
 	SourceID int       `json:"source_id"`
 	RanAt    time.Time `json:"ran_at"`
 	// Star names the star at the spot, "2MASS J00433343+4139446 · Gaia G
