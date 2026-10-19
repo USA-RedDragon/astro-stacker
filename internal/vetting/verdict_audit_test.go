@@ -199,3 +199,33 @@ func TestAuditExpectedVariability(t *testing.T) {
 		}
 	}
 }
+
+// TestIrregularKnownStarWithoutAPeriod: 33852 (Horsehead Nebula,
+// 2025-11-21), ESO-HA 1638, a sigma Orionis emission-line star spread over
+// 1.81 mag in ZTF r without a period, and 35422 (Andromeda, 2025-10-26), a
+// LAMOST supergiant, are known irregular variables, not unsure; with ZTF
+// flat the vet stays unsure.
+func TestIrregularKnownStarWithoutAPeriod(t *testing.T) {
+	t.Parallel()
+	if w := expectedOType("Em*"); w != expectEmission {
+		t.Errorf("Em* is %q", w)
+	}
+	sum := discoverysource.Summary{Source: app.DiscoverySource{Kind: app.DiscoveryKindChange}}
+	stays := check.New(check.Stays, check.Pass, "")
+	for _, x := range []struct {
+		name, expected string
+		ztf            check.Status
+		want           string
+	}{
+		{"33852", expectEmission, check.Pass, app.VetKnown},
+		{"35422", expectSupergiant, check.Pass, app.VetKnown},
+		{"ZTF flat", expectSupergiant, check.Fail, app.VetUnsure},
+		{"not listed", "", check.Pass, app.VetUnsure},
+	} {
+		groups := []Group{{ID: check.GroupSurveys, Checks: []check.Check{check.New(check.OwnChange, check.Pass, ""), check.New(check.ZTF, x.ztf, "")}}}
+		s := suggest(sum, ownimage.Flags{}, nil, Known{Expected: x.expected, ExpectedName: "a SIMBAD entry"}, stays, fetches{}, nil, nil, groups, change{})
+		if s.State != x.want {
+			t.Errorf("%s: want %s, got %s: %s", x.name, x.want, s.State, s.Say)
+		}
+	}
+}
