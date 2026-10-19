@@ -253,4 +253,11 @@ func TestOwnFramesAloneNeedTheirStack(t *testing.T) {
 	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetUnsure || !strings.Contains(s.Say, "survey saw it") {
 		t.Errorf("seen by ATLAS, absent from the stack: %+v", s)
 	}
+	// 65410 (Horsehead Nebula, 2025-01-24): ATLAS's 17.7 five days later
+	// lay 2.8 arcmin from Alnitak, and the light the detection reported was
+	// too faint to have been found.
+	st[check.TransClear] = check.Fail
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetArtifact || !strings.Contains(s.Say, "halo") {
+		t.Errorf("seen by ATLAS in a bright star's halo, absent from the stack: %+v", s)
+	}
 }
