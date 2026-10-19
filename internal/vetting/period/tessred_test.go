@@ -10,8 +10,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 )
 
-// tessRedDir holds the light curves the vet read for 1688 and 2301 on
-// 2026-10-19: ZTF, ATLAS, TESS and NEOWISE, the ZTF comparison stars,
+// tessRedDir holds the light curves the vet read for 1688, 2301 and 6014
+// on 2026-10-19: ZTF, ATLAS, TESS and NEOWISE, the ZTF comparison stars,
 // and the other stars of the TESS job.
 const tessRedDir = "testdata/tessred"
 
@@ -30,12 +30,15 @@ func tessRedCase(t *testing.T, key string) ([]lc.Series, Options) {
 // 0.05 mag over hours against its 0.14 mag dip, which pulls one minimum
 // 61 min late and fills in another. 2301's sectors show its 0.3 to 0.4
 // mag dips at 0.005 mag, and sector 84 drifts as much: a fit there found
-// a "minimum" a day early. Every dip TESS times must be on time.
+// a "minimum" a day early. In 6014's sector 41 one primary is 1.9 times
+// as deep as the others for an hour, 11.6 min from its time. Every dip
+// TESS times must be on time.
 func TestTESSTimingRedNoise(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ key, blended string }{
 		{"1688", ""},
 		{"2301", "sectors 17 and 84"},
+		{"6014", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.key, func(t *testing.T) {
@@ -60,11 +63,11 @@ func TestTESSTimingRedNoise(t *testing.T) {
 	}
 }
 
-// TestTESSTimingRedNoiseLate moves one clean sector of 1688,
+// TestTESSTimingRedNoiseLate moves one clean sector of 1688 and 6014,
 // and the other stars' points in it, by lateMin minutes: the slow drifts
 // of the other sectors must not hide the offset. A period fitted to all
 // sectors takes up about half of it; 1688's sector 55 minima are timed to
-// 8 to 13 min.
+// 8 to 13 min and 6014's sector 82 minima to 3 to 4 min.
 func TestTESSTimingRedNoiseLate(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -74,6 +77,8 @@ func TestTESSTimingRedNoiseLate(t *testing.T) {
 	}{
 		{"1688", "S55", 55, 90},
 		{"1688", "S55", 55, -90},
+		{"6014", "S82", 82, 30},
+		{"6014", "S82", 82, -30},
 	}
 	for _, c := range cases {
 		t.Run(c.key, func(t *testing.T) {

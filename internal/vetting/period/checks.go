@@ -140,7 +140,11 @@ func (a *analysis) tessMinima() []tessMin {
 // tessJudge times and judges one sector's minima. A dip's depth is
 // judged against the median of its minima in the sector, leaving out the
 // minima skip marks, where other stars dim with the star. Each minimum's
-// errors take in the sector's slow drifts on the dip's time scale.
+// errors take in the sector's slow drifts on the dip's time scale. Only a
+// minimum shallower than the others misses: a dip timed away from its
+// place fits shallower, while one deeper at its time still shows the dip
+// there with something else dimming over it, as 6014's sector 41 primary
+// of 2021-08-01, 1.9 times as deep for an hour, 11.6 min from its time.
 func (a *analysis) tessJudge(se *series, fits []tessFit, skip []bool) ([]tessMin, []float64) {
 	m := a.ecl
 	sw, ssw := make([]float64, len(m.dips)), make([]float64, len(m.dips))
@@ -185,9 +189,9 @@ func (a *analysis) tessJudge(se *series, fits []tessFit, skip []bool) ([]tessMin
 		if sf.scaleErr > 0 {
 			tauErr *= scaleErr / sf.scaleErr
 		}
-		deep := ratio > 1-tessScaleBand && ratio < 1+tessScaleBand
+		deep := ratio > 1-tessScaleBand
 		if seen && !deep {
-			deep = math.Abs(sf.scale-ref) <= tessDepthZ*scaleErr
+			deep = ref-sf.scale <= tessDepthZ*scaleErr
 		}
 		good := !faint && deep && math.Abs(lag) <= 5*math.Hypot(tauErr*1440, f.pred)+5
 		out = append(out, tessMin{sector: se.sector, lag: lag, err: tauErr * 1440, pred: f.pred, good: good, faint: faint})
