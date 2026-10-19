@@ -1,6 +1,7 @@
 package ownimage
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -139,6 +140,61 @@ func TestBesideStarsKnownAnswers(t *testing.T) {
 		}
 		if v == StackRefuted && !strings.Contains(ch.Evidence, "glow of those stars") {
 			t.Errorf("%s: refuted for another reason: %s", c.name, ch.Evidence)
+		}
+	}
+}
+
+// cygnus23765 is 23765 (Cygnus Loop Panel 1, 2026-09-04), found in 6
+// H-alpha frames at G-scale magnitude 17.07, as the audit of 2026-10-19
+// stacked it: 8.31 against a fake's 10.58 in its detection frames, -0.63
+// against 8.03 in the 4 H-alpha frames it crossed but was not found in,
+// and -0.84 in the night's 14 red, green and blue frames along its path,
+// where a fake of its magnitude by each filter's zero point showed 53.6.
+func cygnus23765(otherSNR float64) *TrackStack {
+	return &TrackStack{SourceID: 23765, Frames: 6, SNR: 8.31, Peak: 8.64, Injected: 10.58, InjectedLo: 9.49, InjectedHi: 11.60, Mag: 17.07,
+		Random: 636, Random99: 2.79, Unused: 4, UnusedSNR: -0.63, UnusedInjected: 8.03,
+		Other: 14, OtherFilters: []string{"Blue", "Green", "Red"}, OtherSNR: otherSNR, OtherInjected: 53.6, OtherFaint: 53.6 * math.Pow(10, -0.4*StackColourAllowance)}
+}
+
+func TestOtherFiltersRefute23765(t *testing.T) {
+	t.Parallel()
+	ts := cygnus23765(-0.84)
+	c, v := StackCheck(ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if v != StackRefuted || c.Status != check.Fail || !strings.Contains(c.Evidence, "14 frames of the same night in Blue, Green and Red") {
+		t.Errorf("23765 was not refuted by its broadband frames: %s", v)
+	}
+	ts.Other = 0
+	if _, v := StackCheck(ts); v == StackRefuted {
+		t.Errorf("23765 was refuted without its broadband frames, so the test proves nothing")
+	}
+}
+
+// TestOtherFiltersShowingDoNotRefute is 23765's stack with an S-type
+// asteroid in its broadband frames: brighter in red and fainter in blue
+// than the field's stars, its 14 frames show it at 0.85 of the fake.
+func TestOtherFiltersShowingDoNotRefute(t *testing.T) {
+	t.Parallel()
+	c, v := StackCheck(cygnus23765(0.85 * 53.6))
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if v == StackRefuted {
+		t.Errorf("a mover its broadband frames show was refuted: %s", c.Evidence)
+	}
+}
+
+// TestOtherFiltersTooFaintSayNothing is a mover whose frames in other
+// filters could not show a fake 1.5 magnitudes fainter at 5: flat there,
+// it is judged as without them.
+func TestOtherFiltersTooFaintSayNothing(t *testing.T) {
+	t.Parallel()
+	for _, a := range auditStacks() {
+		ts := &TrackStack{Frames: 6, SNR: a.obs, Peak: a.peak, Injected: a.inj, InjectedLo: a.inj - 1, InjectedHi: a.inj + 1,
+			Wrong: 300, Wrong99: a.ctrl, WrongMax: a.ctrl, Random: 700, Random99: a.ctrl,
+			Unused: a.unusedN, UnusedSNR: a.unused, UnusedInjected: a.unusedInj}
+		_, before := StackCheck(ts)
+		ts.Other, ts.OtherFilters, ts.OtherSNR, ts.OtherInjected, ts.OtherFaint = 5, []string{"Red"}, -1, 18, 18*math.Pow(10, -0.4*StackColourAllowance)
+		if _, v := StackCheck(ts); v != before {
+			t.Errorf("%s: %s with untestable other filters, %s without", a.name, v, before)
 		}
 	}
 }

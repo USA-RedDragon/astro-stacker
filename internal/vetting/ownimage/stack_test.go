@@ -2,6 +2,8 @@ package ownimage
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -261,5 +263,148 @@ func TestLongTrackStacksTheFramesItCrossed(t *testing.T) {
 	}
 	if v == StackConfirmed {
 		t.Errorf("light only in its detection frames was confirmed")
+	}
+}
+
+// colourField is a field whose 10 subs are H-alpha, passing half the light
+// of broadband, with 10 frames in Red, Green and Blue between them,
+// passing 1.0, 0.9 and 0.7 of it, each filter with its master. A source
+// of G-scale light fl moves along the line through all of them, its light
+// in each frame 10^(-0.4 dmag[filter]) times that, none in a filter dmag
+// lacks.
+func colourField(fl float64, dmag map[string]float64) *trackField {
+	const ha = "H-a"
+	thru := map[string]float64{ha: 0.5, "Red": 1.0, "Green": 0.9, "Blue": 0.7}
+	f := newTrackField()
+	f.more = map[string]synthSub{}
+	for filter, tr := range thru {
+		f.more[filter] = synthSub{sigma: 1.4, tr: tr, seed: 990 + uint64(len(filter)), quiet: true}
+	}
+	n := len(f.subs)
+	for k := range n {
+		f.subs[k].Filter = ha
+		f.subs[k].tr *= thru[ha]
+		c := f.subs[k]
+		c.FrameID = 100 + k
+		c.Filter = []string{"Red", "Green", "Blue"}[k%3]
+		c.Start = c.Start.Add(3 * time.Minute)
+		c.Key = fmt.Sprintf("registered/%s/%s/%d.xisf", synthObj, c.Filter, c.FrameID)
+		c.seed += 500
+		c.tr = f.subs[k].tr / thru[ha] * thru[c.Filter]
+		f.subs = append(f.subs, c)
+	}
+	for k := range f.subs {
+		d, ok := dmag[f.subs[k].Filter]
+		if !ok {
+			continue
+		}
+		x, y := f.line(k)
+		f.subs[k].extra = trailedFlux(x, y, fl*math.Pow(10, -0.4*d))
+	}
+	return f
+}
+
+// trailedFlux is a source of light fl moving along lineTrail over the
+// exposure, about (x, y).
+func trailedFlux(x, y, fl float64) [][3]float64 {
+	pts := trailPoints(lineTrail())
+	out := make([][3]float64, 0, len(pts))
+	for _, q := range pts {
+		out = append(out, [3]float64{x + q[0], y + q[1], fl * q[2]})
+	}
+	return out
+}
+
+// colourSpot is the line found in the H-alpha subs det at G-scale light
+// fl, its detections given the light H-alpha passes and the magnitude of
+// fl against the field's stars.
+func colourSpot(f *trackField, det []int, fl float64) TrackSpot {
+	s := f.stackSpot(f.line, det, fl*f.more["H-a"].tr)
+	s.Group = "H-a"
+	for i := range s.Points {
+		s.Points[i].Mag = 15 - 2.5*math.Log10(fl)
+	}
+	return s
+}
+
+// TestRealMoverShowsInOtherFilters is a moving object found in H-alpha
+// with an S-type asteroid's colours against the field's stars, 0.2
+// magnitudes brighter in Red and 0.4 fainter in Blue: its frames in Red,
+// Green and Blue, faked by each master's zero point, show it as their
+// fakes do, and do not refute it.
+func TestRealMoverShowsInOtherFilters(t *testing.T) {
+	t.Parallel()
+	f := colourField(moverFlux18, map[string]float64{"H-a": 0, "Red": -0.2, "Green": 0, "Blue": 0.4})
+	ts := runStack(t, f, colourSpot(f, []int{1, 2, 3, 4, 5, 6}, moverFlux18))
+	c, v := StackCheck(&ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if ts.Other != 10 || len(ts.OtherFilters) != 3 {
+		t.Fatalf("stacked %d frames in %v of the 10 in Red, Green and Blue", ts.Other, ts.OtherFilters)
+	}
+	if ts.OtherSNR < 0.75*ts.OtherInjected || ts.OtherSNR > 1.25*ts.OtherInjected {
+		t.Errorf("other filters %.1f against their fake %.1f", ts.OtherSNR, ts.OtherInjected)
+	}
+	if ts.OtherFaint < StackInjMin {
+		t.Errorf("a fake 1.5 magnitudes fainter shows at only %.1f", ts.OtherFaint)
+	}
+	if v != StackConfirmed || c.Status != check.Pass {
+		t.Errorf("a real mover with an asteroid's colours was not confirmed: %s", v)
+	}
+}
+
+// TestLineEmitterIsRefutedByOtherFilters is a source moving along the line
+// with light in every H-alpha frame and none in Red, Green or Blue: its own
+// stack shows it, and the other filters refute it.
+func TestLineEmitterIsRefutedByOtherFilters(t *testing.T) {
+	t.Parallel()
+	f := colourField(moverFlux18, map[string]float64{"H-a": 0})
+	ts := runStack(t, f, colourSpot(f, []int{1, 2, 3, 4, 5, 6}, moverFlux18))
+	c, v := StackCheck(&ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if ts.SNR < 0.6*ts.Injected {
+		t.Errorf("its own stack %.1f against its fake %.1f", ts.SNR, ts.Injected)
+	}
+	if v != StackRefuted || c.Status != check.Fail || !strings.Contains(c.Evidence, "reflected sunlight") {
+		t.Errorf("light only in H-alpha was not refuted by the other filters: %s", v)
+	}
+}
+
+// TestBroadbandTrackIgnoresNarrowbandFrames is a moving object found in
+// Luminance on a night with H-alpha frames too: it has no frames in other
+// filters, and its stack is judged as before.
+func TestBroadbandTrackIgnoresNarrowbandFrames(t *testing.T) {
+	t.Parallel()
+	judge := func(withHa bool) (TrackStack, StackVerdict) {
+		f := newTrackField()
+		const fl = moverFlux18 / 2
+		for k := range f.subs {
+			x, y := f.line(k)
+			f.subs[k].extra = trailed(x, y)
+		}
+		if withHa {
+			f.more = map[string]synthSub{"H-a": {sigma: 1.4, tr: 0.5, seed: 991, quiet: true}}
+			for k := range trackSubs {
+				c := f.subs[k]
+				c.FrameID, c.Filter, c.Start = 100+k, "H-a", c.Start.Add(3*time.Minute)
+				c.Key = fmt.Sprintf("registered/%s/H-a/%d.xisf", synthObj, c.FrameID)
+				c.tr, c.seed, c.extra = c.tr*0.5, c.seed+500, nil
+				f.subs = append(f.subs, c)
+			}
+		}
+		s := f.stackSpot(f.line, []int{1, 2, 3, 4, 5, 6}, fl)
+		for i := range s.Points {
+			s.Points[i].Mag = 15 - 2.5*math.Log10(fl)
+		}
+		ts := runStack(t, f, s)
+		_, v := StackCheck(&ts)
+		return ts, v
+	}
+	plain, pv := judge(false)
+	ha, hv := judge(true)
+	if ha.Other != 0 || plain.Other != 0 {
+		t.Errorf("a broadband track stacked %d and %d frames in other filters", plain.Other, ha.Other)
+	}
+	if pv != StackConfirmed || hv != pv || ha.SNR != plain.SNR || ha.Unused != plain.Unused {
+		t.Errorf("H-alpha frames changed a broadband track's stack: %s %+v against %s %+v", hv, ha, pv, plain)
 	}
 }
