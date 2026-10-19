@@ -117,7 +117,8 @@ func (u StackUnused) shows() bool {
 	return u.SNR >= math.Max(stackShows, stackShowsShare*u.Inj)
 }
 
-func (u StackUnused) flat() bool { return u.SNR < stackFlat }
+// Flat says the frames show nothing at the source.
+func (u StackUnused) Flat() bool { return u.SNR < stackFlat }
 
 // JudgeStack weighs a stack to confirm: refuted when frames in filters it
 // was not found in are flat where a fake StackColourAllowance magnitudes
@@ -137,7 +138,7 @@ func (u StackUnused) flat() bool { return u.SNR < stackFlat }
 // the detection did not use to -0.2 against 7.8.
 func JudgeStack(f StackFacts) (StackVerdict, string) {
 	for _, u := range f.Unused {
-		if u.Colour && u.testable() && u.flat() {
+		if u.Colour && u.testable() && u.Flat() {
 			return StackRefuted, StackNoColour
 		}
 	}
@@ -148,7 +149,7 @@ func JudgeStack(f StackFacts) (StackVerdict, string) {
 		}
 		testable++
 		switch {
-		case u.flat():
+		case u.Flat():
 			flat++
 		case u.Required && !u.shows():
 			missing++
@@ -291,7 +292,7 @@ func glowCheck(ts *TrackStack) (check.Check, StackVerdict) {
 	u := StackUnused{SNR: ts.UnusedSNR, Inj: ts.UnusedInjected}
 	if ts.Unused > 0 {
 		ev += fmt.Sprintf(" In %s of the same night the detection did not use it shows at %.1f, where a fake of its brightness shows at %.1f.", FrameWord(ts.Unused), u.SNR, u.Inj)
-		if !u.flat() {
+		if !u.Flat() {
 			return check.Skipped(check.MoverStack, "Not clear. "+ev+" Away from the stars it may be there."), StackUntested
 		}
 	} else {
@@ -330,7 +331,7 @@ func besideCheck(ts *TrackStack) (check.Check, StackVerdict) {
 		return check.Skipped(check.MoverStack, "Not clear. "+ev), StackUntested
 	}
 	ev += fmt.Sprintf(" In %s of the same night the detection did not use it shows at %.1f, where a fake of its brightness shows at %.1f.", FrameWord(ts.Unused), u.SNR, u.Inj)
-	if !u.flat() {
+	if !u.Flat() {
 		return check.Skipped(check.MoverStack, "Not clear. "+ev+" Away from the stars it may be there."), StackUntested
 	}
 	return check.New(check.MoverStack, check.Fail, ev+" "+StarGlow+": away from them, where a real object would stand clear, it is not there."), StackRefuted

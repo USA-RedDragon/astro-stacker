@@ -245,6 +245,15 @@ func TestStackWingFitIgnoresPlainUnusedFrames(t *testing.T) {
 	if s := transientSuggest(transientGroups(st), transientFacts{stackV: v}); s.Say != "Artifact: a bright star's wing" {
 		t.Errorf("56176: %+v", s)
 	}
+	// 54896 (Crab Nebula, 2026-02-05): 1.2 sigma in the wing fit where a
+	// fake shows at 4.3, and the night's 7 unused frames flat at -0.2.
+	crab := curveOf(auditNight("2026-02-05", 1.0, 4.3, true))
+	crab.Nights[0].FreshN, crab.Nights[0].FreshFlux, crab.Nights[0].FreshErr = 7, -0.2*auditLight/7.8, auditLight/7.8
+	ce := auditLight / 4.3
+	crab.Wing = &ownimage.Wing{G: 13.8, SepPx: 6.6, Night: "2026-02-05", Filter: lum, Excess: 1.2 * ce, Sigma: 1.2, Err: ce, Measured: true}
+	if _, v := transientStack(crab, auditReps("2026-02-05")); v != ownimage.StackRefuted {
+		t.Errorf("54896: %s", v)
+	}
 	fc.Wing.Sigma, fc.Wing.Excess = 9.5, 9.5*e
 	if _, v := transientStack(fc, auditReps("2026-01-10")); v != ownimage.StackConfirmed {
 		t.Errorf("new light beside a star not confirmed: %s", v)
