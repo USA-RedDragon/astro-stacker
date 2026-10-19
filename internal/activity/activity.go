@@ -385,4 +385,5 @@ const (
 	KindCalibration   = "calibration"
 	KindBinaries      = "binaries"
 	KindEclipseTiming = "eclipse-timing"
+	KindWatching      = "discovery-watch"
 )
