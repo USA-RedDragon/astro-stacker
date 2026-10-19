@@ -109,6 +109,10 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		return Suggestion{State: app.VetReal, Say: say, Confidence: conf,
 			Why: joinSentences(evidence(groups, check.ZTF), "No catalog lists the star as variable.")}
 	}
+	if known.Expected != "" && !ztfFlat {
+		return Suggestion{State: app.VetKnown, Say: fmt.Sprintf("Known %s, irregular changes expected", known.Expected), Confidence: Medium,
+			Why: joinSentences(fmt.Sprintf("SIMBAD lists it as %s, a %s; such stars change without a fixed period.", known.ExpectedName, known.Expected), evidence(groups, check.OwnChange), evidence(groups, check.ZTF))}
+	}
 	pending := ""
 	for _, f := range fx.all() {
 		if f.State == surveys.Pending {

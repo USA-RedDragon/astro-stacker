@@ -322,12 +322,16 @@ func variableOType(t string) bool {
 // expectedOType is "young star" or "supergiant" for SIMBAD object types of
 // stars whose brightness wanders without a fixed period: young stellar
 // objects and their candidates, and red, yellow and blue supergiants and
-// their candidates. T Tauri, Orion and Herbig Ae/Be types are variable
-// types, already listed by variableOType.
+// their candidates, and emission-line stars: 33852 (Horsehead Nebula), ESO-HA
+// 1638, an M2.5 member of the sigma Orionis cluster, spread over 1.81 mag in
+// ZTF r without a period. T Tauri, Orion and Herbig Ae/Be types are
+// variable types, already listed by variableOType.
 func expectedOType(t string) string {
 	switch strings.TrimSpace(t) {
 	case "Y*O", "Y*?", "YSO", "HH":
 		return expectYoung
+	case "Em*":
+		return expectEmission
 	case "s*r", "s*y", "s*b", "sg*", "s?r", "s?y", "s?b", "sg?", "RSG", "YSG", "BSG", "RedSG*", "YellowSG*", "BlueSG*", "Supergiant":
 		return expectSupergiant
 	}
@@ -338,6 +342,7 @@ func expectedOType(t string) string {
 const (
 	expectYoung      = "young star"
 	expectSupergiant = "supergiant"
+	expectEmission   = "emission-line star"
 )
 
 func otypeWords(t string) string {
