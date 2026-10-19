@@ -177,3 +177,25 @@ func TestStackRefutesLightLostInAStarsWing(t *testing.T) {
 		t.Errorf("wing and refuted stack: %+v", s)
 	}
 }
+
+func TestStackRunsOnTheFilterTheLightWasFoundIn(t *testing.T) {
+	t.Parallel()
+	// 17028 (Cygnus Loop Panel 2, 2026-08-10): found in H-a at signal to
+	// noise 8.1 over 6 subs; the night's all filters stood higher than its
+	// H-a, and the detection reported no broadband light for them.
+	const night = "2026-08-10"
+	all := zNight(night, ownimage.AllFilters, 3.4, 18, true)
+	h := zNight(night, ha, 2.3, 6, true)
+	reps := map[string]reported{discoveries.GroupOf(ha) + "\x00" + night: {mag: 25 - 2.5*math.Log10(8.1*10), ok: true}}
+	c, v := transientStack(curveOf(all, h), reps)
+	if v == ownimage.StackUntested || strings.Contains(c.Evidence, "reported no new light") || !strings.Contains(c.Evidence, "in "+ha) {
+		t.Errorf("17028: %s %s", v, c.Evidence)
+	}
+	if v != ownimage.StackRefuted && v != ownimage.StackDoubtful {
+		t.Errorf("17028 at 2.3 where its light shows at 8.1: %s %s", v, c.Evidence)
+	}
+	c, v = transientStack(curveOf(all, h), map[string]reported{})
+	if v != ownimage.StackUntested || !strings.Contains(c.Evidence, "reported no new light in all filters") {
+		t.Errorf("no light reported anywhere: %s %s", v, c.Evidence)
+	}
+}

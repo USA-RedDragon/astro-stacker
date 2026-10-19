@@ -112,7 +112,7 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	if fc == nil {
 		return check.Skipped(check.TransStack, "Not measured yet. The spot's own light could not be measured."), ownimage.StackUntested
 	}
-	p, ok := peak(fc)
+	p, ok := stackNight(fc, reps)
 	if !ok {
 		return check.Skipped(check.TransStack, "Not measured yet. None of your frames from the flagged nights could be measured at the spot."), ownimage.StackUntested
 	}
@@ -180,6 +180,27 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	case ownimage.StackConfirmed:
 	}
 	return check.New(check.TransStack, check.Pass, ev+" It shows as new light of the brightness reported would, above 99 of 100 empty places."), v
+}
+
+// stackNight is the flagged night the stack runs on: the peak, or, when
+// the detection reported no light in the peak's filters that night, the
+// peak among the nights and filters it did report light in. 17028
+// (Cygnus Loop Panel 2, 2026-08-10) was found in H-a at signal to noise
+// 8.1 over 6 subs, and its peak was the night's all filters, which stand
+// for broadband, where it reported nothing.
+func stackNight(fc *ownimage.FluxCurve, reps map[string]reported) (ownimage.FluxNight, bool) {
+	has := func(n ownimage.FluxNight) bool {
+		r := reportedFor(reps, n.Filter, n.Night)
+		return r.ok || r.bySNR()
+	}
+	p, ok := peak(fc)
+	if !ok || has(p) {
+		return p, ok
+	}
+	if q, qok := peakOf(fc, has); qok {
+		return q, true
+	}
+	return p, true
 }
 
 // tooWeakToFind refutes new light whose reported brightness and whose own
