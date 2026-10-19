@@ -96,13 +96,19 @@ type Result struct {
 // steady stars of the same brightness, asked for only once a period is
 // found. Neighbours, when set, gives the ZTF light curves of the stars
 // around it to test a flat star's fades against, asked for only when
-// fading ZTF points back each other up on two or more nights.
+// fading ZTF points back each other up on two or more nights. G is the
+// star's Gaia G magnitude and Parallax and ParallaxErr its Gaia parallax
+// in mas, zero when unknown; they bound how small the primary can be when
+// one dip per cycle is tested for a dark companion.
 type Options struct {
 	MinPeriod   float64
 	MaxPeriod   float64
 	ChangeMag   float64
 	Comparisons func() [][]lc.Series
 	Neighbours  func() [][]lc.Series
+	G           float64
+	Parallax    float64
+	ParallaxErr float64
 }
 
 // Analyze searches series for a period and tests it. series holds every

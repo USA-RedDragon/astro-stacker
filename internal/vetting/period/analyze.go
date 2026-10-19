@@ -17,7 +17,12 @@ type halfNote struct {
 	doubled bool
 	from    float64
 	reason  string
+	dark    darkTest
 }
+
+// reasonDark is the halfNote reason of two equal eclipses taken because
+// no dark companion can make the single dip.
+const reasonDark = "dark"
 
 type analysis struct {
 	d         *data
@@ -255,6 +260,11 @@ func (a *analysis) eclipseCandidate(c candidate) (*ecFit, halfNote) {
 		if b.robust < one.robust-modelGap && a.secondaryReal(b) {
 			if why := a.dipsDiffer(b); why != "" {
 				return a.orderDips(b), halfNote{doubled: true, from: one.P, reason: why}
+			}
+		}
+		if len(m.dips) == 1 && b.robust <= one.robust+modelGap && a.secondaryReal(b) && a.dipsDiffer(b) == "" {
+			if d := a.darkCompanion(one); d.decided {
+				return a.orderDips(b), halfNote{doubled: true, from: one.P, reason: reasonDark, dark: d}
 			}
 		}
 	}
