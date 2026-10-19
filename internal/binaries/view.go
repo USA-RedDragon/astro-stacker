@@ -290,7 +290,9 @@ func (s Star) View(shareURL func(id, version int) string) Binary {
 		if s.Facts != nil {
 			f = *s.Facts
 		}
-		b.Flags = Flags(s.Report, f)
+		if fl := Flags(s.Report, f); fl != nil {
+			b.Flags = fl
+		}
 	}
 	b.AltPeriodText = altPeriods(e, b.Flags)
 	b.PeriodSettled = b.AltPeriodText == ""
