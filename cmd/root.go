@@ -291,6 +291,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 
 	extras.Activity = reg
 	extras.Binaries = startBinaries(indexCtx, cfg, appStore, schedulerDBStore, broker, commands, backfill, reg)
+	extras.Watch = startDiscoveryWatch(indexCtx, cfg, appStore, schedulerDBStore, broker, commands, backfill, reg)
 	startActivity(indexCtx, reg, cfg, appStore, schedulerDBStore, broker, backfill, nights.live, monitor)
 
 	startMorningReport(indexCtx, cfg, appStore, schedulerDBStore, reg.Task(activity.KindMorning, "Morning report"))

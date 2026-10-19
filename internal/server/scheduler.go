@@ -18,6 +18,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
 	"github.com/USA-RedDragon/astro-stacker/internal/discover"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveryreport"
+	"github.com/USA-RedDragon/astro-stacker/internal/discoverywatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/moonkeep"
 	"github.com/USA-RedDragon/astro-stacker/internal/mosaicplan"
@@ -70,6 +71,7 @@ type Extras struct {
 	Discoveries  DiscoverySource
 	Activity     *activity.Registry
 	Binaries     *binaries.Service
+	Watch        *discoverywatch.Service
 }
 
 const schedulerWriteTimeout = 45 * time.Second

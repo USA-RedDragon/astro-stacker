@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
+	"github.com/USA-RedDragon/astro-stacker/internal/discoverywatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -48,6 +49,8 @@ type DiscoverySpot struct {
 	Nights   []DiscoverySpotNight `json:"nights"`
 	Checked  []string             `json:"checked"`
 	Failed   []string             `json:"failed"`
+	Watching bool                 `json:"watching"`
+	Watch    *discoverywatch.View `json:"watch"`
 }
 
 // DiscoverySpotList is a page of the inbox and how many sources each
@@ -63,7 +66,7 @@ func sourceOf(s discoverysource.Summary) DiscoverySpot {
 	out := DiscoverySpot{ID: s.Source.ID, Object: s.Source.Object, Kind: s.Source.Kind, Class: s.Class, RA: s.Best.RA, Dec: s.Best.Dec,
 		First: s.First.Format(time.DateOnly), Last: s.Last.Format(time.DateOnly), Seen: s.Seen, Compared: s.Compared, Look: s.Look(),
 		Vetting: s.Source.Vetting, VetNote: s.Source.VetNote, VettedAt: s.Source.VettedAt, Best: candidateOf(s.Best, false),
-		Nights: []DiscoverySpotNight{}, Checked: s.Checked, Failed: s.Failed}
+		Nights: []DiscoverySpotNight{}, Checked: s.Checked, Failed: s.Failed, Watching: s.Watching()}
 	if out.Checked == nil {
 		out.Checked = []string{}
 	}
@@ -79,6 +82,31 @@ func sourceOf(s discoverysource.Summary) DiscoverySpot {
 		last.Candidates = append(last.Candidates, candidateOf(m, false))
 	}
 	return out
+}
+
+// spotsOf is the sources as the page shows them, with their watches.
+func spotsOf(c *gin.Context, db *gorm.DB, list []discoverysource.Summary) ([]DiscoverySpot, error) {
+	views, err := discoverywatch.Views(c.Request.Context(), db, list)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DiscoverySpot, 0, len(list))
+	for _, s := range list {
+		spot := sourceOf(s)
+		spot.Watch = views[s.Source.ID]
+		out = append(out, spot)
+	}
+	return out, nil
+}
+
+// spotOf is one source as the page shows it, with its watch.
+func spotOf(c *gin.Context, db *gorm.DB, s discoverysource.Summary) {
+	spots, err := spotsOf(c, db, []discoverysource.Summary{s})
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, spots[0])
 }
 
 func applySourceRoutes(g *gin.RouterGroup) {
@@ -151,8 +179,9 @@ func discoverySources(c *gin.Context) {
 		s := f.Since.Format(time.DateOnly)
 		out.Since = &s
 	}
-	for _, s := range list[:min(limit, len(list))] {
-		out.Sources = append(out.Sources, sourceOf(s))
+	if out.Sources, err = spotsOf(c, db, list[:min(limit, len(list))]); err != nil {
+		serverError(c, err)
+		return
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -180,7 +209,7 @@ func discoverySourceDetail(c *gin.Context) {
 		sourceError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, sourceOf(s))
+	spotOf(c, db, s)
 }
 
 func sourceError(c *gin.Context, err error) {
@@ -240,7 +269,7 @@ func vetDiscoverySource(c *gin.Context) {
 		sourceError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, sourceOf(s))
+	spotOf(c, db, s)
 }
 
 // vetCandidate vets the source a candidate belongs to, so every night of
@@ -256,4 +285,39 @@ func vetCandidate(c *gin.Context, db *gorm.DB, cand *app.DiscoveryCandidate, bod
 	}
 	cand.Vetting, cand.VetNote, cand.VettedAt = body.State, body.Note, at
 	return err
+}
+
+func applyWatchRoutes(g *gin.RouterGroup, svc *discoverywatch.Service) {
+	g.POST("/discoveries/sources/:id/watch/stop", func(c *gin.Context) { stopWatch(c, svc) })
+}
+
+// stopWatch stops a watched find's imaging requests; it stays in Watching.
+func stopWatch(c *gin.Context, svc *discoverywatch.Service) {
+	if svc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{errorKey: "the discovery watch is not running"})
+		return
+	}
+	id, ok := sourceID(c)
+	if !ok {
+		return
+	}
+	if err := svc.Stop(c.Request.Context(), id); err != nil {
+		if errors.Is(err, discoverywatch.ErrNotWatched) {
+			c.JSON(http.StatusConflict, gin.H{errorKey: err.Error()})
+			return
+		}
+		serverError(c, err)
+		return
+	}
+	s, err := discoverysource.Get(c.Request.Context(), svc.DB, id)
+	if err != nil {
+		sourceError(c, err)
+		return
+	}
+	views, err := discoverywatch.Views(c.Request.Context(), svc.DB, []discoverysource.Summary{s})
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, views[id])
 }

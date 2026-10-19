@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
+	"github.com/USA-RedDragon/astro-stacker/internal/discoverywatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
 
@@ -94,5 +95,48 @@ func TestCandidateVettingVetsItsSource(t *testing.T) {
 	a.get("/api/v1/discoveries/sources?since=all&view=vetted", &page)
 	if len(page.Sources) != 1 || page.Sources[0].Seen != 2 || len(page.Sources[0].Nights) != 2 || page.Sources[0].Nights[0].Night != "2025-03-02" {
 		t.Errorf("vetted source %+v", page.Sources)
+	}
+}
+
+func TestDiscoverySourceWatching(t *testing.T) {
+	t.Parallel()
+	a := newDiscoveryAPI(t)
+	if err := a.db.AutoMigrate(&app.DiscoveryWatch{}, &app.DiscoveryWatchNight{}); err != nil {
+		t.Fatal(err)
+	}
+	var page DiscoverySpotList
+	a.get("/api/v1/discoveries/sources?since=all&view=look", &page)
+	id := page.Sources[0].ID
+	if err := a.db.Create(&app.DiscoveryVet{SourceID: id, State: "done", Suggested: app.VetReal, Confidence: "low"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	a.get("/api/v1/discoveries/sources?since=all", &page)
+	if page.Counts.Watching != 1 || page.Counts.Look != 0 {
+		t.Fatalf("real at low confidence with nothing pending belongs in Watching: %+v", page.Counts)
+	}
+	now := time.Date(2026, 10, 19, 22, 0, 0, 0, time.UTC)
+	svc := &discoverywatch.Service{DB: a.db, Now: func() time.Time { return now }}
+	applyWatchRoutes(a.r.Group("/api/v1"), svc)
+	base := "/api/v1/discoveries/sources/" + strconv.Itoa(id)
+	if w := a.do(http.MethodPost, base+"/watch/stop", nil); w.Code != http.StatusConflict {
+		t.Errorf("stop before the watch started: %d", w.Code)
+	}
+	if err := svc.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	a.get("/api/v1/discoveries/sources?since=all&view=watching", &page)
+	if len(page.Sources) != 1 || !page.Sources[0].Watching || page.Sources[0].Look || page.Sources[0].Watch == nil ||
+		page.Sources[0].Watch.Imaging != discoverywatch.ImagingAsking || len(page.Sources[0].Watch.Nights) != discoverywatch.NightsAsked {
+		t.Fatalf("watching view %+v", page.Sources)
+	}
+	w := a.do(http.MethodPost, base+"/watch/stop", nil)
+	var v discoverywatch.View
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusOK || v.Imaging != discoverywatch.ImagingStoppedUser {
+		t.Fatalf("stop %d %s", w.Code, w.Body)
+	}
+	for _, n := range v.Nights {
+		if n.State != app.EclipseCancel {
+			t.Errorf("night %s still %s", n.Night, n.State)
+		}
 	}
 }
