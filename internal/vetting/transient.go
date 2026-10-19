@@ -274,10 +274,15 @@ type counterpart struct {
 // peak is the flagged night where the spot's own light stood out most,
 // a night of thinSubs subs or more when there is one.
 func peak(fc *ownimage.FluxCurve) (ownimage.FluxNight, bool) {
+	return peakOf(fc, nil)
+}
+
+// peakOf is peak among the nights keep takes, all when keep is nil.
+func peakOf(fc *ownimage.FluxCurve, keep func(ownimage.FluxNight) bool) (ownimage.FluxNight, bool) {
 	var best ownimage.FluxNight
 	found := false
 	for _, n := range fc.Nights {
-		if !n.Flagged {
+		if !n.Flagged || (keep != nil && !keep(n)) {
 			continue
 		}
 		better := !found || (best.Thin && !n.Thin) || (best.Thin == n.Thin && n.SNR() > best.SNR())
