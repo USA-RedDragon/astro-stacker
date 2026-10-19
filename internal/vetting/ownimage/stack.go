@@ -163,6 +163,9 @@ type stackFrame struct {
 	measured bool
 	onStar   bool
 	beside   bool
+	// shared is the share of the object's light in the frame that the
+	// filter's master holds and so takes away from the difference.
+	shared float64
 }
 
 type stackPlan struct {
@@ -177,6 +180,13 @@ type stackPlan struct {
 	light  map[string]float64
 	mag    float64
 	note   string
+	// weight and count are each filter master's subs' total stack weight
+	// and count.
+	weight map[string]float64
+	count  map[string]int
+	// thin counts the detection frames left out for a master that holds
+	// too much of the object's light or too few subs.
+	thin int
 }
 
 // StackTracks stacks each moving object's frames of its night along its
@@ -204,12 +214,20 @@ func StackTracks(ctx context.Context, d Data, object string, spots []TrackSpot, 
 			return nil, fmt.Errorf("the target's masters: %w", err)
 		}
 	}
+	weight, count := map[string]float64{}, map[string]int{}
+	for _, s := range subs {
+		if s.Weight > 0 {
+			weight[s.Filter] += s.Weight
+			count[s.Filter]++
+		}
+	}
 	plans := make([]*stackPlan, len(spots))
 	for i, s := range spots {
 		sp, err := newStackPlan(ctx, d, w, width, height, subs, masters, s)
 		if err != nil {
 			return nil, err
 		}
+		sp.weight, sp.count = weight, count
 		plans[i] = sp
 	}
 	if err := streamStacks(ctx, d, subs, masters, plans, opts); err != nil {
@@ -584,11 +602,43 @@ func (sp *stackPlan) sub(p *discoveries.Plane, si int, subs []Sub) {
 		if fr.other {
 			fr.flux, ok = sp.zlight[filter], sp.zlight[filter] > 0
 		}
+		fr.shared = sp.selfShare(subs, si, width)
+		fr.flux *= 1 - fr.shared
+		if fr.shared > MaxShared || sp.count[filter] < MinMasterSubs {
+			ok = false
+		}
 		fr.w = placeWeight(fr.f)
 		fr.measured = ok && fr.w > 0
 		fr.onStar = maskedOnFrame(sb, fr.d)
 		fr.beside = starBeside(m, sigRef, stackHalf+fr.fx, stackHalf+fr.fy) >= stackBesideLight*fr.flux
 	}
+}
+
+// selfShare is the share of a moving object's light in sub si, at the
+// fit width sigma, that the sub's filter master holds: each sub of the
+// filter that night put the object into the master at its own place with
+// its share of the master's weight, and a star shape of width sigma
+// fitted d px from a like star takes exp(-d²/4σ²) of its light. The
+// sub's own share always lands at the object; for a fast object it is
+// the only one.
+func (sp *stackPlan) selfShare(subs []Sub, si int, sigma float64) float64 {
+	sub := subs[si]
+	total := sp.weight[sub.Filter]
+	if !(total > 0) || !(sigma > 0) {
+		return 0
+	}
+	x, y := sp.tp.at(midTime(sub))
+	nk := nightKey(sub.Night)
+	var share float64
+	for _, o := range subs {
+		if o.Filter != sub.Filter || !(o.Weight > 0) || nightKey(o.Night) != nk {
+			continue
+		}
+		ox, oy := sp.tp.at(midTime(o))
+		d2 := (ox-x)*(ox-x) + (oy-y)*(oy-y)
+		share += o.Weight / total * math.Exp(-d2/(4*sigma*sigma))
+	}
+	return math.Min(share, 1)
 }
 
 // starBeside is the light of the brightest star the master box m shows
@@ -986,6 +1036,9 @@ func finishStack(sp *stackPlan, res *TrackStack) {
 	var det, unused, other []*stackFrame
 	for _, fr := range sp.frames {
 		if !fr.measured {
+			if fr.det && fr.d != nil && (fr.shared > MaxShared || sp.count[fr.filter] < MinMasterSubs) {
+				sp.thin++
+			}
 			continue
 		}
 		switch {
@@ -1001,6 +1054,9 @@ func finishStack(sp *stackPlan, res *TrackStack) {
 	otherStack(other, res)
 	if len(det) < stackMinFrames {
 		res.Note = fmt.Sprintf("Only %d of its detection frames could be measured against their masters; at least %d are needed.", len(det), stackMinFrames)
+		if sp.thin > 0 {
+			res.Note += fmt.Sprintf(" %d more lie in filters whose master holds fewer than %d subs or more than %.0f%% of the object's own light in them, so much of it would cancel itself.", sp.thin, MinMasterSubs, 100*MaxShared)
+		}
 		return
 	}
 	res.Frames, res.Mag = len(det), sp.mag

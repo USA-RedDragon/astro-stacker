@@ -30,6 +30,27 @@ type trackField struct {
 	master synthSub
 	// more are the masters of other filters, by filter.
 	more map[string]synthSub
+	// deep counts the subs of another night each master holds besides the
+	// listed ones, never read: the quiet masters stand for deep stacks.
+	deep int
+}
+
+func (t *trackField) Subs(ctx context.Context, object string) ([]Sub, error) {
+	out, err := t.synthField.Subs(ctx, object)
+	if err != nil || t.deep == 0 {
+		return out, err
+	}
+	filters := []string{synthLum}
+	for f := range t.more {
+		filters = append(filters, f)
+	}
+	for _, f := range filters {
+		for k := range t.deep {
+			out = append(out, Sub{FrameID: 100000 + len(out), Filter: f, Night: day("2024-01-01"), Start: day("2024-01-01").Add(time.Duration(k) * 5 * time.Minute),
+				Exposure: 300, Weight: 1.5, Key: "registered/Synth/deep/" + f})
+		}
+	}
+	return out, nil
 }
 
 func filterMasterKey(filter string) string { return "stacks/Synth/" + filter + "/master.fit" }
@@ -57,7 +78,7 @@ func (t *trackField) Load(ctx context.Context, key string) (*discoveries.Plane, 
 func newTrackField() *trackField {
 	f := newSynth()
 	f.addNights([]time.Time{day(flaggedDay)}, trackSubs)
-	return &trackField{synthField: f, master: synthSub{sigma: 1.4, tr: 1, seed: 999, quiet: true}}
+	return &trackField{synthField: f, master: synthSub{sigma: 1.4, tr: 1, seed: 999, quiet: true}, deep: 200}
 }
 
 func (t *trackField) hours(k int) float64 {
