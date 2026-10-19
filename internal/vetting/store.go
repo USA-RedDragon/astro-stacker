@@ -109,7 +109,7 @@ const (
 // whose pipeline changes gets a new input hash and is vetted again.
 const (
 	moverPipeline     = "mover:8"
-	transientPipeline = "transient:7"
+	transientPipeline = "transient:8"
 	starPipeline      = "star:6"
 )
 

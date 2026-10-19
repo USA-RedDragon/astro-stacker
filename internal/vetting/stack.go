@@ -107,7 +107,14 @@ func (s *Service) moverReport(ctx context.Context, w *objectWork, sum discoverys
 // does, and those of the nights after. With a bright star's wing fitted
 // at the spot, the wing fit's light stands for the stack: 66053 and the
 // nine spots of Andromeda's 2025-01-21 showed light in a plain fit and
-// none in the wing fit.
+// none in the wing fit. When the stack holds every sub the detection
+// tested, a fake that shows at discoveries.MinLocalSNR or more there may
+// refute it, under ownimage.StackInjMin too: the detection claimed light
+// at that hold in these same subs, and tooWeakToFind refutes under it, so
+// one threshold decides both sides. A real source at the hold stands under
+// stackFake of it, 1.8 sigma low, in 3.6% of nights, and must then also
+// stand no higher than the empty places' 99th percentile. Confirming still
+// needs ownimage.StackInjMin.
 func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Check, ownimage.StackVerdict) {
 	if fc == nil {
 		return check.Skipped(check.TransStack, "Not measured yet. The spot's own light could not be measured."), ownimage.StackUntested
@@ -156,6 +163,9 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 		words = append(words, fmt.Sprintf("On %s it shows at %.1f, where the fake shows at %.1f.", n.Night, u.SNR, u.Inj))
 	}
 	ev := strings.Join(append([]string{lead}, words...), " ")
+	if !wing && rep.subs <= p.N {
+		f.RefuteMin = discoveries.MinLocalSNR
+	}
 	v, why := ownimage.JudgeStack(f)
 	if v == ownimage.StackUntested && !wing {
 		if c, ok := tooWeakToFind(f, p.N, rep.subs, ev); ok {
