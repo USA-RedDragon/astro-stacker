@@ -148,6 +148,9 @@ func StackCheck(ts *TrackStack) (check.Check, StackVerdict) {
 	if ts.Note != "" {
 		return check.Skipped(check.MoverStack, "Not measured. "+ts.Note), StackUntested
 	}
+	if ts.Glow {
+		return glowCheck(ts)
+	}
 	f := StackFacts{Obs: ts.SNR, Peak: ts.Peak, Inj: ts.Injected}
 	if ts.Wrong > 0 || ts.Random > 0 {
 		f.HasControl = true
@@ -192,4 +195,25 @@ func stackWords(ts *TrackStack) string {
 		ev += " No frames of the same night that the detection did not use cross its path."
 	}
 	return ev
+}
+
+// glowCheck judges a track whose path lies on stars the masters show in
+// most of its detection frames: star glow, as the movers audited on
+// 2026-10-17 mostly were, unless frames the detection did not use show it
+// off the stars.
+func glowCheck(ts *TrackStack) (check.Check, StackVerdict) {
+	ev := fmt.Sprintf("In %d of its %s its path lies on stars your masters show, so it could not be stacked there.", ts.OnStars, FrameWord(ts.Frames))
+	u := StackUnused{SNR: ts.UnusedSNR, Inj: ts.UnusedInjected}
+	if ts.Unused > 0 {
+		ev += fmt.Sprintf(" In %s of the same night the detection did not use it shows at %.1f, where a fake of its brightness shows at %.1f.", FrameWord(ts.Unused), u.SNR, u.Inj)
+		if !u.flat() {
+			return check.Skipped(check.MoverStack, "Not clear. "+ev+" Away from the stars it may be there."), StackUntested
+		}
+	} else {
+		ev += " No frames of the same night that the detection did not use cross its path."
+	}
+	if ts.Unused > 0 && u.testable() {
+		return check.New(check.MoverStack, check.Fail, ev+" It is the glow of those stars, not a moving object: away from them, where a real object would stand clear, it is not there."), StackRefuted
+	}
+	return check.New(check.MoverStack, check.Fail, ev+" It is the glow of those stars, not a moving object: its detections sit on stars in most of its frames."), StackRefuted
 }

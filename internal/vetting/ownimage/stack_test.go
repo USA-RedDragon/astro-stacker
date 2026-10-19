@@ -118,3 +118,64 @@ func TestFakeFollowsTheLightPutIn(t *testing.T) {
 		t.Errorf("a track found at twice its light stacked to %.1f against its fake %.1f", ts.SNR, ts.Injected)
 	}
 }
+
+func TestTrackOnStarsIsStarGlow(t *testing.T) {
+	t.Parallel()
+	f := newTrackField()
+	pos := func(k int) (float64, float64) {
+		h := f.hours(k)
+		return 150 + 2*h, 120 + 14*h
+	}
+	ax, ay := pos(2)
+	bx, by := pos(5)
+	f.stars = append(f.stars, synthStar{x: ax - 1.6, y: ay - 2.3, g: 14.7, bprp: 1}, synthStar{x: bx + 1.6, y: by + 2.1, g: 16.5, bprp: 1})
+	ts := runStack(t, f, f.stackSpot(pos, []int{1, 2, 3, 4, 5, 6}, moverFlux18))
+	c, v := StackCheck(&ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if !ts.Glow || v != StackRefuted || c.Status != check.Fail {
+		t.Errorf("a track on two stars' glow was not refuted as star glow: glow %v, %s", ts.Glow, v)
+	}
+}
+
+func TestRealMoverPastAStarStacksItsClearFrames(t *testing.T) {
+	t.Parallel()
+	f := newTrackField()
+	const fl = moverFlux18 / 2
+	for k := range f.subs {
+		x, y := f.line(k)
+		f.subs[k].extra = trailed(x, y, fl)
+	}
+	x4, y4 := f.line(4)
+	f.stars = append(f.stars, synthStar{x: x4 - 0.7, y: y4 + 0.9, g: 15.5, bprp: 1})
+	ts := runStack(t, f, f.stackSpot(f.line, []int{1, 2, 3, 4, 5, 6}, fl))
+	c, v := StackCheck(&ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if ts.Note != "" || ts.Glow {
+		t.Fatalf("the stack gave up or blamed glow: %+v", ts)
+	}
+	if ts.Frames >= 6 || ts.OnStars == 0 {
+		t.Errorf("the frames on the star were stacked: %d frames, %d on stars", ts.Frames, ts.OnStars)
+	}
+	if v != StackConfirmed || c.Status != check.Pass {
+		t.Errorf("a real mover passing a star was not confirmed: %s", v)
+	}
+}
+
+func TestRealMoverOnStarsMostOfItsFramesIsNotRefuted(t *testing.T) {
+	t.Parallel()
+	f := newTrackField()
+	const fl = moverFlux18 / 2
+	for k := range f.subs {
+		x, y := f.line(k)
+		f.subs[k].extra = trailed(x, y, fl)
+	}
+	x3, y3 := f.line(3)
+	x4, y4 := f.line(4)
+	f.stars = append(f.stars, synthStar{x: x3 + 0.8, y: y3 - 0.6, g: 14.5, bprp: 1}, synthStar{x: x4 - 0.7, y: y4 + 0.9, g: 14.8, bprp: 1})
+	ts := runStack(t, f, f.stackSpot(f.line, []int{1, 2, 3, 4, 5, 6}, fl))
+	c, v := StackCheck(&ts)
+	t.Logf("%s %s", c.Status, c.Evidence)
+	if v == StackRefuted {
+		t.Errorf("a real mover over two bright stars, clear in its unused frames, was refuted")
+	}
+}
