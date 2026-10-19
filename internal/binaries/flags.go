@@ -8,6 +8,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/eclfacts"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
 
 // Flag ids.
@@ -84,6 +85,10 @@ func Flags(r *vetting.Report, f Facts) []Flag {
 		switch {
 		case !ok || c.Status != check.Pass:
 			out = append(out, Flag{ID: FlagHalf, Label: labelHalf, Why: "The half-period check did not pass: " + lowerFirst(evidence(c, ok))})
+		case strings.HasPrefix(c.Evidence, period.NoDarkCompanion):
+			out = append(out, Flag{ID: FlagHalf, Label: labelHalf, Why: fmt.Sprintf(
+				"The survey data show one dip every %s days; the vet takes two equal eclipses every %s days because no companion dark enough to hide its own eclipse could make a dip that deep. %s",
+				periodText(e.Period/2, e.PeriodErr/2), p, c.Evidence)})
 		default:
 			if t := f.twin(); t != nil && t.Band != "" && t.PhaseErr > 0 && t.DepthZ < strongZ && t.PhaseZ < strongZ {
 				off := math.Abs(t.Phase2-0.5) * e.Period * 24

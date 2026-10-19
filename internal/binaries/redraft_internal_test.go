@@ -9,6 +9,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
 
 type undoCount struct {
@@ -138,5 +139,53 @@ func TestRedraftMovedRequests(t *testing.T) {
 	}
 	if sv := seasonView(stars[0], all, now); sv == nil || sv.Stopped != "" {
 		t.Errorf("a moved request does not stop the season: %+v", sv)
+	}
+}
+
+// TestRelabelledEclipsesKeepTheirRequests is a star the vet first took as
+// one dip every 2.741969 days and later as two equal eclipses every
+// 5.483938 days, as source 16040: every other eclipse turns from primary
+// to secondary at the same time, and no request may be drafted again.
+func TestRelabelledEclipsesKeepTheirRequests(t *testing.T) {
+	t.Parallel()
+	const p, t0 = 2.741969, 2460000.3
+	one := &period.Ephemeris{Period: p, PeriodErr: 3e-6, T0: t0, T0Err: 0.0004, Kind: period.KindEclipsing,
+		Eclipses: []period.Eclipse{{Phase: 0, Width: 0.02, Shape: 1, Depth: map[string]float64{keyZTFr: 0.47}}}}
+	two := &period.Ephemeris{Period: 2 * p, PeriodErr: 6e-6, T0: t0, T0Err: 0.0004, Kind: period.KindEclipsing,
+		Eclipses: []period.Eclipse{
+			{Phase: 0, Width: 0.01, Shape: 1, Depth: map[string]float64{keyZTFr: 0.47}},
+			{Phase: 0.5, Width: 0.01, Shape: 1, Depth: map[string]float64{keyZTFr: 0.46}},
+		}}
+	gaia := &GaiaFacts{ID: 1, RA: 280, Dec: 30, G: 16}
+	before := Star{Facts: &Facts{Ephemeris: one, Gaia: gaia}}
+	after := Star{Facts: &Facts{Ephemeris: two, Gaia: gaia}}
+	from := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	preds := Predict(one, 0, gaia.RA, gaia.Dec, from, from.Add(30*24*time.Hour))
+	if len(preds) < 8 {
+		t.Fatalf("predictions %d", len(preds))
+	}
+	kinds := map[string]int{}
+	for _, pr := range preds {
+		r := requestFor(pr, 0)
+		if q, ok := nearestPrediction(before, r); !ok || movedOut(r, q) {
+			t.Fatalf("request at %s moved under its own ephemeris", r.Mid)
+		}
+		q, ok := nearestPrediction(after, r)
+		if !ok || movedOut(r, q) {
+			t.Errorf("request at %s is drafted again though only its kind changed (nearest %+v)", r.Mid, q)
+		}
+		kinds[q.Kind]++
+	}
+	if kinds[KindPrimary] == 0 || kinds[KindSecondary] == 0 {
+		t.Errorf("kinds after doubling %v, want both", kinds)
+	}
+	var rows []app.EclipseTiming
+	for _, pr := range preds {
+		rows = append(rows, app.EclipseTiming{SourceID: 1, Kind: KindPrimary, Predicted: pr.Mid})
+	}
+	for _, pr := range Predict(two, 0, gaia.RA, gaia.Dec, from, from.Add(30*24*time.Hour)) {
+		if r := matchTiming(rows, 1, pr.Kind, pr.Mid, two.Period); r == nil || absDur(r.Predicted.Sub(pr.Mid)) > time.Minute {
+			t.Errorf("the %s eclipse at %s does not find its stored timing", pr.Kind, pr.Mid)
+		}
 	}
 }

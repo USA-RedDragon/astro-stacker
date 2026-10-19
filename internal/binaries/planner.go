@@ -86,6 +86,22 @@ const maxHalfWindow = 7 * 24 * time.Hour
 // to be its request.
 const requestMatch = 2 * time.Hour
 
+// relabelMatch is how close an eclipse stored under one kind must be to a
+// prediction of the other kind to be the same eclipse relabelled: a
+// single dip per cycle the vet now takes as two equal eclipses at twice
+// the period, or two equal eclipses whose deeper one swapped, keeps its
+// times and changes only which is primary.
+const relabelMatch = 20 * time.Minute
+
+// sameEclipse says a stored eclipse of kind k with its middle d from a
+// predicted one of kind pk is that eclipse.
+func sameEclipse(k, pk string, d time.Duration) bool {
+	if k == pk {
+		return absDur(d) <= requestMatch
+	}
+	return absDur(d) <= relabelMatch
+}
+
 // Plan lists the predicted eclipses of every star, observable ones only
 // unless All.
 func Plan(in PlanInput) EclipsePlan {
@@ -187,10 +203,7 @@ func (s Star) ownEclipse() bool {
 func matchRequest(reqs []app.EclipseRequest, id int, p Predicted) *RequestView {
 	var best *app.EclipseRequest
 	for i, r := range reqs {
-		if r.SourceID != id || r.Kind != p.Kind || r.State == app.EclipseMoved {
-			continue
-		}
-		if d := r.Mid.Sub(p.Mid); d < -requestMatch || d > requestMatch {
+		if r.SourceID != id || r.State == app.EclipseMoved || !sameEclipse(r.Kind, p.Kind, r.Mid.Sub(p.Mid)) {
 			continue
 		}
 		if best == nil || r.ID > best.ID {
