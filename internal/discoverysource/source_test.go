@@ -193,6 +193,29 @@ func checkRealSourcesMerge(t *testing.T, db *gorm.DB) {
 	}
 }
 
+func TestAVettedArtifactLeavesNeedsALook(t *testing.T) {
+	t.Parallel()
+	checkAVettedArtifactLeavesNeedsALook(t, open(t))
+}
+
+func checkAVettedArtifactLeavesNeedsALook(t *testing.T, db *gorm.DB) {
+	store(t, db, realRows())
+	id := all(t, db)[15111].Source.ID
+	if err := db.Create(&app.DiscoveryVet{SourceID: id, State: "done", Suggested: app.VetArtifact, Confidence: "medium"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	cyg := all(t, db)[15111]
+	if cyg.Look() || !cyg.In(discoverysource.ViewArtifacts) {
+		t.Errorf("artifact source look %v artifacts %v", cyg.Look(), cyg.In(discoverysource.ViewArtifacts))
+	}
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", "low").Error; err != nil {
+		t.Fatal(err)
+	}
+	if cyg := all(t, db)[15111]; !cyg.Look() || cyg.In(discoverysource.ViewArtifacts) {
+		t.Error("a low-confidence artifact left needs a look")
+	}
+}
+
 func TestACatalogListedSourceIsKnown(t *testing.T) {
 	t.Parallel()
 	checkACatalogListedSourceIsKnown(t, open(t))
@@ -486,14 +509,15 @@ func TestOnPostgres(t *testing.T) { //nolint:tparallel
 	t.Parallel()
 	pg := testdb.Postgres(t, "sources", "sources")
 	for name, check := range map[string]func(*testing.T, *gorm.DB){ //nolint:paralleltest
-		"real":    checkRealSourcesMerge,
-		"rerun":   checkSourceSurvivesRerunAndKeepsVetting,
-		"newest":  checkNewestCandidateVettingWinsOnTheFirstGathering,
-		"cleared": checkAClearedSourceIgnoresAStaleRerunCopy,
-		"many":    checkGatheringManyCandidatesGivesEachItsOwnSource,
-		"join":    checkACandidateLinkingTwoSourcesJoinsThem,
-		"earlier": checkARangeCountsTheEarlierSourcesThatNeedALook,
-		"listed":  checkACatalogListedSourceIsKnown,
+		"real":     checkRealSourcesMerge,
+		"rerun":    checkSourceSurvivesRerunAndKeepsVetting,
+		"newest":   checkNewestCandidateVettingWinsOnTheFirstGathering,
+		"cleared":  checkAClearedSourceIgnoresAStaleRerunCopy,
+		"many":     checkGatheringManyCandidatesGivesEachItsOwnSource,
+		"join":     checkACandidateLinkingTwoSourcesJoinsThem,
+		"earlier":  checkARangeCountsTheEarlierSourcesThatNeedALook,
+		"listed":   checkACatalogListedSourceIsKnown,
+		"artifact": checkAVettedArtifactLeavesNeedsALook,
 	} {
 		t.Run(name, func(t *testing.T) {
 			db := pg.Session(&gorm.Session{NewDB: true})

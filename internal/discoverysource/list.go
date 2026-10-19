@@ -16,15 +16,18 @@ import (
 
 // Views of the inbox.
 const (
-	ViewLook   = "look"
-	ViewKnown  = "known"
-	ViewMovers = "movers"
-	ViewLow    = "low"
-	ViewVetted = "vetted"
+	ViewLook      = "look"
+	ViewKnown     = "known"
+	ViewMovers    = "movers"
+	ViewLow       = "low"
+	ViewVetted    = "vetted"
+	ViewArtifacts = "artifacts"
 )
 
 // Views lists every view; the empty view is everything.
-func Views() []string { return []string{ViewLook, ViewKnown, ViewMovers, ViewLow, ViewVetted} }
+func Views() []string {
+	return []string{ViewLook, ViewKnown, ViewMovers, ViewLow, ViewArtifacts, ViewVetted}
+}
 
 // SearchArcsec is how near a searched position a source must be.
 const SearchArcsec = 60.0
@@ -63,11 +66,14 @@ type Summary struct {
 	// Listed is whether vetting found it with high confidence in a catalog
 	// of known objects.
 	Listed bool
+	// LikelyArtifact is whether vetting called it an artifact with medium or
+	// high confidence.
+	LikelyArtifact bool
 }
 
 // Look says whether a source is new and not vetted.
 func (s Summary) Look() bool {
-	return discoveries.IsNew(s.Class) && s.Source.Vetting == "" && !s.Listed
+	return discoveries.IsNew(s.Class) && s.Source.Vetting == "" && !s.Listed && !s.LikelyArtifact
 }
 
 // In says whether a source belongs to a view.
@@ -82,6 +88,8 @@ func (s Summary) In(view string) bool {
 		return !change
 	case ViewLow:
 		return change && s.Source.Vetting == "" && s.Class == discoveries.ClassLowConfidence
+	case ViewArtifacts:
+		return s.Source.Vetting == "" && s.LikelyArtifact && discoveries.IsNew(s.Class)
 	case ViewVetted:
 		return s.Source.Vetting != ""
 	}
@@ -96,6 +104,7 @@ type Counts struct {
 	NewMovers int `json:"new_movers"`
 	Low       int `json:"low"`
 	Vetted    int `json:"vetted"`
+	Artifacts int `json:"artifacts"`
 	All       int `json:"all"`
 	// LookEarlier counts the sources that need a look and were last seen
 	// before Since, so the range leaves them out.
@@ -123,6 +132,9 @@ func countOf(list []Summary) Counts {
 		}
 		if s.In(ViewVetted) {
 			c.Vetted++
+		}
+		if s.In(ViewArtifacts) {
+			c.Artifacts++
 		}
 	}
 	return c
@@ -269,6 +281,11 @@ func summaries(db *gorm.DB, pick func(*gorm.DB) *gorm.DB) ([]Summary, error) {
 		pick(db.Model(&app.DiscoverySource{})).Select("id"), app.VetKnown, "high").Pluck("source_id", &listed).Error; err != nil {
 		return nil, err
 	}
+	var artifacts []int
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id IN (?) AND suggested = ? AND confidence IN ?",
+		pick(db.Model(&app.DiscoverySource{})).Select("id"), app.VetArtifact, []string{"medium", "high"}).Pluck("source_id", &artifacts).Error; err != nil {
+		return nil, err
+	}
 	out := make([]Summary, 0, len(sources))
 	for _, s := range sources {
 		if len(members[s.ID]) == 0 {
@@ -276,6 +293,7 @@ func summaries(db *gorm.DB, pick func(*gorm.DB) *gorm.DB) ([]Summary, error) {
 		}
 		sum := summarize(s, members[s.ID], runs, compared[s.Object])
 		sum.Listed = slices.Contains(listed, s.ID)
+		sum.LikelyArtifact = slices.Contains(artifacts, s.ID)
 		out = append(out, sum)
 	}
 	return out, nil
