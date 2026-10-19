@@ -120,9 +120,9 @@ const (
 // Pipeline versions of the sources with checks of their own: a source
 // whose pipeline changes gets a new input hash and is vetted again.
 const (
-	moverPipeline     = "mover:8"
-	transientPipeline = "transient:9"
-	starPipeline      = "star:12"
+	moverPipeline     = "mover:9"
+	transientPipeline = "transient:10"
+	starPipeline      = "star:13"
 )
 
 func pipelineOf(s discoverysource.Summary) string {
