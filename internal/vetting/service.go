@@ -234,7 +234,7 @@ func (s *Service) VetSpot(ctx context.Context, sp Spot) (*Report, error) {
 	if runAt.IsZero() {
 		runAt = s.now()
 	}
-	own, err := ownimage.Measure(ctx, s.Data, sp.Object, []ownimage.Spot{spotOf(sum, members, nil, runAt)}, ownimage.Options{Threads: s.threads(), WorkDir: s.WorkDir})
+	own, err := ownimage.Measure(ctx, s.Data, sp.Object, []ownimage.Spot{s.withStar(ctx, spotOf(sum, members, nil, runAt), members)}, ownimage.Options{Threads: s.threads(), WorkDir: s.WorkDir})
 	var res *ownimage.Result
 	if err == nil && len(own) == 1 {
 		res = &own[0]
@@ -397,7 +397,7 @@ func (s *Service) prepare(ctx context.Context, object string, dues []Due) (*obje
 			}
 			continue
 		}
-		spots = append(spots, spotOf(d.Summary, w.byID[d.Summary.Source.ID], w.runs, s.now()))
+		spots = append(spots, s.withStar(ctx, spotOf(d.Summary, w.byID[d.Summary.Source.ID], w.runs, s.now()), w.byID[d.Summary.Source.ID]))
 	}
 	w.pulled = s.Mem.Step()
 	slog.Info("Vetting a target", "object", object, "sources", len(dues), "moving", len(tracks))
@@ -495,6 +495,25 @@ func (s *Service) runs(ctx context.Context, ids map[int]bool) (map[int]app.Disco
 		out[r.ID] = r
 	}
 	return out, nil
+}
+
+// withStar names in a spot whose source has no star the Gaia star the vet
+// takes for it, so its own frames measure the star the rest of the vet
+// judges. 28076 (Abell 85, 2026-01-17), a 0.41 mag fade where the vet took
+// the G 14.08 star the detection's reference magnitude matched, 3.8"
+// from the spot, was judged as that star while its own frames found no
+// star within 2" and measured nothing.
+func (s *Service) withStar(ctx context.Context, sp ownimage.Spot, members []app.DiscoveryCandidate) ownimage.Spot {
+	if sp.GaiaG != nil {
+		return sp
+	}
+	st, err := s.identify(ctx, sp.RA, sp.Dec, refMagOf(members))
+	if err != nil || !st.found {
+		return sp
+	}
+	g := st.target.G
+	sp.GaiaG = &g
+	return sp
 }
 
 func spotOf(sum discoverysource.Summary, members []app.DiscoveryCandidate, runs map[int]app.DiscoveryRun, now time.Time) ownimage.Spot {
