@@ -105,6 +105,18 @@ const (
 	pendingAfter = time.Hour
 )
 
+// refreshEvery is how long after its last run a source the user marked
+// real is vetted again on its own, to take in the survey data added since:
+// ATLAS adds epochs nightly, TESS a sector a month and ZTF a release every
+// few months, so a week keeps the binary pages near current at the cost of
+// one run per target a week. realPendingAfter is how long such a run
+// waiting on a survey's queue waits before it tries again: a refresh is
+// not urgent, and each run reads the target's own subs again.
+const (
+	refreshEvery     = 7 * 24 * time.Hour
+	realPendingAfter = 6 * time.Hour
+)
+
 // Pipeline versions of the sources with checks of their own: a source
 // whose pipeline changes gets a new input hash and is vetted again.
 const (
@@ -139,8 +151,10 @@ func hashOf(s discoverysource.Summary) string {
 // Pick lists the sources due: new and not vetted by the user with no
 // report, an older report version or pipeline, a report another build
 // wrote after the newest build was announced, changed candidates or
-// survey answers still to collect, and any run requested by hand. ids narrows the pick
-// to those sources, due or not.
+// survey answers still to collect; those the user marked real with no
+// report, an older report version or pipeline, changed candidates, survey
+// answers still to collect or a report refreshEvery old; and any run
+// requested by hand. ids narrows the pick to those sources, due or not.
 func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids []int) ([]Due, error) {
 	list, err := summaries(ctx, db, objects, ids)
 	if err != nil {
@@ -194,11 +208,21 @@ func dueAgain(s discoverysource.Summary) bool {
 	return discoveries.IsNew(s.Class) && s.Source.Vetting == ""
 }
 
+// userReal says the user marked the source a real change of a star. The
+// job vets such a source again on its own when its survey data could have
+// grown, to keep its period and eclipse predictions current; the user's
+// verdict is never changed. Moving objects have no survey light curves to
+// grow.
+func userReal(s discoverysource.Summary) bool {
+	return s.Source.Vetting == app.VetReal && s.Source.Kind != kindMover
+}
+
 func due(s discoverysource.Summary, hash string, v app.DiscoveryVet, seen bool, now time.Time) bool {
 	if seen && asked(v) {
 		return true
 	}
-	if !dueAgain(s) {
+	byUser := userReal(s)
+	if !dueAgain(s) && !byUser {
 		return false
 	}
 	if !seen {
@@ -211,8 +235,12 @@ func due(s discoverysource.Summary, hash string, v app.DiscoveryVet, seen bool, 
 		return v.FinishedAt == nil || now.Sub(*v.FinishedAt) > retryAfter
 	case v.Version < Version, v.InputHash != hash:
 		return true
+	case v.Pending != "" && byUser:
+		return v.FinishedAt == nil || now.Sub(*v.FinishedAt) > realPendingAfter
 	case v.Pending != "":
 		return v.FinishedAt == nil || now.Sub(*v.FinishedAt) > pendingAfter
+	case byUser && v.State == StateDone:
+		return v.FinishedAt == nil || now.Sub(*v.FinishedAt) >= refreshEvery
 	}
 	return v.State != StateDone
 }
@@ -226,7 +254,9 @@ func summaries(ctx context.Context, db *gorm.DB, objects []string, ids []int) ([
 	if len(ids) > 0 {
 		q = q.Where("id IN ?", ids)
 	} else {
-		q = q.Where("vetting = ''")
+		askedIDs := db.Model(&app.DiscoveryVet{}).Select("source_id").
+			Where("requested_at IS NOT NULL AND (started_at IS NULL OR requested_at > started_at)")
+		q = q.Where("vetting = '' OR (vetting = ? AND kind <> ?) OR id IN (?)", app.VetReal, kindMover, askedIDs)
 	}
 	var sources []app.DiscoverySource
 	if err := q.Find(&sources).Error; err != nil {

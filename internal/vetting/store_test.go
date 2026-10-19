@@ -22,7 +22,7 @@ func seedSources(t *testing.T, db *gorm.DB) (int, int, int) {
 	srcs := []app.DiscoverySource{
 		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.889, Dec: 41.662, Night: night},
 		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.9, Dec: 41.7, Night: night},
-		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.95, Dec: 41.75, Night: night, Vetting: app.VetReal},
+		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.95, Dec: 41.75, Night: night, Vetting: app.VetArtifact},
 	}
 	if err := db.Create(&srcs).Error; err != nil {
 		t.Fatal(err)
@@ -115,6 +115,114 @@ func due0Hash(ctx context.Context, t *testing.T, db *gorm.DB) string {
 		}
 	}
 	return ""
+}
+
+func checkRefreshPick(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	ctx := context.Background()
+	if err := db.AutoMigrate(&app.DiscoveryRun{}, &app.DiscoveryCandidate{}, &app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}); err != nil {
+		t.Fatal(err)
+	}
+	night := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
+	srcs := []app.DiscoverySource{
+		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.1, Dec: 41.1, Night: night},
+		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.2, Dec: 41.2, Night: night, Vetting: app.VetReal},
+		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.3, Dec: 41.3, Night: night, Vetting: app.VetArtifact},
+		{Object: objAnd, Kind: app.DiscoveryKindChange, RA: 10.4, Dec: 41.4, Night: night, Vetting: app.VetKnown},
+		{Object: objAnd, Kind: app.DiscoveryKindMover, RA: 10.5, Dec: 41.5, Night: night, Vetting: app.VetReal},
+	}
+	if err := db.Create(&srcs).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := range srcs {
+		c := app.DiscoveryCandidate{RunID: 1, Object: objAnd, Night: night, Kind: srcs[i].Kind, Class: discoveries.ClassNewVariable, SourceID: &srcs[i].ID}
+		if err := db.Create(&c).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	unvetted, marked, artifact, known, mover := srcs[0].ID, srcs[1].ID, srcs[2].ID, srcs[3].ID, srcs[4].ID
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	pick := func(at time.Time) map[int]bool {
+		t.Helper()
+		due, err := Pick(ctx, db, at, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[int]bool{}
+		for _, d := range due {
+			out[d.Summary.Source.ID] = true
+		}
+		return out
+	}
+	hashes := map[int]string{}
+	list, err := summaries(ctx, db, nil, []int{unvetted, marked, artifact, known, mover})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range list {
+		hashes[s.Source.ID] = hashOf(s)
+	}
+	if got := pick(now); len(got) != 2 || !got[unvetted] || !got[marked] {
+		t.Fatalf("with no reports the unvetted and the user-real sources are due, not artifact, known or a moving object: %v", got)
+	}
+	saveAt := func(id int, at time.Time, hash, pipeline string, pending []string) {
+		t.Helper()
+		if err := markRunning(ctx, db, []int{id}, at); err != nil {
+			t.Fatal(err)
+		}
+		r := &Report{Version: Version, Suggestion: Suggestion{State: app.VetUnsure, Confidence: Low}, Pending: pending}
+		if err := save(ctx, db, id, hash, stamp{pipeline: pipeline}, r, nil, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []int{unvetted, marked, artifact, known, mover} {
+		saveAt(id, now, hashes[id], starPipeline, nil)
+	}
+	if got := pick(now.Add(6 * 24 * time.Hour)); len(got) != 0 {
+		t.Fatalf("nothing is due six days after a run: %v", got)
+	}
+	if got := pick(now.Add(refreshEvery)); len(got) != 1 || !got[marked] {
+		t.Fatalf("seven days on only the user-real source is due: %v", got)
+	}
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id IN ?", []int{unvetted, marked, artifact, known, mover}).
+		Updates(map[string]any{"pipeline": "star:7", "input_hash": "older-pipeline"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := pick(now.Add(time.Hour)); len(got) != 2 || !got[unvetted] || !got[marked] {
+		t.Fatalf("after a pipeline bump the unvetted and user-real sources are due, not artifact, known or a moving object: %v", got)
+	}
+	saveAt(marked, now, hashes[marked], starPipeline, []string{"ATLAS"})
+	if got := pick(now.Add(2 * time.Hour)); got[marked] {
+		t.Fatalf("a user-real source waiting on ATLAS waits %s: %v", realPendingAfter, got)
+	}
+	if got := pick(now.Add(realPendingAfter + time.Minute)); !got[marked] {
+		t.Fatalf("a user-real source waiting on ATLAS is run again after %s: %v", realPendingAfter, got)
+	}
+	if _, err := Request(ctx, db, artifact, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got := pick(now.Add(2 * time.Hour)); !got[artifact] || got[known] {
+		t.Fatalf("an artifact asked for by hand runs; known does not: %v", got)
+	}
+	var vetted []app.DiscoverySource
+	if err := db.Order("id").Find(&vetted, []int{unvetted, marked, artifact, known, mover}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"", app.VetReal, app.VetArtifact, app.VetKnown, app.VetReal} {
+		if vetted[i].Vetting != want {
+			t.Fatalf("source %d vetting %q, want the user's %q", vetted[i].ID, vetted[i].Vetting, want)
+		}
+	}
+}
+
+func TestRefreshPickSQLite(t *testing.T) {
+	t.Parallel()
+	checkRefreshPick(t, testdb.SQLite(t, "vetrefresh"))
+}
+
+func TestRefreshPickPostgres(t *testing.T) {
+	t.Parallel()
+	checkRefreshPick(t, testdb.Postgres(t, "vetrefresh", "vet"))
 }
 
 func TestPickSQLite(t *testing.T) {

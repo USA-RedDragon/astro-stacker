@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -412,7 +413,11 @@ func (s *Service) prepare(ctx context.Context, object string, dues []Due) (*obje
 		movers: map[int]*moverVet{}, stacks: map[int]*ownimage.TrackStack{}, stackAsked: map[int]bool{}, stackLater: map[int]bool{}}
 	s.Report.Set(object+": pulling survey data", 0, 0, "")
 	if s.Surveys != nil && !s.ReadOnly {
-		if err := s.Surveys.PrefetchProgress(ctx, f, func(done, total int) {
+		pctx := ctx
+		if slices.ContainsFunc(dues, func(d Due) bool { return userReal(d.Summary) }) {
+			pctx = surveys.Fresh(ctx)
+		}
+		if err := s.Surveys.PrefetchProgress(pctx, f, func(done, total int) {
 			s.Report.Set(object+": pulling survey data", int64(done), int64(total), "files")
 		}); err != nil {
 			slog.Warn("Could not pull the field's survey data; reading per star", "object", object, "error", err)
@@ -695,6 +700,9 @@ type fetches struct {
 func (f fetches) all() []surveys.Fetch { return []surveys.Fetch{f.ztf, f.atlas, f.tess, f.neowise} }
 
 func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverysource.Summary, runs map[int]app.DiscoveryRun, own *ownimage.Result) (*Report, error) {
+	if userReal(sum) {
+		ctx = surveys.Fresh(ctx)
+	}
 	ra, dec := sum.Source.RA, sum.Source.Dec
 	st, err := s.identify(ctx, ra, dec, refMagOf(sum.Members))
 	if err != nil {
@@ -720,7 +728,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	var fx fetches
 	if s.Surveys != nil && sum.Source.Kind != kindMover {
 		fx.ztf = s.Surveys.ZTF(ctx, f, st.target)
-		if !artifact && known.Listed == "" && worthMore(fx.ztf, curve, sum) {
+		if userReal(sum) || (!artifact && known.Listed == "" && worthMore(fx.ztf, curve, sum)) {
 			fx.neowise = s.Surveys.NEOWISE(ctx, f, st.target)
 			fx.atlas = s.Surveys.ATLAS(ctx, f, st.target)
 			fx.tess = s.Surveys.TESS(ctx, f, st.target)
