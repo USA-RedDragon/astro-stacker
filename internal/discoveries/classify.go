@@ -315,7 +315,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 			continue
 		}
 		for _, v := range k.Variables {
-			if sep := Separation(c.RA, c.Dec, v.RA, v.Dec) * 3600; sep <= vsxMatchArcsec && (!tightMatch(v.Catalog) || sep <= simbadMatchArcsec) {
+			if sep := Separation(c.RA, c.Dec, v.RA, v.Dec) * 3600; sep <= vsxMatchArcsec && (!tightMatch(v.Catalog) || sep <= simbadMatchArcsec) && !c.tooBrightFor(v.Max) {
 				m := Match{Catalog: or(v.Catalog, catalogVSX), Name: v.Name, Type: v.Type, SepArcsec: sep}
 				if v.Max != 0 {
 					mx := v.Max
@@ -334,7 +334,7 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 		}
 		for _, b := range k.Bodies {
 			ra, dec := b.At(res.MidTime.Sub(k.Epoch))
-			if sep := Separation(c.RA, c.Dec, ra, dec) * 3600; sep <= staticBodyArcsec {
+			if sep := Separation(c.RA, c.Dec, ra, dec) * 3600; sep <= staticBodyArcsec && !c.tooBrightFor(b.V) {
 				v := b.V
 				l.Matches = append(l.Matches, Match{Catalog: "SkyBoT", Name: bodyName(b), Type: b.Class, SepArcsec: sep, Mag: &v})
 			}
@@ -360,6 +360,41 @@ func Classify(ctx context.Context, res *Result, k Known, alerts AlertLookup) ([]
 	}
 	holdMany(out)
 	return out, tracks, checked, failed
+}
+
+// catalogMagSlack is how much brighter than a catalogue entry at its
+// brightest a change may be and still be its light. The light that changed
+// at M 22's 45489 (2021-06-29) was 12.5 mag, far past the OGLE eclipsing
+// binary 4.5" away that peaks at 17.2; a 16.8 mag source in the Leo
+// Triplet (27526, 2026-02-19) is not the 21.2 mag asteroid 3" away. Bands
+// and SkyBoT's V differ from the frames' magnitudes by under a magnitude.
+const catalogMagSlack = 2.0
+
+// changeMag is the magnitude of the light that changed: the night's light
+// less the reference's, or either alone when only it was measured. ok is
+// false when neither was.
+func (c Candidate) changeMag() (float64, bool) {
+	switch {
+	case c.NightMag != nil && c.RefMag != nil:
+		f := math.Abs(math.Pow(10, -0.4**c.NightMag) - math.Pow(10, -0.4**c.RefMag))
+		if !(f > 0) {
+			return 0, false
+		}
+		return -2.5 * math.Log10(f), true
+	case c.NightMag != nil:
+		return *c.NightMag, true
+	case c.RefMag != nil:
+		return *c.RefMag, true
+	}
+	return 0, false
+}
+
+// tooBrightFor says the change is far brighter than a catalogue entry
+// that is mag at its brightest can be, so it is not that entry's light. An
+// entry with no magnitude, or a change with none, is never ruled out.
+func (c Candidate) tooBrightFor(mag float64) bool {
+	m, ok := c.changeMag()
+	return ok && mag != 0 && m < mag-catalogMagSlack
 }
 
 // onStarMatch is the match of a change that sits on a star it barely
