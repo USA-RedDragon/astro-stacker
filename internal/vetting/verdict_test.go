@@ -11,6 +11,27 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
 
+func TestFaintSurveyCycleNotReal(t *testing.T) {
+	t.Parallel()
+	// 5665 (Cygnus Loop Panel 2): a 1.047051-day cycle of 0.04 mag that
+	// passed the false-period tests while the ZTF row itself found it too
+	// faint, on a spot over a hot master dark pixel whose own frames showed
+	// no change.
+	sum := discoverysource.Summary{Source: app.DiscoverySource{Kind: app.DiscoveryKindChange}}
+	pr := &period.Result{Ephemeris: &period.Ephemeris{Period: 1.047051, Kind: period.KindSinusoidal},
+		Robust: &period.Robust{Stable: true, CompPass: true, Real: true, Comparisons: 5}}
+	ztf := check.Skipped(check.ZTF, "676 g, 1,202 r and 33 i points from 2018 to 2025. Too faint a change here to see the 1.04705 day cycle.")
+	groups := []Group{{ID: check.GroupSurveys, Checks: []check.Check{ztf, check.New(check.Fold, check.Pass, ""), check.New(check.Echo, check.Pass, ""), check.New(check.Compare, check.Pass, "")}}}
+	s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{})
+	if s.State != app.VetUnsure {
+		t.Errorf("5665: %+v, want unsure", s)
+	}
+	groups[0].Checks[0] = check.New(check.ZTF, check.Pass, "Rises and falls by 0.08 mag in r every 1.047 days.")
+	if s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{}); s.State != app.VetReal {
+		t.Errorf("a cycle ZTF shows: %+v, want real", s)
+	}
+}
+
 func TestSuggestion(t *testing.T) {
 	t.Parallel()
 	night := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
