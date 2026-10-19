@@ -184,10 +184,15 @@ func (s *Service) advance(ctx context.Context, sum discoverysource.Summary, now 
 	if err != nil {
 		return err
 	}
-	fades, known := FadeNights(sum, rep)
-	out, ok := Advance(sum, sum.Watch, fades, known, now)
+	nights, known := FadeNights(sum, rep)
+	out, ok := Advance(sum, sum.Watch, nights, known, now)
 	if !ok {
 		return nil
+	}
+	if oldReport(rep, sum.Vet) && out.Watch.EndedAt == nil {
+		if _, err := vetting.Request(ctx, s.DB, sum.Source.ID, now); err != nil {
+			return err
+		}
 	}
 	if out.Changed {
 		if err := s.DB.WithContext(ctx).Save(&out.Watch).Error; err != nil {
@@ -208,6 +213,12 @@ func (s *Service) advance(ctx context.Context, sum discoverysource.Summary, now 
 		return s.ask(ctx, sum, out.Watch, now)
 	}
 	return nil
+}
+
+// oldReport says a finished vet report read ZTF but came before the ZTF
+// fade nights were listed, so the find is vetted again once to list them.
+func oldReport(rep *vetting.Report, v *app.DiscoveryVet) bool {
+	return rep != nil && rep.FadesRead && !rep.FadeNightsRead && v != nil && v.State == vetting.StateDone
 }
 
 // ask plans the watch's next set of nights once every night of the last

@@ -17,6 +17,10 @@ type DiscoveryWatch struct {
 	// now; nil until a vet report has counted them.
 	FadesAtStart *int
 	Fades        *int
+	// StartNights is the dates of the fade nights at the start as a JSON
+	// list, empty until a vet report has listed them; only nights not in
+	// it count toward leaving.
+	StartNights string `gorm:"type:text;not null;default:''"`
 	// LastFadeAt is when the fade count last grew, or the start.
 	LastFadeAt       time.Time
 	ImagingStoppedAt *time.Time

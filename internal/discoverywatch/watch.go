@@ -15,6 +15,8 @@
 package discoverywatch
 
 import (
+	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
@@ -23,27 +25,49 @@ import (
 )
 
 const (
-	// FadesToLeave is how many fade nights beyond those at the start move
-	// a find to Needs a look.
+	// FadesToLeave is how many fade nights not among those at the start
+	// move a find to Needs a look.
 	FadesToLeave = 2
 	// QuietStop is how long without a new fade night before the watch
 	// stops asking for imaging.
 	QuietStop = 90 * 24 * time.Hour
 )
 
-// FadeNights counts a find's fade nights: the nights its change was found
-// in the user's own frames, plus the ZTF nights it fades beyond nearby
-// stars that stay steady. known is false until a vet report compared the
-// ZTF fades with nearby stars.
-func FadeNights(sum discoverysource.Summary, rep *vetting.Report) (int, bool) {
-	if rep == nil || !rep.FadesRead {
-		return 0, false
+// FadeNights are a find's fade nights by date, each night once: the
+// nights its change was found in the user's own frames, plus the ZTF
+// nights, from one up, on which it fades beyond nearby stars that stay
+// steady. known is false until a vet report listed the ZTF nights.
+func FadeNights(sum discoverysource.Summary, rep *vetting.Report) ([]string, bool) {
+	if rep == nil || !rep.FadesRead || !rep.FadeNightsRead {
+		return nil, false
 	}
-	n := sum.Seen
-	if rep.Fades != nil {
-		n += rep.Fades.Steady
+	out := []string{}
+	for _, m := range sum.Members {
+		out = append(out, m.Night.Format(time.DateOnly))
 	}
-	return n, true
+	out = append(out, rep.ZTFFadeNights...)
+	slices.Sort(out)
+	return slices.Compact(out), true
+}
+
+// newNights counts the nights not among those at the start.
+func newNights(w app.DiscoveryWatch, nights []string) int {
+	var start []string
+	_ = json.Unmarshal([]byte(w.StartNights), &start)
+	n := 0
+	for _, d := range nights {
+		if !slices.Contains(start, d) {
+			n++
+		}
+	}
+	return n
+}
+
+// setStart takes nights as the watch's fade nights at the start.
+func setStart(w *app.DiscoveryWatch, nights []string) {
+	b, _ := json.Marshal(nights)
+	n, f := len(nights), len(nights)
+	w.StartNights, w.FadesAtStart, w.Fades = string(b), &n, &f
 }
 
 // Outcome is what one look at a find does to its watch.
@@ -60,9 +84,12 @@ type Outcome struct {
 // never watched. A find that left Watching for a reason other than its
 // fade nights and comes back takes up its old watch again, with the fade
 // nights at its first start and its quiet clock, so a find that goes back
-// and forth between verdicts is not imaged again each time. fades is its fade night count when known. It says false
-// when the find has no watch and needs none.
-func Advance(sum discoverysource.Summary, have *app.DiscoveryWatch, fades int, known bool, now time.Time) (Outcome, bool) {
+// and forth between verdicts is not imaged again each time. nights are its
+// fade nights when known. A watch from before the start nights were kept
+// takes the nights of its next look as its start. It says false when the
+// find has no watch and needs none.
+func Advance(sum discoverysource.Summary, have *app.DiscoveryWatch, nights []string, known bool, now time.Time) (Outcome, bool) {
+	fades := len(nights)
 	if have == nil || have.EndedAt != nil {
 		if !sum.Watching() {
 			if have != nil {
@@ -77,7 +104,7 @@ func Advance(sum discoverysource.Summary, have *app.DiscoveryWatch, fades int, k
 		}
 		w := app.DiscoveryWatch{SourceID: sum.Source.ID, StartedAt: now, Group: sum.Best.Group, LastFadeAt: now, CreatedAt: now, UpdatedAt: now}
 		if known {
-			w.FadesAtStart, w.Fades = &fades, &fades
+			setStart(&w, nights)
 		}
 		return Outcome{Watch: w, Changed: true, Started: true}, true
 	}
@@ -85,8 +112,8 @@ func Advance(sum discoverysource.Summary, have *app.DiscoveryWatch, fades int, k
 	out := Outcome{Watch: w}
 	if known {
 		switch {
-		case w.FadesAtStart == nil:
-			w.FadesAtStart, w.Fades = &fades, &fades
+		case w.FadesAtStart == nil || w.StartNights == "":
+			setStart(&w, nights)
 			out.Changed = true
 		case w.Fades == nil || fades != *w.Fades:
 			if w.Fades == nil || fades > *w.Fades {
@@ -102,7 +129,7 @@ func Advance(sum discoverysource.Summary, have *app.DiscoveryWatch, fades int, k
 		end = app.WatchEndUser
 	case sum.LikelyArtifact:
 		end = app.WatchEndArtifact
-	case known && w.FadesAtStart != nil && fades >= *w.FadesAtStart+FadesToLeave:
+	case known && newNights(w, nights) >= FadesToLeave:
 		end = app.WatchEndFades
 	case sum.Vet != nil && sum.Vet.Suggested == app.VetReal && sum.Vet.Confidence != discoverysource.ConfidenceLow && sum.Vet.Confidence != "":
 		end = app.WatchEndRose
