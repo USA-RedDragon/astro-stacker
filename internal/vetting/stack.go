@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
@@ -126,9 +128,11 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	}
 	lead := fmt.Sprintf("Stacked over its %s of %s in %s it shows at signal to noise %.1f; a fake of the light the detection reported (magnitude %.1f) shows at %.1f in the same frames.",
 		ownimage.FrameWord(p.N), p.Night, p.Filter, f.Obs, rep.mag, f.Inj)
+	wing := false
 	if w := fc.Wing; w != nil && w.Measured && w.Err > 0 {
 		wrep := reportedFor(reps, w.Filter, w.Night)
 		if wl, wok := wrep.flux(fc, w.Filter); wok {
+			wing = true
 			f.Obs, f.Peak, f.Inj = w.Sigma, w.Sigma, wl*fc.RespOf(w.Filter)/w.Err
 			lead = fmt.Sprintf("Fitted beside a star of magnitude %.1f %.1f px away with each frame's own star shape, its frames of %s in %s show it %.1f times its error above its level on far nights; a fake of the light the detection reported (magnitude %.1f) shows at %.1f.",
 				w.G, w.SepPx, w.Night, w.Filter, w.Sigma, wrep.mag, f.Inj)
@@ -153,14 +157,44 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	}
 	ev := strings.Join(append([]string{lead}, words...), " ")
 	v, why := ownimage.JudgeStack(f)
+	if v == ownimage.StackUntested && !wing {
+		if c, ok := tooWeakToFind(f, p.N, rep.subs, ev); ok {
+			return c, ownimage.StackRefuted
+		}
+	}
 	switch v {
 	case ownimage.StackUntested:
 		return check.Skipped(check.TransStack, fmt.Sprintf("Not clear. The fake shows at only %.1f, too faint for your frames to tell. ", f.Inj)+ev), v
 	case ownimage.StackRefuted:
+		if why == ownimage.StackNoAboveControls {
+			return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the spot stands no higher than the empty places around it."), v
+		}
 		return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the frames the detection did not use show nothing clear (signal to noise under 2)."), v
 	case ownimage.StackDoubtful:
 		return check.New(check.TransStack, check.Fail, ev+" Not confirmed: "+why+"."), v
 	case ownimage.StackConfirmed:
 	}
 	return check.New(check.TransStack, check.Pass, ev+" It shows as new light of the brightness reported would, above 99 of 100 empty places."), v
+}
+
+// tooWeakToFind refutes new light whose reported brightness and whose own
+// light at the spot would both stand under discoveries.MinLocalSNR in all
+// the subs the detection tested, scaled from the frames stacked by the
+// square root of their counts. The detection now holds such a source;
+// those found before it measured the noise around a spot came from the
+// picture-wide noise, 1.5 to 3.4 times too low on M 31's bulge. 60762
+// (Andromeda, 2025-10-17) was reported at 8.5 where a fake of its light
+// shows at 2.6 in 15 of its 17 subs and the spot at 0.8; AT 2026acsi, a
+// real nova, gives 5.8.
+func tooWeakToFind(f ownimage.StackFacts, n, subs int, ev string) (check.Check, bool) {
+	if n <= 0 || !(f.Inj > 0) {
+		return check.Check{}, false
+	}
+	k := math.Sqrt(math.Max(1, float64(subs)/float64(n)))
+	inj, obs := f.Inj*k, f.Obs*k
+	if inj >= discoveries.MinLocalSNR || obs >= discoveries.MinLocalSNR {
+		return check.Check{}, false
+	}
+	return check.New(check.TransStack, check.Fail, ev+fmt.Sprintf(" It is too faint to have been found: over all %d subs the detection tested, the light it reported would stand at about %.1f and the spot at %.1f, both under the %.1f against the noise around a spot that a detection needs.",
+		max(subs, n), inj, obs, discoveries.MinLocalSNR)), true
 }

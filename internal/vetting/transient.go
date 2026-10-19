@@ -121,8 +121,9 @@ func nightDate(s string) time.Time {
 // reported is the new light the detection reported, as a magnitude on
 // its zero point's Gaia G scale.
 type reported struct {
-	mag float64
-	ok  bool
+	mag  float64
+	ok   bool
+	subs int
 }
 
 // flux is the reported light in a night's units.

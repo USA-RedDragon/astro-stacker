@@ -19,7 +19,7 @@ const (
 	noiseMinKept = 100
 )
 
-// minLocalSNR is the least strength against the noise around it that a
+// MinLocalSNR is the least strength against the noise around it that a
 // brightening where no star was may have to be promoted. On M 31's bulge
 // the difference is 1.5 to 3.4 times noisier than the picture as a whole:
 // in the audit of October 2026, 58 of the 82 nova candidates stood under 5
@@ -27,7 +27,7 @@ const (
 // (60465 on 2025-10-26: 12.8 against 1.7), while all 27 of the app's
 // brightenings at real M 31 novae stood at 5.68 or more (AT 2025abrs, H-a,
 // 2025-11-11) and AT 2026acsi at 6.8 to 7.4.
-const minLocalSNR = 4.5
+const MinLocalSNR = 4.5
 
 // noiseMap is the scatter of empty apertures of radius apertureR in each
 // noiseBox cell of a difference: 1.4826 times the median absolute deviation
