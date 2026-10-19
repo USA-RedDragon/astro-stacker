@@ -91,11 +91,12 @@ func (u StackUnused) flat() bool { return u.SNR < stackFlat }
 // then show nothing a fake of its light would and nothing empty sky does
 // not: 58729 (Horsehead Nebula, 2025-11-21) stacked to 3.0 against a fake's
 // 10.8 and empty places' 4.2, and 54898 (Crab Nebula, 2026-02-05), fitted
-// beside a star, to 1.3 against 5.8 and 3.0.
+// beside a star, to 1.3 against 5.8 and 3.0. A fake too faint to judge in
+// the frames that found it leaves the stack untested unless the unused
+// frames can judge it: 54896 (Crab Nebula, 2026-02-05), fitted beside a
+// star, stacked to 1.2 against a fake's 4.4, and the 7 frames of that night
+// the detection did not use to -0.2 against 7.8.
 func JudgeStack(f StackFacts) (StackVerdict, string) {
-	if !(f.Inj >= StackInjMin) {
-		return StackUntested, ""
-	}
 	var testable, flat, missing int
 	for _, u := range f.Unused {
 		if !u.testable() {
@@ -111,6 +112,9 @@ func JudgeStack(f StackFacts) (StackVerdict, string) {
 	}
 	if f.Obs < stackFake*f.Inj && testable > 0 && flat == testable {
 		return StackRefuted, ""
+	}
+	if !(f.Inj >= StackInjMin) {
+		return StackUntested, ""
 	}
 	if f.Obs < stackFake*f.Inj && testable == 0 && f.HasControl && !(f.Peak > f.Control99) {
 		return StackRefuted, StackNoAboveControls
