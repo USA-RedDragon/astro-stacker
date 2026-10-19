@@ -17,6 +17,7 @@ import (
 // Views of the inbox.
 const (
 	ViewLook      = "look"
+	ViewWatching  = "watching"
 	ViewKnown     = "known"
 	ViewMovers    = "movers"
 	ViewLow       = "low"
@@ -27,7 +28,7 @@ const (
 
 // Views lists every view; the empty view is everything.
 func Views() []string {
-	return []string{ViewLook, ViewKnown, ViewMovers, ViewLow, ViewUnsure, ViewArtifacts, ViewVetted}
+	return []string{ViewLook, ViewWatching, ViewKnown, ViewMovers, ViewLow, ViewUnsure, ViewArtifacts, ViewVetted}
 }
 
 // SearchArcsec is how near a searched position a source must be.
@@ -72,12 +73,46 @@ type Summary struct {
 	// LikelyArtifact is whether vetting called it an artifact with medium or
 	// high confidence.
 	LikelyArtifact bool
+	// Vet is the source's latest vet row, nil before its first run.
+	Vet *app.DiscoveryVet
+	// Watch is the source's watch, nil if it was never watched.
+	Watch *app.DiscoveryWatch
 }
 
-// Look says whether a source is new and not vetted.
-func (s Summary) Look() bool {
+// open says a source is new, not vetted by the user and not set aside by
+// the vet.
+func (s Summary) open() bool {
 	return discoveries.IsNew(s.Class) && s.Source.Vetting == "" && !s.Listed && !s.LikelyArtifact && !s.Unsure
 }
+
+// Look says whether a source is new, not vetted and not watched.
+func (s Summary) Look() bool {
+	return s.open() && !s.Watching()
+}
+
+// Watched says the source has a watch under way.
+func (s Summary) Watched() bool {
+	return s.Watch != nil && s.Watch.EndedAt == nil
+}
+
+// Watching says the source waits in Watching: a change the vet calls real
+// at low confidence with no survey answer pending, or still pending on a
+// watch's refresh, that its fade nights have not yet moved to Needs a look.
+func (s Summary) Watching() bool {
+	if !s.open() || s.Source.Kind != app.DiscoveryKindChange || s.Vet == nil {
+		return false
+	}
+	if s.Vet.Suggested != app.VetReal || s.Vet.Confidence != ConfidenceLow {
+		return false
+	}
+	if s.Watch != nil && s.Watch.EndedAt != nil && s.Watch.EndReason == app.WatchEndFades {
+		return false
+	}
+	return s.Vet.Pending == "" || s.Watched()
+}
+
+// ConfidenceLow is the vet's low confidence.
+const ConfidenceLow = "low"
 
 // In says whether a source belongs to a view.
 func (s Summary) In(view string) bool {
@@ -85,6 +120,8 @@ func (s Summary) In(view string) bool {
 	switch view {
 	case ViewLook:
 		return s.Look()
+	case ViewWatching:
+		return s.Watching()
 	case ViewKnown:
 		return change && s.Source.Vetting == "" && (strings.HasPrefix(s.Class, "known_") || s.Listed)
 	case ViewMovers:
@@ -104,6 +141,7 @@ func (s Summary) In(view string) bool {
 // Counts are how many sources each view holds.
 type Counts struct {
 	Look      int `json:"look"`
+	Watching  int `json:"watching"`
 	Known     int `json:"known"`
 	Movers    int `json:"movers"`
 	NewMovers int `json:"new_movers"`
@@ -125,6 +163,9 @@ func countOf(list []Summary) Counts {
 		c.All++
 		if s.In(ViewLook) {
 			c.Look++
+		}
+		if s.In(ViewWatching) {
+			c.Watching++
 		}
 		if s.In(ViewKnown) {
 			c.Known++
@@ -290,19 +331,17 @@ func summaries(db *gorm.DB, pick func(*gorm.DB) *gorm.DB) ([]Summary, error) {
 	if err != nil {
 		return nil, err
 	}
-	var listed []int
-	if err := db.Model(&app.DiscoveryVet{}).Where("source_id IN (?) AND suggested = ? AND confidence IN ?",
-		pick(db.Model(&app.DiscoverySource{})).Select("id"), app.VetKnown, []string{"medium", "high"}).Pluck("source_id", &listed).Error; err != nil {
+	var vets []app.DiscoveryVet
+	if err := db.Model(&app.DiscoveryVet{}).Omit("report").Where("source_id IN (?)",
+		pick(db.Model(&app.DiscoverySource{})).Select("id")).Find(&vets).Error; err != nil {
 		return nil, err
 	}
-	var artifacts []int
-	if err := db.Model(&app.DiscoveryVet{}).Where("source_id IN (?) AND suggested = ? AND confidence IN ?",
-		pick(db.Model(&app.DiscoverySource{})).Select("id"), app.VetArtifact, []string{"low", "medium", "high"}).Pluck("source_id", &artifacts).Error; err != nil {
-		return nil, err
+	vetOf := map[int]*app.DiscoveryVet{}
+	for i := range vets {
+		vetOf[vets[i].SourceID] = &vets[i]
 	}
-	var unsure []int
-	if err := db.Model(&app.DiscoveryVet{}).Where("source_id IN (?) AND suggested = ?",
-		pick(db.Model(&app.DiscoverySource{})).Select("id"), app.VetUnsure).Pluck("source_id", &unsure).Error; err != nil {
+	watches, err := WatchesOf(db, pick(db.Model(&app.DiscoverySource{})).Select("id"))
+	if err != nil {
 		return nil, err
 	}
 	out := make([]Summary, 0, len(sources))
@@ -311,12 +350,57 @@ func summaries(db *gorm.DB, pick func(*gorm.DB) *gorm.DB) ([]Summary, error) {
 			continue
 		}
 		sum := summarize(s, members[s.ID], runs, compared[s.Object])
-		sum.Listed = slices.Contains(listed, s.ID)
-		sum.LikelyArtifact = slices.Contains(artifacts, s.ID)
-		sum.Unsure = slices.Contains(unsure, s.ID)
+		sum.Vet, sum.Watch = vetOf[s.ID], watches[s.ID]
+		sum.Listed, sum.LikelyArtifact, sum.Unsure = vetSays(sum.Vet)
 		out = append(out, sum)
 	}
 	return out, nil
+}
+
+// vetSays reads a vet row: listed in a catalog at medium or high
+// confidence, an artifact at any confidence, or not sure.
+func vetSays(v *app.DiscoveryVet) (listed, artifact, unsure bool) {
+	if v == nil {
+		return false, false, false
+	}
+	switch v.Suggested {
+	case app.VetKnown:
+		return v.Confidence == "medium" || v.Confidence == "high", false, false
+	case app.VetArtifact:
+		return false, v.Confidence == ConfidenceLow || v.Confidence == "medium" || v.Confidence == "high", false
+	case app.VetUnsure:
+		return false, false, true
+	}
+	return false, false, false
+}
+
+// WatchesOf is the watches of the sources ids selects, or every watch
+// when ids is nil, by source; none before the table exists.
+func WatchesOf(db *gorm.DB, ids any) (map[int]*app.DiscoveryWatch, error) {
+	out := map[int]*app.DiscoveryWatch{}
+	if !db.Migrator().HasTable(&app.DiscoveryWatch{}) {
+		return out, nil
+	}
+	q := db.Model(&app.DiscoveryWatch{})
+	if ids != nil {
+		q = q.Where("source_id IN (?)", ids)
+	}
+	var rows []app.DiscoveryWatch
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		out[rows[i].SourceID] = &rows[i]
+	}
+	return out, nil
+}
+
+// Load is the sources with ids, without syncing first.
+func Load(ctx context.Context, db *gorm.DB, ids []int) ([]Summary, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return summaries(db.WithContext(ctx), func(q *gorm.DB) *gorm.DB { return q.Where("id IN ?", ids) })
 }
 
 type runChecks struct {
