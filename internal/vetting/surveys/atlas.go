@@ -57,6 +57,10 @@ type ATLASTask struct {
 	Unsure   bool      `json:"unsure,omitempty"`
 	Error    string    `json:"error,omitempty"`
 	FailedAt time.Time `json:"failed_at"`
+	// Refresh says the task fetches newer photometry for a star whose
+	// result is already cached, and DoneAt when its result was stored.
+	Refresh bool      `json:"refresh,omitempty"`
+	DoneAt  time.Time `json:"done_at"`
 }
 
 type atlasTaskStatus struct {
@@ -86,7 +90,10 @@ func (f *Fetcher) atlas(ctx context.Context, field Field, t Target, done func([]
 	base := f.atlasKey(field, t)
 	raw, err := f.getZ(ctx, base+".txt.zst")
 	if err == nil {
-		return done(raw)
+		if !isFresh(ctx) || f.ATLASToken == "" {
+			return done(raw)
+		}
+		return f.atlasRefresh(ctx, field, t, raw, done)
 	}
 	if !isNotFound(err) {
 		return failed(lc.ATLAS, "could not read the ATLAS cache: %v", err)
@@ -114,7 +121,54 @@ func (f *Fetcher) atlas(ctx context.Context, field Field, t Target, done func([]
 			return failed(lc.ATLAS, "the ATLAS task failed: %s", task.Error)
 		}
 	}
-	return f.atlasQueue(ctx, field, t)
+	return f.atlasQueue(ctx, field, t, false)
+}
+
+// atlasRefresh answers from the cached result raw and, when that result is
+// older than ATLASMaxAge, queues the star at ATLAS again. While the new
+// task waits the old result is used and the answer stays Pending, so a
+// later run picks the new result up; a failed refresh keeps the old result
+// and tries again after ATLASRetryFailed.
+func (f *Fetcher) atlasRefresh(ctx context.Context, field Field, t Target, raw []byte, done func([]byte) Fetch) Fetch {
+	f.atlasMu.Lock()
+	defer f.atlasMu.Unlock()
+	var task ATLASTask
+	tj, err := f.getZ(ctx, f.atlasKey(field, t)+".task.json.zst")
+	switch {
+	case err == nil:
+		if json.Unmarshal(tj, &task) != nil {
+			task = ATLASTask{}
+		}
+	case !isNotFound(err):
+		return done(raw)
+	}
+	keep := func(fe Fetch) Fetch {
+		if fe.State == Done {
+			return fe
+		}
+		out := done(raw)
+		if fe.State == Pending {
+			out.State = Pending
+			out.Note = joinNotes("newer ATLAS photometry asked for: "+fe.Note, out.Note)
+		}
+		return out
+	}
+	switch {
+	case task.Refresh && task.DoneAt.IsZero() && task.Error == "" && task.Unsure:
+		return keep(f.atlasFind(ctx, field, t, task, done))
+	case task.Refresh && task.DoneAt.IsZero() && task.Error == "":
+		return keep(f.atlasPoll(ctx, field, t, task, done))
+	case task.Refresh && task.Error != "" && f.now().Sub(task.FailedAt) < ATLASRetryFailed:
+		return done(raw)
+	}
+	at := task.DoneAt
+	if at.IsZero() && task.Error == "" {
+		at = task.Queued
+	}
+	if !expired(at, f.now(), ATLASMaxAge) {
+		return done(raw)
+	}
+	return keep(f.atlasQueue(ctx, field, t, true))
 }
 
 // atlasWait keeps DefaultATLASGap between requests; callers hold atlasMu.
@@ -170,7 +224,7 @@ func (f *Fetcher) maxQueued() int {
 	return DefaultATLASMaxQueued
 }
 
-func (f *Fetcher) atlasQueue(ctx context.Context, field Field, t Target) Fetch {
+func (f *Fetcher) atlasQueue(ctx context.Context, field Field, t Target, refresh bool) Fetch {
 	var qp struct {
 		Positions map[string]int `json:"queuepositions"`
 	}
@@ -190,7 +244,7 @@ func (f *Fetcher) atlasQueue(ctx context.Context, field Field, t Target) Fetch {
 	form.Set("use_reduced", "false")
 	form.Set("send_email", "false")
 	form.Set("comment", atlasComment(t))
-	task := ATLASTask{Comment: atlasComment(t), Queued: f.now().UTC(), RA: t.RA, Dec: t.Dec}
+	task := ATLASTask{Comment: atlasComment(t), Queued: f.now().UTC(), RA: t.RA, Dec: t.Dec, Refresh: refresh}
 	var st atlasTaskStatus
 	err := f.atlasRequest(ctx, http.MethodPost, f.atlasBase()+"/queue/", form, &st)
 	if errors.Is(err, errUnsure) {
@@ -233,7 +287,7 @@ func (f *Fetcher) atlasFind(ctx context.Context, field Field, t Target, task ATL
 			return f.atlasPoll(ctx, field, t, task, done)
 		}
 	}
-	return f.atlasQueue(ctx, field, t)
+	return f.atlasQueue(ctx, field, t, task.Refresh)
 }
 
 func (f *Fetcher) atlasError(what string, err error) Fetch {
@@ -326,6 +380,8 @@ func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATL
 	if err := f.putZ(ctx, f.atlasKey(field, t)+".txt.zst", text); err != nil {
 		return failed(lc.ATLAS, "could not store the ATLAS result: %v", err)
 	}
+	task.DoneAt = f.now().UTC()
+	_ = f.putTask(ctx, field, t, task)
 	_ = f.atlasRequest(ctx, http.MethodDelete, task.URL, nil, nil)
 	return done(text)
 }
