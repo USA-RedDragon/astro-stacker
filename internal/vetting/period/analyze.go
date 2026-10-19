@@ -41,6 +41,7 @@ type analysis struct {
 	bandsDone bool
 	rob       *Robust
 	fades     *Fades
+	tessComps []TESSComp
 }
 
 func analyzeSeries(d *data, own, ztf []lc.Series, opts Options, at *Ephemeris) (*Result, error) {
