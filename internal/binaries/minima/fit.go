@@ -98,6 +98,11 @@ const (
 	// under the dip; slopeMin the fewest points to try it.
 	slopeP   = 0.01
 	slopeMin = 10
+	// baseLevel is the profile level under which a point counts as
+	// outside the dip, and baseMin the fewest such points on each side
+	// of the middle, in each filter, to trust a straight line under it.
+	baseLevel = 0.01
+	baseMin   = 3
 	// beadMin is the fewest points to move the residuals along, beadShifts
 	// the most moves made, each refitted over beadReach formal errors
 	// either side of the best middle in beadSteps.
@@ -107,10 +112,11 @@ const (
 	beadSteps  = 200
 	// trimRounds is how many times the points are cut to a window
 	// centred on the fitted middle, so a dip shape that is a little off
-	// pulls both sides alike; minReach is the least half width of that
-	// window, as a share of the dip's half width.
+	// pulls both sides alike; reachLevel is the profile level the fitted
+	// dip must have come back up to at that window's edge, so the window
+	// holds both of its sides, judged by the width fitted.
 	trimRounds = 3
-	minReach   = 0.5
+	reachLevel = 0.75
 	// agreeSigma is how many combined errors the two methods may differ.
 	agreeSigma = 3.0
 	// clearDepth is how many of its errors a filter's depth must clear for
@@ -130,6 +136,7 @@ const (
 	ReasonNoShape  = "the ephemeris gives this eclipse no width or shape"
 	ReasonNoCover  = "none of the measured frames fell inside the dip"
 	ReasonNoDip    = "the star showed no dip near the predicted time"
+	ReasonDrift    = "the star's light drifted over the night, and the frames outside the dip could not tell the drift from the dip's shape"
 )
 
 // failure is why a fit found no dip.
@@ -164,6 +171,9 @@ type fitOut struct {
 	betas        [][]float64
 	vds          []float64
 	model, resid []float64
+	// chis is chi-square at each middle stepped, h apart.
+	chis []float64
+	h    float64
 }
 
 // gather is the points within reach of mid in time order, each error at
@@ -215,8 +225,8 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 	for range trimRounds {
 		mid := d.Mid + best.tau
 		r := math.Min(mid-use[0].T, use[len(use)-1].T-mid)
-		if r < minReach*fd.Half {
-			return Minimum{T: mid}, sidesOr(best), false
+		if r < reachOf(fd) {
+			return Minimum{T: mid, Width: fd.Half / d.Half}, sidesOr(best, reach(mid, use, fd)), false
 		}
 		trimmed := use[:0:0]
 		for _, p := range use {
@@ -229,7 +239,7 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 		}
 		trimmed, ng = regroup(trimmed)
 		if len(trimmed) < minInDip+2 || ng == 0 {
-			return Minimum{T: mid}, sidesOr(best), false
+			return Minimum{T: mid}, sidesOr(best, ReasonSides), false
 		}
 		use = trimmed
 		if best, fd, slope, fail = fitBest(use, ng, d, span); fail != fitDone {
@@ -250,7 +260,7 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 	}
 	switch {
 	case m.Before < minSide || m.After < minSide:
-		return m, ReasonSides, false
+		return m, fmt.Sprintf("%s (%d frames in the dip before the fitted middle and %d after; each side needs %d)", ReasonSides, m.Before, m.After, minSide), false
 	case m.Before+m.After < minInDip:
 		return m, ReasonNoBranch, false
 	case !(m.Depth > minDepthZ*m.DepthErr):
@@ -260,6 +270,11 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 			ReasonEdge, math.Abs(best.tau)*1440, beforeAfter(best.tau), span*1440), false
 	case !(best.formal > 0) || best.formal >= span:
 		return m, ReasonLoose, false
+	}
+	if slope {
+		if why := pinned(use, ng, fd, best); why != "" {
+			return m, why, false
+		}
 	}
 	if len(use) >= beadMin {
 		m.Bead = bead(use, ng, fd, span, slope, best)
@@ -275,14 +290,83 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 	return m, "", true
 }
 
+// pinned is why the straight line a fit took under the dip cannot be
+// trusted, or "": each filter with points in the dip needs baseMin
+// frames outside the dip on each side of its middle, and the slope those
+// frames give alone must lie within agreeSigma of their error, widened
+// by the reduced chi-square, of the fit's. Else the line may stand in
+// for a dip shape the ephemeris's does not match, and it moves the
+// middle with it.
+func pinned(pts []Point, ng int, d Dip, best fitOut) string {
+	mid := d.Mid + best.tau
+	red := math.Max(1, best.chi/float64(best.n-best.k))
+	for g := range ng {
+		if math.IsInf(best.vds[g], 1) {
+			continue
+		}
+		var sw, sx, sy, sxx, sxy float64
+		before, after := 0, 0
+		for _, p := range pts {
+			if p.G != g || d.Shape(p.T-mid) > baseLevel {
+				continue
+			}
+			if p.T < mid {
+				before++
+			} else {
+				after++
+			}
+			w, x := 1/(p.E*p.E), p.T-d.Mid
+			sw += w
+			sx += w * x
+			sy += w * p.Y
+			sxx += w * x * x
+			sxy += w * x * p.Y
+		}
+		if before < baseMin || after < baseMin {
+			return fmt.Sprintf("%s (%d frames outside the dip before its middle and %d after; each side needs %d)", ReasonDrift, before, after, baseMin)
+		}
+		den := sw*sxx - sx*sx
+		if !(den > 0) {
+			return ReasonDrift
+		}
+		slope := (sw*sxy - sx*sy) / den
+		if e := math.Sqrt(red * sw / den); math.Abs(slope-best.betas[g][2]) > agreeSigma*e {
+			return fmt.Sprintf("%s (the frames outside the dip drift %.2f ± %.2f mag a day, the fit under it %.2f)", ReasonDrift, slope, e, best.betas[g][2])
+		}
+	}
+	return ""
+}
+
 // sidesOr is why a fit whose window could not be centred on its middle
 // gave no minimum: the dip not being clear of the noise, when it is not,
-// else the frames missing one side.
-func sidesOr(best fitOut) string {
+// else sides, the frames missing one side.
+func sidesOr(best fitOut, sides string) string {
 	if !(best.depth > minDepthZ*best.dErr) {
 		return shallow(best.depth, best.dErr)
 	}
-	return ReasonSides
+	return sides
+}
+
+// reachOf is how far from its middle the fitted dip fd comes back up to
+// reachLevel of its depth.
+func reachOf(fd Dip) float64 {
+	lo, hi := 0.0, fd.Half
+	for range 40 {
+		if m := (lo + hi) / 2; fd.Shape(m) > reachLevel {
+			lo = m
+		} else {
+			hi = m
+		}
+	}
+	return hi
+}
+
+// reach is why a fit whose frames do not reach reachOf the fitted dip
+// either side of its middle gave no minimum, in minutes: a timing then
+// rests on one side of the dip and the width it is given.
+func reach(mid float64, use []Point, fd Dip) string {
+	return fmt.Sprintf("%s (the frames reach %.0f minutes before and %.0f minutes after the fitted middle; each side needs %.0f, where the fitted dip has come a quarter of the way back up)",
+		ReasonSides, math.Max(0, mid-use[0].T)*1440, math.Max(0, use[len(use)-1].T-mid)*1440, reachOf(fd)*1440)
 }
 
 func shallow(depth, err float64) string {
@@ -341,50 +425,114 @@ func meanDepth(betas [][]float64, vds []float64, red float64) (float64, float64,
 	return sws / sw, 1 / math.Sqrt(sw), true
 }
 
-// fitBest fits the dip on a flat normal level, and with a straight line
-// under it when an F test at slopeP asks for one, at each width in
-// widthScales of the ephemeris's dip, and keeps the width that fits
-// best: a night's dip can look wider or narrower than the surveys' mean
-// shape, and a wrong width moves the middle when one side is short.
+// widthScales gives the widths fitBest fits the dip at, as shares of the
+// ephemeris's: a night's dip can look half as wide or twice as wide as
+// the surveys' mean shape, and a dip fitted too narrow moves its middle
+// toward the side the frames cover best.
+func widthScales() []float64 {
+	return []float64{0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.12, 1.25, 1.4, 1.6, 1.8, 2.0}
+}
+
+// fitBest fits the dip at each width in widthScales of the ephemeris's
+// dip, on a flat normal level and, with enough points, with a straight
+// line under it, and keeps the width that fits best. The line is taken
+// only when an F test at slopeP finds the best fit with a line better
+// than the best without one at any width, so a line cannot stand in for
+// a wrong width. The middle's error is read from chi-square at each
+// middle at its least over the widths, so a middle that another width
+// fits about as well widens it.
 func fitBest(use []Point, ng int, d Dip, span float64) (fitOut, Dip, bool, failure) {
-	var best fitOut
-	var bestDip Dip
-	bestSlope, found := false, false
+	var flats, lines []widthFit
 	why := fitDone
-	for _, s := range []float64{0.7, 0.8, 0.9, 1, 1.12, 1.25, 1.4} {
-		ds := Dip{Mid: d.Mid, Half: d.Half * s, Shape: func(dt float64) float64 { return d.Shape(dt / s) }}
-		f, slope, fail := fitAt(use, ng, ds, span)
+	for _, s := range widthScales() {
+		ds := scaled(d, s)
+		f, fail := fitShape(use, ng, ds, span, false)
 		if fail != fitDone {
 			why = worse(why, fail)
 			continue
 		}
-		if !found || f.chi < best.chi {
-			best, bestDip, bestSlope, found = f, ds, slope, true
+		flats = append(flats, widthFit{f, ds})
+		if len(use) < slopeMin {
+			continue
+		}
+		if l, fail := fitShape(use, ng, ds, span, true); fail == fitDone && l.n > l.k {
+			lines = append(lines, widthFit{l, ds})
 		}
 	}
-	if found {
-		return best, bestDip, bestSlope, fitDone
+	if len(flats) == 0 {
+		return fitOut{}, Dip{}, false, why
 	}
-	return best, bestDip, bestSlope, why
+	chosen, slope := flats, false
+	if len(lines) > 0 {
+		bf, bl := flats[bestOf(flats)].f, lines[bestOf(lines)].f
+		f := (bf.chi - bl.chi) / float64(bl.k-bf.k) / (bl.chi / float64(bl.n-bl.k))
+		if FProb(f, float64(bl.k-bf.k), float64(bl.n-bl.k)) < slopeP {
+			chosen, slope = lines, true
+		}
+	}
+	i := bestOf(chosen)
+	best := chosen[i].f
+	best.formal = math.Max(best.formal, profileErr(chosen, best, span))
+	return best, chosen[i].d, slope, fitDone
 }
 
-func fitAt(use []Point, ng int, d Dip, span float64) (fitOut, bool, failure) {
-	flat, fail := fitShape(use, ng, d, span, false)
-	if fail != fitDone {
-		return fitOut{}, false, fail
+// scaled is d s times as wide.
+func scaled(d Dip, s float64) Dip {
+	return Dip{Mid: d.Mid, Half: d.Half * s, Shape: func(dt float64) float64 { return d.Shape(dt / s) }}
+}
+
+// widthFit is the dip fitted at one width.
+type widthFit struct {
+	f fitOut
+	d Dip
+}
+
+func bestOf(fs []widthFit) int {
+	b := 0
+	for i, f := range fs {
+		if f.f.chi < fs[b].f.chi {
+			b = i
+		}
 	}
-	if len(use) < slopeMin {
-		return flat, false, fitDone
+	return b
+}
+
+// profileErr is the middle's error with the width free: half the range
+// of middles where chi-square, at its least over the widths fitted,
+// stays within the reduced chi-square, at least 1, of the best fit's.
+// The range reaching the edge of the search gives span.
+func profileErr(fs []widthFit, best fitOut, span float64) float64 {
+	prof := slices.Clone(fs[0].f.chis)
+	for _, f := range fs[1:] {
+		for j, c := range f.f.chis {
+			prof[j] = math.Min(prof[j], c)
+		}
 	}
-	line, fail := fitShape(use, ng, d, span, true)
-	if fail != fitDone || line.n-line.k <= 0 {
-		return flat, false, fitDone
+	lim := best.chi + math.Max(1, best.chi/float64(best.n-best.k))
+	lo, hi := -1, -1
+	for j, c := range prof {
+		if c <= lim {
+			if lo < 0 {
+				lo = j
+			}
+			hi = j
+		}
 	}
-	f := (flat.chi - line.chi) / float64(line.k-flat.k) / (line.chi / float64(line.n-line.k))
-	if FProb(f, float64(line.k-flat.k), float64(line.n-line.k)) < slopeP {
-		return line, true, fitDone
+	if lo <= 0 || hi < 0 || hi >= len(prof)-1 {
+		return span
 	}
-	return flat, false, fitDone
+	left := float64(lo) - edgeShare(prof[lo-1], prof[lo], lim)
+	right := float64(hi) + edgeShare(prof[hi+1], prof[hi], lim)
+	return (right - left) * best.h / 2
+}
+
+// edgeShare is how far past the last grid step within lim, toward the
+// next step at out, chi-square reaches lim.
+func edgeShare(out, in, lim float64) float64 {
+	if !finite(out) || out <= in {
+		return 0
+	}
+	return (lim - in) / (out - in)
 }
 
 // regroup leaves out the filters with fewer than minGroup points and
@@ -500,7 +648,7 @@ func fitShapeIn(pts []Point, ng int, d Dip, lo, hi float64, steps int, slope boo
 	if okLo && okHi {
 		formal = (ch - cl) * h / 2
 	}
-	out := fitOut{tau: tau, formal: formal, depth: depth, dErr: dErr, chi: chi, k: k, n: n, betas: betas, vds: vds}
+	out := fitOut{tau: tau, formal: formal, depth: depth, dErr: dErr, chi: chi, k: k, n: n, betas: betas, vds: vds, chis: chis, h: h}
 	out.model = make([]float64, n)
 	out.resid = make([]float64, n)
 	for i, p := range pts {
