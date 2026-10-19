@@ -13,6 +13,25 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/surveys"
 )
 
+func TestSurveyLightBesideAStarWingNotReal(t *testing.T) {
+	t.Parallel()
+	// 54898 (Crab Nebula, 2026-02-05): ATLAS saw 16.2 a day before, 6.4 px
+	// from a G 14.1 star, where the wing fit left 1.3 against a fake's 5.8.
+	st := map[string]check.Status{check.TransATLAS: check.Pass, check.TransWing: check.Fail, check.TransStack: check.Fail}
+	s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted})
+	if s.State != app.VetArtifact || s.Confidence != Medium {
+		t.Errorf("54898: %+v, want a medium artifact", s)
+	}
+	st[check.TransWing] = check.Pass
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetUnsure {
+		t.Errorf("away from a star: %+v, want unsure", s)
+	}
+	st[check.TransWing], st[check.TransStack] = check.Fail, check.Pass
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackConfirmed}); s.State != app.VetReal {
+		t.Errorf("confirmed beside a star: %+v, want real", s)
+	}
+}
+
 const (
 	novaNight = "2026-07-19"
 	lum       = "Luminance"
