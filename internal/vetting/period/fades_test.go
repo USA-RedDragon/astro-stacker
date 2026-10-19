@@ -96,8 +96,16 @@ func TestFadesNoiseNotConfirmed(t *testing.T) {
 // fading 0.3 mag in two exposures on each of four nights; with shared the
 // neighbours fade in those exposures too.
 func fadeField(shared bool) ([]lc.Series, [][]lc.Series) {
+	return fadeFieldOn(shared, 100, 230, 371, 512)
+}
+
+// fadeFieldOn is fadeField with the star fading on the given nights only.
+func fadeFieldOn(shared bool, nights ...int) ([]lc.Series, [][]lc.Series) {
 	rng := lcg(4242)
-	dips := map[int]bool{100: true, 230: true, 371: true, 512: true}
+	dips := map[int]bool{}
+	for _, n := range nights {
+		dips[n] = true
+	}
 	var times []float64
 	for n := range 600 {
 		base := 2458300.0 + float64(n) + 0.75 + 0.02*rng.gauss()
@@ -142,5 +150,34 @@ func TestFadesField(t *testing.T) {
 		case !shared && (!r.Fades.Confirms() || r.Fades.Steady != 4 || z.Status != check.Pass):
 			t.Errorf("neighbours steady: ZTF row %+v fades %+v, want 4 nights confirmed", z, r.Fades)
 		}
+	}
+}
+
+// TestSteadyFadeNightsFromOne is the known answer for the watch's fade
+// count: one backed ZTF night with nearby stars steady is listed though
+// Fades waits for two, and a second adds exactly one more, while the
+// verdict's Fades stays as it was.
+func TestSteadyFadeNightsFromOne(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		nights []int
+		want   int
+		fades  bool
+	}{{nil, 0, false}, {[]int{230}, 1, false}, {[]int{230, 371}, 2, true}, {[]int{100, 230, 371, 512}, 4, true}} {
+		target, comps := fadeFieldOn(false, c.nights...)
+		r, _ := Analyze(target, Options{ChangeMag: 0.3, Neighbours: func() [][]lc.Series { return comps }})
+		if len(r.SteadyFadeNights) != c.want || (r.Fades != nil) != c.fades || (c.fades && r.Fades.Steady != c.want) {
+			t.Errorf("nights %v: steady nights %v fades %+v, want %d listed", c.nights, r.SteadyFadeNights, r.Fades, c.want)
+		}
+		for i, bjd := range r.SteadyFadeNights {
+			if math.Floor(bjd-2458300) != float64(c.nights[i]) {
+				t.Errorf("nights %v: listed %v", c.nights, r.SteadyFadeNights)
+			}
+		}
+	}
+	target, comps := fadeFieldOn(true, 230)
+	r, _ := Analyze(target, Options{ChangeMag: 0.3, Neighbours: func() [][]lc.Series { return comps }})
+	if len(r.SteadyFadeNights) != 0 || r.Fades != nil {
+		t.Errorf("a lone night the nearby stars fade on too: %v %+v, want none", r.SteadyFadeNights, r.Fades)
 	}
 }

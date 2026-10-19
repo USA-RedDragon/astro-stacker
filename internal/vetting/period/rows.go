@@ -348,6 +348,12 @@ func (a *analysis) flatRow(s string, si surveyInfo) check.Check {
 	}
 	strict := s == lc.ZTF || s == lc.ATLAS
 	reached := fmt.Sprintf("%s reach the reported %s mag %s.", plural(seen, "point", "points"), size, word)
+	if s == lc.ZTF && !a.steadyRun && math.Abs(c) >= 5*scatter {
+		a.steadyRun = true
+		if runs, backed := a.backedFades(c); backed > 0 {
+			a.steadyAt = a.steadyNights(runs, c)
+		}
+	}
 	if s == lc.ZTF && seen >= 2 && len(nights) >= reachNights && math.Abs(c) >= 5*scatter {
 		if runs, backed := a.backedFades(c); backed >= fadeNights {
 			a.fades = a.testFades(runs, backed, c)

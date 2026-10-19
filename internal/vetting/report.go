@@ -5,6 +5,7 @@
 package vetting
 
 import (
+	"slices"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
@@ -114,6 +115,28 @@ type Report struct {
 	// up on two or more nights.
 	FadesRead bool          `json:"fades_read,omitempty"`
 	Fades     *period.Fades `json:"fades,omitempty"`
+	// FadeNightsRead says ZTFFadeNights is filled in, which reports made
+	// before it was added are not. ZTFFadeNights are the dates of the ZTF
+	// nights, from one up, on which two or more fading points back each
+	// other up and the star fades beyond nearby stars that stay steady,
+	// each the evening the night began at the survey.
+	FadeNightsRead bool     `json:"fade_nights_read,omitempty"`
+	ZTFFadeNights  []string `json:"ztf_fade_nights,omitempty"`
+}
+
+// eveningDates are the evening dates of the nights holding the BJDs: the
+// UTC date twelve hours earlier, which is the local evening date at a
+// survey in the Americas.
+func eveningDates(bjds []float64) []string {
+	var out []string
+	for _, b := range bjds {
+		t := time.Unix(0, 0).UTC().Add(time.Duration((b - 2440587.5) * 86400 * float64(time.Second)))
+		d := t.Add(-12 * time.Hour).Format(time.DateOnly)
+		if !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // State of a source's vetting run.

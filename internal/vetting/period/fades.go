@@ -191,10 +191,10 @@ func sameExposure(comps []map[string][]compPt, band string, t float64) []float64
 // median fades by more than fadeSteady.
 func (a *analysis) testFades(runs [][]fadePt, backed int, c float64) *Fades {
 	f := &Fades{Nights: backed}
-	if a.opts.Neighbours == nil {
+	comps, ok := a.neighbourComps(c)
+	if !ok {
 		return f
 	}
-	comps := compOffsets(a.opts.Neighbours(), math.Copysign(1, c))
 	f.Stars = len(comps)
 	if len(comps) < fadeMinComps {
 		return f
@@ -203,28 +203,65 @@ func (a *analysis) testFades(runs [][]fadePt, backed int, c float64) *Fades {
 		if len(r) < 2 {
 			continue
 		}
-		steady, field := 0, false
-		for _, p := range r {
-			ds := sameExposure(comps, p.band, p.t)
-			if len(ds) < fadeMinComps {
-				continue
-			}
-			med := median(ds)
-			switch {
-			case med > fadeSteady:
-				field = true
-			case math.Abs(med) <= fadeSteady && p.y > percentile(ds, fadeRank) && reaching(ds, fadeReach*math.Abs(c)) <= fadeAlso:
-				steady++
-			}
-		}
-		switch {
+		switch steady, field := runNight(r, comps, c); {
 		case field:
 			f.Field++
-		case steady >= 2:
+		case steady:
 			f.Steady++
 		}
 	}
 	return f
+}
+
+// steadyNights are the times of the first point of each backed run in
+// which the star fades beyond nearby stars that stay at their normal
+// level, as testFades judges them, from one backed run up.
+func (a *analysis) steadyNights(runs [][]fadePt, c float64) []float64 {
+	comps, ok := a.neighbourComps(c)
+	if !ok || len(comps) < fadeMinComps {
+		return nil
+	}
+	var out []float64
+	for _, r := range runs {
+		if len(r) < 2 {
+			continue
+		}
+		if steady, _ := runNight(r, comps, c); steady {
+			out = append(out, r[0].t)
+		}
+	}
+	return out
+}
+
+// neighbourComps are the nearby stars' offsets, read once per analysis;
+// false when no nearby stars are given.
+func (a *analysis) neighbourComps(c float64) ([]map[string][]compPt, bool) {
+	if a.opts.Neighbours == nil {
+		return nil, false
+	}
+	if !a.compsRead {
+		a.comps, a.compsRead = compOffsets(a.opts.Neighbours(), math.Copysign(1, c)), true
+	}
+	return a.comps, true
+}
+
+// runNight says whether one backed run is a steady night or a field night.
+func runNight(r []fadePt, comps []map[string][]compPt, c float64) (bool, bool) {
+	steady, field := 0, false
+	for _, p := range r {
+		ds := sameExposure(comps, p.band, p.t)
+		if len(ds) < fadeMinComps {
+			continue
+		}
+		med := median(ds)
+		switch {
+		case med > fadeSteady:
+			field = true
+		case math.Abs(med) <= fadeSteady && p.y > percentile(ds, fadeRank) && reaching(ds, fadeReach*math.Abs(c)) <= fadeAlso:
+			steady++
+		}
+	}
+	return steady >= 2 && !field, field
 }
 
 // fadeRow is the survey row of a flat light curve whose fading points
