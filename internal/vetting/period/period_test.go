@@ -403,6 +403,35 @@ func TestFlatStar(t *testing.T) {
 	}
 }
 
+func TestFlatStarOneNightOfOutliers(t *testing.T) {
+	t.Parallel()
+	in := loadZTF(t, star{"cyg_17060", 312.90569, 29.07858, 1})
+	r, err := Analyze(in, Options{ChangeMag: 0.22})
+	if !errors.Is(err, ErrNoPeriod) {
+		t.Fatalf("err %v, want no period", err)
+	}
+	if z := rows(r)[check.ZTF]; z.Status != check.Fail || !strings.Contains(z.Evidence, "would have shown") {
+		t.Errorf("17060: ZTF row %+v, want a fail: its two points that reach the fade are of one night", z)
+	}
+	moved := make([]lc.Series, 0, len(in))
+	shifted := false
+	for _, s := range in {
+		s.Points = slices.Clone(s.Points)
+		med := ztfMedian(in, s.Band)
+		for i, p := range s.Points {
+			if !shifted && p.Mag-med > 0.13 {
+				s.Points[i].BJD += 400
+				shifted = true
+			}
+		}
+		moved = append(moved, s)
+	}
+	r, _ = Analyze(moved, Options{ChangeMag: 0.22})
+	if z := rows(r)[check.ZTF]; z.Status != check.Pass {
+		t.Errorf("the same points on two nights: ZTF row %+v, want a pass", z)
+	}
+}
+
 func TestSinusoid(t *testing.T) {
 	t.Parallel()
 	const P, amp = 3.7311, 0.15
