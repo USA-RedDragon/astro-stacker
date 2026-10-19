@@ -116,7 +116,7 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	if !ok {
 		return check.Skipped(check.TransStack, "Not measured yet. None of your frames from the flagged nights could be measured at the spot."), ownimage.StackUntested
 	}
-	rep := reportedFor(reps, p.Filter, p.Night)
+	rep := reportedFor(reps, p.Filter, p.Night).on(fc, p)
 	lf, ok := rep.flux(fc, p.Filter)
 	if !ok || !(p.Err > 0) {
 		return check.Skipped(check.TransStack, fmt.Sprintf("Not measured. The detection reported no new light in %s on %s to put a fake of in the frames.", p.Filter, p.Night)), ownimage.StackUntested
@@ -127,7 +127,7 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 		f.HasControl, f.Control99 = true, p.Empty99/p.Err
 	}
 	lead := fmt.Sprintf("Stacked over its %s of %s in %s it shows at signal to noise %.1f; a fake of the light the detection reported (magnitude %.1f) shows at %.1f in the same frames.",
-		ownimage.FrameWord(p.N), p.Night, p.Filter, f.Obs, rep.mag, f.Inj)
+		ownimage.FrameWord(p.N), p.Night, p.Filter, f.Obs, rep.mag, f.Inj) + rep.basis()
 	wing := false
 	if w := fc.Wing; w != nil && w.Measured && w.Err > 0 {
 		wrep := reportedFor(reps, w.Filter, w.Night)

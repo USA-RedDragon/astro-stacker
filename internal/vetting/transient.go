@@ -119,11 +119,50 @@ func nightDate(s string) time.Time {
 }
 
 // reported is the new light the detection reported, as a magnitude on
-// its zero point's Gaia G scale.
+// its zero point's Gaia G scale. Light the detection found but could put
+// no magnitude on, too faint in its aperture, keeps only found, its signal
+// to noise over subs subs, until on turns it into light on a night: 52576
+// on Markarian Chain Panel 8's 2026-05-13 was found at 9.5 with no
+// magnitude, and no stack ran on it.
 type reported struct {
-	mag  float64
-	ok   bool
-	subs int
+	mag   float64
+	ok    bool
+	subs  int
+	found float64
+}
+
+// bySNR says the light stands for the detection's signal to noise, not a
+// magnitude it measured.
+func (r reported) bySNR() bool { return r.found > 0 }
+
+// on is the reported light on a measured night: light known only by the
+// detection's signal to noise becomes the light that shows at that signal
+// to noise in the night's frames, scaled by the square root of their
+// count over the subs the detection tested.
+func (r reported) on(fc *ownimage.FluxCurve, n ownimage.FluxNight) reported {
+	if r.ok || !r.bySNR() || r.subs <= 0 || fc == nil || !(n.Err > 0) || n.N <= 0 {
+		return r
+	}
+	zp, ok := fc.Zero[n.Filter]
+	if n.Filter == ownimage.AllFilters {
+		zp, ok = ownimage.AllFiltersZero, true
+	}
+	resp := fc.RespOf(n.Filter)
+	if !ok || !(resp > 0) {
+		return r
+	}
+	lf := r.found * math.Sqrt(float64(n.N)/float64(r.subs)) * n.Err / resp
+	r.mag, r.ok = zp-2.5*math.Log10(lf), true
+	return r
+}
+
+// basis says where light known only by the detection's signal to noise
+// came from, empty for a measured magnitude.
+func (r reported) basis() string {
+	if !r.bySNR() {
+		return ""
+	}
+	return fmt.Sprintf(" The detection put no magnitude on it: it found it at signal to noise %.1f over the %d subs it tested, and the fake is the light that gives that in these frames.", r.found, r.subs)
 }
 
 // flux is the reported light in a night's units.
@@ -158,11 +197,17 @@ func reportedLights(sum discoverysource.Summary) map[string]reported {
 	out := map[string]reported{}
 	best := map[string]float64{}
 	for _, m := range sum.Members {
-		nl := discoveries.NewLight(m)
-		if m.Sign <= 0 || nl == nil {
+		if m.Sign <= 0 {
 			continue
 		}
 		k := m.Group + "\x00" + m.Night.UTC().Format(time.DateOnly)
+		nl := discoveries.NewLight(m)
+		if nl == nil {
+			if _, measured := best[k]; !measured && m.NightMag == nil && m.SNR > out[k].found {
+				out[k] = reported{found: m.SNR, subs: m.SubsTested}
+			}
+			continue
+		}
 		if s, ok := best[k]; !ok || m.SNR > s {
 			best[k] = m.SNR
 			out[k] = reported{mag: *nl, ok: true}
@@ -186,7 +231,7 @@ func reportedFor(reps map[string]reported, filter, night string) reported {
 func reportedBroad(reps map[string]reported) reported {
 	var out reported
 	for k, r := range reps {
-		if strings.HasPrefix(k, discoveries.GroupBroadband+"\x00") && (!out.ok || r.mag < out.mag) {
+		if r.ok && strings.HasPrefix(k, discoveries.GroupBroadband+"\x00") && (!out.ok || r.mag < out.mag) {
 			out = r
 		}
 	}
@@ -959,7 +1004,86 @@ func atlasCheckTransient(fx transientFacts) check.Check {
 			}
 		}
 	}
+	if peakFlux == 0 {
+		if c, ok := atlasMissedReported(fx, ns); ok {
+			return c
+		}
+	}
 	return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS has %d nights of frames within %.0f days, but none shows it clearly; the best is signal to noise %.1f on %s.", len(ns), confirmDays, best.flux/best.err, mjdDate(best.mjd)))
+}
+
+// atlasMissedReported fails new light too faint in the user's own frames
+// to stand on its own when ATLAS looked within a day of a flagged night,
+// in frames deep enough to show the broadband light the detection reported
+// there at twice seenSNR, and saw nothing: 52576 on 2026-05-13 was found
+// at 9.5 while ATLAS's five nights around it reached at best 0.8. A star
+// brighter than starNearG within starNearArcsec or a catalogued galaxy at
+// the spot leaves it open, as their light enters ATLAS's forced
+// photometry too.
+func atlasMissedReported(fx transientFacts, ns []atlasNight) (check.Check, bool) {
+	if len(fx.near) > 0 || inGalaxy(fx.matches) {
+		return check.Check{}, false
+	}
+	nights := make([]string, 0, len(fx.reps))
+	for k := range fx.reps {
+		if g, night, ok := strings.Cut(k, "\x00"); ok && g == discoveries.GroupBroadband {
+			nights = append(nights, night)
+		}
+	}
+	sort.Strings(nights)
+	for _, night := range nights {
+		rep := fx.reps[discoveries.GroupBroadband+"\x00"+night]
+		if n, ok := broadNightOn(fx.flux, night); ok {
+			rep = rep.on(fx.flux, n)
+		}
+		if !rep.ok || rep.mag <= 0 {
+			continue
+		}
+		lf := math.Pow(10, -0.4*(rep.mag-atlasZero))
+		at := mjdOf(nightDate(night).Add(nightMid))
+		for _, n := range ns {
+			if math.Abs(n.mjd-at) > sameDays || !(n.err > 0) {
+				continue
+			}
+			if lf/n.err >= 2*seenSNR && n.flux/n.err < 2 {
+				return check.New(check.TransATLAS, check.Fail, fmt.Sprintf("ATLAS looked on %s, within a day of your night of %s, and saw nothing: the light the detection reported, magnitude %.1f, would show at signal to noise %.0f, but ATLAS measured %.0f ± %.0f microjansky (signal to noise %.1f).",
+					mjdDate(n.mjd), night, rep.mag, lf/n.err, n.flux, n.err, n.flux/n.err)+rep.basis()), true
+			}
+		}
+	}
+	return check.Check{}, false
+}
+
+// broadNightOn is the flagged broadband or all-filters night of a date
+// with the most light against its error.
+func broadNightOn(fc *ownimage.FluxCurve, night string) (ownimage.FluxNight, bool) {
+	var best ownimage.FluxNight
+	found := false
+	if fc == nil {
+		return best, false
+	}
+	for _, n := range fc.Nights {
+		if n.Night != night || !n.Flagged || n.Thin || !(n.Err > 0) {
+			continue
+		}
+		if n.Filter != ownimage.AllFilters && discoveries.GroupOf(n.Filter) != discoveries.GroupBroadband {
+			continue
+		}
+		if !found || n.SNR() > best.SNR() {
+			best, found = n, true
+		}
+	}
+	return best, found
+}
+
+// inGalaxy says the spot lies in a catalogued galaxy.
+func inGalaxy(ms []discoveries.Match) bool {
+	for _, m := range ms {
+		if m.Catalog == catalogGalaxy {
+			return true
+		}
+	}
+	return false
 }
 
 func atlasBand(b string) string {
@@ -1207,6 +1331,8 @@ func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.S
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: galaxy nucleus residual", Confidence: Medium, Why: ev(check.TransNucleus)}
 	case st(check.TransZTFImages) == check.Fail:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: ZTF looked the same night and saw nothing", Confidence: Medium, Why: ev(check.TransZTFImages)}
+	case stack == ownimage.StackDoubtful:
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: your frames stacked at the spot do not confirm it", Confidence: Low, Why: ev(check.TransStack) + pendingNote}
 	case st(check.PSF) != check.Pass:
 		why := joinSentences(ev(check.PSF), "Diffuse light, not a star, can show as new light at a spot until its shape is measured.")
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: the shape of the new light was not measured", Confidence: Low, Why: why + pendingNote}
@@ -1220,9 +1346,6 @@ func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.S
 	case st(check.Stays) != check.Pass:
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: not checked against known asteroids", Confidence: Low,
 			Why: joinSentences(ev(check.Stays), "A known asteroid passing on one night looks just like this.") + pendingNote}
-	}
-	if stack == ownimage.StackDoubtful {
-		return Suggestion{State: app.VetUnsure, Say: "Not sure: your frames stacked at the spot do not confirm it", Confidence: Low, Why: ev(check.TransStack) + pendingNote}
 	}
 	if stack == ownimage.StackConfirmed && st(check.TransFlux) == check.Pass && st(check.TransNights) == check.Pass && st(check.TransBefore) == check.Pass && st(check.TransFresh) == check.Pass {
 		return Suggestion{State: app.VetReal, Say: "Looks like " + what + " in your own frames", Confidence: Medium,
