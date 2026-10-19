@@ -177,6 +177,10 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 	}
 	p := periodText(e.Period)
 	surveysSeen := surveyWords(pr)
+	if e.Kind != period.KindEclipsing && status(groups, check.ZTF) != check.Pass && status(groups, check.ATLAS) != check.Pass {
+		return Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: the %s-day cycle is too faint in the survey data", ps), Confidence: Low,
+			Why: joinSentences(evidence(groups, check.ZTF), "A cycle no survey's own fit shows is not a new variable star yet.")}
+	}
 	if e.Kind != period.KindEclipsing {
 		return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new variable star, repeats every %s days", ps), Confidence: Medium,
 			Why: joinSentences(fmt.Sprintf("%s show it varying every %s days, and no catalog lists the star as variable.", surveysSeen, p),
