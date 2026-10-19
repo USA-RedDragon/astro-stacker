@@ -365,10 +365,13 @@ func TestDraftAsksForGapsOnly(t *testing.T) {
 	}
 }
 
+// fakeCommands applies each command at once, or with pending holds new
+// creates waiting at an observatory it cannot reach until land.
 type fakeCommands struct {
-	mu     sync.Mutex
-	sent   map[string]schedcmd.Record
-	undone []string
+	mu      sync.Mutex
+	sent    map[string]schedcmd.Record
+	undone  []string
+	pending bool
 }
 
 func (f *fakeCommands) SubmitOnce(_ context.Context, id string, kind schedcmd.Kind, payload json.RawMessage, _ string) (schedcmd.Record, error) {
@@ -381,6 +384,9 @@ func (f *fakeCommands) SubmitOnce(_ context.Context, id string, kind schedcmd.Ki
 		return r, nil
 	}
 	r := schedcmd.Record{ID: id, Kind: kind, Payload: payload, Status: schedcmd.StatusApplied}
+	if f.pending && kind == schedcmd.KindProjectCreate {
+		r.Status = schedcmd.StatusPending
+	}
 	f.sent[id] = r
 	return r, nil
 }
@@ -388,14 +394,52 @@ func (f *fakeCommands) SubmitOnce(_ context.Context, id string, kind schedcmd.Ki
 func (f *fakeCommands) Status(_ context.Context, id string) (schedcmd.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.sent[id], nil
+	r, ok := f.sent[id]
+	if !ok {
+		return r, schedcmd.ErrNotFound
+	}
+	return r, nil
 }
 
+// Undo cancels nothing while the observatory is unreachable, and takes a
+// landed command back with an undo that applies at once.
 func (f *fakeCommands) Undo(_ context.Context, id, _ string) (schedcmd.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.undone = append(f.undone, id)
-	return f.sent[id], nil
+	r := f.sent[id]
+	if r.Status.Waiting() {
+		return r, schedcmd.ErrUnreachable
+	}
+	u := schedcmd.Record{ID: "undo-" + id, Status: schedcmd.StatusApplied, UndoOf: id}
+	f.sent[u.ID] = u
+	r.UndoneBy = u.ID
+	f.sent[id] = r
+	return u, nil
+}
+
+// land applies every waiting create.
+func (f *fakeCommands) land() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for id, r := range f.sent {
+		if r.Status.Waiting() {
+			r.Status = schedcmd.StatusApplied
+			f.sent[id] = r
+		}
+	}
+}
+
+func (f *fakeCommands) kinds(kind schedcmd.Kind) []schedcmd.Record {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []schedcmd.Record
+	for _, r := range f.sent {
+		if r.Kind == kind {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func appDB(t *testing.T) *gorm.DB {
@@ -461,8 +505,8 @@ func TestServiceAsksStopsAndWithdraws(t *testing.T) {
 	if err := svc.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(cmds.sent) != 5 {
-		t.Errorf("a second look sent %d commands, want the same 5", len(cmds.sent))
+	if len(cmds.kinds(schedcmd.KindProjectCreate)) != 5 {
+		t.Errorf("a second look sent %d commands, want the same 5", len(cmds.kinds(schedcmd.KindProjectCreate)))
 	}
 	list, counts, err := discoverysource.List(ctx, db, discoverysource.Filter{View: discoverysource.ViewWatching})
 	if err != nil {
@@ -515,8 +559,8 @@ func TestServiceAsksStopsAndWithdraws(t *testing.T) {
 	if err := svc.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(cmds.sent) != 5 {
-		t.Errorf("a stopped watch asked again: %d commands", len(cmds.sent))
+	if len(cmds.kinds(schedcmd.KindProjectCreate)) != 5 {
+		t.Errorf("a stopped watch asked again: %d commands", len(cmds.kinds(schedcmd.KindProjectCreate)))
 	}
 }
 
@@ -557,8 +601,8 @@ func TestNewSetOfNightsOnceTheLastIsOver(t *testing.T) {
 	if err := svc.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(cmds.sent) != 5 {
-		t.Fatalf("%d commands while the last night is still to come, want 5", len(cmds.sent))
+	if len(cmds.kinds(schedcmd.KindProjectCreate)) != 5 {
+		t.Fatalf("%d commands while the last night is still to come, want 5", len(cmds.kinds(schedcmd.KindProjectCreate)))
 	}
 	now = start.Add(22 * 24 * time.Hour)
 	if err := svc.Tick(ctx); err != nil {
@@ -581,6 +625,123 @@ func TestNewSetOfNightsOnceTheLastIsOver(t *testing.T) {
 	db.First(&w)
 	if w.ImagingStoppedAt == nil || w.StopReason != app.WatchStopQuiet {
 		t.Errorf("90 quiet days should stop imaging: %+v", w)
+	}
+}
+
+// TestStopBeforeTheCreatesLand stops a watch while its creates still wait
+// on an observatory that cannot be reached, so neither the night under
+// way nor those to come can be taken back. When the creates land, the
+// next looks take the nights to come back and close the one under way,
+// then stop owing anything.
+func TestStopBeforeTheCreatesLand(t *testing.T) {
+	t.Parallel()
+	db, sched := appDB(t), schedDB(t)
+	seed(t, db)
+	now := start
+	cmds := &fakeCommands{pending: true}
+	var landed []planning.Project
+	svc := &Service{DB: db, Commands: cmds, Loc: time.UTC, Now: func() time.Time { return now },
+		Snapshot: func(ctx context.Context) (*planning.Snapshot, error) {
+			snap, err := planning.Load(ctx, sched, db, planning.Inputs{})
+			if err == nil {
+				snap.Projects = append(snap.Projects, landed...)
+			}
+			return snap, err
+		}}
+	ctx := context.Background()
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Hour)
+	if err := svc.Stop(ctx, 3635); err != nil {
+		t.Fatal(err)
+	}
+	var nights []app.DiscoveryWatchNight
+	db.Order("night").Find(&nights)
+	for _, n := range nights {
+		if n.State != app.EclipseCancel || n.Settle != "withdraw" {
+			t.Fatalf("night %s: %s owing %q, want cancelled and still owing its withdraw", n.Night.Format(time.DateOnly), n.State, n.Settle)
+		}
+	}
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cmds.land()
+	for _, n := range nights {
+		landed = append(landed, planning.Project{ID: 900 + n.ID, GUID: n.ProjectGUID, Name: "Watch", State: "Active"})
+	}
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	closes := cmds.kinds(schedcmd.KindProjectEdit)
+	if len(closes) != 1 || !strings.Contains(string(closes[0].Payload), nights[0].ProjectGUID) {
+		t.Fatalf("closes %+v, want the night under way closed once it landed", closes)
+	}
+	for _, n := range nights[1:] {
+		if r, _ := cmds.Status(ctx, n.CreateCmd); r.UndoneBy == "" {
+			t.Errorf("night %s landed after the stop and was not taken back", n.Night.Format(time.DateOnly))
+		}
+	}
+	landed[0].State = "Closed"
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db.Order("night").Find(&nights)
+	for _, n := range nights {
+		if n.Settle != "" || n.State != app.EclipseCancel {
+			t.Errorf("night %s: %s still owing %q", n.Night.Format(time.DateOnly), n.State, n.Settle)
+		}
+	}
+	if nights[0].CloseCmd == "" {
+		t.Error("the night under way should keep its close command")
+	}
+}
+
+// TestNightEndClosesALateCreate ends a night while its create still waits;
+// the close is owed until the project shows up, then sent.
+func TestNightEndClosesALateCreate(t *testing.T) {
+	t.Parallel()
+	db, sched := appDB(t), schedDB(t)
+	seed(t, db)
+	now := start
+	cmds := &fakeCommands{pending: true}
+	var landed []planning.Project
+	svc := &Service{DB: db, Commands: cmds, Loc: time.UTC, Now: func() time.Time { return now },
+		Snapshot: func(ctx context.Context) (*planning.Snapshot, error) {
+			snap, err := planning.Load(ctx, sched, db, planning.Inputs{})
+			if err == nil {
+				snap.Projects = append(snap.Projects, landed...)
+			}
+			return snap, err
+		}}
+	ctx := context.Background()
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var first app.DiscoveryWatchNight
+	db.Order("night").First(&first)
+	now = first.End.Add(2 * time.Hour)
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db.First(&first, first.ID)
+	if first.State != app.EclipseDone || first.Settle != "close" {
+		t.Fatalf("passed night %s owing %q, want done and owing its close", first.State, first.Settle)
+	}
+	cmds.land()
+	landed = append(landed, planning.Project{ID: 901, GUID: first.ProjectGUID, Name: "Watch", State: "Active"})
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if closes := cmds.kinds(schedcmd.KindProjectEdit); len(closes) != 1 || !strings.Contains(string(closes[0].Payload), first.ProjectGUID) {
+		t.Fatalf("closes %+v, want the late project closed", closes)
+	}
+	if err := svc.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db.First(&first, first.ID)
+	if first.Settle != "" || first.CloseCmd == "" {
+		t.Errorf("night owing %q close %q, want settled by its applied close", first.Settle, first.CloseCmd)
 	}
 }
 

@@ -66,6 +66,9 @@ type DiscoveryWatchNight struct {
 	CloseCmd    string
 	State       string `gorm:"not null;index"`
 	Note        string `gorm:"type:text;not null;default:''"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Settle is what is still owed the scheduler once the project is no
+	// longer wanted, withdraw or close, empty once done.
+	Settle    string `gorm:"not null;default:''"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
