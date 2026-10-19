@@ -67,6 +67,10 @@ type Minimum struct {
 	// Red is how much more the residuals' averages over a few frames
 	// scatter than white noise would; the formal error is widened by it.
 	Red float64 `json:"red"`
+	// Drift is how far the middle moves when the night is fitted again
+	// with a plausible slow curved drift forced in, either way: a
+	// systematic error added to the statistical one.
+	Drift float64 `json:"drift"`
 	// Check is the second method's time, when the points allow it, and
 	// Agree whether it lands where the two methods' chance spread at the
 	// fit, Spread, allows; with no Spread, within three of the combined
@@ -125,6 +129,20 @@ const (
 	// clearDepth is how many of its errors a filter's depth must clear for
 	// its points to go to the second method.
 	clearDepth = 3.0
+	// driftCurve is the curvature of the slow drift, in mag a day squared,
+	// a night's light may follow unseen, as differential extinction does
+	// across an airmass curve: 0.004 mag per half width squared of a dip
+	// 0.111 days in half width, about 0.0006 mag an hour squared.
+	driftCurve = 0.004 / (0.111 * 0.111)
+	// driftMost is the most that drift may add over the frames' reach
+	// from the middle, in mag, so a long night is not given more drift
+	// than airmass gives.
+	driftMost = 0.02
+	// evenShare is how far off the middle the night's centre may lie, as
+	// a share of its half span, and how far the frames in the dip either
+	// side of the middle may differ in number, as a share of them, for the
+	// night to count as covering the eclipse evenly.
+	evenShare = 0.15
 )
 
 // Why a night gave no minimum.
@@ -140,6 +158,7 @@ const (
 	ReasonNoCover  = "none of the measured frames fell inside the dip"
 	ReasonNoDip    = "the star showed no dip near the predicted time"
 	ReasonDrift    = "the star's light drifted over the night, and the frames outside the dip could not tell the drift from the dip's shape"
+	ReasonCurve    = "a slow drift across the night could move the middle"
 )
 
 // failure is why a fit found no dip.
@@ -221,6 +240,7 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 	if len(use) < minInDip+2 {
 		return Minimum{}, ReasonFew, false
 	}
+	on := frameSpan{first: use[0].T, last: use[len(use)-1].T}
 	best, fd, slope, fail := fitBest(use, ng, d, span)
 	if fail != fitDone {
 		return Minimum{}, failReason(fail, use, ng, d), false
@@ -279,12 +299,10 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 			return m, why, false
 		}
 	}
-	var beadDiffs []float64
-	if len(use) >= beadMin {
-		m.Bead, beadDiffs = bead(use, ng, fd, span, slope, best)
-		m.Red = redFactor(use, best.resid)
+	beadDiffs := m.addNoise(use, ng, fd, span, slope, best)
+	if why := m.addDrift(use, ng, d, fd, span, best, on); why != "" {
+		return m, why, false
 	}
-	m.Err = math.Max(m.Formal*math.Max(1, m.Red), m.Bead)
 	c, ok := KvW(normalized(use, best), m.T, fd.Half)
 	if !ok {
 		m.Agree = true
@@ -301,6 +319,94 @@ func Time(pts []Point, d Dip) (Minimum, string, bool) {
 		m.Agree = math.Abs(c.T-m.T) <= agreeSigma*math.Hypot(c.Err, m.Err)
 	}
 	return m, "", true
+}
+
+// addNoise sets m's red noise error and factor when there are beadMin
+// points or more, giving the fitted middle less the second method's on
+// each night bead moved.
+func (m *Minimum) addNoise(use []Point, ng int, fd Dip, span float64, slope bool, best fitOut) []float64 {
+	if len(use) < beadMin {
+		return nil
+	}
+	var diffs []float64
+	m.Bead, diffs = bead(use, ng, fd, span, slope, best)
+	m.Red = redFactor(use, best.resid)
+	return diffs
+}
+
+// addDrift sets m's drift systematic and its error, the statistical
+// error and the drift added in quadrature, giving why the timing is
+// refused when the drift moves the middle further than the statistical
+// error on a night whose frames do not lie evenly about it, else "".
+func (m *Minimum) addDrift(use []Point, ng int, d, fd Dip, span float64, best fitOut, on frameSpan) string {
+	stat := math.Max(m.Formal*math.Max(1, m.Red), m.Bead)
+	m.Drift = driftShift(use, ng, d, span, best, on.centre())
+	m.Err = math.Hypot(stat, m.Drift)
+	if m.Drift > stat && !on.even(use, fd, m.T) {
+		return fmt.Sprintf("%s by %.1f minutes; the frames do not cover the eclipse evenly enough to rule it out", ReasonCurve, m.Drift*1440)
+	}
+	return ""
+}
+
+// frameSpan is the first and last frame within reach of the predicted
+// middle.
+type frameSpan struct{ first, last float64 }
+
+func (n frameSpan) centre() float64 { return (n.first + n.last) / 2 }
+
+// even is whether the night's frames lie evenly about mid: its centre
+// within evenShare of its half span of mid, and the frames in use in the
+// fitted dip fd differing in number either side by no more than
+// evenShare of them.
+func (n frameSpan) even(use []Point, fd Dip, mid float64) bool {
+	if math.Abs(n.centre()-mid) > evenShare*(n.last-n.first)/2 {
+		return false
+	}
+	var dip [2]int
+	for _, p := range use {
+		if fd.Shape(p.T-mid) <= inDip {
+			continue
+		}
+		if p.T < mid {
+			dip[0]++
+		} else {
+			dip[1]++
+		}
+	}
+	return math.Abs(float64(dip[0]-dip[1])) <= evenShare*float64(dip[0]+dip[1])
+}
+
+// driftShift is the larger shift of the middle when the night is fitted
+// again, width and line free as before, with a parabola forced in either
+// way: driftCurve about vertex, the night's centre, as an airmass curve
+// peaks near the middle of a run of frames, held to driftMost at the
+// frame furthest from it. On frames covering the eclipse evenly the
+// vertex lies near the middle, both sides feel the drift alike and it
+// barely moves the middle; on lopsided frames the drift tilts the dip.
+func driftShift(use []Point, ng int, d Dip, span float64, best fitOut, vertex float64) float64 {
+	var far float64
+	for _, p := range use {
+		far = math.Max(far, math.Abs(p.T-vertex))
+	}
+	if !(far > 0) {
+		return 0
+	}
+	q := math.Min(driftCurve, driftMost/(far*far))
+	moved := make([]Point, len(use))
+	var most float64
+	for _, sign := range []float64{1, -1} {
+		for i, p := range use {
+			x := p.T - vertex
+			moved[i] = p
+			moved[i].Y = p.Y - sign*q*x*x
+		}
+		f, _, _, fail := fitBest(moved, ng, d, span)
+		if fail != fitDone {
+			continue
+		}
+		most = math.Max(most, math.Abs(f.tau-best.tau))
+	}
+	return most
 }
 
 // pinned is why the straight line a fit took under the dip cannot be
