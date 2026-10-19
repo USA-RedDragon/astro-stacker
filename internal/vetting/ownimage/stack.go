@@ -34,8 +34,12 @@ const (
 	stackTrialIn  = 12.0
 	stackTrialOut = 28.0
 	stackTrials   = 32
-	// stackUnused is how far in time from the detections' middle a frame
-	// the detection did not use may be, as in the audits.
+	// stackUnused is how far in time before the first detection or after
+	// the last a frame the detection did not use may be, as in the audits;
+	// every frame between them counts. 23765 (Cygnus Loop, 2026-09-04)
+	// spanned 378 minutes, and the 3 H-alpha frames it crossed but was not
+	// found in lay 132 to 151 minutes from its detections' middle, so a
+	// window about the middle left them out.
 	stackUnused = 90 * time.Minute
 	// stackSmearMin is the least smear, in px over half the detections'
 	// span, a wrong motion must have to tell it from the fitted one;
@@ -212,25 +216,39 @@ func newStackPlan(ctx context.Context, d Data, w *discoveries.WCS, width, height
 		return sp, nil
 	}
 	var sum float64
+	first, last := dets[0], dets[0]
 	for _, t := range dets {
 		sum += float64(t.Sub(dets[0]))
+		if t.Before(first) {
+			first = t
+		}
+		if t.After(last) {
+			last = t
+		}
 	}
 	mid := dets[0].Add(time.Duration(sum / float64(len(dets))))
 	type cand struct {
-		k  int
-		dt time.Duration
+		k    int
+		dt   time.Duration
+		past time.Duration
 	}
 	var unused []cand
 	for k, r := range tp.rows {
 		dt := r.Time.Sub(mid)
+		past := max(first.Sub(r.Time), r.Time.Sub(last), 0)
 		switch {
 		case r.Detected:
 			sp.addFrame(k, true, dt, r)
-		case dt.Abs() <= stackUnused:
-			unused = append(unused, cand{k, dt})
+		case past <= stackUnused:
+			unused = append(unused, cand{k, dt, past})
 		}
 	}
-	sort.Slice(unused, func(a, b int) bool { return unused[a].dt.Abs() < unused[b].dt.Abs() })
+	sort.Slice(unused, func(a, b int) bool {
+		if unused[a].past != unused[b].past {
+			return unused[a].past < unused[b].past
+		}
+		return unused[a].dt.Abs() < unused[b].dt.Abs()
+	})
 	for _, c := range unused[:min(len(unused), stackMaxUnused)] {
 		sp.addFrame(c.k, false, c.dt, tp.rows[c.k])
 	}
