@@ -26,7 +26,11 @@ func movedOut(r app.EclipseRequest, p Predicted) bool {
 }
 
 // nearestPrediction is the predicted eclipse of r's kind nearest r's
-// middle, within half a period of it.
+// middle, within half a period of it, or one of the other kind within
+// relabelMatch of it: when the vet takes one dip per cycle as two equal
+// eclipses at twice the period, or two equal eclipses swap which is
+// deeper, the eclipse times stay and only the kinds change, which must not
+// draft a request again.
 func nearestPrediction(st Star, r app.EclipseRequest) (Predicted, bool) {
 	e, _ := st.ephemeris()
 	if e == nil || e.Period <= 0 || st.Facts == nil || st.Facts.Gaia == nil {
@@ -36,7 +40,10 @@ func nearestPrediction(st Star, r app.EclipseRequest) (Predicted, bool) {
 	ra, dec := st.Facts.Gaia.Now(r.Mid)
 	var best *Predicted
 	for _, p := range Predict(e, st.deeper(), ra, dec, r.Mid.Add(-half), r.Mid.Add(half)) {
-		if p.Kind == r.Kind && (best == nil || absDur(p.Mid.Sub(r.Mid)) < absDur(best.Mid.Sub(r.Mid))) {
+		if p.Kind != r.Kind && absDur(p.Mid.Sub(r.Mid)) > relabelMatch {
+			continue
+		}
+		if best == nil || absDur(p.Mid.Sub(r.Mid)) < absDur(best.Mid.Sub(r.Mid)) {
 			p = st.withPhaseError(p, e)
 			best = &p
 		}
@@ -88,7 +95,7 @@ func (s *Service) redraftMoved(ctx context.Context, stars []Star) error {
 		if r.Auto {
 			continue
 		}
-		if _, err := s.requestImaging(ctx, r.SourceID, r.Kind, p.Mid, false); err != nil && !errors.Is(err, ErrOver) {
+		if _, err := s.requestImaging(ctx, r.SourceID, p.Kind, p.Mid, false); err != nil && !errors.Is(err, ErrOver) {
 			errs = append(errs, fmt.Errorf("source %d: %w", r.SourceID, err))
 		}
 	}

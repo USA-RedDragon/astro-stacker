@@ -182,16 +182,25 @@ func midOf(s ownimage.Sub) time.Time {
 }
 
 // matchTiming is the stored timing of the eclipse predicted at utc: same
-// star and kind, its prediction within a quarter period and half a day.
+// star and kind, its prediction within a quarter period and half a day,
+// or the same eclipse stored under the other kind (see relabelMatch).
 func matchTiming(rows []app.EclipseTiming, id int, kind string, utc time.Time, p float64) *app.EclipseTiming {
 	tol := min(time.Duration(p/4*86400e9), 12*time.Hour)
+	var relabelled *app.EclipseTiming
 	for i := range rows {
 		r := &rows[i]
-		if r.SourceID == id && r.Kind == kind && r.State != app.EclipseMoved && absDur(r.Predicted.Sub(utc)) < tol {
+		if r.SourceID != id || r.State == app.EclipseMoved {
+			continue
+		}
+		d := absDur(r.Predicted.Sub(utc))
+		if r.Kind == kind && d < tol {
 			return r
 		}
+		if r.Kind != kind && d <= min(tol, relabelMatch) && relabelled == nil {
+			relabelled = r
+		}
 	}
-	return nil
+	return relabelled
 }
 
 func (ev event) due() bool {
@@ -285,7 +294,7 @@ func matchReq(reqs []app.EclipseRequest, id int, kind string, utc time.Time) *ap
 	var best *app.EclipseRequest
 	for i := range reqs {
 		r := &reqs[i]
-		if r.SourceID == id && r.Kind == kind && r.State != app.EclipseMoved && absDur(r.Mid.Sub(utc)) <= requestMatch && (best == nil || r.ID > best.ID) {
+		if r.SourceID == id && r.State != app.EclipseMoved && sameEclipse(r.Kind, kind, r.Mid.Sub(utc)) && (best == nil || r.ID > best.ID) {
 			best = r
 		}
 	}

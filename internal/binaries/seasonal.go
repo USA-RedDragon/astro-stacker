@@ -282,7 +282,7 @@ func seenThrough(site sky.Site, ra, dec float64, p Predicted) bool {
 // window overlaps an open request of any star.
 func clash(reqs []app.EclipseRequest, id int, p Predicted, start, end, now time.Time) bool {
 	for _, r := range reqs {
-		if r.SourceID == id && r.Kind == p.Kind && r.State != app.EclipseMoved && absDur(r.Mid.Sub(p.Mid)) <= requestMatch {
+		if r.SourceID == id && r.State != app.EclipseMoved && sameEclipse(r.Kind, p.Kind, r.Mid.Sub(p.Mid)) {
 			return true
 		}
 		if open(r) && r.End.After(now) && r.Start.Before(end) && start.Before(r.End) {
