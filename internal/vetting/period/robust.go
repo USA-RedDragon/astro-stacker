@@ -557,6 +557,9 @@ func (a *analysis) tessConfirms() bool {
 		mins := a.tessMinima()
 		good := 0
 		for _, m := range mins {
+			if m.faint {
+				continue
+			}
 			if !m.good {
 				return false
 			}

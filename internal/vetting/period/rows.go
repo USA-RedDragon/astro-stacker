@@ -175,7 +175,21 @@ func (a *analysis) tessRow(si surveyInfo, fits []SurveyFit) check.Check {
 	default:
 		head = fmt.Sprintf("TESS %s", si.span)
 	}
-	if len(mins) == 0 {
+	var timed []tessMin
+	faint := map[int]bool{}
+	for _, x := range mins {
+		if x.faint {
+			faint[x.sector] = true
+		}
+	}
+	for _, x := range mins {
+		if !x.faint {
+			delete(faint, x.sector)
+			timed = append(timed, x)
+		}
+	}
+	note := faintNote(faint)
+	if len(timed) == 0 {
 		f := fits[si.groups[0]]
 		if f.InDip1+f.InDip2 == 0 {
 			return check.New(check.TESS, check.NotRun, head+": fell between dips.")
@@ -183,23 +197,48 @@ func (a *analysis) tessRow(si surveyInfo, fits []SurveyFit) check.Check {
 		if !f.Agrees {
 			return check.New(check.TESS, check.Fail, head+": the points in the dips are not fainter.")
 		}
+		if note != "" {
+			return check.New(check.TESS, check.Pass, head+": as deep as predicted"+note+".")
+		}
 		return check.New(check.TESS, check.Pass, head+": caught only parts of dips, as deep as predicted.")
 	}
-	worst, bad := 0.0, 0
-	for _, x := range mins {
+	worst, worstBad, bad := 0.0, 0.0, 0
+	for _, x := range timed {
 		worst = math.Max(worst, math.Abs(x.lag))
 		if !x.good {
 			bad++
+			worstBad = math.Max(worstBad, math.Abs(x.lag))
 		}
 	}
 	if bad > 0 {
-		return check.New(check.TESS, check.Fail, fmt.Sprintf("%s: of %s, %d miss the predicted time, by up to %s.",
-			head, plural(len(mins), "dip", "dips"), bad, minutes(worst)))
+		return check.New(check.TESS, check.Fail, fmt.Sprintf("%s: of %s, %d miss the predicted time or depth, by up to %s%s.",
+			head, plural(len(timed), "dip", "dips"), bad, minutes(worstBad), note))
 	}
-	if len(mins) == 1 {
-		return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: 1 dip, %s from the predicted time.", head, minutes(worst)))
+	if len(timed) == 1 {
+		return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: 1 dip, %s from the predicted time%s.", head, minutes(worst), note))
 	}
-	return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: %s, each within %s of the predicted time.", head, plural(len(mins), "dip", "dips"), minutes(worst)))
+	return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: %s, each within %s of the predicted time%s.", head, plural(len(timed), "dip", "dips"), minutes(worst), note))
+}
+
+// faintNote names the sectors whose dips were too faint to time, blended
+// with neighbours in TESS's large pixels.
+func faintNote(faint map[int]bool) string {
+	if len(faint) == 0 {
+		return ""
+	}
+	list := make([]int, 0, len(faint))
+	for n := range faint {
+		list = append(list, n)
+	}
+	slices.Sort(list)
+	names := make([]string, len(list))
+	for i, n := range list {
+		names[i] = strconv.Itoa(n)
+	}
+	if len(names) == 1 {
+		return "; sector " + names[0] + " is too blended to time its dips"
+	}
+	return "; sectors " + joinList(names) + " are too blended to time their dips"
 }
 
 func (a *analysis) sineRow(s string, si surveyInfo, fits []SurveyFit) check.Check {
