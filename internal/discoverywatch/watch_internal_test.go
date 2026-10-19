@@ -27,16 +27,37 @@ var start = time.Date(2026, 10, 19, 22, 0, 0, 0, time.UTC)
 // fades with nearby stars steady, nothing pending.
 func barnardsE() discoverysource.Summary {
 	return discoverysource.Summary{
-		Source: app.DiscoverySource{ID: 3635, Object: "Barnard's E", Kind: app.DiscoveryKindChange},
-		Class:  discoveries.ClassNewVariable,
-		Best:   app.DiscoveryCandidate{Group: discoveries.GroupBroadband},
-		Seen:   1,
-		Vet:    &app.DiscoveryVet{SourceID: 3635, State: vetting.StateDone, Suggested: app.VetReal, Confidence: "low"},
+		Source:  app.DiscoverySource{ID: 3635, Object: "Barnard's E", Kind: app.DiscoveryKindChange},
+		Class:   discoveries.ClassNewVariable,
+		Best:    app.DiscoveryCandidate{Group: discoveries.GroupBroadband},
+		Members: []app.DiscoveryCandidate{{Night: time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)}},
+		Seen:    1,
+		Vet:     &app.DiscoveryVet{SourceID: 3635, State: vetting.StateDone, Suggested: app.VetReal, Confidence: "low"},
 	}
 }
 
+var ztfDates = []string{"2019-06-01", "2020-07-02", "2021-08-03", "2022-09-04", "2023-10-05", "2024-11-06"}
+
+// ztf is a report with steady ZTF fade nights, Fades counting them only
+// from two up as the period package does.
 func ztf(steady int) *vetting.Report {
-	return &vetting.Report{FadesRead: true, Fades: &period.Fades{Nights: steady, Steady: steady, Stars: 30}}
+	rep := &vetting.Report{FadesRead: true, FadeNightsRead: true, ZTFFadeNights: ztfDates[:steady]}
+	if steady >= 2 {
+		rep.Fades = &period.Fades{Nights: steady, Steady: steady, Stars: 30}
+	}
+	return rep
+}
+
+// own adds an own-frame candidate on the night of day in October 2026.
+func own(sum discoverysource.Summary, day int) discoverysource.Summary {
+	sum.Members = append(slices.Clone(sum.Members), app.DiscoveryCandidate{Night: time.Date(2026, 10, day, 0, 0, 0, 0, time.UTC)})
+	sum.Seen = len(sum.Members)
+	return sum
+}
+
+func nightsOf(sum discoverysource.Summary, steady int) []string {
+	n, _ := FadeNights(sum, ztf(steady))
+	return n
 }
 
 func watched(t *testing.T, sum discoverysource.Summary) discoverysource.Summary {
@@ -74,7 +95,7 @@ func TestPendingSurveyStaysInNeedsALook(t *testing.T) {
 	if sum.Watching() || !sum.Look() {
 		t.Fatalf("an ATLAS answer still pending keeps it in Needs a look: watching %v look %v", sum.Watching(), sum.Look())
 	}
-	if _, ok := Advance(sum, nil, 4, true, start); ok {
+	if _, ok := Advance(sum, nil, nightsOf(sum, 3), true, start); ok {
 		t.Error("no watch should start while a survey is pending")
 	}
 	sum.Vet.Pending = ""
@@ -100,7 +121,7 @@ func TestRisingToMediumReturnsToNeedsALook(t *testing.T) {
 	t.Parallel()
 	sum := watched(t, barnardsE())
 	sum.Vet.Confidence = "medium"
-	out, ok := Advance(sum, sum.Watch, 4, true, start.Add(7*24*time.Hour))
+	out, ok := Advance(sum, sum.Watch, nightsOf(sum, 3), true, start.Add(7*24*time.Hour))
 	if !ok || out.Watch.EndedAt == nil || out.Watch.EndReason != app.WatchEndRose || !out.Cancel {
 		t.Fatalf("rising to medium should end the watch and withdraw imaging: %+v", out)
 	}
@@ -115,7 +136,7 @@ func TestArtifactGoesToLikelyArtifacts(t *testing.T) {
 	sum := watched(t, barnardsE())
 	sum.Vet.Suggested, sum.Vet.Confidence = app.VetArtifact, "medium"
 	sum.LikelyArtifact = true
-	out, _ := Advance(sum, sum.Watch, 4, true, start.Add(7*24*time.Hour))
+	out, _ := Advance(sum, sum.Watch, nightsOf(sum, 3), true, start.Add(7*24*time.Hour))
 	if out.Watch.EndReason != app.WatchEndArtifact || !out.Cancel {
 		t.Fatalf("an artifact verdict should end the watch: %+v", out.Watch)
 	}
@@ -129,8 +150,8 @@ func TestTwoMoreFadeNightsPromote(t *testing.T) {
 	t.Parallel()
 	sum := watched(t, barnardsE())
 	later := start.Add(10 * 24 * time.Hour)
-	sum.Seen = 2
-	out, _ := Advance(sum, sum.Watch, 5, true, later)
+	sum = own(sum, 25)
+	out, _ := Advance(sum, sum.Watch, nightsOf(sum, 3), true, later)
 	if out.Watch.EndedAt != nil || *out.Watch.Fades != 5 || !out.Watch.LastFadeAt.Equal(later) {
 		t.Fatalf("one more fade night should keep watching and count it: %+v", out.Watch)
 	}
@@ -138,11 +159,11 @@ func TestTwoMoreFadeNightsPromote(t *testing.T) {
 	if !sum.Watching() {
 		t.Error("5 of 6 should stay in Watching")
 	}
-	sum.Seen = 3
+	sum = own(sum, 28)
 	fades, known := FadeNights(sum, ztf(3))
 	out, _ = Advance(sum, sum.Watch, fades, known, later.Add(24*time.Hour))
-	if fades != 6 || out.Watch.EndReason != app.WatchEndFades || !out.Cancel {
-		t.Fatalf("6 of 6 fade nights should move it to Needs a look: fades %d %+v", fades, out.Watch)
+	if len(fades) != 6 || out.Watch.EndReason != app.WatchEndFades || !out.Cancel {
+		t.Fatalf("6 of 6 fade nights should move it to Needs a look: fades %v %+v", fades, out.Watch)
 	}
 	sum.Watch = &out.Watch
 	if sum.Watching() || !sum.Look() {
@@ -153,12 +174,59 @@ func TestTwoMoreFadeNightsPromote(t *testing.T) {
 	}
 }
 
+// TestOneNewZTFNightCountsOnce is the known answer for the fade count: a
+// find with one old backed ZTF night has no Fades, so counting Fades
+// alone made one new ZTF night add two. Counting nights by date, the old
+// night is counted from the start and the new one adds exactly one.
+func TestOneNewZTFNightCountsOnce(t *testing.T) {
+	t.Parallel()
+	sum := barnardsE()
+	first, known := FadeNights(sum, ztf(1))
+	out, ok := Advance(sum, nil, first, known, start)
+	if !ok || len(first) != 2 || *out.Watch.FadesAtStart != 2 || *Needed(&out.Watch) != 4 {
+		t.Fatalf("start %v %+v, want the own night and the lone ZTF night", first, out.Watch)
+	}
+	sum.Watch = &out.Watch
+	if r := ztf(2); !r.Fades.Confirms() || r.Fades.Steady != 2 {
+		t.Fatalf("the second backed night makes Fades count both: %+v", r.Fades)
+	}
+	next, _ := FadeNights(sum, ztf(2))
+	out, _ = Advance(sum, sum.Watch, next, true, start.Add(7*24*time.Hour))
+	if *out.Watch.Fades != 3 || out.Watch.EndedAt != nil {
+		t.Fatalf("one new ZTF night: %d fade nights, ended %v; want 2+1 and still watching", *out.Watch.Fades, out.Watch.EndReason)
+	}
+	sum.Watch = &out.Watch
+	both := own(sum, 25)
+	same, _ := FadeNights(both, &vetting.Report{FadesRead: true, FadeNightsRead: true, ZTFFadeNights: append([]string{"2026-10-25"}, ztfDates[:2]...)})
+	if len(same) != 4 {
+		t.Errorf("a night seen in own frames and ZTF both counts once: %v", same)
+	}
+	out, _ = Advance(both, sum.Watch, same, true, start.Add(8*24*time.Hour))
+	if out.Watch.EndReason != app.WatchEndFades {
+		t.Errorf("two nights not at the start should move it on: %+v", out.Watch)
+	}
+}
+
+func TestOldWatchTakesItsNextLookAsTheStart(t *testing.T) {
+	t.Parallel()
+	sum := barnardsE()
+	four, five := 4, 5
+	sum.Watch = &app.DiscoveryWatch{SourceID: 3635, StartedAt: start, LastFadeAt: start, FadesAtStart: &four, Fades: &five}
+	if _, known := FadeNights(sum, &vetting.Report{FadesRead: true, Fades: &period.Fades{Steady: 3}}); known {
+		t.Fatal("a report from before the ZTF nights were listed must not count")
+	}
+	out, _ := Advance(sum, sum.Watch, nightsOf(sum, 3), true, start.Add(time.Hour))
+	if !out.Changed || out.Watch.StartNights == "" || *out.Watch.FadesAtStart != 4 || *out.Watch.Fades != 4 || out.Watch.EndedAt != nil {
+		t.Errorf("an old watch should record its nights now as the start: %+v", out.Watch)
+	}
+}
+
 func TestFieldFadesDoNotCount(t *testing.T) {
 	t.Parallel()
 	sum := barnardsE()
-	rep := &vetting.Report{FadesRead: true, Fades: &period.Fades{Nights: 5, Steady: 1, Field: 4, Stars: 30}}
-	if n, ok := FadeNights(sum, rep); !ok || n != 2 {
-		t.Errorf("fade nights %d %v, want the own night plus the one ZTF night with nearby stars steady", n, ok)
+	rep := &vetting.Report{FadesRead: true, FadeNightsRead: true, ZTFFadeNights: ztfDates[:1], Fades: &period.Fades{Nights: 5, Steady: 1, Field: 4, Stars: 30}}
+	if n, ok := FadeNights(sum, rep); !ok || len(n) != 2 {
+		t.Errorf("fade nights %v %v, want the own night plus the one ZTF night with nearby stars steady", n, ok)
 	}
 	if _, ok := FadeNights(sum, &vetting.Report{}); ok {
 		t.Error("a report that did not compare the fades must not count them")
@@ -168,12 +236,12 @@ func TestFieldFadesDoNotCount(t *testing.T) {
 func TestUnknownFadesFilledInLater(t *testing.T) {
 	t.Parallel()
 	sum := barnardsE()
-	out, _ := Advance(sum, nil, 0, false, start)
+	out, _ := Advance(sum, nil, nil, false, start)
 	if out.Watch.FadesAtStart != nil || Needed(&out.Watch) != nil {
 		t.Fatalf("fade nights should be unknown: %+v", out.Watch)
 	}
 	sum.Watch = &out.Watch
-	out, _ = Advance(sum, sum.Watch, 4, true, start.Add(time.Hour))
+	out, _ = Advance(sum, sum.Watch, nightsOf(sum, 3), true, start.Add(time.Hour))
 	if out.Watch.FadesAtStart == nil || *out.Watch.FadesAtStart != 4 || out.Watch.EndedAt != nil {
 		t.Errorf("the first count should become the start: %+v", out.Watch)
 	}
@@ -182,11 +250,11 @@ func TestUnknownFadesFilledInLater(t *testing.T) {
 func TestQuietNinetyDaysStopsImaging(t *testing.T) {
 	t.Parallel()
 	sum := watched(t, barnardsE())
-	out, _ := Advance(sum, sum.Watch, 4, true, start.Add(89*24*time.Hour))
+	out, _ := Advance(sum, sum.Watch, nightsOf(sum, 3), true, start.Add(89*24*time.Hour))
 	if out.Watch.ImagingStoppedAt != nil || out.Cancel {
 		t.Fatalf("89 quiet days should keep asking: %+v", out.Watch)
 	}
-	out, _ = Advance(sum, sum.Watch, 4, true, start.Add(QuietStop))
+	out, _ = Advance(sum, sum.Watch, nightsOf(sum, 3), true, start.Add(QuietStop))
 	if out.Watch.ImagingStoppedAt == nil || out.Watch.StopReason != app.WatchStopQuiet || !out.Cancel || out.Watch.EndedAt != nil {
 		t.Fatalf("90 quiet days should stop imaging but keep watching: %+v", out.Watch)
 	}
@@ -195,9 +263,9 @@ func TestQuietNinetyDaysStopsImaging(t *testing.T) {
 		t.Error("it should stay in Watching without asking")
 	}
 	sum = watched(t, barnardsE())
-	out, _ = Advance(sum, sum.Watch, 5, true, start.Add(60*24*time.Hour))
+	out, _ = Advance(sum, sum.Watch, nightsOf(sum, 4), true, start.Add(60*24*time.Hour))
 	sum.Watch = &out.Watch
-	out, _ = Advance(sum, sum.Watch, 5, true, start.Add(QuietStop))
+	out, _ = Advance(sum, sum.Watch, nightsOf(sum, 4), true, start.Add(QuietStop))
 	if out.Watch.ImagingStoppedAt != nil {
 		t.Error("a new fade on day 60 should restart the 90 days")
 	}
@@ -207,7 +275,7 @@ func TestUserVettingEndsTheWatch(t *testing.T) {
 	t.Parallel()
 	sum := watched(t, barnardsE())
 	sum.Source.Vetting = app.VetReal
-	out, _ := Advance(sum, sum.Watch, 4, true, start.Add(time.Hour))
+	out, _ := Advance(sum, sum.Watch, nightsOf(sum, 3), true, start.Add(time.Hour))
 	if out.Watch.EndReason != app.WatchEndUser || !out.Cancel {
 		t.Errorf("marking it should end the watch: %+v", out.Watch)
 	}
@@ -457,7 +525,7 @@ func TestComingBackKeepsTheWatch(t *testing.T) {
 	sum := watched(t, barnardsE())
 	sum.Vet.Suggested, sum.Vet.Confidence = app.VetUnsure, ""
 	sum.Unsure = true
-	out, _ := Advance(sum, sum.Watch, 4, true, start.Add(24*time.Hour))
+	out, _ := Advance(sum, sum.Watch, nightsOf(sum, 3), true, start.Add(24*time.Hour))
 	if out.Watch.EndReason != app.WatchEndOther {
 		t.Fatalf("not sure should leave Watching: %+v", out.Watch)
 	}
@@ -465,7 +533,7 @@ func TestComingBackKeepsTheWatch(t *testing.T) {
 	sum.Vet.Suggested, sum.Vet.Confidence = app.VetReal, "low"
 	sum.Unsure = false
 	sum.Seen = 2
-	out, _ = Advance(sum, sum.Watch, 5, true, start.Add(48*time.Hour))
+	out, _ = Advance(sum, sum.Watch, nightsOf(sum, 4), true, start.Add(48*time.Hour))
 	if out.Started || out.Watch.EndedAt != nil || *out.Watch.FadesAtStart != 4 || !out.Watch.StartedAt.Equal(start) || !out.Watch.LastFadeAt.Equal(start) {
 		t.Errorf("coming back should take up the old watch: %+v", out.Watch)
 	}
@@ -513,5 +581,26 @@ func TestNewSetOfNightsOnceTheLastIsOver(t *testing.T) {
 	db.First(&w)
 	if w.ImagingStoppedAt == nil || w.StopReason != app.WatchStopQuiet {
 		t.Errorf("90 quiet days should stop imaging: %+v", w)
+	}
+}
+
+func TestOldReportIsVettedAgain(t *testing.T) {
+	t.Parallel()
+	db := appDB(t)
+	seed(t, db)
+	rep, _ := json.Marshal(&vetting.Report{FadesRead: true, Fades: &period.Fades{Nights: 3, Steady: 3, Stars: 30}})
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", 3635).Update("report", string(rep)).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{DB: db, Loc: time.UTC, Now: func() time.Time { return start }}
+	if err := svc.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var v app.DiscoveryVet
+	db.First(&v, "source_id = ?", 3635)
+	var w app.DiscoveryWatch
+	db.First(&w)
+	if v.State != vetting.StateQueued || w.FadesAtStart != nil {
+		t.Errorf("vet %s, start %v; want the report from before the ZTF nights were listed vetted again before counting", v.State, w.FadesAtStart)
 	}
 }
