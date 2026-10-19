@@ -872,6 +872,17 @@ type atlasNight struct {
 }
 
 func atlasLevels(rows []surveys.ATLASRow, flagged []time.Time) []atlasNight {
+	return atlasNights(rows, flagged, func(near func(float64, float64) bool, mjd float64) bool { return near(mjd, confirmDays) })
+}
+
+// atlasAway is ATLAS's difference light on each date atlasBaseDays or
+// more from the flagged nights, measured as atlasLevels measures the
+// dates near them.
+func atlasAway(rows []surveys.ATLASRow, flagged []time.Time) []atlasNight {
+	return atlasNights(rows, flagged, func(near func(float64, float64) bool, mjd float64) bool { return !near(mjd, atlasBaseDays) })
+}
+
+func atlasNights(rows []surveys.ATLASRow, flagged []time.Time, keep func(near func(float64, float64) bool, mjd float64) bool) []atlasNight {
 	base := map[string][]float64{}
 	near := func(mjd, days float64) bool {
 		for _, f := range flagged {
@@ -906,7 +917,7 @@ func atlasLevels(rows []surveys.ATLASRow, flagged []time.Time) []atlasNight {
 	groups := map[key]*atlasNight{}
 	var keys []key
 	for _, r := range rows {
-		if !near(r.MJD, confirmDays) {
+		if !keep(near, r.MJD) {
 			continue
 		}
 		b := median(base[levelOf(r)])
@@ -933,6 +944,30 @@ func atlasLevels(rows []surveys.ATLASRow, flagged []time.Time) []atlasNight {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].mjd < out[j].mjd })
 	return out
+}
+
+// atlasCommonShare is the share of ATLAS's nights away from the flagged
+// ones that may reach a detection's signal to noise for it to stand out.
+// At 54893 in the Crab Nebula, beside a G 14.1 star, 131 of 928 ATLAS
+// nights reached signal to noise 8, the level of the one night that
+// "saw" new light that the user's own frames did not show.
+const atlasCommonShare = 0.02
+
+// atlasCommon is how many of ATLAS's nights away from the flagged ones
+// reach snr in the same direction, and of how many, when more than
+// atlasCommonShare of them do; 0 otherwise.
+func atlasCommon(rows []surveys.ATLASRow, flagged []time.Time, snr float64) (int, int) {
+	away := atlasAway(rows, flagged)
+	n := 0
+	for _, a := range away {
+		if a.flux/a.err >= snr {
+			n++
+		}
+	}
+	if len(away) == 0 || float64(n) <= atlasCommonShare*float64(len(away)) {
+		return 0, len(away)
+	}
+	return n, len(away)
 }
 
 // atlasMagSlack is how much brighter than the reported new light an ATLAS
@@ -987,6 +1022,10 @@ func atlasCheckTransient(fx transientFacts) check.Check {
 		if rep, ok := brightestReported(fx.reps); ok && mag < rep-atlasMagSlack {
 			return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s, far brighter than the %.1f your frames reported; that is a nearby star's light, not the new light.",
 				mag, mjdDate(best.mjd), rep))
+		}
+		if n, of := atlasCommon(fx.rows, fx.flagged, best.flux/best.err); n > 0 {
+			return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s (signal to noise %.0f), but %d of %d other ATLAS nights at this spot reach that too, so it does not stand out from what ATLAS always measures here.",
+				mag, mjdDate(best.mjd), best.flux/best.err, n, of))
 		}
 		return check.New(check.TransATLAS, check.Pass, fmt.Sprintf("ATLAS saw it on %s at magnitude %.1f in its %s band (signal to noise %.0f, from %d frames).",
 			mjdDate(best.mjd), mag, atlasBand(best.band), best.flux/best.err, best.count))
