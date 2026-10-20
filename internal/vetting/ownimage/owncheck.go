@@ -123,13 +123,20 @@ func ownLC(sp *spotPlan, c *Curve) check.Check {
 	}
 	ev := fmt.Sprintf("Measured against %d steady nearby stars over %d frames.", c.Comps, len(pts))
 	ext := runningExtreme(pts, sp.signOf(c.ChangeNight, pts[0].Filter))
+	dip := math.Abs(ext) >= dipScatters*c.Scatter
+	clear := math.Abs(c.ChangeSigma) >= changeSigma
 	switch {
-	case math.Abs(c.ChangeSigma) < changeSigma || math.Abs(ext) < dipScatters*c.Scatter:
+	case !dip && !clear:
 		ev += fmt.Sprintf(" That night shows no clear change against single frames scattering by %.2f mag.", c.Scatter)
+	case !dip:
+		ev += fmt.Sprintf(" No dip or peak within the night stands out against single frames scattering by %.2f mag.", c.Scatter)
 	case ext > 0:
-		ev += fmt.Sprintf(" The dip bottomed out %.2f mag deep.", ext)
+		ev += fmt.Sprintf(" The dip bottomed out %.2f mag deep, against single frames scattering by %.2f mag.", ext, c.Scatter)
 	default:
-		ev += fmt.Sprintf(" It peaked %.2f mag brighter.", -ext)
+		ev += fmt.Sprintf(" It peaked %.2f mag brighter, against single frames scattering by %.2f mag.", -ext, c.Scatter)
+	}
+	if dip && !clear {
+		ev += " The night's average alone is not clear of how much the star's level wanders from night to night."
 	}
 	return check.New(check.OwnLC, check.Pass, ev)
 }
@@ -162,12 +169,29 @@ func ownChange(sp *spotPlan, c *Curve) check.Check {
 	if ok {
 		return check.New(check.OwnChange, check.Pass, fmt.Sprintf("%s %.2f mag %s on average.%s", lead, math.Abs(c.Change), fainter(c.Change), scatter))
 	}
+	return check.New(check.OwnChange, check.Fail, changeFail(sp, c, lead, rep, hasRep)+scatter)
+}
+
+// changeFail says why the flagged nights fail the change check: their
+// level moved the other way from the reported change, by less than
+// changeShare of it, or by fewer than changeSigma times its error, which
+// takes in how much the star's level wanders from night to night.
+func changeFail(sp *spotPlan, c *Curve, lead string, rep float64, hasRep bool) string {
+	ev := fmt.Sprintf("%s %.2f mag %s on average, give or take %.2f", lead, math.Abs(c.Change), fainter(c.Change), changeErr(c))
 	if hasRep {
-		return check.New(check.OwnChange, check.Fail, fmt.Sprintf("%s %.2f mag %s on average, give or take %.2f, against %.2f mag %s reported.%s",
-			lead, math.Abs(c.Change), fainter(c.Change), changeErr(c), math.Abs(rep), fainter(rep), scatter))
+		ev += fmt.Sprintf(", against %.2f mag %s reported", math.Abs(rep), fainter(rep))
 	}
-	return check.New(check.OwnChange, check.Fail, fmt.Sprintf("%s %.2f mag %s on average, give or take %.2f, not clear of the noise.%s",
-		lead, math.Abs(c.Change), fainter(c.Change), changeErr(c), scatter))
+	sig := math.Abs(c.ChangeSigma)
+	if sp.fadeSign != 0 {
+		sig = -float64(sp.fadeSign) * c.ChangeSigma
+	}
+	switch {
+	case sp.fadeSign != 0 && sig <= 0:
+		return ev + ". That is the other way from the reported change."
+	case hasRep && math.Abs(c.Change) < changeShare*math.Abs(rep):
+		return ev + fmt.Sprintf(". That is less than %.0f%% of the reported change.", 100*changeShare)
+	}
+	return ev + fmt.Sprintf(". That is %.1f times its error, which takes in how much the star's level wanders from night to night; %.0f times is needed.", sig, changeSigma)
 }
 
 func changeErr(c *Curve) float64 {
