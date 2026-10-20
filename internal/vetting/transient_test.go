@@ -232,6 +232,22 @@ func TestRefutingStackSettlesBeforeACatalogedNeighbour(t *testing.T) {
 	}
 }
 
+func TestWingFitSaysSoBeforeTheShape(t *testing.T) {
+	t.Parallel()
+	// 54893 (Crab Nebula, 2026-02-05): 1.3 times its error above its far
+	// nights beside a G 14.1 star, shape too faint to measure, fake 3.2.
+	st := ownOnly()
+	st[check.PSF], st[check.TransWing], st[check.TransStack] = check.NotRun, check.Fail, check.NotRun
+	s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackUntested})
+	if s.State != app.VetUnsure || !strings.Contains(s.Say, "wing") {
+		t.Errorf("54893: %+v, want unsure for a star's wing", s)
+	}
+	st[check.TransWing] = check.Pass
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackUntested}); !strings.Contains(s.Say, "shape") {
+		t.Errorf("away from a star: %+v", s)
+	}
+}
+
 func TestTransientWithItsShapeUnmeasuredIsNotReal(t *testing.T) {
 	t.Parallel()
 	// 67045 on Sombrero Galaxy's 2025-12-29 had new light at signal to noise

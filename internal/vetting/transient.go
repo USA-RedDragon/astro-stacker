@@ -1375,7 +1375,11 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 // that does not confirm the light makes it an artifact: the halo's own
 // light comes and goes with the sky, and on Horsehead Nebula's 2025-11-16,
 // 11-17 and 11-21 the spots 3' to 9' from Alnilam stacked to 40% to 53%
-// of their fakes while the detection found dozens more around it.
+// of their fakes while the detection found dozens more around it. A wing
+// fit that leaves no light beyond the star's own says so before an
+// unmeasured shape does: 54893 (Crab Nebula, 2026-02-05) stood 1.3 times
+// its error above its far nights beside a G 14.1 star, where the fake of
+// its reported light shows at 3.2, too faint to refute it.
 func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.StackVerdict, halo bool) Suggestion {
 	ev := func(id string) string { return evidence(groups, id) }
 	st := func(id string) check.Status { return status(groups, id) }
@@ -1401,6 +1405,8 @@ func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.S
 			Why: joinSentences(ev(check.TransClear), ev(check.TransStack), "New light this faint inside a bright star's halo is the halo's own.")}
 	case stack == ownimage.StackDoubtful:
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: your frames stacked at the spot do not confirm it", Confidence: Low, Why: ev(check.TransStack) + pendingNote}
+	case st(check.TransWing) == check.Fail:
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: a bright star's wing", Confidence: Low, Why: joinSentences(ev(check.TransWing), ev(check.TransStack)) + pendingNote}
 	case st(check.PSF) != check.Pass:
 		why := joinSentences(ev(check.PSF), "Diffuse light, not a star, can show as new light at a spot until its shape is measured.")
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: the shape of the new light was not measured", Confidence: Low, Why: why + pendingNote}
