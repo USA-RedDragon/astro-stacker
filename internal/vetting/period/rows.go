@@ -72,7 +72,11 @@ func (a *analysis) surveyRow(s string, fits []SurveyFit) check.Check {
 	switch a.kind {
 	case KindEclipsing:
 		if s == lc.TESS {
-			return a.tessRow(si, fits)
+			r := a.tessRow(si, fits)
+			if r.Status == check.Pass && slices.Contains(a.periodSurveys(), s) {
+				r.Evidence += fmt.Sprintf(" Repeats every %s days.", fmtPeriod(a.ecl.P, a.ecl.res.sigma(0)))
+			}
+			return r
 		}
 		return a.eclipseRow(s, si, fits)
 	case KindSinusoidal:
@@ -124,20 +128,24 @@ func (a *analysis) eclipseRow(s string, si surveyInfo, fits []SurveyFit) check.C
 	if !bestShows && noisy {
 		return check.New(id, check.NotRun, fmt.Sprintf("%s %s fall in dips, but they scatter too much to show the dip or rule it out.", base, plural(in, "point", "points")))
 	}
-	if s == lc.ZTF {
-		return check.New(id, check.Pass, fmt.Sprintf("%s Repeats every %s days.", base, fmtPeriod(m.P, m.res.sigma(0))))
+	repeats := ""
+	if slices.Contains(a.periodSurveys(), s) {
+		repeats = fmt.Sprintf(" Repeats every %s days.", fmtPeriod(m.P, m.res.sigma(0)))
+	}
+	if s == lc.ZTF && repeats != "" {
+		return check.New(id, check.Pass, base+repeats)
 	}
 	if s == lc.NEOWISE {
 		if txt := a.neowiseCatch(); txt != "" {
-			return check.New(id, check.Pass, txt+blendNote(si))
+			return check.New(id, check.Pass, txt+blendNote(si)+repeats)
 		}
 	}
 	k := 0
 	if !m.active[bestG][0] {
 		k = 1
 	}
-	return check.New(id, check.Pass, fmt.Sprintf("%s %s fall in dips, %s %s mag deep in %s, as the period predicts.%s",
-		base, plural(in, "point", "points"), a.dipName(k), mag2(m.depth[bestG][k]), bandLabel(a.d.groups[bestG]), blendNote(si)))
+	return check.New(id, check.Pass, fmt.Sprintf("%s %s fall in dips, %s %s mag deep in %s, as the period predicts.%s%s",
+		base, plural(in, "point", "points"), a.dipName(k), mag2(m.depth[bestG][k]), bandLabel(a.d.groups[bestG]), blendNote(si), repeats))
 }
 
 // coreDip reports whether group g has three or more points deep inside
@@ -179,6 +187,72 @@ func (a *analysis) shallowWords(g int) string {
 		}
 	}
 	return fmt.Sprintf("The points in the dips are not fainter in %s", bandLabel(gr))
+}
+
+// periodSurveys names the surveys whose points set the period: each
+// whose own information on the period, with the epoch free and its
+// errors scaled up by its scatter about the model, is at least a fifth
+// of the most any survey gives. With the period from ZTF and TESS alone
+// only those count.
+func (a *analysis) periodSurveys() []string {
+	m := a.ecl
+	if m == nil {
+		return nil
+	}
+	f := a.f
+	type info struct{ pp, pt, tt, chi, n float64 }
+	by := map[string]*info{}
+	p := m.pack()
+	eval := m.evalFn(f)
+	idx := make([]int, m.nParams)
+	der := make([]float64, m.nParams)
+	for i := range f.t {
+		if !m.keep[i] {
+			continue
+		}
+		val, _ := eval(i, p, idx, der)
+		s := a.d.groups[f.g[i]].survey
+		x := by[s]
+		if x == nil {
+			x = &info{}
+			by[s] = x
+		}
+		w := 1 / (f.e[i] * f.e[i])
+		x.pp += w * der[0] * der[0]
+		x.pt += w * der[0] * der[1]
+		x.tt += w * der[1] * der[1]
+		r := f.y[i] - val
+		x.chi += w * r * r
+		x.n++
+	}
+	marg := map[string]float64{}
+	most := 0.0
+	for s, x := range by {
+		if x.n == 0 || x.tt <= 0 {
+			continue
+		}
+		v := (x.pp - x.pt*x.pt/x.tt) / math.Max(1, x.chi/x.n)
+		marg[s] = v
+		most = math.Max(most, v)
+	}
+	var out []string
+	if m.timing {
+		for s := range marg {
+			if s != lc.ZTF && s != lc.TESS {
+				delete(marg, s)
+			}
+		}
+		most = 0
+		for _, v := range marg {
+			most = math.Max(most, v)
+		}
+	}
+	for _, s := range []string{lc.ZTF, lc.ATLAS, lc.TESS, lc.NEOWISE} {
+		if v, ok := marg[s]; ok && most > 0 && v >= 0.2*most {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (a *analysis) neowiseCatch() string {

@@ -28,7 +28,9 @@ func half3635() *Ephemeris {
 // TestRows3635 is source 3635's survey rows at its true period, and at
 // the half period the star:15 vet reported. NEOWISE
 // W1 shows the dips at about nine sigma and W2 at under three sigma but
-// as deep as the other bands allow, so the NEOWISE row passes.
+// as deep as the other bands allow, so the NEOWISE row passes. ZTF caught only three
+// eclipse nights and does not set the period; ATLAS and TESS do, and
+// only their rows say how often the dips repeat.
 func TestRows3635(t *testing.T) {
 	t.Parallel()
 	series, comps := vetDumpSeries(t, vet3635)
@@ -62,6 +64,12 @@ func checkRows3635(t *testing.T, res *Result) {
 		if f.Survey == lc.NEOWISE && !f.Agrees {
 			t.Errorf("NEOWISE %s contradicts the dips at depths %.3f and %.3f", f.Band, f.Depth1, f.Depth2)
 		}
+	}
+	if z := r[check.ZTF]; strings.Contains(z.Evidence, "Repeats every") {
+		t.Errorf("ZTF credited with the period: %s", z.Evidence)
+	}
+	if a := r[check.ATLAS]; a.Status != check.Pass || !strings.Contains(a.Evidence, "Repeats every") {
+		t.Errorf("ATLAS %s: %s; want credited with the period", a.Status, a.Evidence)
 	}
 }
 
