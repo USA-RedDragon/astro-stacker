@@ -16,9 +16,12 @@ import (
 // and dilution fields.
 const vet3635 = "testdata/vet3635/3635.csv.zst"
 
-// opts3635 is the Gaia photometry and parallax the vet used for 3635.
+// opts3635 is the Gaia photometry and parallax the vet used for 3635,
+// with its Gaia DR3 BP-RP and GSP-Phot's 84th percentile of its
+// E(BP-RP).
 func opts3635(comps [][]lc.Series) Options {
 	return Options{G: 15.383073806762695, Parallax: 0.3234230291357368, ParallaxErr: 0.03708537667989731,
+		Colour:      &Colour{BPRP: 15.794554 - 14.797877, EBPRPUpper: 0.2113},
 		Comparisons: func() [][]lc.Series { return comps }}
 }
 
