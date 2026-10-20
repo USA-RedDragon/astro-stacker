@@ -761,8 +761,8 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	combined, per := splitByFilter(cands, fds)
 	local := in.localResiduals(ref, D, edge, res)
 	res.Candidates = in.cut(combined, ref, D, local, res)
-	in.offsetGuard(res)
 	in.cutFilters(fds, per, edge, res)
+	in.offsetGuard(res)
 	if res.ChangeNull, err = in.nullChanges(ctx, stacks, edge, bmask, res, threads, own); err != nil {
 		return nil, err
 	}
