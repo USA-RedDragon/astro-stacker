@@ -30,6 +30,10 @@ const (
 	seasonsPosMin = 0.6
 	dipNights     = 3
 	dipSeasons    = 2
+	seasonPtsMin  = 20
+	seasonCycles  = 3.0
+	seasonFitsMin = 4
+	seasonHitTol  = 0.06
 	sidereal      = 1.0027379
 	echoShare     = 0.0015
 	echoNear      = 0.03
@@ -123,6 +127,19 @@ type Robust struct {
 	// seasons.
 	Unsteady bool `json:"unsteady,omitempty"`
 	Few      bool `json:"few,omitempty"`
+	// SeasonFits counts the seasons, band by band, long enough to hold
+	// the cycle several times; SeasonHits those of them whose own
+	// strongest cycle near the period lands on it. A spotted or
+	// semi-regular star keeps its period season by season while its
+	// timing drifts.
+	SeasonFits int `json:"season_fits,omitempty"`
+	SeasonHits int `json:"season_hits,omitempty"`
+}
+
+// HoldsBySeason says most seasons, fitted band by band on their own,
+// find the period.
+func (r *Robust) HoldsBySeason() bool {
+	return r.SeasonFits >= seasonFitsMin && 3*r.SeasonHits >= 2*r.SeasonFits
 }
 
 // EchoOf names the whole or half day, solar or sidereal, or the two to
@@ -424,6 +441,11 @@ func (a *analysis) robustSine(r *Robust, cb []map[string][]pt) {
 	if best == nil {
 		return
 	}
+	for _, s := range all {
+		f, h := seasonHits(s.b.raw, P)
+		r.SeasonFits += f
+		r.SeasonHits += h
+	}
 	if !best.stable {
 		best.partner, best.partnerFAP = sharedPartner(all, best)
 	}
@@ -437,6 +459,35 @@ func (a *analysis) robustSine(r *Robust, cb []map[string][]pt) {
 	if !best.stable && best.partner > 0 && best.partnerFAP < rawMaxFAP {
 		r.Partner, r.PartnerFrom = best.partner, best.b.key
 	}
+}
+
+// seasonHits fits each season of p long enough for seasonCycles cycles
+// and with seasonPtsMin points on its own, searching from half to twice
+// the period, and counts those seasons and the ones whose strongest
+// cycle lies within seasonHitTol of it.
+func seasonHits(p []pt, period float64) (int, int) {
+	fits, hits := 0, 0
+	for _, s := range seasonsOf(p) {
+		span := spanOf(s)
+		if len(s) < seasonPtsMin || span < seasonCycles*period {
+			continue
+		}
+		f0, f1 := 1/(2*period), 2/period
+		df := lsFineStep / span
+		n := int((f1-f0)/df) + 1
+		pow := lsPower(toLS(s), f0, df, n)
+		bi := 0
+		for i := range pow {
+			if pow[i] > pow[bi] {
+				bi = i
+			}
+		}
+		fits++
+		if math.Abs(1/(f0+float64(bi)*df)/period-1) <= seasonHitTol {
+			hits++
+		}
+	}
+	return fits, hits
 }
 
 // sharedPartner is the one of the bands' partner periods that all bands

@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/surveys"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -131,13 +132,26 @@ func auditVerdict(t *testing.T, c auditCase, flags ownimage.Flags, known Known) 
 		pr.Ephemeris = nil
 	}
 	sum := discoverysource.Summary{Source: app.DiscoverySource{Kind: app.DiscoveryKindChange}}
-	groups := []Group{{ID: check.GroupSurveys, Checks: surveyRows(fetches{}, pr, nil)}}
-	return suggest(sum, flags, nil, known, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{})
+	fx := fetches{}
+	for _, se := range series {
+		switch se.Survey {
+		case lc.ZTF:
+			fx.ztf.Survey, fx.ztf.State = lc.ZTF, surveys.Done
+			fx.ztf.Series = append(fx.ztf.Series, se)
+		case lc.ATLAS:
+			fx.atlas.Survey, fx.atlas.State = lc.ATLAS, surveys.Done
+			fx.atlas.Series = append(fx.atlas.Series, se)
+		}
+	}
+	groups := []Group{{ID: check.GroupSurveys, Checks: surveyRows(fx, pr, nil)}}
+	return suggest(sum, flags, nil, known, check.New(check.Stays, check.Pass, ""), fx, pr, nil, groups, change{})
 }
 
 // TestAuditVerdicts is the 2026-10-17 audit as known answers for the
 // suggested verdict: the 19 confirmed eclipsing binaries and the new
-// 16040 and 17511 come out real; 34867, periodic but drifting, unsure;
+// 16040 and 17511 come out real; 34867, a spotted star whose 50.2-day
+// cycle holds season by season while its timing drifts, real but not an
+// eclipsing binary;
 // none of the false or echoed periods real; and the catalogued stars with
 // right periods (9124, whose folded eclipses drift by an hour in one
 // season, and 33898) real or unsure, the catalogs naming them in the vet.
@@ -158,8 +172,8 @@ func TestAuditVerdicts(t *testing.T) {
 					t.Errorf("want real or unsure, got %s: %s", s.State, s.Say)
 				}
 			case "drifts":
-				if s.State != app.VetUnsure || !strings.Contains(s.Say, "drifts") {
-					t.Errorf("want unsure, drifting, got %s: %s", s.State, s.Say)
+				if s.State != app.VetReal || s.Kind != KindPeriodic || !strings.Contains(s.Why, "timing drifts") {
+					t.Errorf("want a real periodic star whose timing drifts, got %s %s: %s; %s", s.State, s.Kind, s.Say, s.Why)
 				}
 			default:
 				if s.State == app.VetReal {
