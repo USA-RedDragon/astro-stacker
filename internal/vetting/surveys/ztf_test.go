@@ -143,7 +143,7 @@ func TestZTFTimesAreMidExposureBJD(t *testing.T) {
 	csv := "oid,expid,hjd,mjd,mag,magerr,catflags,filtercode,ra,dec\n" +
 		"802115100046506,45447379,2458208.971546364,58208.473796300001,15.7305088,0.0143027212,0,zg,323.2769904,58.6343187\n" +
 		"802115100046506,45550327,2458210.0010275492,58209.503275499999,15.8036652,0.0144547774,32768,zg,323.2769628,58.6343102\n"
-	eps, err := f.parseZTFAPI([]byte(csv), 323.2769976, 58.6342899)
+	eps, _, err := f.parseZTFAPI([]byte(csv), 323.2769976, 58.6342899)
 	if err != nil {
 		t.Fatal(err)
 	}

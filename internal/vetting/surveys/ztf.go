@@ -2,6 +2,7 @@ package surveys
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -460,9 +461,17 @@ type ztfEpoch struct {
 	MJD    float64 `json:"t"`
 	Mag    float64 `json:"m"`
 	MagErr float64 `json:"e"`
+	// RA and Dec are where ZTF measured the star on the epoch, zero when
+	// the source read gives no position.
+	RA  float64 `json:"r,omitempty"`
+	Dec float64 `json:"d,omitempty"`
 }
 
-func (f *Fetcher) ztf(ctx context.Context, field Field, t Target) Fetch {
+// ztf reads the star's ZTF light curves; with pos, a star ZTF measures
+// together with a close neighbour also gets the position of each epoch.
+func (f *Fetcher) ztf(ctx context.Context, field Field, t Target, pos bool) Fetch {
+	_, pair := Pair(t)
+	pos = pos && pair
 	ra, dec := t.at(ztfMatchYear)
 	m, err := f.ztfManifest(ctx, field)
 	if err != nil && !isNotFound(err) {
@@ -476,6 +485,11 @@ func (f *Fetcher) ztf(ctx context.Context, field Field, t Target) Fetch {
 		if n == 0 && dec < -31 {
 			return Fetch{Survey: lc.ZTF, State: Uncovered, Note: "ZTF does not reach this far south"}
 		}
+		if pos {
+			if err := f.ztfPositions(ctx, field, t, ra, dec, eps); err != nil {
+				slog.Warn("Could not read the ZTF positions of a blended star", "gaia", t.GaiaID, "error", err)
+			}
+		}
 		fe := f.ztfFetch(t, eps)
 		fe.Note = joinNotes(fmt.Sprintf("from the field's ZTF %s light curve files", strings.ToUpper(m.Release)), fe.Note)
 		return fe
@@ -484,7 +498,7 @@ func (f *Fetcher) ztf(ctx context.Context, field Field, t Target) Fetch {
 	if m != nil && m.Complete {
 		why = "the star is outside the field's ZTF pull"
 	}
-	eps, err := f.ztfFromAPI(ctx, field, t, ra, dec)
+	eps, err := f.ztfFromAPI(ctx, field, t, ra, dec, pos)
 	if err != nil {
 		return failed(lc.ZTF, "%s, and the IRSA light curve service failed: %v", why, err)
 	}
@@ -519,7 +533,7 @@ func (f *Fetcher) ztfMany(ctx context.Context, field Field, ts []Target, tilesOn
 			out[i] = Fetch{Survey: lc.ZTF, State: Uncovered, Note: "outside the field's ZTF files"}
 			continue
 		}
-		out[i] = f.ztf(ctx, field, t)
+		out[i] = f.ztf(ctx, field, t, false)
 	}
 	if len(in) == 0 {
 		return out
@@ -635,20 +649,39 @@ func (f *Fetcher) ztfFromTiles(ctx context.Context, field Field, m *ZTFManifest,
 }
 
 type ztfAPICache struct {
-	Fetched time.Time  `json:"fetched"`
-	RA      float64    `json:"ra"`
-	Dec     float64    `json:"dec"`
-	Epochs  []ztfEpoch `json:"epochs"`
+	Fetched time.Time `json:"fetched"`
+	RA      float64   `json:"ra"`
+	Dec     float64   `json:"dec"`
+	// Positions says the epochs carry ZTF's position of the star; caches
+	// written before positions were kept lack it.
+	Positions bool       `json:"positions,omitempty"`
+	Epochs    []ztfEpoch `json:"epochs"`
 }
 
-func (f *Fetcher) ztfFromAPI(ctx context.Context, field Field, t Target, ra, dec float64) ([]ztfEpoch, error) {
+// ztfFromAPI reads the star's light curve from IRSA's light curve service,
+// cached per star; with pos, a cache without epoch positions is fetched
+// again, and kept if that fails.
+func (f *Fetcher) ztfFromAPI(ctx context.Context, field Field, t Target, ra, dec float64, pos bool) ([]ztfEpoch, error) {
 	key := f.dir(field, "ztf") + "api/" + starKey(t) + ".json.zst"
+	var cached []ztfEpoch
 	if raw, err := f.getZ(ctx, key); err == nil {
 		var c ztfAPICache
 		if json.Unmarshal(raw, &c) == nil && f.now().Sub(c.Fetched) < ztfCacheTTL {
-			return c.Epochs, nil
+			if c.Positions || !pos {
+				return c.Epochs, nil
+			}
+			cached = c.Epochs
 		}
 	}
+	eps, err := f.ztfAPIFetch(ctx, key, ra, dec)
+	if err != nil && cached != nil {
+		slog.Warn("Could not fetch the ZTF light curve again for its positions", "key", key, "error", err)
+		return cached, nil
+	}
+	return eps, err
+}
+
+func (f *Fetcher) ztfAPIFetch(ctx context.Context, key string, ra, dec float64) ([]ztfEpoch, error) {
 	q := url.Values{}
 	q.Set("POS", fmt.Sprintf("CIRCLE %.7f %.7f %.7f", ra, dec, ztflc.MatchRadius/3600))
 	q.Set("BANDNAME", "g,r,i")
@@ -659,11 +692,11 @@ func (f *Fetcher) ztfFromAPI(ctx context.Context, field Field, t Target, ra, dec
 	if err != nil {
 		return nil, err
 	}
-	eps, err := f.parseZTFAPI(b, ra, dec)
+	eps, positions, err := f.parseZTFAPI(b, ra, dec)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(ztfAPICache{Fetched: f.now().UTC(), RA: ra, Dec: dec, Epochs: eps})
+	raw, err := json.Marshal(ztfAPICache{Fetched: f.now().UTC(), RA: ra, Dec: dec, Positions: positions, Epochs: eps})
 	if err == nil {
 		err = f.putZ(ctx, key, raw)
 	}
@@ -674,21 +707,26 @@ func (f *Fetcher) ztfFromAPI(ctx context.Context, field Field, t Target, ra, dec
 }
 
 // parseZTFAPI reads the light curve service's CSV, keeping epochs with
-// catflags 0, timed at mid-exposure in UTC from the hjd column.
-func (f *Fetcher) parseZTFAPI(b []byte, ra, dec float64) ([]ztfEpoch, error) {
+// catflags 0, timed at mid-exposure in UTC from the hjd column, with
+// ZTF's position of the star on each when the CSV has ra and dec columns,
+// as positions then says.
+func (f *Fetcher) parseZTFAPI(b []byte, ra, dec float64) (eps []ztfEpoch, positions bool, err error) {
 	rows, col, err := readCSV(b)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	for _, c := range []string{"oid", "hjd", "mag", "magerr", "catflags", "filtercode"} {
 		if _, ok := col[c]; !ok {
-			return nil, fmt.Errorf("no %s column", c)
+			return nil, false, fmt.Errorf("no %s column", c)
 		}
 	}
 	h, err := f.helio()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	cra, okRA := col[colRA]
+	cdec, okDec := col[colDec]
+	positions = okRA && okDec
 	out := make([]ztfEpoch, 0, len(rows))
 	for _, r := range rows {
 		flags, err := strconv.Atoi(r[col["catflags"]])
@@ -704,18 +742,61 @@ func (f *Fetcher) parseZTFAPI(b []byte, ra, dec float64) ([]ztfEpoch, error) {
 		}
 		utc, err := h.utc(hjd-2400000.5, ra, dec)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		out = append(out, ztfEpoch{Band: strings.TrimPrefix(r[col["filtercode"]], "z"), OID: oid, MJD: utc, Mag: mag, MagErr: me})
+		e := ztfEpoch{Band: strings.TrimPrefix(r[col["filtercode"]], "z"), OID: oid, MJD: utc, Mag: mag, MagErr: me}
+		if positions {
+			pra, e1 := strconv.ParseFloat(r[cra], 64)
+			pdec, e2 := strconv.ParseFloat(r[cdec], 64)
+			if e1 == nil && e2 == nil && sepArcsec(ra, dec, pra, pdec) <= ztflc.MatchRadius+1 {
+				e.RA, e.Dec = pra, pdec
+			}
+		}
+		out = append(out, e)
 	}
-	return out, nil
+	return out, positions, nil
+}
+
+// ztfPositionTol is how far apart in days a field-file epoch and a light
+// curve service epoch of the same object may be timed and still be one
+// exposure: the times agree to a second, and exposures are 30 seconds
+// long.
+const ztfPositionTol = 3e-5
+
+// ztfPositions gives the field-file epochs ZTF's position of the star on
+// each, from the light curve service, matched by object id and time.
+// Epochs the service lacks keep no position.
+func (f *Fetcher) ztfPositions(ctx context.Context, field Field, t Target, ra, dec float64, eps []ztfEpoch) error {
+	api, err := f.ztfFromAPI(ctx, field, t, ra, dec, true)
+	if err != nil {
+		return err
+	}
+	byOID := map[int64][]ztfEpoch{}
+	for _, e := range api {
+		if e.RA != 0 || e.Dec != 0 {
+			byOID[e.OID] = append(byOID[e.OID], e)
+		}
+	}
+	for _, l := range byOID {
+		slices.SortFunc(l, func(a, b ztfEpoch) int { return cmp.Compare(a.MJD, b.MJD) })
+	}
+	for i := range eps {
+		l := byOID[eps[i].OID]
+		j, _ := slices.BinarySearchFunc(l, eps[i].MJD, func(e ztfEpoch, t float64) int { return cmp.Compare(e.MJD, t) })
+		for _, k := range []int{j - 1, j} {
+			if k >= 0 && k < len(l) && math.Abs(l[k].MJD-eps[i].MJD) <= ztfPositionTol {
+				eps[i].RA, eps[i].Dec = l[k].RA, l[k].Dec
+			}
+		}
+	}
+	return nil
 }
 
 func (f *Fetcher) ztfFetch(t Target, eps []ztfEpoch) Fetch {
 	d, n := dilution(t, ZTFDilutionRadius)
 	byBand := map[string][]lc.Point{}
 	for _, e := range eps {
-		byBand[e.Band] = append(byBand[e.Band], lc.Point{BJD: lc.BJD(lc.MJDTime(e.MJD), t.RA, t.Dec), Mag: e.Mag, Err: e.MagErr, Src: e.OID})
+		byBand[e.Band] = append(byBand[e.Band], lc.Point{BJD: lc.BJD(lc.MJDTime(e.MJD), t.RA, t.Dec), Mag: e.Mag, Err: e.MagErr, Src: e.OID, RA: e.RA, Dec: e.Dec})
 	}
 	fe := Fetch{Survey: lc.ZTF, State: Done}
 	for _, b := range []string{"g", "r", "i"} {
