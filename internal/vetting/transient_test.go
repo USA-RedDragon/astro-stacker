@@ -207,6 +207,31 @@ func TestTransientSuggestions(t *testing.T) {
 	}
 }
 
+func TestRefutingStackSettlesBeforeACatalogedNeighbour(t *testing.T) {
+	t.Parallel()
+	// 46939 (Orion, 2026-10-05): a G 16.0 star 5.2 arcsec away and the
+	// reference already held 15.7; with the G 15.0 star 2.2 px away fitted,
+	// the spot stood 0.5 times its error above its far nights.
+	st := ownOnly()
+	st[check.TransBefore], st[check.TransWing], st[check.TransStack] = check.Fail, check.Fail, check.Fail
+	st[check.TransATLAS] = check.NotRun
+	s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted, atlas: surveys.Fetch{State: surveys.Pending}})
+	if s.State != app.VetArtifact || !strings.Contains(s.Say, "wing") {
+		t.Errorf("46939: %+v, want a star's wing artifact", s)
+	}
+	st[check.TransWing] = check.Pass
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetArtifact || !strings.Contains(s.Say, "stacked at the spot") {
+		t.Errorf("refuting stack by a catalogued star: %+v", s)
+	}
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackDoubtful}); s.State != app.VetUnsure || !strings.Contains(s.Say, "catalogued source") {
+		t.Errorf("doubtful stack by a catalogued star: %+v", s)
+	}
+	st[check.TransATLAS] = check.Pass
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetUnsure || !strings.Contains(s.Say, "catalogued source") {
+		t.Errorf("seen by ATLAS by a catalogued star: %+v", s)
+	}
+}
+
 func TestTransientWithItsShapeUnmeasuredIsNotReal(t *testing.T) {
 	t.Parallel()
 	// 67045 on Sombrero Galaxy's 2025-12-29 had new light at signal to noise
