@@ -169,6 +169,42 @@ func TestStackRefutesASpotTooWeakToHaveBeenFound(t *testing.T) {
 	}
 }
 
+func TestStackRunsOnAllTheFiltersThatFoundIt(t *testing.T) {
+	t.Parallel()
+	// The nova audit's local stacks of 2025-10-26 and 10-27 in M 31, each
+	// filter and all filters against the same fake: 60353, a bulge
+	// residual, stood out in Blue only; AT 2025abrs, a real nova, in all.
+	filterNight := func(night, filter string, n int, z, inj float64) ownimage.FluxNight {
+		e := auditLight / inj
+		return ownimage.FluxNight{Night: night, Filter: filter, N: n, Flux: z * e, Err: e, Local: e, Empty99: 2.4 * e, Flagged: true}
+	}
+	cases := []struct {
+		name   string
+		night  string
+		nights []ownimage.FluxNight
+		subs   int
+		want   ownimage.StackVerdict
+	}{
+		{"60353", "2025-10-27", []ownimage.FluxNight{
+			filterNight("2025-10-27", "Blue", 13, 3.4, 5.2), filterNight("2025-10-27", "Red", 16, 0.4, 4.1), filterNight("2025-10-27", "Green", 16, -0.7, 4.7),
+			filterNight("2025-10-27", ownimage.AllFilters, 45, 1.1, 9.0)}, 13, ownimage.StackRefuted},
+		{"AT 2025abrs", "2025-10-26", []ownimage.FluxNight{
+			filterNight("2025-10-26", "Blue", 9, 6.9, 10.3), filterNight("2025-10-26", "Red", 9, 5.0, 8.8), filterNight("2025-10-26", "Green", 9, 6.0, 9.8),
+			filterNight("2025-10-26", ownimage.AllFilters, 27, 10.3, 16.6)}, 27, ownimage.StackConfirmed},
+	}
+	for _, c := range cases {
+		reps := auditReps(c.night)
+		for k, r := range reps {
+			r.subs = c.subs
+			reps[k] = r
+		}
+		ch, v := transientStack(curveOf(c.nights...), reps)
+		if v != c.want || !strings.Contains(ch.Evidence, "in "+ownimage.AllFilters) {
+			t.Errorf("%s: %s, want %s over all filters: %s", c.name, v, c.want, ch.Evidence)
+		}
+	}
+}
+
 func TestStackRefutesLightLostInAStarsWing(t *testing.T) {
 	t.Parallel()
 	wingCurve := func(sigma, err, floor, nightErr float64, n int) *ownimage.FluxCurve {
