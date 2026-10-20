@@ -738,18 +738,8 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	if !(res.ApSigma > 0) || !(res.NightApSigma > 0) {
 		return nil, errors.New("could not measure the noise: too little sky away from the edges")
 	}
-	if zp, ok := zeroPoint(ref, in.WCS, in.gaiaRef, edge, apertureR); ok {
-		res.ZeroPoint = &zp
-		d := zp - 2.5*math.Log10(DetectSigma*res.NightApSigma)
-		res.Depth = &d
-	}
-	for _, fs := range stacks {
-		if zp, ok := zeroPoint(fs.ref, in.WCS, in.gaiaRef, edge, apertureR); ok {
-			fs.zp = &zp
-		}
-		if zp, ok := zeroPoint(fs.ref, in.WCS, in.gaiaRef, edge, residualR); ok {
-			fs.zpWide = &zp
-		}
+	if res.AstroRMSArcsec != nil {
+		in.zeroPoints(stacks, ref, edge, res)
 	}
 	bmask := brightMask(in.gaiaNight, in.WCS, W, H)
 
@@ -1800,6 +1790,26 @@ func zeroPoint(p *Plane, wcs *WCS, gaia []Star, edge []bool, r float64) (float64
 		return 0, false
 	}
 	return median64(zps), true
+}
+
+// zeroPoints calibrates the reference and each filter's reference on Gaia,
+// and the night's depth from them. Run calls it only when fitAstrometry tied
+// the plate solution to Gaia: without the tie the apertures may sit off the
+// stars, and the magnitudes would come out bright by whole magnitudes.
+func (in *Input) zeroPoints(stacks []*filterStacks, ref *Plane, edge []bool, res *Result) {
+	if zp, ok := zeroPoint(ref, in.WCS, in.gaiaRef, edge, apertureR); ok {
+		res.ZeroPoint = &zp
+		d := zp - 2.5*math.Log10(DetectSigma*res.NightApSigma)
+		res.Depth = &d
+	}
+	for _, fs := range stacks {
+		if zp, ok := zeroPoint(fs.ref, in.WCS, in.gaiaRef, edge, apertureR); ok {
+			fs.zp = &zp
+		}
+		if zp, ok := zeroPoint(fs.ref, in.WCS, in.gaiaRef, edge, residualR); ok {
+			fs.zpWide = &zp
+		}
+	}
 }
 
 // fitAstrometry ties the plate solution to Gaia: it matches the
