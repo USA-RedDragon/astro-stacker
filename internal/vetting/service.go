@@ -62,6 +62,7 @@ type Service struct {
 	// Build names this build, stamped on each report it writes; a run
 	// stops when another build is announced while it goes.
 	Build    string
+	line     *atlasLine
 	stacked  int
 	started  time.Time
 	replaced bool
@@ -126,6 +127,11 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 		stop = start.Add(o.Budget)
 	}
 	bs := batches(dues, stale)
+	line := newATLASLine(dues)
+	s.line = line
+	if s.Surveys != nil {
+		s.Surveys.ATLASAhead = line.ahead
+	}
 	var st Stats
 	for i, b := range bs {
 		s.Report.Queue(len(bs)-i-1, "targets")
@@ -145,6 +151,11 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (Stats, error) {
 		st.Sources += done + failed
 		st.Done += done
 		st.Failed += failed
+		if s.Surveys != nil {
+			if err := s.Surveys.ATLASServe(ctx); err != nil {
+				slog.Warn("Could not give ATLAS room to the stars in line", "error", err)
+			}
+		}
 	}
 	return st, nil
 }
@@ -155,6 +166,7 @@ type batch struct {
 	dues   []Due
 	rank   int
 	asked  time.Time
+	place  surveys.Priority
 }
 
 const (
@@ -167,7 +179,9 @@ const (
 // subs are read once, and those a stopped run left in a batch of their
 // own. Targets with a source asked for by hand go first, earliest asked
 // first, and inside a batch those sources go first; then the other
-// targets, then what stopped runs left.
+// targets, those whose best placed source stands first in line for ATLAS
+// first and, inside a batch, sources by their place in that line; then
+// what stopped runs left.
 func batches(dues []Due, stale map[int]bool) []batch {
 	type key struct {
 		object string
@@ -186,6 +200,9 @@ func batches(dues []Due, stale map[int]bool) []batch {
 				out[i].rank = rankStale
 			}
 		}
+		if len(out[i].dues) == 0 || atlasPlace(d) < out[i].place {
+			out[i].place = atlasPlace(d)
+		}
 		out[i].dues = append(out[i].dues, d)
 		if !k.stale && d.AskedAt != nil {
 			out[i].rank = rankAsked
@@ -197,7 +214,10 @@ func batches(dues []Due, stale map[int]bool) []batch {
 	for _, b := range out {
 		sort.SliceStable(b.dues, func(i, j int) bool {
 			a, c := b.dues[i].AskedAt, b.dues[j].AskedAt
-			return a != nil && (c == nil || a.Before(*c))
+			if a != nil || c != nil {
+				return a != nil && (c == nil || a.Before(*c))
+			}
+			return atlasPlace(b.dues[i]) < atlasPlace(b.dues[j])
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -207,7 +227,7 @@ func batches(dues []Due, stale map[int]bool) []batch {
 		if out[i].rank == rankAsked {
 			return out[i].asked.Before(out[j].asked)
 		}
-		return false
+		return out[i].place < out[j].place
 	})
 	return out
 }
@@ -297,6 +317,7 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 	}
 	fail := func(err error) (int, int) {
 		for _, d := range dues {
+			s.line.visit(d)
 			if e := save(ctx, s.App, d.Summary.Source.ID, d.Hash, s.stampOf(d), nil, err, s.now()); e != nil {
 				slog.Error("Could not save the vetting", "source", d.Summary.Source.ID, "error", e)
 			}
@@ -335,7 +356,8 @@ func (s *Service) vetObject(ctx context.Context, object string, dues []Due, stop
 			return done, failed
 		}
 		id := d.Summary.Source.ID
-		rep, err := s.checkSource(ctx, w, d.Summary)
+		s.line.visit(d)
+		rep, err := s.checkSource(surveys.WithPriority(ctx, atlasPlace(d)), w, d.Summary)
 		if s.supersededNow(ctx) {
 			left := make([]int, 0, len(dues)-i)
 			for _, r := range dues[i:] {

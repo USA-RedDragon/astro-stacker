@@ -96,6 +96,8 @@ type Due struct {
 	Summary discoverysource.Summary
 	Hash    string
 	AskedAt *time.Time
+	// Prior is the source's last vet row, nil before its first.
+	Prior *app.DiscoveryVet
 }
 
 // retryAfter is how long a failed run waits, and pendingAfter how long a
@@ -193,8 +195,11 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 		v, seen := vets[s.Source.ID]
 		if forced[s.Source.ID] || due(s, h, v, seen, now) || (seen && v.State == StateDone && staleRow(ann, haveAnn, v, pipelineOf(s)) && dueAgain(s)) {
 			d := Due{Summary: s, Hash: h}
-			if seen && asked(v) {
-				d.AskedAt = v.RequestedAt
+			if seen {
+				d.Prior = &v
+				if asked(v) {
+					d.AskedAt = v.RequestedAt
+				}
 			}
 			out = append(out, d)
 		}
