@@ -101,8 +101,14 @@ type Fetcher struct {
 	// ATLASMaxQueued is how many of our tasks may wait in the ATLAS queue
 	// before no more are queued; zero is DefaultATLASMaxQueued.
 	ATLASMaxQueued int
+	// ATLASAhead says how many stars of better priority than p this run
+	// is still to ask of ATLAS; that much room in the ATLAS queue is kept
+	// for them. Nil keeps none.
+	ATLASAhead func(p Priority) int
 
 	mu        sync.Mutex
+	wants     map[string]atlasWant
+	wantSeq   int
 	eph       *ephem.Ephemeris
 	atlasMu   sync.Mutex
 	atlasGap  time.Duration
