@@ -105,7 +105,7 @@ func checkOf(r *vetting.Report, id string) (check.Check, bool) {
 // is the same on odd and even cycles, which two equal eclipses at twice
 // the period also give.
 func sameDepthOnly(c check.Check) bool {
-	return strings.HasPrefix(c.Evidence, period.SameDepthOddEven)
+	return strings.HasPrefix(c.Evidence, period.SameDepthOddEven) || strings.HasPrefix(c.Evidence, period.OldSameDepthOddEven)
 }
 
 // adopt is the ephemeris the pages use for a vet report: a single dip

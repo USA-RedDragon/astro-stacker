@@ -62,6 +62,8 @@ func joinList(items []string) string {
 
 func mag2(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }
 
+func mag3(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }
+
 func bandLabel(g *group) string {
 	switch g.survey {
 	case lc.ZTF:

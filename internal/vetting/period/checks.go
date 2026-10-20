@@ -971,13 +971,42 @@ func (a *analysis) parityPass(ws [][2]*win, shown int, dbl string) check.Check {
 		return check.New(check.Double, check.Pass, "Ruled out: "+txt)
 	}
 	if len(a.ecl.dips) == 1 {
-		return check.New(check.Double, check.NotRun, fmt.Sprintf("%s, so two equal dips every %s days fit the data too. The vet keeps the shorter period because %s.",
-			SameDepthOddEven, dbl, a.darkCompanion(a.ecl).keptWords()))
+		return check.New(check.Double, check.NotRun, fmt.Sprintf("%s every %s days: %s. The vet keeps the shorter period because %s.",
+			SameDepthOddEven, dbl, a.oddEvenWords(ws, 0), a.darkCompanion(a.ecl).keptWords()))
 	}
 	if shown == 4 {
 		return check.New(check.Double, check.Pass, "Ruled out: both dips show on odd and even cycles at the same depth.")
 	}
 	return check.New(check.Double, check.Pass, fmt.Sprintf("Ruled out: the surveys caught three different dips in %s days, more than one orbit can hold.", dbl))
+}
+
+// oddEvenWords gives dip k's depth on even and odd cycles in the band
+// that measures their difference best, or says no band can.
+func (a *analysis) oddEvenWords(ws [][2]*win, k int) string {
+	m := a.ecl
+	best, bestErr := -1, math.Inf(1)
+	var de, do, z float64
+	for g := range a.d.groups {
+		e, o := ws[k][0].gy[g], ws[k][1].gy[g]
+		if e[1] == 0 || o[1] == 0 || !a.realDip(ws, k, g) || m.depth[g][k] < 3*m.depthSigma(g, k) {
+			continue
+		}
+		se, so := e[0]/e[1], o[0]/o[1]
+		if a.d.groups[g].survey == lc.TESS && (se < 0 || so < 0) {
+			continue
+		}
+		dd := m.depth[g][k]
+		ee, eo := dd/math.Sqrt(e[1]), dd/math.Sqrt(o[1])
+		if h := math.Hypot(ee, eo); h < bestErr {
+			best, bestErr = g, h
+			de, do, z = se*dd, so*dd, math.Abs(se-so)*dd/h
+		}
+	}
+	if best < 0 {
+		return "no band caught enough of the dip on both odd and even cycles to compare its depth"
+	}
+	return fmt.Sprintf("the dip is %s mag deep on even cycles and %s on odd cycles in %s, %s sigma apart",
+		mag3(de), mag3(do), bandLabel(a.d.groups[best]), strconv.FormatFloat(z, 'f', 1, 64))
 }
 
 func (a *analysis) parityUndecided(ws [][2]*win, dbl string) check.Check {
