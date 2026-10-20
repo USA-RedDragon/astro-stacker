@@ -27,8 +27,8 @@ func TestFaintSurveyCycleNotReal(t *testing.T) {
 		t.Errorf("5665: %+v, want unsure", s)
 	}
 	groups[0].Checks[0] = check.New(check.ZTF, check.Pass, "Rises and falls by 0.08 mag in r every 1.047 days.")
-	if s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{}); s.State != app.VetReal {
-		t.Errorf("a cycle ZTF shows: %+v, want real", s)
+	if s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{}); s.State != app.VetReal || s.Kind != KindPeriodic {
+		t.Errorf("a cycle ZTF shows: %+v, want real and periodic", s)
 	}
 }
 
@@ -59,7 +59,7 @@ func TestSuggestion(t *testing.T) {
 		check.New(check.TESS, check.Pass, ""), check.New(check.OwnTiming, check.Pass, ""),
 	}}}
 	s = suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, &period.Timing{Dip: 1}, groups, changeOf(sum))
-	if s.State != app.VetReal || s.Say != "Looks like a new eclipsing binary, repeats every 9.987 days" || s.Confidence != High {
+	if s.State != app.VetReal || s.Say != "Looks like a new eclipsing binary, repeats every 9.987 days" || s.Confidence != High || s.Kind != KindEclipsingBinary {
 		t.Errorf("binary %+v", s)
 	}
 }
@@ -85,6 +85,9 @@ func TestSurveyFadesVerdict(t *testing.T) {
 		s := suggest(sum, ownimage.Flags{}, nil, Known{}, check.New(check.Stays, check.Pass, ""), fetches{}, pr, nil, groups, change{Fainter: true})
 		if s.State != c.want || s.Say != c.say {
 			t.Errorf("%s: %+v, want %s %q", c.name, s, c.want, c.say)
+		}
+		if wantKind := map[string]string{app.VetReal: KindFades}[c.want]; s.Kind != wantKind {
+			t.Errorf("%s: kind %q, want %q", c.name, s.Kind, wantKind)
 		}
 	}
 }

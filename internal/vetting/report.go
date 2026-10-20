@@ -18,13 +18,26 @@ import (
 const Version = 1
 
 // Suggestion is the suggested verdict. State is one of the user's vetting
-// states: real, artifact, known or unsure.
+// states: real, artifact, known or unsure. Kind says what a real verdict
+// on a star found it to be; it is empty on every other verdict and on
+// reports written before it was kept.
 type Suggestion struct {
 	State      string `json:"state"`
 	Say        string `json:"say"`
 	Why        string `json:"why"`
 	Confidence string `json:"confidence"`
+	Kind       string `json:"kind,omitempty"`
 }
+
+// Kinds of a real verdict: an eclipsing binary whose period passed the
+// tests for false periods, a star with any other period that passed
+// them, and a star that fades or brightens now and then with no period.
+const (
+	KindEclipsingBinary = "eclipsing_binary"
+	KindPeriodic        = "periodic"
+	KindFades           = "fades"
+	KindBrightens       = "brightens"
+)
 
 // Confidence levels.
 const (
