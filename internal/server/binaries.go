@@ -59,6 +59,106 @@ func applyBinaryRoutes(g *gin.RouterGroup, svc *binaries.Service) {
 	g.GET("/discoveries/live-curve", func(c *gin.Context) { liveCurve(c, svc) })
 	g.GET("/discoveries/dip-watches", func(c *gin.Context) { dipWatches(c, svc) })
 	g.PUT("/discoveries/dip-watches", func(c *gin.Context) { saveDipWatch(c, svc) })
+	g.GET("/discoveries/dippers/:id", func(c *gin.Context) { dipperView(c, svc) })
+	g.PUT("/discoveries/dippers/:id/ephemeris", func(c *gin.Context) { setDipCycle(c, svc) })
+	g.PUT("/discoveries/dippers/:id/every-window", func(c *gin.Context) { setEveryWindow(c, svc) })
+	g.POST("/discoveries/dippers/:id/requests", func(c *gin.Context) { requestDipWindow(c, svc) })
+}
+
+func dipperID(c *gin.Context) (int, bool) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: errIDNumber})
+		return 0, false
+	}
+	return id, true
+}
+
+func dipperError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{errorKey: "no such confirmed variable star that is not an eclipsing binary"})
+	case errors.Is(err, binaries.ErrNotDipper):
+		c.JSON(http.StatusNotFound, gin.H{errorKey: err.Error()})
+	case errors.Is(err, binaries.ErrBadDipCycle), errors.Is(err, binaries.ErrNoDipWindow):
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+	case errors.Is(err, binaries.ErrNoDark), errors.Is(err, binaries.ErrOver), errors.Is(err, binaries.ErrSiteNotKnown):
+		c.JSON(http.StatusConflict, gin.H{errorKey: err.Error()})
+	default:
+		serverError(c, err)
+	}
+}
+
+func dipperView(c *gin.Context, svc *binaries.Service) {
+	id, ok := dipperID(c)
+	if !ok {
+		return
+	}
+	v, err := svc.Dipper(c.Request.Context(), id)
+	if err != nil {
+		dipperError(c, err)
+		return
+	}
+	c.Header(cacheControl, noCache)
+	c.JSON(http.StatusOK, v)
+}
+
+func setDipCycle(c *gin.Context, svc *binaries.Service) {
+	id, ok := dipperID(c)
+	if !ok {
+		return
+	}
+	var body binaries.DipCycle
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		return
+	}
+	v, err := svc.SetDipCycle(c.Request.Context(), id, body)
+	if err != nil {
+		dipperError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, v)
+}
+
+func setEveryWindow(c *gin.Context, svc *binaries.Service) {
+	id, ok := dipperID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		On *bool `json:"on"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.On == nil {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: "on must be true or false"})
+		return
+	}
+	v, err := svc.SetEveryWindow(c.Request.Context(), id, *body.On)
+	if err != nil {
+		dipperError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, v)
+}
+
+func requestDipWindow(c *gin.Context, svc *binaries.Service) {
+	id, ok := dipperID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Mid time.Time `json:"mid"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		return
+	}
+	r, err := svc.RequestDipWindow(c.Request.Context(), id, body.Mid)
+	if err != nil && r.ID == 0 {
+		dipperError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, binaries.RequestView{ID: r.ID, State: r.State, Note: r.Note, Auto: r.Auto})
 }
 
 // LiveCurveView is the Now page's live card, or none.

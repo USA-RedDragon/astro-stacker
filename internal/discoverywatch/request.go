@@ -82,7 +82,7 @@ func Draft(snap *planning.Snapshot, origGUID, object string, n *app.DiscoveryWat
 	var tgt planning.Target
 	found := false
 	for _, p := range snap.Projects {
-		if strings.HasPrefix(p.Name, ProjectPrefix) || strings.HasPrefix(p.Name, discoveryfollowup.ProjectPrefix) || strings.HasPrefix(p.Name, binaries.RequestPrefix) {
+		if strings.HasPrefix(p.Name, ProjectPrefix) || strings.HasPrefix(p.Name, discoveryfollowup.ProjectPrefix) || strings.HasPrefix(p.Name, binaries.RequestPrefix) || strings.HasPrefix(p.Name, binaries.DipPrefix) {
 			continue
 		}
 		for _, t := range p.Targets {

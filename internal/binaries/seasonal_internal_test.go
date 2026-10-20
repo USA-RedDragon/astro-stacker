@@ -76,7 +76,7 @@ func seasonalDB(t *testing.T, site sky.Site, now time.Time) *gorm.DB {
 	t.Helper()
 	db := testdb.SQLite(t, "seasonal")
 	if err := db.AutoMigrate(&app.DiscoverySource{}, &app.DiscoveryVet{}, &app.BinaryFacts{}, &app.BinaryBook{}, &app.ShareImage{},
-		&app.EclipseRequest{}, &app.EclipseTiming{}, &app.Frame{}); err != nil {
+		&app.EclipseRequest{}, &app.EclipseTiming{}, &app.Frame{}, &app.DipperEphemeris{}, &app.DipWatch{}, &app.DipResult{}); err != nil {
 		t.Fatal(err)
 	}
 	midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC).Add(-time.Duration(site.Longitude / 15 * float64(time.Hour)))

@@ -48,7 +48,7 @@ func (s *Service) prune(ctx context.Context, binaries []Star) error {
 		errs = append(errs, err)
 	}
 	var open []app.EclipseRequest
-	if err := notKept(db.Where("state IN ?", []string{app.EclipseWaiting, app.EclipseSent})).Find(&open).Error; err != nil {
+	if err := notKept(db.Where("state IN ? AND kind <> ?", []string{app.EclipseWaiting, app.EclipseSent}, KindDip)).Find(&open).Error; err != nil {
 		return errors.Join(append(errs, err)...)
 	}
 	for _, r := range open {

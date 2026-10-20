@@ -34,9 +34,7 @@ func (s *Service) SaveDipWatch(ctx context.Context, w app.DipWatch) (app.DipWatc
 		return w, err
 	}
 	w.ID = 0
-	err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "project_guid"}},
-		DoUpdates: clause.AssignmentColumns([]string{"source_id", "start", "end", "depth_low", "depth_high", "active_share", "updated_at"})}).Create(&w).Error
-	if err != nil {
+	if err := upsertWatch(db, &w); err != nil {
 		return w, err
 	}
 	s.liveMu.Lock()
@@ -44,6 +42,13 @@ func (s *Service) SaveDipWatch(ctx context.Context, w app.DipWatch) (app.DipWatc
 	s.liveMu.Unlock()
 	s.liveDebouncer().Kick("dip-watch")
 	return w, db.Where("project_guid = ?", w.ProjectGUID).First(&w).Error
+}
+
+// upsertWatch stores a dip watch, replacing any earlier link of the same
+// project.
+func upsertWatch(db *gorm.DB, w *app.DipWatch) error {
+	return db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "project_guid"}},
+		DoUpdates: clause.AssignmentColumns([]string{"source_id", "start", "end", "depth_low", "depth_high", "active_share", "updated_at"})}).Create(w).Error
 }
 
 // DipWatches are the linked dip watch projects, newest window first.

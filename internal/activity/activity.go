@@ -388,4 +388,5 @@ const (
 	KindEclipseTiming = "eclipse-timing"
 	KindWatching      = "discovery-watch"
 	KindLiveCurve     = "live-curve"
+	KindDipWindows    = "dip-windows"
 )

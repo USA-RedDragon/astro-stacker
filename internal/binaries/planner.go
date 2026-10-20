@@ -65,6 +65,7 @@ type EclipsePlan struct {
 	ZoneNote  string           `json:"zone_note"`
 	SiteKnown bool             `json:"site_known"`
 	Eclipses  []PlannedEclipse `json:"eclipses"`
+	Dips      []DipWindow      `json:"dips"`
 	Hidden    int              `json:"hidden"`
 }
 
@@ -109,7 +110,7 @@ func Plan(in PlanInput) EclipsePlan {
 	if loc == nil {
 		loc = time.UTC
 	}
-	out := EclipsePlan{From: in.From, To: in.To, ZoneNote: ZoneNote(loc, in.From, in.To), SiteKnown: in.Site != nil, Eclipses: []PlannedEclipse{}}
+	out := EclipsePlan{From: in.From, To: in.To, ZoneNote: ZoneNote(loc, in.From, in.To), SiteKnown: in.Site != nil, Eclipses: []PlannedEclipse{}, Dips: []DipWindow{}}
 	for _, s := range in.Stars {
 		e, dbl := s.ephemeris()
 		if e == nil || s.Facts == nil || s.Facts.Gaia == nil {

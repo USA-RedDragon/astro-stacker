@@ -294,7 +294,7 @@ func matchReq(reqs []app.EclipseRequest, id int, kind string, utc time.Time) *ap
 	var best *app.EclipseRequest
 	for i := range reqs {
 		r := &reqs[i]
-		if r.SourceID == id && r.State != app.EclipseMoved && sameEclipse(r.Kind, kind, r.Mid.Sub(utc)) && (best == nil || r.ID > best.ID) {
+		if r.SourceID == id && r.Kind != KindDip && r.State != app.EclipseMoved && sameEclipse(r.Kind, kind, r.Mid.Sub(utc)) && (best == nil || r.ID > best.ID) {
 			best = r
 		}
 	}

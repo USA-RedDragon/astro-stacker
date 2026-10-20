@@ -163,3 +163,66 @@ type DipWatch struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
+
+// DipperEphemeris is the dip cycle of a confirmed dipper as worked out
+// from its past dips, the record of those dips, and whether the app asks
+// for imaging on every window the site can see.
+type DipperEphemeris struct {
+	SourceID int `gorm:"primaryKey;autoIncrement:false"`
+	// Period is the cycle in days and EpochMJD the middle of one window,
+	// a UTC modified Julian date.
+	Period   float64
+	EpochMJD float64
+	// WindowHours is how wide the window a dip can come in is.
+	WindowHours float64
+	// DepthLow and DepthHigh span the past dips' depths in magnitudes,
+	// DurLowHours and DurHighHours their lengths.
+	DepthLow     float64
+	DepthHigh    float64
+	DurLowHours  float64
+	DurHighHours float64
+	// ActiveShare is the share of windows that hold a dip, 0 when not
+	// known.
+	ActiveShare float64
+	// PastSurveys names the surveys of the past record, "ZTF, ATLAS and
+	// TESS"; PastDips counts its dips over PastYears years, in PastActive
+	// of PastCovered windows the surveys covered.
+	PastSurveys string `gorm:"not null;default:''"`
+	PastDips    int    `gorm:"not null;default:0"`
+	PastYears   int    `gorm:"not null;default:0"`
+	PastActive  int    `gorm:"not null;default:0"`
+	PastCovered int    `gorm:"not null;default:0"`
+	// EveryWindow says the app asks for imaging on every window the site
+	// can see.
+	EveryWindow bool `gorm:"not null;default:false"`
+	UpdatedAt   time.Time
+}
+
+// Dip window result states.
+const (
+	DipSeen   = "dip"
+	DipNone   = "no-dip"
+	DipUnsure = "unsure"
+)
+
+// DipResult is what the user's own frames show in one past window of a
+// dipper: how many subs and how much time covered it, and whether the
+// star dipped.
+type DipResult struct {
+	ID       int `gorm:"primaryKey;autoIncrement"`
+	SourceID int `gorm:"not null;uniqueIndex:idx_dip_result"`
+	Cycle    int `gorm:"not null;uniqueIndex:idx_dip_result"`
+	Mid      time.Time
+	// Subs and Seconds are the subs of the star's field inside the
+	// window and their exposure; Measured is how many gave a point.
+	Subs     int
+	Seconds  float64
+	Measured int
+	State    string `gorm:"not null;default:''"`
+	Note     string `gorm:"type:text;not null;default:''"`
+	// Depth is the dip's depth in magnitudes when one was seen, and
+	// Smallest the least dip the subs could show.
+	Depth      float64
+	Smallest   float64
+	MeasuredAt time.Time
+}

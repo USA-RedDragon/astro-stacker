@@ -233,10 +233,10 @@ func (s *Service) newRun(ctx context.Context, cur *LiveTarget) (*liveRun, error)
 	db := s.DB.WithContext(ctx)
 	var req app.EclipseRequest
 	err := db.Where("project_guid = ?", cur.ProjectGUID).Order("id DESC").First(&req).Error
-	if err == nil {
+	if err == nil && req.Kind != KindDip {
 		return s.eclipseRun(ctx, cur, req)
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 	var w app.DipWatch
@@ -381,23 +381,8 @@ func liveView(run *liveRun, raw []ownimage.LivePoint, kept int, now time.Time) L
 	v := run.view
 	v.UpdatedAt, v.Comps, v.Points, v.Filter, v.OtherSubs = now, kept, nil, "", 0
 	v.LastSub, v.Scatter, v.CompScatter = nil, nil, nil
-	count := map[string]int{}
-	for _, p := range raw {
-		count[p.Filter]++
-	}
-	for f, n := range count {
-		if n > count[v.Filter] || n == count[v.Filter] && f < v.Filter {
-			v.Filter = f
-		}
-	}
 	var pts []LivePoint
-	for _, p := range raw {
-		if p.Filter != v.Filter {
-			v.OtherSubs++
-			continue
-		}
-		pts = append(pts, LivePoint{FrameID: p.FrameID, Time: p.Time, Filter: p.Filter, Mag: p.Mag, Err: math.Max(p.Err, errFloor), Comp: p.Comp})
-	}
+	pts, v.Filter, v.OtherSubs = mainFilter(raw)
 	if len(pts) > 0 {
 		t := pts[len(pts)-1].Time
 		v.LastSub = &t

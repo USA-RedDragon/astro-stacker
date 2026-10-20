@@ -79,6 +79,8 @@ type Service struct {
 	LiveData ownimage.Data
 	Current  func() *LiveTarget
 	LiveTask *activity.Task
+	// DipTask shows the judging of past dip windows in the indicator.
+	DipTask *activity.Task
 	// Events tells the pages the live card changed.
 	Events *eventbus.Broker
 
@@ -172,6 +174,14 @@ func (s *Service) load(ctx context.Context, ids []int) ([]Star, error) {
 	if err := db.Where("source_id IN ?", idList).Order("predicted").Find(&timings).Error; err != nil {
 		return nil, err
 	}
+	var cycles []app.DipperEphemeris
+	if err := db.Where("source_id IN ?", idList).Find(&cycles).Error; err != nil {
+		return nil, err
+	}
+	dc := map[int]*app.DipperEphemeris{}
+	for i := range cycles {
+		dc[cycles[i].SourceID] = &cycles[i]
+	}
 	tm := map[int][]app.EclipseTiming{}
 	for _, t := range timings {
 		tm[t.SourceID] = append(tm[t.SourceID], t)
@@ -200,7 +210,7 @@ func (s *Service) load(ctx context.Context, ids []int) ([]Star, error) {
 	}
 	var out []Star
 	for _, src := range srcs {
-		st := Star{Source: src, Report: reports[src.ID], Row: rows[src.ID], Book: bk[src.ID], Share: sh[src.ID], Timings: tm[src.ID]}
+		st := Star{Source: src, Report: reports[src.ID], Row: rows[src.ID], Book: bk[src.ID], Share: sh[src.ID], Timings: tm[src.ID], Dipper: dc[src.ID]}
 		if st.Book.SourceID == 0 {
 			st.Book.SourceID = src.ID
 		}
@@ -425,6 +435,9 @@ func (s *Service) Tick(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	if err := s.dipWork(ctx); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
 }
 
@@ -556,7 +569,7 @@ func (s *Service) Plan(ctx context.Context, days int, all bool) (EclipsePlan, er
 		return EclipsePlan{}, err
 	}
 	var reqs []app.EclipseRequest
-	if err := s.DB.WithContext(ctx).Where("state NOT IN ?", []string{app.EclipseCancel, app.EclipseMoved}).Find(&reqs).Error; err != nil {
+	if err := s.DB.WithContext(ctx).Where("state NOT IN ? AND kind <> ?", []string{app.EclipseCancel, app.EclipseMoved}, KindDip).Find(&reqs).Error; err != nil {
 		return EclipsePlan{}, err
 	}
 	in := PlanInput{Stars: stars, Loc: s.loc(), From: s.now().Truncate(time.Minute), All: all, Requests: reqs}
@@ -566,7 +579,13 @@ func (s *Service) Plan(ctx context.Context, days int, all bool) (EclipsePlan, er
 			in.Site = &site
 		}
 	}
-	return Plan(in), nil
+	out := Plan(in)
+	dips, hidden, err := s.dipPlan(ctx, in.From, in.To, all)
+	if err != nil {
+		return out, err
+	}
+	out.Dips, out.Hidden = dips, out.Hidden+hidden
+	return out, nil
 }
 
 // Request errors the caller made, as opposed to the server's.
