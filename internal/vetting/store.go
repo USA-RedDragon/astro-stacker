@@ -160,7 +160,9 @@ func hashOf(s discoverysource.Summary) string {
 // survey answers still to collect; those the user marked real with no
 // report, an older report version or pipeline, changed candidates, survey
 // answers still to collect or a report refreshEvery old; and any run
-// requested by hand. ids narrows the pick to those sources, due or not.
+// requested by hand, again while the runs since wait on a survey, for up
+// to askHold.
+// ids narrows the pick to those sources, due or not.
 func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids []int) ([]Due, error) {
 	list, err := summaries(ctx, db, objects, ids)
 	if err != nil {
@@ -197,7 +199,7 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 			d := Due{Summary: s, Hash: h}
 			if seen {
 				d.Prior = &v
-				if asked(v) {
+				if asked(v, now) {
 					d.AskedAt = v.RequestedAt
 				}
 			}
@@ -213,9 +215,34 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 	return out, nil
 }
 
-// asked says the source was asked for by hand since its last run started.
-func asked(v app.DiscoveryVet) bool {
+// askHold is how long an ask keeps its place while the runs since still
+// wait on a survey; past it the source goes back to the usual rules, so a
+// survey that never answers does not hold it for good. askPendingAfter is
+// how long such a run waits before the next: whether an answer is in is
+// known only once the vet finds the star and asks the survey, so held asks
+// are run on a timer, and a sparse one, as each run reads the target's
+// subs again.
+const (
+	askHold         = 7 * 24 * time.Hour
+	askPendingAfter = 2 * time.Hour
+)
+
+// asked says the source was asked for by hand and the ask still stands:
+// no run has started since, or the runs since still wait on a survey.
+func asked(v app.DiscoveryVet, now time.Time) bool {
+	return newAsk(v) || heldAsk(v, now)
+}
+
+// newAsk says the source was asked for by hand since its last run started.
+func newAsk(v app.DiscoveryVet) bool {
 	return v.RequestedAt != nil && (v.StartedAt == nil || v.RequestedAt.After(*v.StartedAt))
+}
+
+// heldAsk says the last run since an ask finished still waiting on a
+// survey, less than askHold after the ask.
+func heldAsk(v app.DiscoveryVet, now time.Time) bool {
+	return v.RequestedAt != nil && v.StartedAt != nil && !v.RequestedAt.After(*v.StartedAt) &&
+		v.State == StateDone && v.Pending != "" && now.Sub(*v.RequestedAt) < askHold
 }
 
 // dueAgain says the job still vets the source on its own: new and not
@@ -240,7 +267,10 @@ func refreshed(s discoverysource.Summary) bool {
 }
 
 func due(s discoverysource.Summary, hash string, v app.DiscoveryVet, seen bool, now time.Time) bool {
-	if seen && asked(v) {
+	if seen && newAsk(v) {
+		return true
+	}
+	if seen && heldAsk(v, now) && (v.FinishedAt == nil || now.Sub(*v.FinishedAt) >= askPendingAfter) {
 		return true
 	}
 	byUser := refreshed(s)
@@ -277,7 +307,7 @@ func summaries(ctx context.Context, db *gorm.DB, objects []string, ids []int) ([
 		q = q.Where("id IN ?", ids)
 	} else {
 		askedIDs := db.Model(&app.DiscoveryVet{}).Select("source_id").
-			Where("requested_at IS NOT NULL AND (started_at IS NULL OR requested_at > started_at)")
+			Where("requested_at IS NOT NULL AND (started_at IS NULL OR requested_at > started_at OR (state = ? AND pending <> ''))", StateDone)
 		q = q.Where("vetting = '' OR (vetting = ? AND kind <> ?) OR id IN (?)", app.VetReal, kindMover, askedIDs)
 	}
 	var sources []app.DiscoverySource
