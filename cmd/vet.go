@@ -89,18 +89,19 @@ func newVetCommand() *cobra.Command {
 			fetcher := &surveys.Fetcher{Store: fields, Prefix: prefix,
 				HTTP: &http.Client{Timeout: 10 * time.Minute}, ATLASToken: atlasToken, WorkDir: cfg.Vetting.WorkDir, Now: time.Now}
 			svc := &vetting.Service{
-				App:     appStore.DB(),
-				Data:    ownimage.DBData{App: appStore.DB(), Store: processed, Gaia: gaia},
-				Gaia:    gaia,
-				Mirrors: mirrors,
-				Simbad:  vetting.SimbadTAP(nil, "", cache, prefix, time.Now),
-				PS1:     vetting.VizierPS1(nil, "", cache, prefix, time.Now),
-				Alerts:  vetting.AlerceZTF(nil, "", cache, prefix, time.Now),
-				Bodies:  cat.KnownBodies,
-				Surveys: fetcher,
-				Threads: cfg.Vetting.Threads,
-				WorkDir: cfg.Vetting.WorkDir,
-				Build:   buildRevision(cmd.Root().Annotations["commit"]),
+				App:       appStore.DB(),
+				Data:      ownimage.DBData{App: appStore.DB(), Store: processed, Gaia: gaia},
+				Gaia:      gaia,
+				Mirrors:   mirrors,
+				Simbad:    vetting.SimbadTAP(nil, "", cache, prefix, time.Now),
+				PS1:       vetting.VizierPS1(nil, "", cache, prefix, time.Now),
+				Reddening: vetting.GaiaAP(nil, "", cache, prefix, time.Now),
+				Alerts:    vetting.AlerceZTF(nil, "", cache, prefix, time.Now),
+				Bodies:    cat.KnownBodies,
+				Surveys:   fetcher,
+				Threads:   cfg.Vetting.Threads,
+				WorkDir:   cfg.Vetting.WorkDir,
+				Build:     buildRevision(cmd.Root().Annotations["commit"]),
 			}
 			if prefetch {
 				return svc.Prefetch(cmd.Context(), objects)
