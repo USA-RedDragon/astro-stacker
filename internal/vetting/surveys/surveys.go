@@ -33,6 +33,38 @@ type Neighbour struct {
 	Sep    float64 `json:"sep_arcsec"`
 }
 
+const (
+	// PairArcsec is how close a Gaia neighbour sits for ZTF, with about 2
+	// arcsec seeing, to measure it and the star as one object.
+	PairArcsec = 3.0
+	// PairMag is how much fainter than the star such a neighbour may be
+	// and still give a tenth of the light.
+	PairMag = 2.5
+)
+
+// Pair is the one Gaia neighbour within PairArcsec of the star and under
+// PairMag fainter than it, or false when there is none or more than one.
+func Pair(t Target) (Neighbour, bool) {
+	var out Neighbour
+	n := 0
+	if !(t.G > 0) {
+		return out, false
+	}
+	for _, nb := range t.Neighbours {
+		sep := nb.Sep
+		if sep == 0 {
+			sep = sepArcsec(t.RA, t.Dec, nb.RA, nb.Dec)
+		}
+		if nb.GaiaID == t.GaiaID || sep > PairArcsec || !(nb.G > 0) || nb.G > t.G+PairMag {
+			continue
+		}
+		out = nb
+		out.Sep = sep
+		n++
+	}
+	return out, n == 1
+}
+
 // Target is the star to fetch: its Gaia position at epoch 2016.0 with
 // proper motion in mas per year, and its neighbours within 10 arcsec.
 type Target struct {
@@ -119,8 +151,12 @@ type Fetcher struct {
 	dec       *zstd.Decoder
 }
 
-// ZTF is the star's ZTF light curves, from the field's ZTF files.
-func (f *Fetcher) ZTF(ctx context.Context, field Field, t Target) Fetch { return f.ztf(ctx, field, t) }
+// ZTF is the star's ZTF light curves, from the field's ZTF files. A star
+// ZTF measures together with one close Gaia neighbour (see Pair) also gets
+// ZTF's position of it on each epoch, from IRSA's light curve service.
+func (f *Fetcher) ZTF(ctx context.Context, field Field, t Target) Fetch {
+	return f.ztf(ctx, field, t, true)
+}
 
 // ZTFStars is the ZTF light curves of several stars of one field, read
 // together so each of the field's tiles is read once.

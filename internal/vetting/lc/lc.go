@@ -24,6 +24,10 @@ type Point struct {
 	// one per field, CCD quadrant and filter. Zero when the series has one
 	// zero point.
 	Src int64 `json:"src,omitempty"`
+	// RA and Dec are where the survey measured the star on that epoch, in
+	// degrees; zero when the survey gave no position for it.
+	RA  float64 `json:"ra,omitempty"`
+	Dec float64 `json:"dec,omitempty"`
 }
 
 // Series is one survey's light curve of the star in one band.
