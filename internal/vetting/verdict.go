@@ -244,7 +244,8 @@ func joinSentences(parts ...string) string {
 // changes and is not an echo of the day, month or year (or TESS or
 // changes within a night show it), and nearby steady stars of the same
 // brightness do not show it. A period that drifts from season to season
-// stays unsure. The own image checks do not decide it: confirmed
+// stays unsure, unless it is a smooth cycle most seasons find on their
+// own: that is a semi-regular or spotted star. The own image checks do not decide it: confirmed
 // binaries fail them as often as false periods do. A smooth cycle
 // promoted over a daily echo already stands out in two bands once the
 // slow changes are out, whatever the raw points show; without TESS or
@@ -280,9 +281,15 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 			l := pr.Trend.Largest()
 			trend = fmt.Sprintf("Its level also changes from season to season, by up to %.2f mag in %s.", l.Range, l.Band)
 		}
-		return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new variable star, repeats every %s days", ps), Confidence: conf, Kind: KindPeriodic,
+		say := fmt.Sprintf("Looks like a new variable star, repeats every %s days", ps)
+		var drift string
+		if status(groups, check.Fold) == check.Fail {
+			say = fmt.Sprintf("Looks like a new semi-regular or spotted star, repeats about every %s days", ps)
+			drift = joinSentences(evidence(groups, check.Fold), fmt.Sprintf("Its timing drifts, as a spotted or semi-regular star's does, but %d of %d seasons fitted band by band on their own find the %s-day cycle.", pr.Robust.SeasonHits, pr.Robust.SeasonFits, ps))
+		}
+		return Suggestion{State: app.VetReal, Say: say, Confidence: conf, Kind: KindPeriodic,
 			Why: joinSentences(fmt.Sprintf("%s show it varying every %s days, and no catalog lists the star as variable.", surveysSeen, p),
-				alias, trend, evidence(groups, check.Echo), evidence(groups, check.Compare))}
+				drift, alias, trend, evidence(groups, check.Echo), evidence(groups, check.Compare))}
 	}
 	conf := Medium
 	foldOK := status(groups, check.Fold) == check.Pass
@@ -349,6 +356,8 @@ func periodDoubt(e *period.Ephemeris, r *period.Robust, groups []Group, known Kn
 	case !r.Real:
 		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: the %s-day %s %s weak", ps, cycle, is), Confidence: Low,
 			Why: joinSentences(evidence(groups, check.Echo), evidence(groups, check.Compare), "No single survey band shows it clearly enough on its own.")}
+	case status(groups, check.Fold) == check.Fail && quasiPeriodic(e, r):
+		return nil
 	case status(groups, check.Fold) == check.Fail:
 		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: periodic, but the %s %s", cycle, drift), Confidence: Medium,
 			Why: joinSentences(evidence(groups, check.Fold), fmt.Sprintf("The %s-day period is real in the survey data, but its timing wanders from season to season, so it is not a strict %s.", ps, what))}
@@ -358,6 +367,17 @@ func periodDoubt(e *period.Ephemeris, r *period.Robust, groups []Group, known Kn
 		return nil
 	}
 	return &s
+}
+
+// quasiPeriodic says a smooth cycle whose timing drifts is still a real
+// variable: it is no echo of the day, month or year, nearby steady stars
+// of the same brightness lack it, and most seasons find it on their own.
+// 34867 (Taurus Dark Cloud, 2025-11-13), a spotted K giant, shows 50.2
+// days in nearly every ZTF season while its phase jumps in 2021. Eclipses
+// keep strict timing, so dips that drift never pass this way.
+func quasiPeriodic(e *period.Ephemeris, r *period.Robust) bool {
+	return e.Kind == period.KindSinusoidal && r.Echo == "" && period.EchoOf(e.Period) == "" &&
+		r.Comparisons > 0 && r.CompPass && r.Real && r.HoldsBySeason()
 }
 
 func shortPeriod(p float64) string {
