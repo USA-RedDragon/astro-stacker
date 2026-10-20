@@ -2,6 +2,7 @@ package period
 
 import (
 	"math"
+	"slices"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
@@ -73,7 +74,7 @@ func analyzeSeries(d *data, own, ztf []lc.Series, opts Options, at *Ephemeris) (
 	}
 	a.settle()
 	res.Fits = a.surveyFits()
-	if (a.ecl != nil || a.sine != nil) && !a.supported() {
+	if (a.ecl != nil || a.sine != nil) && (!a.supported() || a.refuted(res.Fits)) {
 		a.ecl, a.sine = nil, nil
 		a.settle()
 		res.Fits = a.surveyFits()
@@ -155,6 +156,26 @@ func (a *analysis) settle() {
 		a.kind = a.noPeriodKind()
 		a.eph = &Ephemeris{Kind: a.kind, Eclipses: []Eclipse{}}
 	}
+}
+
+// refuted says an eclipse fit's dips are not one star's eclipses at its
+// period: ZTF or ATLAS, whose pixels split the stars around it, measure
+// a dip well short of the depth the other bands show, or a fit with two
+// dips finds one missing on odd or even cycles while it shows on the
+// others. Dips that recur without a period, as a dipper's do, fit this
+// way through a few of them. Dips TESS shows are left to the TESS-only
+// test, which tells another star's dips from the star's own.
+func (a *analysis) refuted(fits []SurveyFit) bool {
+	if a.ecl == nil {
+		return false
+	}
+	tess := slices.ContainsFunc(fits, func(f SurveyFit) bool { return f.Survey == lc.TESS && f.Shows })
+	for _, f := range fits {
+		if (f.Survey == lc.ZTF || f.Survey == lc.ATLAS) && !f.Agrees && !tess {
+			return true
+		}
+	}
+	return len(a.ecl.dips) == 2 && dipMissing(a.parityWindows())
 }
 
 // supported says a survey other than NEOWISE, whose few visits a year
