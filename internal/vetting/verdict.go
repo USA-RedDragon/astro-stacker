@@ -205,6 +205,8 @@ func ownDoubt(flags ownimage.Flags, groups []Group, kind period.Kind) string {
 		what = "a saturated star or the image edge"
 	case flags.NotStar:
 		what = "a spot not shaped like a star"
+	case status(groups, check.OwnChange) == check.Fail && status(groups, check.OwnTiming) == check.Pass:
+		return "Your own frames time the dip at its predicted minimum, though the night as a whole does not pass the change check."
 	case status(groups, check.OwnChange) == check.Fail:
 		what = "no clear change"
 	default:
@@ -367,7 +369,7 @@ func shortPeriod(p float64) string {
 
 func dipCaught(e *period.Ephemeris, sum discoverysource.Summary, timing *period.Timing, curve *ownimage.Curve) string {
 	if timing != nil {
-		if timing.Dip == 0 {
+		if timing.Dip == 1 {
 			return "Your night caught the deeper of its two dips."
 		}
 		return "Your night caught the shallower of its two dips."

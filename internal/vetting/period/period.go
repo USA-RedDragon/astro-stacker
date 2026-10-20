@@ -161,8 +161,9 @@ type Timing struct {
 	Offset    float64 `json:"offset_min"`
 	OffsetErr float64 `json:"offset_err_min"`
 	Depth     float64 `json:"depth"`
-	Dip       int     `json:"dip"`
-	Points    int     `json:"points"`
+	// Dip is 1 for the deeper dip and 2 for the shallower.
+	Dip    int `json:"dip"`
+	Points int `json:"points"`
 }
 
 // TimeMinimum fits the dip the points of one night cover. ok is false
