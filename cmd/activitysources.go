@@ -74,11 +74,13 @@ func jobWatches() []activity.Watch {
 // activitySources reads the work done outside this process, and the
 // discoveries runner and observatory calibration inside it.
 type activitySources struct {
-	DB          *gorm.DB
-	Sched       *gorm.DB
-	S3          *minio.Client
-	Processed   string
-	Survey      string
+	DB        *gorm.DB
+	Sched     *gorm.DB
+	S3        *minio.Client
+	Processed string
+	Survey    string
+	// VetCache is the vetting cache prefix in the processed bucket.
+	VetCache    string
 	Jobs        *activity.Jobs
 	Discoveries func() discoveries.Live
 	Monitor     *observatory.Monitor
@@ -105,6 +107,7 @@ func (a *activitySources) register(reg *activity.Registry) {
 	if a.DB != nil {
 		reg.AddSource(activity.Source{Name: "discoveries", Every: 15 * time.Second, Read: a.discoveries})
 		reg.AddSource(activity.Source{Name: "vetting", Every: 20 * time.Second, Read: a.vetting})
+		reg.AddSource(activity.Source{Name: "atlas", Every: time.Minute, Read: a.atlas})
 	}
 	if a.S3 != nil {
 		reg.AddSource(activity.Source{Name: "tess", Every: 30 * time.Second, Read: a.tess})
@@ -116,6 +119,52 @@ func (a *activitySources) register(reg *activity.Registry) {
 	if a.Monitor != nil {
 		reg.AddSource(activity.Source{Name: "calibration", Every: 5 * time.Second, Read: a.calibration})
 	}
+}
+
+// atlas is the sources whose vet waits on ATLAS forced photometry, with
+// the time to clear them at the pace ATLAS ran our latest tasks: it runs
+// one of ours at a time.
+func (a *activitySources) atlas(ctx context.Context) ([]activity.Item, error) {
+	n, err := vetting.ATLASWaiting(ctx, a.DB)
+	if err != nil {
+		return nil, err
+	}
+	var rt surveys.ATLASRuntimes
+	if a.S3 != nil && a.VetCache != "" {
+		b, err := a.getObject(ctx, a.Processed, a.VetCache+surveys.ATLASRuntimesKey)
+		switch {
+		case err == nil:
+			if json.Unmarshal(b, &rt) != nil {
+				rt = surveys.ATLASRuntimes{}
+			}
+		case !isNoSuchKey(err):
+			return nil, err
+		}
+	}
+	return []activity.Item{atlasItem(int(n), rt)}, nil
+}
+
+func atlasItem(n int, rt surveys.ATLASRuntimes) activity.Item {
+	it := activity.Item{ID: activity.KindATLAS, Kind: activity.KindATLAS, Label: "ATLAS photometry", State: activity.StateIdle, Queued: n, QueueUnit: "sources"}
+	if n == 0 {
+		return it
+	}
+	it.State = activity.StateQueued
+	mean := rt.Mean()
+	if mean <= 0 {
+		it.Detail = "time to clear not measured yet"
+		return it
+	}
+	it.Detail = fmt.Sprintf("about %s to clear at ATLAS's pace of one of our tasks every %d min over the last %d", spanWords(time.Duration(n)*mean), int(math.Round(mean.Minutes())), len(rt.Seconds))
+	return it
+}
+
+// spanWords is a duration in hours below two days, else in days.
+func spanWords(d time.Duration) string {
+	if h := d.Hours(); h < 48 {
+		return fmt.Sprintf("%.0f h", math.Max(1, math.Round(h)))
+	}
+	return fmt.Sprintf("%.1f days", d.Hours()/24)
 }
 
 func nightText(t time.Time) string { return t.UTC().Format("2 Jan 2006") }

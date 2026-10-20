@@ -29,7 +29,7 @@ func startActivity(ctx context.Context, reg *activity.Registry, cfg *config.Conf
 		slog.Info("Batch Jobs not shown: no Kubernetes service account", "error", err)
 	}
 	src := &activitySources{DB: appStore.DB(), Sched: schedStore.DB(), Jobs: jobs, Discoveries: discoveriesLive, Monitor: monitor,
-		SmallBodies: cfg.Discoveries.SmallBodiesURL, Processed: cfg.S3.ProcessedBucket, BackfillDays: cfg.Discoveries.BackfillDays}
+		SmallBodies: cfg.Discoveries.SmallBodiesURL, Processed: cfg.S3.ProcessedBucket, VetCache: cfg.Vetting.CachePrefix, BackfillDays: cfg.Discoveries.BackfillDays}
 	if cfg.Discover.CatalogMirror {
 		src.Survey = cfg.Discover.SurveyBucket
 	}
