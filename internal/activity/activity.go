@@ -387,4 +387,5 @@ const (
 	KindBinaries      = "binaries"
 	KindEclipseTiming = "eclipse-timing"
 	KindWatching      = "discovery-watch"
+	KindLiveCurve     = "live-curve"
 )

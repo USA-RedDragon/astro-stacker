@@ -52,7 +52,7 @@ func binaryServer(t *testing.T) (*gin.Engine, app.DiscoverySource, app.Discovery
 func binaryServerDB(t *testing.T) (*gin.Engine, *gorm.DB, app.DiscoverySource, app.DiscoverySource) {
 	t.Helper()
 	db := memStore(t).DB()
-	if err := db.AutoMigrate(&app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}, &app.BinaryBook{}, &app.BinaryFacts{}, &app.BinarySetting{},
+	if err := db.AutoMigrate(&app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}, &app.BinaryBook{}, &app.BinaryFacts{}, &app.BinarySetting{}, &app.DipWatch{},
 		&app.EclipseRequest{}, &app.ShareImage{}, &app.EclipseTiming{}); err != nil {
 		t.Fatal(err)
 	}
@@ -193,5 +193,40 @@ func TestBinaryTimingsRoute(t *testing.T) {
 	}
 	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/binaries/"+strconv.Itoa(other.ID)+"/timings", nil, nil); code != http.StatusNotFound {
 		t.Errorf("an unconfirmed source's timings: %d", code)
+	}
+}
+
+func TestDipWatchLinkAndLiveCurve(t *testing.T) {
+	t.Parallel()
+	r, src, _ := binaryServer(t)
+	var live LiveCurveView
+	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/live-curve", nil, &live); code != http.StatusOK || live.Live != nil {
+		t.Errorf("live curve with no run: %d %+v", code, live)
+	}
+	start := time.Date(2026, 10, 21, 11, 0, 0, 0, time.UTC)
+	body := map[string]any{"source_id": src.ID, "project_guid": "p-1", "start": start, "end": start.Add(2 * time.Hour),
+		"depth_low": 0.15, "depth_high": 0.6, "active_share": 0.25}
+	var w app.DipWatch
+	if code := call(t, r, http.MethodPut, "/api/v1/discoveries/dip-watches", body, &w); code != http.StatusOK || w.ID == 0 || w.SourceID != src.ID {
+		t.Fatalf("save: %d %+v", code, w)
+	}
+	body["depth_high"] = 0.7
+	if code := call(t, r, http.MethodPut, "/api/v1/discoveries/dip-watches", body, &w); code != http.StatusOK || w.DepthHigh != 0.7 {
+		t.Errorf("save again: %d %+v", code, w)
+	}
+	for name, bad := range map[string]map[string]any{
+		"window": {"source_id": src.ID, "project_guid": "p-2", "start": start, "end": start},
+		"depths": {"source_id": src.ID, "project_guid": "p-2", "start": start, "end": start.Add(time.Hour), "depth_low": 0.5, "depth_high": 0.1},
+		"source": {"source_id": 999999, "project_guid": "p-2", "start": start, "end": start.Add(time.Hour)},
+	} {
+		if code := call(t, r, http.MethodPut, "/api/v1/discoveries/dip-watches", bad, nil); code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", name, code)
+		}
+	}
+	var list struct {
+		DipWatches []app.DipWatch `json:"dip_watches"`
+	}
+	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/dip-watches", nil, &list); code != http.StatusOK || len(list.DipWatches) != 1 {
+		t.Errorf("list: %d %+v", code, list)
 	}
 }

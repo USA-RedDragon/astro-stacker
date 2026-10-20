@@ -290,7 +290,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	}
 
 	extras.Activity = reg
-	extras.Binaries = startBinaries(indexCtx, cfg, appStore, schedulerDBStore, broker, commands, backfill, reg)
+	extras.Binaries = startBinaries(indexCtx, cfg, appStore, schedulerDBStore, broker, commands, backfill, reg, monitor)
 	extras.Watch = startDiscoveryWatch(indexCtx, cfg, appStore, schedulerDBStore, broker, commands, backfill, reg)
 	startActivity(indexCtx, reg, cfg, appStore, schedulerDBStore, broker, backfill, nights.live, monitor)
 

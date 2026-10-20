@@ -17,6 +17,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/activity"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveryfollowup"
+	eventbus "github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedsettle"
@@ -25,6 +26,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -71,11 +73,25 @@ type Service struct {
 	Photometry Photometry
 	TimingTask *activity.Task
 	Interval   time.Duration
+	// LiveData reads the subs the Now page's live card measures as they
+	// are registered, shown in the indicator by LiveTask; Current is the
+	// scheduler's current target. Either nil leaves the card off.
+	LiveData ownimage.Data
+	Current  func() *LiveTarget
+	LiveTask *activity.Task
+	// Events tells the pages the live card changed.
+	Events *eventbus.Broker
 
 	kick     *trigger.Debouncer
 	kickOnce sync.Once
 	mu       sync.Mutex
 	want     map[int]bool
+
+	liveKick *trigger.Debouncer
+	liveOnce sync.Once
+	liveMu   sync.Mutex
+	live     *liveRun
+	liveMiss map[string]time.Time
 }
 
 // Settings keys.

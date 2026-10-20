@@ -14,6 +14,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/events"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
+	"github.com/USA-RedDragon/astro-stacker/internal/observatory"
 	"github.com/USA-RedDragon/astro-stacker/internal/planning"
 	"github.com/USA-RedDragon/astro-stacker/internal/schedcmd"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
@@ -59,7 +60,7 @@ func newBinariesService(cfg *config.Config, s3 *minio.Client, appStore, schedSto
 // startBinaries runs the discovery pages' background work, kicked by new
 // masters and vet reports.
 func startBinaries(ctx context.Context, cfg *config.Config, appStore, schedStore store.Store, broker *events.Broker, commands *schedcmd.Service,
-	backfill func() goals.BackfillLive, reg *activity.Registry) *binaries.Service {
+	backfill func() goals.BackfillLive, reg *activity.Registry, monitor *observatory.Monitor) *binaries.Service {
 	if !needsS3(cfg) {
 		return nil
 	}
@@ -70,12 +71,28 @@ func startBinaries(ctx context.Context, cfg *config.Config, appStore, schedStore
 	}
 	svc := newBinariesService(cfg, s3, appStore, schedStore, commands, backfill, reg.Task(activity.KindBinaries, "Confirmed variable stars"))
 	svc.TimingTask = reg.Task(activity.KindEclipseTiming, "Eclipse timings")
+	svc.LiveTask = reg.Task(activity.KindLiveCurve, "Live curve on the Now page")
+	svc.Events = broker
+	if p, ok := svc.Photometry.(binaries.OwnPhotometry); ok && monitor != nil {
+		svc.LiveData = p.Data
+		svc.Current = func() *binaries.LiveTarget {
+			st := monitor.View().Status
+			if st == nil || st.Target == nil {
+				return nil
+			}
+			return &binaries.LiveTarget{ProjectGUID: st.Target.ProjectGUID, ProjectName: st.Target.ProjectName, TargetName: st.Target.TargetName}
+		}
+	}
 	broker.Listen(func(e events.Event) {
 		if e.Type == events.TypeMaster || e.Type == events.TypeDiscovery {
 			svc.Kick()
 		}
+		if e.Type == events.TypeSubs {
+			svc.KickLive(e.Object)
+		}
 	})
 	go svc.Run(ctx)
+	go svc.RunLive(ctx)
 	slog.Info("Discovery pages background work started")
 	return svc
 }

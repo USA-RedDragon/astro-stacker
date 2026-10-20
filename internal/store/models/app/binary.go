@@ -142,3 +142,24 @@ type ShareImage struct {
 	Bytes     int
 	UpdatedAt time.Time
 }
+
+// DipWatch links a scheduler project that watches a dipping star through
+// one window to the star's discovery source, so the Now page can show
+// the window and the depths of the star's past dips.
+type DipWatch struct {
+	ID          int    `gorm:"primaryKey;autoIncrement"`
+	SourceID    int    `gorm:"not null;index"`
+	ProjectGUID string `gorm:"not null;uniqueIndex"`
+	// Start and End bound the window a dip can come in.
+	Start time.Time
+	End   time.Time
+	// DepthLow and DepthHigh span the depths of the star's past dips, in
+	// magnitudes.
+	DepthLow  float64
+	DepthHigh float64
+	// ActiveShare is the share of past windows that held a dip, 0 when
+	// not known.
+	ActiveShare float64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
