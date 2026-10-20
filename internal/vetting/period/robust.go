@@ -125,6 +125,11 @@ type Robust struct {
 	Few      bool `json:"few,omitempty"`
 }
 
+// EchoOf names the whole or half day, solar or sidereal, or the two to
+// four days that a period sits next to, where nightly visits make false
+// periods; empty when none.
+func EchoOf(p float64) string { return echoOf(p, 0, false) }
+
 // echoOf names the cycle a period sits next to, for data spanning span
 // days, or "": a whole number of days or a day over a whole number, solar
 // or sidereal, and for a smooth cycle also the Moon's month or the year

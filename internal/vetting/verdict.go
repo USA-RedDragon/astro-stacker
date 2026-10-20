@@ -108,14 +108,14 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		return *ps
 	}
 	if pr != nil && pr.Fades.Confirms() {
-		say, conf := "Looks like a new variable star, brightens now and then", Medium
+		say, conf, kind := "Looks like a new variable star, brightens now and then", Medium, KindBrightens
 		if c.Fainter {
-			say = "Looks like a new variable star, fades now and then"
+			say, kind = "Looks like a new variable star, fades now and then", KindFades
 		}
 		if status(groups, check.OwnChange) != check.Pass {
 			conf = Low
 		}
-		return Suggestion{State: app.VetReal, Say: say, Confidence: conf,
+		return Suggestion{State: app.VetReal, Say: say, Confidence: conf, Kind: kind,
 			Why: joinSentences(evidence(groups, check.ZTF), "No catalog lists the star as variable.")}
 	}
 	if known.Expected != "" && !ztfFlat {
@@ -278,7 +278,7 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 			l := pr.Trend.Largest()
 			trend = fmt.Sprintf("Its level also changes from season to season, by up to %.2f mag in %s.", l.Range, l.Band)
 		}
-		return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new variable star, repeats every %s days", ps), Confidence: conf,
+		return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new variable star, repeats every %s days", ps), Confidence: conf, Kind: KindPeriodic,
 			Why: joinSentences(fmt.Sprintf("%s show it varying every %s days, and no catalog lists the star as variable.", surveysSeen, p),
 				alias, trend, evidence(groups, check.Echo), evidence(groups, check.Compare))}
 	}
@@ -299,7 +299,7 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 		which = dipCaught(e, sum, timing, curve)
 	}
 	why := joinSentences(which, fmt.Sprintf("%s show the same dips every %s days, and no catalog lists the star as variable.", surveysSeen, p))
-	return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new eclipsing binary, repeats every %s days", shortPeriod(e.Period)), Confidence: conf, Why: why}
+	return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new eclipsing binary, repeats every %s days", shortPeriod(e.Period)), Confidence: conf, Kind: KindEclipsingBinary, Why: why}
 }
 
 // periodDoubt is the verdict on a survey period that does not pass the

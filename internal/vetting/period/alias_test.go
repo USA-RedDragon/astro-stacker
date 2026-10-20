@@ -47,3 +47,12 @@ func TestSlowFadeEcho167(t *testing.T) {
 		t.Errorf("largest fade %s %.3f mag, want ZTF g about 0.27", l.Band, l.Range)
 	}
 }
+
+func TestEchoOfNamesDailyAliases(t *testing.T) {
+	t.Parallel()
+	for p, want := range map[float64]string{0.997727: "one sidereal day", 1.0004: "one day", 0.4999: "half a day", 4.318: "", 9.3564: "", 7.83949: ""} {
+		if got := EchoOf(p); got != want {
+			t.Errorf("EchoOf(%g) = %q, want %q", p, got, want)
+		}
+	}
+}
