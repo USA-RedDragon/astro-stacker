@@ -38,10 +38,6 @@ var mainSequence = []msStar{
 }
 
 const (
-	// ldMax is the most a limb-darkened star's centre outshines its mean
-	// surface: 1/(1-u/3) for a linear law with u = 0.9, more than any
-	// FGKM dwarf has in the optical.
-	ldMax = 1.43
 	// defaultMinR is the smallest primary, in solar radii, assumed
 	// without a parallax: an M4V. Around a later M dwarf a brown dwarf or
 	// giant planet can block a third of the light and stay dark, which the
@@ -253,11 +249,13 @@ type darkTest struct {
 // On a circular orbit both eclipses hide the same area A, so the second
 // eclipse (the companion behind the primary) is shallower than the first
 // by the companion's surface brightness over the primary's, J, within the
-// primary's limb darkening: f2/f1 >= J/ldMax. A dip that takes f1 of the
-// light needs a companion of at least k = sqrt(f1/ldMax) primary radii,
-// since even over the primary's centre it hides at most ldMax k² of the
-// light. The points at phase 0.5 bound f2 from above; a band bounds J by
-// J < ldMax f2/f1. On the main sequence a companion of k primary radii
+// primary's limb darkening: f2/f1 >= J/L, with L the most the primary's
+// centre outshines its mean surface in the band (centreToMean, from
+// published limb darkening coefficients for every primary the parallax and
+// colour allow). A dip that takes f1 of the light needs a companion of at
+// least k = sqrt(f1/L) primary radii, since even over the primary's centre
+// it hides at most L k² of the light. The points at phase 0.5 bound f2
+// from above; a band bounds J by J < L f2/f1. On the main sequence a companion of k primary radii
 // is never darker than darkestCompanion(k), the faintest such companion
 // of any primary from A0V down to the smallest the star can be. When some
 // band's bound on J is below that, no main-sequence companion can hide its
@@ -272,6 +270,7 @@ type darkTest struct {
 func (a *analysis) darkCompanion(one *ecFit) darkTest {
 	minR, plx := smallestPrimary(a.opts.G, a.opts.Parallax, a.opts.ParallaxErr)
 	out := darkTest{minR: minR, parallax: plx, maxT: hottestPrimary(a.opts.Colour)}
+	tlo, thi := primaryTeffs(minR, out.maxT)
 	if len(one.dips) != 1 {
 		return out
 	}
@@ -327,8 +326,9 @@ func (a *analysis) darkCompanion(one *ecFit) darkTest {
 		}
 		lim := math.Max(s, 0) + darkLimitZ*se
 		f2 := 1 - math.Pow(10, -0.4*lim*depth)
-		jLim := ldMax * f2 / f1
-		k := math.Sqrt(f1 / ldMax)
+		ld := centreToMean(gr.survey, gr.band, tlo, thi)
+		jLim := ld * f2 / f1
+		k := math.Sqrt(f1 / ld)
 		need := darkestCompanion(k, bandNM(gr.survey, gr.band), minR, out.maxT)
 		out.tested = true
 		margin := need / jLim

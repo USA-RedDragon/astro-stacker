@@ -26,7 +26,10 @@ const confirmedDir = "testdata/confirmed"
 // period it does find for them must still match. 45029 has two equal
 // dips with the second at phase 0.571 and came out at twice its period
 // once TESS was added. 16040 has two equal eclipses per orbit that look
-// like one 0.47 mag dip every 2.741971 days.
+// like one 0.47 mag dip every 2.741971 days. 3635 has two nearly equal
+// eclipses every 7.839490 days and runs on the vet's own input with its
+// Gaia parallax, colour and reddening, which the dark companion rule needs
+// to tell its one 26% dip every 3.92 days is half the orbit.
 func TestConfirmedBinaryPeriods(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -58,17 +61,25 @@ func TestConfirmedBinaryPeriods(t *testing.T) {
 		{"236", auditDir + "/ctlM31", []float64{9.98715}, 0},
 		{"3754", auditDir + "/ctlIC1396", []float64{19.11938}, 0},
 		{"31560", auditDir + "/ctlNAN", []float64{34.40645}, 0},
+		{"3635", vet3635, []float64{7.839490}, 0},
 	}
 	searchMisses := map[string]bool{"2301": true, "27822": true, "1592": true}
 	for _, c := range cases {
 		t.Run(c.key, func(t *testing.T) {
 			t.Parallel()
-			path := c.path + ".csv.zst"
-			if c.path == confirmedDir {
-				path = filepath.Join(confirmedDir, c.key+".csv.zst")
+			var res *Result
+			var err error
+			if c.path == vet3635 {
+				series, comps := vetDumpSeries(t, vet3635)
+				res, err = Analyze(series, opts3635(comps))
+			} else {
+				path := c.path + ".csv.zst"
+				if c.path == confirmedDir {
+					path = filepath.Join(confirmedDir, c.key+".csv.zst")
+				}
+				series, comps := caseSeries(t, path)
+				res, err = Analyze(series, Options{Comparisons: func() [][]lc.Series { return comps }})
 			}
-			series, comps := caseSeries(t, path)
-			res, err := Analyze(series, Options{Comparisons: func() [][]lc.Series { return comps }})
 			if errors.Is(err, ErrNoPeriod) && searchMisses[c.key] {
 				t.Skip("the search finds no period in this data")
 			}
