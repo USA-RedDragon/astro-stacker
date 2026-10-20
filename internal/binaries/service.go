@@ -205,7 +205,7 @@ func (s *Service) Binaries(ctx context.Context) ([]Star, error) {
 	}
 	var out []Star
 	for _, st := range all {
-		if Periodic(st.Report) {
+		if EclipsingBinary(st.Report) {
 			out = append(out, st)
 		}
 	}
@@ -219,7 +219,7 @@ func (s *Service) Binary(ctx context.Context, id int) (Star, error) {
 	if err != nil {
 		return Star{}, err
 	}
-	if len(all) != 1 || all[0].Source.Vetting != app.VetReal || !Periodic(all[0].Report) {
+	if len(all) != 1 || all[0].Source.Vetting != app.VetReal || !EclipsingBinary(all[0].Report) {
 		return Star{}, gorm.ErrRecordNotFound
 	}
 	return all[0], nil
@@ -245,6 +245,7 @@ type BookChange struct {
 	Notes        *string         `json:"notes"`
 	PrimaryName  *string         `json:"primary_name"`
 	Checklist    map[string]bool `json:"checklist"`
+	StarType     *string         `json:"star_type"`
 }
 
 // Update applies a change to one binary's book.
@@ -253,6 +254,24 @@ func (s *Service) Update(ctx context.Context, id int, c BookChange) (Star, error
 	if err != nil {
 		return st, err
 	}
+	return s.update(ctx, st, c)
+}
+
+// UpdateOther applies a change to the book of one confirmed star that is
+// not an eclipsing binary.
+func (s *Service) UpdateOther(ctx context.Context, id int, c BookChange) (Star, error) {
+	st, err := s.Other(ctx, id)
+	if err != nil {
+		return st, err
+	}
+	return s.update(ctx, st, c)
+}
+
+func (s *Service) update(ctx context.Context, st Star, c BookChange) (Star, error) {
+	if c.StarType != nil && !validStarType(*c.StarType) {
+		return st, ErrStarType
+	}
+	id := st.Source.ID
 	b := st.Book
 	b.SourceID = id
 	if c.VSXSubmitted != nil {
@@ -273,6 +292,9 @@ func (s *Service) Update(ctx context.Context, id int, c BookChange) (Star, error
 	}
 	if c.PrimaryName != nil {
 		b.PrimaryName = strings.TrimSpace(*c.PrimaryName)
+	}
+	if c.StarType != nil {
+		b.StarType = strings.TrimSpace(*c.StarType)
 	}
 	if c.Checklist != nil {
 		keep := map[string]bool{}
@@ -323,7 +345,7 @@ func sameRun(a, b time.Time) bool {
 
 // stale says a star's facts need working out again.
 func stale(st Star) bool {
-	if st.Report == nil || !Periodic(st.Report) {
+	if !EclipsingBinary(st.Report) {
 		return false
 	}
 	r := st.Row
@@ -377,6 +399,9 @@ func (s *Service) Tick(ctx context.Context) error {
 	if fresh, err := s.Binaries(ctx); err != nil {
 		errs = append(errs, err)
 	} else {
+		if err := s.prune(ctx, fresh); err != nil {
+			errs = append(errs, err)
+		}
 		if err := s.redraftMoved(ctx, fresh); err != nil {
 			errs = append(errs, err)
 		}

@@ -21,9 +21,12 @@ const (
 
 // BinaryList is the My discoveries page.
 type BinaryList struct {
-	Stars      []binaries.Binary `json:"stars"`
-	Discoverer string            `json:"discoverer"`
-	Facts      binaries.Progress `json:"facts"`
+	Stars []binaries.Binary `json:"stars"`
+	// Others are the confirmed stars that are not eclipsing binaries.
+	Others     []binaries.Other    `json:"others"`
+	StarTypes  []binaries.StarType `json:"star_types"`
+	Discoverer string              `json:"discoverer"`
+	Facts      binaries.Progress   `json:"facts"`
 }
 
 func binaryFileURL(id int, name string) string {
@@ -43,6 +46,7 @@ func applyBinaryRoutes(g *gin.RouterGroup, svc *binaries.Service) {
 	g.GET("/discoveries/binaries", func(c *gin.Context) { listBinaries(c, svc) })
 	g.PUT("/discoveries/binaries/settings", func(c *gin.Context) { binarySettings(c, svc) })
 	g.PUT("/discoveries/binaries/:id", func(c *gin.Context) { updateBinary(c, svc) })
+	g.PUT("/discoveries/others/:id", func(c *gin.Context) { updateOther(c, svc) })
 	g.GET("/discoveries/binaries/:id/kit", func(c *gin.Context) { binaryKit(c, svc) })
 	g.GET("/discoveries/binaries/:id/files/:name", func(c *gin.Context) { binaryFile(c, svc) })
 	g.GET("/discoveries/binaries/:id/timings", func(c *gin.Context) { binaryTimings(c, svc) })
@@ -72,9 +76,17 @@ func listBinaries(c *gin.Context, svc *binaries.Service) {
 		serverError(c, err)
 		return
 	}
-	out := BinaryList{Stars: []binaries.Binary{}, Discoverer: d, Facts: svc.Progress()}
+	others, err := svc.Others(c.Request.Context())
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	out := BinaryList{Stars: []binaries.Binary{}, Others: []binaries.Other{}, StarTypes: binaries.StarTypes(), Discoverer: d, Facts: svc.Progress()}
 	for _, s := range stars {
 		out.Stars = append(out.Stars, s.View(shareURL))
+	}
+	for _, s := range others {
+		out.Others = append(out.Others, s.OtherView(shareURL))
 	}
 	slices.SortStableFunc(out.Stars, func(a, b binaries.Binary) int {
 		switch {
@@ -113,28 +125,57 @@ func binarySettings(c *gin.Context, svc *binaries.Service) {
 	c.JSON(http.StatusOK, gin.H{"discoverer": d})
 }
 
-func updateBinary(c *gin.Context, svc *binaries.Service) {
+func bookChange(c *gin.Context) (int, binaries.BookChange, bool) {
+	var body binaries.BookChange
 	id, ok := sourceID(c)
 	if !ok {
-		return
+		return 0, body, false
 	}
-	var body binaries.BookChange
 	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		return 0, body, false
+	}
+	for _, s := range []*string{body.Notes, body.VSXRef, body.PrimaryName, body.StarType} {
+		if s != nil && len(*s) > 20000 {
+			c.JSON(http.StatusBadRequest, gin.H{errorKey: "too long"})
+			return 0, body, false
+		}
+	}
+	return id, body, true
+}
+
+func bookError(c *gin.Context, err error) {
+	if errors.Is(err, binaries.ErrStarType) {
 		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
 	}
-	for _, s := range []*string{body.Notes, body.VSXRef, body.PrimaryName} {
-		if s != nil && len(*s) > 20000 {
-			c.JSON(http.StatusBadRequest, gin.H{errorKey: "too long"})
-			return
-		}
+	binaryError(c, err)
+}
+
+func updateBinary(c *gin.Context, svc *binaries.Service) {
+	id, body, ok := bookChange(c)
+	if !ok {
+		return
 	}
 	st, err := svc.Update(c.Request.Context(), id, body)
 	if err != nil {
-		binaryError(c, err)
+		bookError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, st.View(shareURL))
+}
+
+func updateOther(c *gin.Context, svc *binaries.Service) {
+	id, body, ok := bookChange(c)
+	if !ok {
+		return
+	}
+	st, err := svc.UpdateOther(c.Request.Context(), id, body)
+	if err != nil {
+		bookError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, st.OtherView(shareURL))
 }
 
 func binaryKit(c *gin.Context, svc *binaries.Service) {

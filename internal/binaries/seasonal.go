@@ -208,6 +208,9 @@ func (s *Service) autoRequests(ctx context.Context, stars []Star) error {
 	}
 	var cands []cand
 	for _, st := range stars {
+		if !EclipsingBinary(st.Report) {
+			continue
+		}
 		sv := seasonView(st, reqs, now)
 		if sv == nil || sv.Stopped != "" || slices.ContainsFunc(reqs, func(r app.EclipseRequest) bool { return r.SourceID == st.Source.ID && r.Auto && open(r) }) {
 			continue

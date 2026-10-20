@@ -64,11 +64,11 @@ func binaryServerDB(t *testing.T) (*gin.Engine, *gorm.DB, app.DiscoverySource, a
 	if err := db.Create(&other).Error; err != nil {
 		t.Fatal(err)
 	}
-	rep := vetting.Report{SourceID: src.ID, Star: "Gaia DR3 42 · Gaia G 15.00", Suggestion: vetting.Suggestion{Confidence: "high"},
+	rep := vetting.Report{SourceID: src.ID, Star: "Gaia DR3 42 · Gaia G 15.00", Suggestion: vetting.Suggestion{State: app.VetReal, Confidence: "high", Kind: vetting.KindEclipsingBinary},
 		Ephemeris: &period.Ephemeris{Period: 5.4, PeriodErr: 1e-5, T0: 2459000, T0Err: 0.001, Kind: period.KindEclipsing,
 			Eclipses: []period.Eclipse{{Phase: 0, Width: 0.02, Shape: 2, Depth: map[string]float64{"ZTF r": 0.3}}}},
 		Groups: []vetting.Group{{ID: check.GroupSurveys, Checks: []check.Check{check.New(check.Half, check.Pass, "normal"),
-			check.New(check.Double, check.NotRun, period.SameDepthOddEven+", so two equal dips fit.")}}}}
+			check.New(check.Echo, check.Pass, "stands out"), check.New(check.Double, check.NotRun, period.SameDepthOddEven+", so two equal dips fit.")}}}}
 	raw, err := json.Marshal(rep)
 	if err != nil {
 		t.Fatal(err)
