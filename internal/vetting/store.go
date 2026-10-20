@@ -127,7 +127,7 @@ const RefreshEvery = refreshEvery
 // whose pipeline changes gets a new input hash and is vetted again.
 const (
 	moverPipeline     = "mover:9"
-	transientPipeline = "transient:10"
+	transientPipeline = "transient:11"
 	starPipeline      = "star:20"
 )
 
