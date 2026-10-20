@@ -171,28 +171,53 @@ func midTime(s Sub) time.Time {
 }
 
 // buildCurve measures the spot's own light curve against the ensemble,
-// each filter set to its median on nights not flagged.
+// each filter set to its median on nights not flagged. A filter taken
+// only on flagged nights is set, night by night, to its median on the
+// other flagged nights, as the detection's reference was built from the
+// filter's subs of other nights.
 func buildCurve(subs []Sub, sp *spotPlan, e *ensemble) *Curve {
 	c := &Curve{Comps: len(e.kept), Dropped: e.dropped}
 	raw := map[int]float64{}
-	byFilter := map[string][]float64{}
+	normal := map[string][]float64{}
+	flagged := map[string]map[string][]float64{}
 	for i, r := range sp.recs {
 		t, ok := e.transp[i]
 		if r == nil || !ok || !r.fluxOK || !(r.flux > 0) {
 			continue
 		}
 		raw[i] = -2.5 * math.Log10(r.flux/t)
-		if !sp.flagged[nightKey(subs[i].Night)] {
-			byFilter[subs[i].Filter] = append(byFilter[subs[i].Filter], raw[i])
+		f, nk := subs[i].Filter, nightKey(subs[i].Night)
+		if !sp.flagged[nk] {
+			normal[f] = append(normal[f], raw[i])
+			continue
 		}
+		if flagged[f] == nil {
+			flagged[f] = map[string][]float64{}
+		}
+		flagged[f][nk] = append(flagged[f][nk], raw[i])
 	}
 	zero := map[string]float64{}
-	for f, v := range byFilter {
+	for f, v := range normal {
 		zero[f] = median(v)
+	}
+	zeroOf := func(f, night string) (float64, bool) {
+		if z, ok := zero[f]; ok {
+			return z, true
+		}
+		var v []float64
+		for k, vs := range flagged[f] {
+			if k != night {
+				v = append(v, vs...)
+			}
+		}
+		if len(v) == 0 {
+			return 0, false
+		}
+		return median(v), true
 	}
 	for i, m := range raw {
 		s := subs[i]
-		z, ok := zero[s.Filter]
+		z, ok := zeroOf(s.Filter, nightKey(s.Night))
 		if !ok {
 			continue
 		}
