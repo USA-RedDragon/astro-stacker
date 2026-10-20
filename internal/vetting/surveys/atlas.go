@@ -225,15 +225,21 @@ func (f *Fetcher) maxQueued() int {
 }
 
 func (f *Fetcher) atlasQueue(ctx context.Context, field Field, t Target, refresh bool) Fetch {
-	var qp struct {
-		Positions map[string]int `json:"queuepositions"`
-	}
-	if err := f.atlasRequest(ctx, http.MethodGet, f.atlasBase()+"/queuepositions.json", nil, &qp); err != nil {
+	key := f.atlasKey(field, t)
+	f.addWant(key, atlasWant{field: field, t: t, refresh: refresh, prio: priorityOf(ctx)})
+	fe, got, queued, err := f.atlasServe(ctx, key)
+	if err != nil {
 		return f.atlasError("could not read the ATLAS queue", err)
 	}
-	if len(qp.Positions) >= f.maxQueued() {
-		return Fetch{Survey: lc.ATLAS, State: Pending, Note: fmt.Sprintf("waiting for room: %d of our ATLAS tasks are queued", len(qp.Positions))}
+	if got {
+		return fe
 	}
+	return Fetch{Survey: lc.ATLAS, State: Pending, Note: fmt.Sprintf("waiting for room: %d of our ATLAS tasks are queued and %d stars wait before this one", queued, f.wantsBefore(key))}
+}
+
+// atlasPost queues one star at ATLAS and records its task. Throttled says
+// ATLAS refused it for asking too often.
+func (f *Fetcher) atlasPost(ctx context.Context, field Field, t Target, refresh bool) (fe Fetch, throttled bool) {
 	form := url.Values{}
 	form.Set("ra", strconv.FormatFloat(t.RA, 'f', 7, 64))
 	form.Set("dec", strconv.FormatFloat(t.Dec, 'f', 7, 64))
@@ -250,22 +256,23 @@ func (f *Fetcher) atlasQueue(ctx context.Context, field Field, t Target, refresh
 	if errors.Is(err, errUnsure) {
 		task.Unsure = true
 		if perr := f.putTask(ctx, field, t, task); perr != nil {
-			return failed(lc.ATLAS, "the ATLAS queue request got no clear answer (%v) and could not be recorded: %v", err, perr)
+			return failed(lc.ATLAS, "the ATLAS queue request got no clear answer (%v) and could not be recorded: %v", err, perr), false
 		}
-		return Fetch{Survey: lc.ATLAS, State: Pending, Note: "the ATLAS queue request got no clear answer; looked up on the next run"}
+		return Fetch{Survey: lc.ATLAS, State: Pending, Note: "the ATLAS queue request got no clear answer; looked up on the next run"}, false
 	}
 	if err != nil {
-		return f.atlasError("could not queue the ATLAS task", err)
+		var he *httpError
+		return f.atlasError("could not queue the ATLAS task", err), errors.As(err, &he) && he.Status == http.StatusTooManyRequests
 	}
 	if st.URL == "" {
-		return failed(lc.ATLAS, "ATLAS queued the task but gave no task URL")
+		return failed(lc.ATLAS, "ATLAS queued the task but gave no task URL"), false
 	}
 	task.URL = st.URL
 	if err := f.putTask(ctx, field, t, task); err != nil {
 		_ = f.atlasRequest(ctx, http.MethodDelete, st.URL, nil, nil)
-		return failed(lc.ATLAS, "could not record the ATLAS task, so it was taken back: %v", err)
+		return failed(lc.ATLAS, "could not record the ATLAS task, so it was taken back: %v", err), false
 	}
-	return Fetch{Survey: lc.ATLAS, State: Pending, Note: "queued at ATLAS"}
+	return Fetch{Survey: lc.ATLAS, State: Pending, Note: "queued at ATLAS"}, false
 }
 
 // atlasFind looks for a task whose queue request got no clear answer
@@ -382,6 +389,7 @@ func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATL
 	}
 	task.DoneAt = f.now().UTC()
 	_ = f.putTask(ctx, field, t, task)
+	f.noteRuntime(ctx, st)
 	_ = f.atlasRequest(ctx, http.MethodDelete, task.URL, nil, nil)
 	return done(text)
 }

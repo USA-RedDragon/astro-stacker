@@ -31,6 +31,7 @@ type atlasFake struct {
 	postFail   int
 	listed     bool
 	resultGone bool
+	posted     []string
 }
 
 func (a *atlasFake) writeJSON(w http.ResponseWriter, v any) {
@@ -72,6 +73,7 @@ func (a *atlasFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			a.form[k] = r.PostForm.Get(k)
 		}
 		a.queued++
+		a.posted = append(a.posted, a.form["comment"])
 		w.WriteHeader(http.StatusCreated)
 		a.writeJSON(w, map[string]any{keyURL: a.url + "/forcedphot/queue/5193733/", "finishtimestamp": nil})
 	case r.URL.Path == "/forcedphot/queue/" && r.Method == http.MethodGet:
