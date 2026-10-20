@@ -191,6 +191,11 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 			return c, ownimage.StackRefuted
 		}
 	}
+	if v == ownimage.StackDoubtful && !wing && f.Short() {
+		if c, ok := spotTooWeakToFind(trueLight(f, p.Kept()), p.N, rep.subs, ev); ok {
+			return c, ownimage.StackRefuted
+		}
+	}
 	if v == ownimage.StackUntested && wing {
 		if c, ok := lostInWing(fc.Wing, wingLight, rep.subs, ev); ok {
 			return c, ownimage.StackRefuted
@@ -273,6 +278,32 @@ func tooWeakToFind(f ownimage.StackFacts, n, subs int, ev string) (check.Check, 
 	}
 	return check.New(check.TransStack, check.Fail, ev+fmt.Sprintf(" It is too faint to have been found: over all %d subs the detection tested, the light it reported would stand at about %.1f and the spot at %.1f, both under the %.1f against the noise around a spot that a detection needs.",
 		max(subs, n), inj, obs, discoveries.MinLocalSNR)), true
+}
+
+// spotTooWeakToFind refutes new light whose stack shows under the share
+// of its fake that confirms, when the spot's own light, scaled to all the
+// subs the detection tested by the square root of their counts, stands
+// under discoveries.MinLocalSNR: the detection then measured light in
+// these subs that they do not hold, and a detection that measured the
+// noise around the spot would not have found it. The spot standing above
+// the empty places' 99th percentile does not save it, as the detection
+// picked it as the highest of the whole picture's places. 43178 and 43187
+// (Orion, 2025-01-24), found at 11.3 and 14.8 in H-a nebula, stacked to
+// 3.3 and 3.4 over the same 16 subs; 42416 (Rosette Nebula SHO,
+// 2025-02-01), found at 8.9, to 4.0 over the same 10; 35878 (Andromeda,
+// 2025-10-18), a bulge residual, to 3.3 against 7.9. AT 2026acsi, a real
+// nova, stacked to 6.2 against 5.8.
+func spotTooWeakToFind(f ownimage.StackFacts, n, subs int, ev string) (check.Check, bool) {
+	if n <= 0 || !(f.Inj > 0) {
+		return check.Check{}, false
+	}
+	k := math.Sqrt(math.Max(1, float64(subs)/float64(n)))
+	obs := f.Obs * k
+	if obs >= discoveries.MinLocalSNR {
+		return check.Check{}, false
+	}
+	return check.New(check.TransStack, check.Fail, ev+fmt.Sprintf(" It is too faint to have been found: over all %d subs the detection tested, the spot would stand at about %.1f against the noise around it, under the %.1f a detection needs, where the light it reported would stand at %.1f.",
+		max(subs, n), obs, discoveries.MinLocalSNR, f.Inj*k)), true
 }
 
 // lostInWing refutes new light beside a bright star when, with the star

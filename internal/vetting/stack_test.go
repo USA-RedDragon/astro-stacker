@@ -47,7 +47,7 @@ func TestAuditedTransientsStackToTheirKnownAnswers(t *testing.T) {
 		{"60670, bulge", []ownimage.FluxNight{auditNight("2025-10-15", 2.7, 6.3, true), auditNight("2025-10-17", 0.0, 5.9, false), auditNight("2025-10-18", 0.3, 3.6, false)}, ownimage.StackRefuted},
 		{"35876, bulge", []ownimage.FluxNight{auditNight("2025-10-18", 1.9, 10.1, true), auditNight("2025-10-19", -0.7, 5.2, false)}, ownimage.StackRefuted},
 		{"60345, bulge with no later night", []ownimage.FluxNight{auditNight("2025-10-27", 0.3, 12.7, true)}, ownimage.StackRefuted},
-		{"35878, bulge", []ownimage.FluxNight{auditNight("2025-10-18", 3.3, 7.9, true), auditNight("2025-10-19", 1.0, 4.7, false)}, ownimage.StackDoubtful},
+		{"35878, bulge", []ownimage.FluxNight{auditNight("2025-10-18", 3.3, 7.9, true), auditNight("2025-10-19", 1.0, 4.7, false)}, ownimage.StackRefuted},
 		{"58090, on a star", []ownimage.FluxNight{auditNight("2025-11-21", 3.5, 5.7, true), auditNight("2025-11-22", -1.5, 7.6, false)}, ownimage.StackDoubtful},
 		{"66053, a star's wing", []ownimage.FluxNight{auditNight("2025-01-21", 0.4, 4.3, true)}, ownimage.StackRefuted},
 	}
@@ -130,6 +130,41 @@ func TestStackRefutesLightTooWeakToHaveBeenFound(t *testing.T) {
 		}
 		if (ch.Status == check.Fail) != c.wantFailCheck || !strings.Contains(ch.Evidence, c.wantEvidence) {
 			t.Errorf("%s: %s %q", c.name, ch.Status, ch.Evidence)
+		}
+	}
+}
+
+func TestStackRefutesASpotTooWeakToHaveBeenFound(t *testing.T) {
+	t.Parallel()
+	// not-sure-4: the frames that found them, stacked at the spot, against
+	// the fake of the light the detection reported.
+	cases := []struct {
+		name     string
+		obs, inj float64
+		n, subs  int
+		want     ownimage.StackVerdict
+	}{
+		{"43178, Orion H-a nebula", 3.3, 11.3, 16, 16, ownimage.StackRefuted},
+		{"43187, Orion H-a nebula", 3.4, 14.8, 16, 16, ownimage.StackRefuted},
+		{"42416, Rosette Nebula H-a", 4.0, 8.9, 10, 10, ownimage.StackRefuted},
+		{"182, AT 2026acsi", 6.2, 5.8, 12, 12, ownimage.StackConfirmed},
+		{"light the detection could find, short of its fake", 4.6, 9.0, 12, 12, ownimage.StackDoubtful},
+		{"39197, 2 of the 8 subs tested", 5.1, 12.1, 2, 8, ownimage.StackDoubtful},
+	}
+	for _, c := range cases {
+		e := auditLight / c.inj
+		n := ownimage.FluxNight{Night: "2025-01-24", Filter: lum, N: c.n, Flux: c.obs * e, Err: e, Local: e, Empty99: 2.4 * e, Flagged: true}
+		reps := auditReps("2025-01-24")
+		for k, r := range reps {
+			r.subs = c.subs
+			reps[k] = r
+		}
+		ch, v := transientStack(curveOf(n), reps)
+		if v != c.want {
+			t.Errorf("%s: %s, want %s: %s", c.name, v, c.want, ch.Evidence)
+		}
+		if v == ownimage.StackRefuted && !strings.Contains(ch.Evidence, "too faint to have been found") {
+			t.Errorf("%s: %q", c.name, ch.Evidence)
 		}
 	}
 }
@@ -292,12 +327,13 @@ func TestStackPutsTheFakeInAtTheShareTheMasterLeaves(t *testing.T) {
 	// 67098 (Horsehead Nebula, 2025-11-21): 4.1 against a fake of 7.7 over
 	// 7 Blue frames, 53%. Its Blue master takes 20.3% of its weight from
 	// that night, but 40 subs of 11 other nights give Blue a level that
-	// takes the master's share away again, so the curve carries no share
-	// and the stack stays doubtful.
+	// takes the master's share away again, so the curve carries no share,
+	// and 4.1 over the 7 subs the detection tested is too faint to have
+	// been found.
 	reps := auditReps("2025-11-21")
 	_, v := transientStack(curveOf(shareNight("2025-11-21", 7, 4.1, 7.7, 0, 0)), reps)
-	if v != ownimage.StackDoubtful {
-		t.Errorf("67098 with its Blue level: %s, want doubtful", v)
+	if v != ownimage.StackRefuted {
+		t.Errorf("67098 with its Blue level: %s, want refuted", v)
 	}
 	// Were there no such level, the master's 20.3% would stay taken away:
 	// the fake then shows at 7.7 times 0.797, 6.1, and 4.1 is 67% of it,

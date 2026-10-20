@@ -111,6 +111,9 @@ type StackFacts struct {
 	RefuteMin float64
 }
 
+// Short says the source shows under stackFake of its fake.
+func (f StackFacts) Short() bool { return f.Obs < stackFake*f.Inj }
+
 func (u StackUnused) testable() bool { return u.Inj >= StackInjMin }
 
 func (u StackUnused) shows() bool {
