@@ -103,13 +103,18 @@ func RequestGUID(sourceID int, kind string, mid time.Time, attempt int) string {
 	return uuidFrom(seed)
 }
 
-// DraftRequest is the Target Scheduler project that images one eclipse:
-// the field's own target position and framing, one plan in the filter
-// nearest ZTF r, and a high-priority window from start to end so the
-// plugin images it only then. A nil payload comes with the reason.
-func DraftRequest(snap *planning.Snapshot, origGUID string, r *app.EclipseRequest, name, object string, g float64, duration time.Duration, loc *time.Location) (*schedcmd.ProjectCreatePayload, string) {
-	var proj planning.Project
-	var tgt planning.Target
+// requestField is the field a request images: the project and target
+// that image object, its plan in the filter nearest ZTF r and the plan's
+// settings, or why there is none.
+type requestField struct {
+	proj     planning.Project
+	tgt      planning.Target
+	plan     planning.Plan
+	settings schedcmd.ProjectSettings
+}
+
+func fieldOf(snap *planning.Snapshot, origGUID, object string) (requestField, string) {
+	var f requestField
 	found := false
 	for _, p := range snap.Projects {
 		if strings.HasPrefix(p.Name, RequestPrefix) || strings.HasPrefix(p.Name, discoveryfollowup.ProjectPrefix) {
@@ -117,38 +122,65 @@ func DraftRequest(snap *planning.Snapshot, origGUID string, r *app.EclipseReques
 		}
 		for _, t := range p.Targets {
 			if (origGUID != "" && t.GUID == origGUID) || (origGUID == "" && t.Name == object && !found) {
-				proj, tgt, found = p, t, true
+				f.proj, f.tgt, found = p, t, true
 			}
 		}
 	}
-	if !found || tgt.RAHours == nil || tgt.Dec == nil {
-		return nil, "no Target Scheduler target with a position images " + object
+	if !found || f.tgt.RAHours == nil || f.tgt.Dec == nil {
+		return f, "no Target Scheduler target with a position images " + object
 	}
-	if tgt.BodyKind != "" {
-		return nil, object + " follows a moving body; its field can't be imaged for this star"
+	if f.tgt.BodyKind != "" {
+		return f, object + " follows a moving body; its field can't be imaged for this star"
 	}
-	plan, ok := pickFilter(tgt.Plans)
+	plan, ok := pickFilter(f.tgt.Plans)
 	if !ok {
-		return nil, object + " has no broadband exposure plan"
+		return f, object + " has no broadband exposure plan"
 	}
-	settings, err := snap.SettingsFor(plan.TemplateID, proj.MinimumAltitude)
+	f.plan = plan
+	settings, err := snap.SettingsFor(plan.TemplateID, f.proj.MinimumAltitude)
 	if err != nil {
-		return nil, err.Error()
+		return f, err.Error()
 	}
-	discoveryfollowup.KeepLimits(&settings, proj)
-	exposure := SubLength(g, duration, plan.Exposure)
-	window := r.End.Sub(r.Start)
-	subs := min(maxSubs, max(1, int(math.Ceil(window.Seconds()/(exposure+overheadSeconds)))))
+	discoveryfollowup.KeepLimits(&settings, f.proj)
+	f.settings = settings
+	return f, ""
+}
+
+// template is the exposure template, its name and the filter of the
+// field's plan in the project's profile.
+func (f requestField) template(snap *planning.Snapshot) (int, string, string) {
+	plan := f.plan
 	tmplID, tmplName, filter := plan.TemplateID, plan.Template, plan.Filter
-	if t, ok := snap.ResolveFilter(proj.ProfileID, plan.Filter); ok {
+	if t, ok := snap.ResolveFilter(f.proj.ProfileID, plan.Filter); ok {
 		tmplID, tmplName, filter = t.ID, t.Name, snap.PlanFilter(t)
 	} else if t, ok := discoveryfollowup.TemplateByID(snap, plan.TemplateID); ok {
 		tmplName, filter = t.Name, snap.PlanFilter(t)
 	}
-	rotation := 0.0
-	if tgt.Rotation != nil {
-		rotation = *tgt.Rotation
+	return tmplID, tmplName, filter
+}
+
+func (f requestField) rotation() float64 {
+	if f.tgt.Rotation != nil {
+		return *f.tgt.Rotation
 	}
+	return 0
+}
+
+// DraftRequest is the Target Scheduler project that images one eclipse:
+// the field's own target position and framing, one plan in the filter
+// nearest ZTF r, and a high-priority window from start to end so the
+// plugin images it only then. A nil payload comes with the reason.
+func DraftRequest(snap *planning.Snapshot, origGUID string, r *app.EclipseRequest, name, object string, g float64, duration time.Duration, loc *time.Location) (*schedcmd.ProjectCreatePayload, string) {
+	f, why := fieldOf(snap, origGUID, object)
+	if why != "" {
+		return nil, why
+	}
+	proj, tgt, plan, settings := f.proj, f.tgt, f.plan, f.settings
+	exposure := SubLength(g, duration, plan.Exposure)
+	window := r.End.Sub(r.Start)
+	subs := min(maxSubs, max(1, int(math.Ceil(window.Seconds()/(exposure+overheadSeconds)))))
+	tmplID, tmplName, filter := f.template(snap)
+	rotation := f.rotation()
 	kind := "deeper eclipse"
 	if r.Kind != KindPrimary {
 		kind = "second eclipse"
@@ -169,3 +201,4 @@ func DraftRequest(snap *planning.Snapshot, origGUID string, r *app.EclipseReques
 	}
 	return payload, ""
 }
+
