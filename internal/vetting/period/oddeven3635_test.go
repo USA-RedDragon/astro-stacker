@@ -1,6 +1,8 @@
 package period
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,9 +17,12 @@ var oneDip3635 = Ephemeris{Period: 3.919735367653492, PeriodErr: 1.2857035930280
 		"NEOWISE W2": 0.2355212102749828, "TESS": 0.11856824085436138, "ZTF r": 0.19577203821877576}}}}
 
 // TestOddEvenDepths3635 is source 3635, one dip every 3.919735 days in
-// the star:15 vet, which said the dip has the same depth on odd and even
-// cycles without measuring them. ATLAS o has the best measured odd and
-// even depths, a few sigma apart; the double check must give them.
+// the star:15 vet: its odd and even cycles are its Min I and Min II, two
+// nearly equal eclipses of a 7.839490 day orbit. ATLAS o once put them
+// 2.7 sigma apart from per-cycle errors that left out the night-to-night
+// offset, two camera 01a nights at PSF chi/N 14 to 262, and TESS sectors
+// of different depth pooled. The double check must give the odd and even
+// depths as equal within their errors in every band it can compare.
 func TestOddEvenDepths3635(t *testing.T) {
 	t.Parallel()
 	series, comps := vetDumpSeries(t, vet3635)
@@ -27,7 +32,11 @@ func TestOddEvenDepths3635(t *testing.T) {
 	}
 	d := rows(res)[check.Double]
 	t.Logf("%s: %s", d.Status, d.Evidence)
-	if d.Status == check.Pass || !strings.HasPrefix(d.Evidence, SameDepthOddEven) || !strings.Contains(d.Evidence, "in ATLAS o") || !strings.Contains(d.Evidence, "sigma apart") {
-		t.Errorf("double check does not give the measured odd and even depths: %s", d.Evidence)
+	m := regexp.MustCompile(`([0-9.]+) sigma apart`).FindStringSubmatch(d.Evidence)
+	if d.Status == check.Fail || !strings.HasPrefix(d.Evidence, SameDepthOddEven) || m == nil {
+		t.Fatalf("double check does not give the measured odd and even depths: %s", d.Evidence)
+	}
+	if z, _ := strconv.ParseFloat(m[1], 64); z >= 2 {
+		t.Errorf("odd and even depths %s sigma apart, want equal within errors", m[1])
 	}
 }
