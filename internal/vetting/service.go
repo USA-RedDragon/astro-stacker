@@ -865,7 +865,15 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	if err != nil {
 		slog.Warn("Could not count the changes of the source's runs", "source", sum.Source.ID, "error", err)
 	}
-	sug := onBadNights(suggest(sum, flags, curve, known, moving, fx, pr, timing, rep.Groups, change), badNights(sum.Members, skews, runs), rep.Groups)
+	sug := suggest(sum, flags, curve, known, moving, fx, pr, timing, rep.Groups, change)
+	if s.Alerts != nil && alertOpen(sug) {
+		if objs, err := s.Alerts(ctx, cra, cdec, alertArcsec); err != nil {
+			slog.Warn("Could not ask for ZTF alerts at the star", "source", sum.Source.ID, "error", err)
+		} else {
+			sug = alertSupport(sug, objs, cra, cdec, sum.Members, rep.Groups)
+		}
+	}
+	sug = onBadNights(sug, badNights(sum.Members, skews, runs), rep.Groups)
 	rep.Suggestion = blendOf(st, change, refMagOf(sum.Members)).notSure(sug)
 	rep.Suggestion.Why = joinSentences(rep.Suggestion.Why, st.matchNote(refMagOf(sum.Members)))
 	return rep, nil
