@@ -751,12 +751,17 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	}
 	artifact := flags.HotPixel || flags.RefContaminated || flags.Trail || flags.Edge
 	var fx fetches
+	more := false
+	fetchMore := func() {
+		more = true
+		fx.neowise = s.Surveys.NEOWISE(ctx, f, st.target)
+		fx.atlas = s.Surveys.ATLAS(ctx, f, st.target)
+		fx.tess = s.Surveys.TESS(ctx, f, st.target)
+	}
 	if s.Surveys != nil && sum.Source.Kind != kindMover {
 		fx.ztf = s.Surveys.ZTF(ctx, f, st.target)
 		if refreshed(sum) || (!artifact && known.Listed == "" && worthMore(fx.ztf, curve, sum)) {
-			fx.neowise = s.Surveys.NEOWISE(ctx, f, st.target)
-			fx.atlas = s.Surveys.ATLAS(ctx, f, st.target)
-			fx.tess = s.Surveys.TESS(ctx, f, st.target)
+			fetchMore()
 		} else {
 			why := "Not fetched: the checks above already explain the spot."
 			fx.neowise = surveys.Fetch{Survey: lc.NEOWISE, Note: why}
@@ -764,20 +769,19 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 			fx.tess = surveys.Fetch{Survey: lc.TESS, Note: why}
 		}
 	}
-	var series []lc.Series
-	for _, x := range fx.all() {
-		series = append(series, x.Series...)
-		if x.State == surveys.Pending {
-			rep.Pending = append(rep.Pending, x.Survey)
-		}
-	}
 	var ownSeries []lc.Series
 	if curve != nil {
 		ownSeries = curve.Series()
 	}
 	change := changeOf(sum)
-	var pr *period.Result
-	if sum.Source.Kind != kindMover && len(series) > 0 {
+	analyzeAll := func() (*period.Result, []lc.Series) {
+		var series []lc.Series
+		for _, x := range fx.all() {
+			series = append(series, x.Series...)
+		}
+		if sum.Source.Kind == kindMover || len(series) == 0 {
+			return nil, series
+		}
 		opts := period.Options{ChangeMag: change.Mag, G: finite(st.target.G), Parallax: st.plx, ParallaxErr: st.plxE}
 		if !change.Fainter {
 			opts.ChangeMag = -change.Mag
@@ -785,9 +789,20 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		opts.Comparisons = func() [][]lc.Series { return s.comparisons(ctx, f, st) }
 		opts.Neighbours = func() [][]lc.Series { return s.fadeNeighbours(ctx, f, st) }
 		opts.TESSComparisons = func() []period.TESSComp { return s.tessComparisons(ctx, f, st, fx.tess.Sectors) }
-		pr, err = period.Analyze(append(series, ownSeries...), opts)
+		pr, err := period.Analyze(append(series, ownSeries...), opts)
 		if err != nil && !errors.Is(err, period.ErrNoPeriod) {
 			slog.Warn("Period search failed", "source", sum.Source.ID, "error", err)
+		}
+		return pr, series
+	}
+	pr, series := analyzeAll()
+	if !more && s.Surveys != nil && !artifact && known.Listed == "" && surveyVaries(pr) != "" {
+		fetchMore()
+		pr, series = analyzeAll()
+	}
+	for _, x := range fx.all() {
+		if x.State == surveys.Pending {
+			rep.Pending = append(rep.Pending, x.Survey)
 		}
 	}
 	if pr != nil && !hasPeriod(pr.Ephemeris) {
