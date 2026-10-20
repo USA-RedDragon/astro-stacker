@@ -397,15 +397,27 @@ func (f *Fetcher) atlasPoll(ctx context.Context, field Field, t Target, task ATL
 // ATLASRow is one line of an ATLAS forced photometry result.
 type ATLASRow struct {
 	MJD, UJy, DUJy                   float64
+	ChiN                             float64
 	Filter                           string
 	Err                              int
 	X, Y, Maj, Min, APFit, Mag5, Sky float64
 	Obs                              string
 }
 
-// Good says whether a row passes the cuts the ATLAS FAQ suggests.
+// atlasMaxChiN is the largest PSF fit chi/N a row may have: the cut
+// ATClean (S. Rest et al. 2025, ApJ 979, 114) takes by default. A worse fit is a bad
+// subtraction or a neighbour's residual, and often comes with too small an
+// error: two nights of source 3635 (camera 01a, 2020-08-12 and 2021-09-08
+// UT) at chi/N 14 to 262 and errors of a quarter the usual made one eclipse
+// look 0.03 mag deeper, and one frame at 54893 at chi/N 17 showed light
+// that was not there. In 3635's ATLAS data the cut drops 10% of the points
+// in and out of eclipse alike, so it does not bias eclipse depths.
+const atlasMaxChiN = 10
+
+// Good says whether a row passes the cuts the ATLAS FAQ suggests and the
+// chi/N cut. A result without a chi/N column passes that cut.
 func (r ATLASRow) Good() bool {
-	return r.DUJy < 10000 && r.Err == 0 &&
+	return r.DUJy < 10000 && r.Err == 0 && !(r.ChiN >= atlasMaxChiN) &&
 		r.X > 100 && r.X < 10460 && r.Y > 100 && r.Y < 10460 &&
 		r.Maj > 1.6 && r.Maj < 5 && r.Min > 1.6 && r.Min < 5 &&
 		r.APFit > -1 && r.APFit < -0.1 && r.Mag5 > 17 && r.Sky > 17 &&
@@ -449,9 +461,12 @@ func parseATLAS(b []byte) ([]ATLASRow, error) {
 			return v
 		}
 		r := ATLASRow{
-			MJD: num("MJD"), UJy: num("uJy"), DUJy: num("duJy"), Filter: fs[col["F"]],
+			MJD: num("MJD"), UJy: num("uJy"), DUJy: num("duJy"), ChiN: math.NaN(), Filter: fs[col["F"]],
 			X: num("x"), Y: num("y"), Maj: num("maj"), Min: num("min"),
 			APFit: num("apfit"), Mag5: num("mag5sig"), Sky: num("Sky"), Obs: fs[col["Obs"]],
+		}
+		if _, ok := col["chi/N"]; ok {
+			r.ChiN = num("chi/N")
 		}
 		e, err := strconv.Atoi(fs[col["err"]])
 		if err != nil {

@@ -205,6 +205,16 @@ func TestATLASCuts(t *testing.T) {
 	if bad.Good() {
 		t.Error("a 6 pixel PSF passed")
 	}
+	for _, r := range rows {
+		if r.ChiN >= atlasMaxChiN && r.Good() {
+			t.Errorf("a row at chi/N %.2f passed", r.ChiN)
+		}
+	}
+	noChi := rows[0]
+	noChi.ChiN = math.NaN()
+	if rows[0].ChiN < atlasMaxChiN && !noChi.Good() {
+		t.Error("a row without chi/N failed")
+	}
 	if templateSpan(58416.9) != 0 || templateSpan(58417) != 1 || templateSpan(60000) != 2 {
 		t.Error("template spans")
 	}
