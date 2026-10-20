@@ -1451,6 +1451,11 @@ func (r *Runner) save(ctx context.Context, run *app.DiscoveryRun, in saveInput) 
 	if len(split) > 0 {
 		run.ChangeNullFilters = jsonString(split)
 	}
+	run.OffsetTiles = ""
+	if len(res.OffsetTiles) > 0 {
+		run.OffsetTiles = jsonString(res.OffsetTiles)
+		slog.Warn("Discovery run cut tiles whose changes sat off their Gaia stars", "object", run.Object, "night", run.Night.Format(time.DateOnly), "group", run.Group, "tiles", len(res.OffsetTiles))
+	}
 	run.FinishedAt, run.Seconds = &now, now.Sub(in.start).Seconds()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var vetted []app.DiscoveryCandidate

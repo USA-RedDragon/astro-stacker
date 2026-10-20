@@ -60,6 +60,7 @@ type DiscoveryRun struct {
 	ZeroPoint     *float64                      `json:"zero_point"`
 	AstroRMS      *float64                      `json:"astrometry_rms_arcsec"`
 	AstroStars    int                           `json:"astrometry_stars"`
+	OffsetTiles   json.RawMessage               `json:"offset_tiles,omitempty"`
 	HFRNight      float64                       `json:"hfr_night_px"`
 	HFRRef        float64                       `json:"hfr_ref_px"`
 	PixelScale    float64                       `json:"pixel_scale"`
@@ -163,7 +164,7 @@ func splitList(s string) []string {
 func runOf(r app.DiscoveryRun, n runCount) DiscoveryRun {
 	out := DiscoveryRun{ID: r.ID, Object: r.Object, Night: r.Night.Format(time.DateOnly), Group: r.Group, Filters: splitList(r.Filters), State: r.State, Stage: r.Stage,
 		Error: r.Error, NightSubs: r.NightSubs, RefSubs: r.RefSubs, RefNights: r.RefNights, Depth: r.Depth, SubDepth: r.SubDepth, ZeroPoint: r.ZeroPoint,
-		AstroRMS: r.AstroRMS, AstroStars: r.AstroStars, HFRNight: r.HFRNight, HFRRef: r.HFRRef, PixelScale: r.PixelScale, FieldRA: r.FieldRA, FieldDec: r.FieldDec,
+		AstroRMS: r.AstroRMS, AstroStars: r.AstroStars, OffsetTiles: rawJSON(r.OffsetTiles), HFRNight: r.HFRNight, HFRRef: r.HFRRef, PixelScale: r.PixelScale, FieldRA: r.FieldRA, FieldDec: r.FieldDec,
 		Candidates: r.Candidates, New: r.NewCandidates, Tracks: r.Tracks, KnownTracks: r.KnownTracks, BodiesInField: r.BodiesInField,
 		Checked: splitList(r.Checked), Failed: splitList(r.Failed), Classes: n.classes, Vetted: n.vetted, Look: n.look, HeldMany: n.heldMany, HeldDefects: n.heldDefects, MidTime: r.MidTime, FinishedAt: r.FinishedAt, Seconds: r.Seconds,
 		MoverNull:  MoverNull{Tracks: r.MoverNullTracks, MaxHits: r.MoverNullHits},
@@ -607,4 +608,11 @@ func serverError(c *gin.Context, err error) {
 		return
 	}
 	c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+}
+
+func rawJSON(s string) json.RawMessage {
+	if s == "" {
+		return nil
+	}
+	return json.RawMessage(s)
 }

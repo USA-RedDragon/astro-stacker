@@ -509,6 +509,9 @@ type Result struct {
 	// ChangeNull is the change null test; a new variable must be stronger
 	// than any change it found.
 	ChangeNull ChangeNull
+	// OffsetTiles are the kernel tiles whose changes sat off their Gaia
+	// stars and were cut.
+	OffsetTiles []OffsetTile
 }
 
 type prep struct {
@@ -768,6 +771,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	combined, per := splitByFilter(cands, fds)
 	local := in.localResiduals(ref, D, edge, res)
 	res.Candidates = in.cut(combined, ref, D, local, res)
+	in.offsetGuard(res)
 	in.cutFilters(fds, per, edge, res)
 	if res.ChangeNull, err = in.nullChanges(ctx, stacks, edge, bmask, res, threads, own); err != nil {
 		return nil, err

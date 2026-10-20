@@ -63,6 +63,9 @@ type DiscoveryRun struct {
 	// curve queries failed; a done run with failures is redone after
 	// NextTry, until ZTF answers or too many runs failed.
 	ZTFFailures int `gorm:"not null;default:0"`
+	// OffsetTiles is, as JSON, the kernel tiles whose changes sat off their
+	// Gaia stars and were cut; empty when none did.
+	OffsetTiles string `gorm:"type:text"`
 	Seconds     float64
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
