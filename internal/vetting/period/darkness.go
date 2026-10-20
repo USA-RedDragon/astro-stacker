@@ -15,26 +15,26 @@ import (
 const NoDarkCompanion = "Two equal eclipses per orbit"
 
 // msStar is one main-sequence spectral type: effective temperature in K,
-// radius in solar radii and Gaia absolute G magnitude.
+// radius in solar radii, Gaia absolute G magnitude and Gaia BP-RP colour.
 type msStar struct {
-	teff, r, mg float64
+	teff, r, mg, bprp float64
 }
 
 // mainSequence is the dwarf sequence of Pecaut and Mamajek (2013), as
 // updated in E. Mamajek's "A Modern Mean Dwarf Stellar Color and
 // Effective Temperature Sequence" (version 2022.04.16), A0V to M9V.
 var mainSequence = []msStar{
-	{9700, 2.193, 1.00}, {8800, 2.117, 1.345}, {8100, 1.785, 1.98}, {7760, 1.750, 2.19},
-	{7220, 1.728, 2.51}, {6820, 1.622, 2.89}, {6550, 1.473, 3.26}, {6280, 1.324, 3.66},
-	{6180, 1.221, 3.90}, {5930, 1.100, 4.325}, {5770, 1.012, 4.635}, {5680, 0.991, 4.757},
-	{5660, 0.977, 4.801}, {5480, 0.914, 5.098}, {5380, 0.853, 5.34}, {5270, 0.813, 5.553},
-	{5170, 0.797, 5.65}, {5100, 0.783, 5.83}, {4830, 0.755, 6.20}, {4600, 0.713, 6.53},
-	{4440, 0.701, 6.83}, {4300, 0.669, 7.02}, {4100, 0.630, 7.57}, {3990, 0.615, 7.74},
-	{3930, 0.608, 8.03}, {3850, 0.588, 8.16}, {3770, 0.544, 8.44}, {3660, 0.501, 8.82},
-	{3620, 0.482, 8.98}, {3560, 0.446, 9.29}, {3470, 0.421, 9.67}, {3430, 0.361, 10.05},
-	{3270, 0.300, 10.87}, {3210, 0.274, 11.21}, {3110, 0.217, 12.04}, {3060, 0.196, 12.45},
-	{2930, 0.156, 13.35}, {2810, 0.137, 14.26}, {2740, 0.126, 14.40}, {2680, 0.120, 14.72},
-	{2630, 0.116, 15.20}, {2570, 0.114, 15.20}, {2420, 0.104, 15.90}, {2380, 0.102, 16.20},
+	{9700, 2.193, 1.00, -0.037}, {8800, 2.117, 1.345, 0.068}, {8100, 1.785, 1.98, 0.194}, {7760, 1.750, 2.19, 0.263},
+	{7220, 1.728, 2.51, 0.377}, {6820, 1.622, 2.89, 0.49}, {6550, 1.473, 3.26, 0.587}, {6280, 1.324, 3.66, 0.67},
+	{6180, 1.221, 3.90, 0.694}, {5930, 1.100, 4.325, 0.784}, {5770, 1.012, 4.635, 0.823}, {5680, 0.991, 4.757, 0.841},
+	{5660, 0.977, 4.801, 0.85}, {5480, 0.914, 5.098, 0.9}, {5380, 0.853, 5.34, 0.95}, {5270, 0.813, 5.553, 0.983},
+	{5170, 0.797, 5.65, 1.01}, {5100, 0.783, 5.83, 1.1}, {4830, 0.755, 6.20, 1.21}, {4600, 0.713, 6.53, 1.34},
+	{4440, 0.701, 6.83, 1.43}, {4300, 0.669, 7.02, 1.53}, {4100, 0.630, 7.57, 1.7}, {3990, 0.615, 7.74, 1.73},
+	{3930, 0.608, 8.03, 1.79}, {3850, 0.588, 8.16, 1.84}, {3770, 0.544, 8.44, 1.97}, {3660, 0.501, 8.82, 2.09},
+	{3620, 0.482, 8.98, 2.13}, {3560, 0.446, 9.29, 2.23}, {3470, 0.421, 9.67, 2.39}, {3430, 0.361, 10.05, 2.5},
+	{3270, 0.300, 10.87, 2.78}, {3210, 0.274, 11.21, 2.94}, {3110, 0.217, 12.04, 3.16}, {3060, 0.196, 12.45, 3.35},
+	{2930, 0.156, 13.35, 3.71}, {2810, 0.137, 14.26, 4.16}, {2740, 0.126, 14.40, 4.5}, {2680, 0.120, 14.72, 4.65},
+	{2630, 0.116, 15.20, 4.72}, {2570, 0.114, 15.20, 4.86}, {2420, 0.104, 15.90, 5.1}, {2380, 0.102, 16.20, 4.78},
 }
 
 const (
@@ -62,7 +62,63 @@ const (
 	// darkLimitZ is how many sigma the upper limit on a second eclipse at
 	// phase 0.5 takes.
 	darkLimitZ = 3.0
+	// reddenScale and reddenFloor turn GSP-Phot's 84th percentile of
+	// E(BP-RP) into the most reddening allowed: twice it plus 0.1 mag.
+	// GSP-Phot's percentiles leave out its systematic errors and it can
+	// put a distant star too near: for source 3635 it gives 0.20 (0.21 at
+	// the 84th percentile) at 1.8 kpc, where Bayestar19 gives 0.25 to 0.30
+	// at the parallax distance and at most 0.49 three sigma beyond it,
+	// under the 0.52 this allows.
+	reddenScale = 2.0
+	reddenFloor = 0.1
+	// colourSlack is how much bluer than its dereddened colour the
+	// primary may be: Gaia's BP-RP error, and the light of a companion
+	// dark enough to hide its eclipse, which reddens the pair by less.
+	colourSlack = 0.03
 )
+
+// Colour is a star's Gaia BP-RP and GSP-Phot's 84th percentile of its
+// E(BP-RP), from which the hottest the star can be follows.
+type Colour struct {
+	BPRP       float64
+	EBPRPUpper float64
+}
+
+// hottestPrimary is the effective temperature of the hottest
+// main-sequence star whose BP-RP is no bluer than c's, dereddened by the
+// most reddening allowed and less colourSlack, or 0 when c gives no
+// bound.
+func hottestPrimary(c *Colour) float64 {
+	if c == nil || math.IsNaN(c.BPRP) || math.IsNaN(c.EBPRPUpper) || c.EBPRPUpper < 0 || c.BPRP == 0 {
+		return 0
+	}
+	b0 := c.BPRP - (reddenScale*c.EBPRPUpper + reddenFloor) - colourSlack
+	if b0 <= mainSequence[0].bprp {
+		return 0
+	}
+	for i := 1; i < len(mainSequence); i++ {
+		hi, lo := mainSequence[i-1], mainSequence[i]
+		if lo.bprp >= b0 {
+			return hi.teff + (lo.teff-hi.teff)*(b0-hi.bprp)/(lo.bprp-hi.bprp)
+		}
+	}
+	return mainSequence[len(mainSequence)-1].teff
+}
+
+// msRadiusAt is the radius of the main-sequence star of effective
+// temperature t.
+func msRadiusAt(t float64) float64 {
+	if t >= mainSequence[0].teff {
+		return mainSequence[0].r
+	}
+	for i := 1; i < len(mainSequence); i++ {
+		hi, lo := mainSequence[i-1], mainSequence[i]
+		if t >= lo.teff {
+			return lo.r + (hi.r-lo.r)*(t-lo.teff)/(hi.teff-lo.teff)
+		}
+	}
+	return mainSequence[len(mainSequence)-1].r
+}
 
 // bandNM is a survey band's effective wavelength in nm.
 func bandNM(survey, band string) float64 {
@@ -122,20 +178,30 @@ func msTeffAt(r float64) float64 {
 // darkestCompanion is the faintest surface brightness, relative to its
 // primary at wavelength nm, a main-sequence companion of at least k
 // primary radii can have, over every main-sequence primary of at least
-// minR solar radii, the companion allowed inflation times its sequence
-// radius.
-func darkestCompanion(k, nm, minR float64) float64 {
+// minR solar radii and no hotter than maxT (no bound when 0), the
+// companion allowed inflation times its sequence radius. A primary at
+// maxT is taken at the larger of its sequence radius and minR: a larger
+// primary needs a larger, brighter companion, so the hottest primary the
+// colour allows at the smallest size the parallax allows is the darkest
+// case even when it is off the main sequence.
+func darkestCompanion(k, nm, minR, maxT float64) float64 {
 	best := math.Inf(1)
-	for _, p := range mainSequence {
-		if p.r < minR {
-			continue
-		}
-		t2 := msTeffAt(k * p.r / inflation)
+	try := func(teff, r float64) {
+		t2 := msTeffAt(k * r / inflation)
 		j := 0.0
 		if t2 > 0 {
-			j = planckRatio(math.Min(t2, p.teff), p.teff, nm)
+			j = planckRatio(math.Min(t2, teff), teff, nm)
 		}
 		best = math.Min(best, j)
+	}
+	for _, p := range mainSequence {
+		if p.r < minR || (maxT > 0 && p.teff > maxT) {
+			continue
+		}
+		try(p.teff, p.r)
+	}
+	if maxT > 0 {
+		try(maxT, math.Max(minR, msRadiusAt(maxT)))
 	}
 	if math.IsInf(best, 1) {
 		return 0
@@ -176,6 +242,7 @@ type darkTest struct {
 	need      float64
 	minR      float64
 	parallax  bool
+	maxT      float64
 	seenLevel float64
 }
 
@@ -204,7 +271,7 @@ type darkTest struct {
 // shallow second eclipse: the period stands and the dip is not doubled.
 func (a *analysis) darkCompanion(one *ecFit) darkTest {
 	minR, plx := smallestPrimary(a.opts.G, a.opts.Parallax, a.opts.ParallaxErr)
-	out := darkTest{minR: minR, parallax: plx}
+	out := darkTest{minR: minR, parallax: plx, maxT: hottestPrimary(a.opts.Colour)}
 	if len(one.dips) != 1 {
 		return out
 	}
@@ -262,7 +329,7 @@ func (a *analysis) darkCompanion(one *ecFit) darkTest {
 		f2 := 1 - math.Pow(10, -0.4*lim*depth)
 		jLim := ldMax * f2 / f1
 		k := math.Sqrt(f1 / ldMax)
-		need := darkestCompanion(k, bandNM(gr.survey, gr.band), minR)
+		need := darkestCompanion(k, bandNM(gr.survey, gr.band), minR, out.maxT)
 		out.tested = true
 		margin := need / jLim
 		if margin > bestMargin || out.band == "" {
@@ -276,10 +343,14 @@ func (a *analysis) darkCompanion(one *ecFit) darkTest {
 
 // primaryWords says what the test assumed about the primary.
 func (d darkTest) primaryWords() string {
+	w := "without a good parallax the primary is taken to be no smaller than an M4 dwarf"
 	if d.parallax {
-		return fmt.Sprintf("Gaia's parallax allows a primary down to %s solar radii", strconv.FormatFloat(d.minR, 'f', 2, 64))
+		w = fmt.Sprintf("Gaia's parallax allows a primary down to %s solar radii", strconv.FormatFloat(d.minR, 'f', 2, 64))
 	}
-	return "without a good parallax the primary is taken to be no smaller than an M4 dwarf"
+	if d.maxT > 0 {
+		w += fmt.Sprintf(" and its colour, dereddened, one no hotter than %s K", strconv.FormatFloat(10*math.Round(d.maxT/10), 'f', 0, 64))
+	}
+	return w
 }
 
 // doubledWords is the half check's evidence for two equal eclipses taken

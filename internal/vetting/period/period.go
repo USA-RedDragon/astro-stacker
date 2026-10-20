@@ -126,6 +126,9 @@ type Options struct {
 	G               float64
 	Parallax        float64
 	ParallaxErr     float64
+	// Colour, when set, bounds how hot the star can be for the dark
+	// companion test.
+	Colour *Colour
 }
 
 // Analyze searches series for a period and tests it. series holds every
