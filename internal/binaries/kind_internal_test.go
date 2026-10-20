@@ -121,6 +121,23 @@ func TestEclipsingBinaryRules(t *testing.T) {
 	if !EclipsingBinary(noKind) {
 		t.Error("a tested real eclipsing verdict written before kinds were kept is not a binary")
 	}
+	for _, row := range []check.Check{
+		check.New(check.ZTF, check.Fail, "The points in g the shallow dip are 0.01 +- 0.01 mag fainter, well short of the 0.40 mag the other bands show, against the period from the other surveys."),
+		check.New(check.ATLAS, check.Fail, "The points in c the shallow dip are short of the depth the other bands show."),
+		check.New(check.Double, check.Fail, "The deep dip is missing on even cycles, so the true period may be 102.9318 days."),
+	} {
+		dipper := ebReport(51.4659)
+		dipper.Groups[0].Checks = append(dipper.Groups[0].Checks, check.New(check.Fold, check.Pass, "on time"), row)
+		if EclipsingBinary(dipper) {
+			t.Errorf("15523's star:18 report with %s failed is a binary", row.ID)
+		}
+	}
+	single := ebReport(3.919735)
+	single.Ephemeris.Eclipses = single.Ephemeris.Eclipses[:1]
+	single.Groups[0].Checks = append(single.Groups[0].Checks, check.New(check.Double, check.Fail, "The dip is 0.30 mag deep on even cycles but 0.22 on odd cycles in r, so the true period may be 7.839470 days."))
+	if !EclipsingBinary(single) {
+		t.Error("one dip whose double check failed, which the facts double, is not a binary")
+	}
 	noKind.Groups[0].Checks[1] = check.New(check.Compare, check.Fail, "nearby stars")
 	if EclipsingBinary(noKind) {
 		t.Error("a verdict without a kind whose comparison failed is a binary")
