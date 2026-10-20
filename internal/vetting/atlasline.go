@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/surveys"
@@ -26,7 +27,9 @@ const (
 	// result is in use until the weekly refresh replaces it.
 	atlasRefresh
 	// atlasSettled is an unvetted source its last vet called an artifact
-	// with medium or high confidence, or known, which ATLAS seldom moves.
+	// with medium or high confidence, or known, which ATLAS seldom moves,
+	// or one held back at low confidence, which no view of new sources
+	// shows.
 	atlasSettled
 )
 
@@ -38,6 +41,8 @@ func atlasPlace(d Due) surveys.Priority {
 		return atlasAsked
 	case d.Summary.Source.Vetting != "":
 		return atlasRefresh
+	case d.Summary.Class == discoveries.ClassLowConfidence:
+		return atlasSettled
 	case d.Prior == nil || d.Prior.Suggested == "":
 		return atlasNew
 	case d.Prior.Suggested == app.VetKnown,

@@ -159,9 +159,9 @@ func hashOf(s discoverysource.Summary) string {
 // wrote after the newest build was announced, changed candidates or
 // survey answers still to collect; those the user marked real with no
 // report, an older report version or pipeline, changed candidates, survey
-// answers still to collect or a report refreshEvery old; and any run
-// requested by hand, again while the runs since wait on a survey, for up
-// to askHold.
+// answers still to collect or a report refreshEvery old; those held back
+// at low confidence after a vet, as the new ones; and any run requested by
+// hand, again while the runs since wait on a survey, for up to askHold.
 // ids narrows the pick to those sources, due or not.
 func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids []int) ([]Due, error) {
 	list, err := summaries(ctx, db, objects, ids)
@@ -195,7 +195,7 @@ func Pick(ctx context.Context, db *gorm.DB, now time.Time, objects []string, ids
 	for _, s := range list {
 		h := hashOf(s)
 		v, seen := vets[s.Source.ID]
-		if forced[s.Source.ID] || due(s, h, v, seen, now) || (seen && v.State == StateDone && staleRow(ann, haveAnn, v, pipelineOf(s)) && dueAgain(s)) {
+		if forced[s.Source.ID] || due(s, h, v, seen, now) || (seen && v.State == StateDone && staleRow(ann, haveAnn, v, pipelineOf(s)) && dueAgain(s, seen)) {
 			d := Due{Summary: s, Hash: h}
 			if seen {
 				d.Prior = &v
@@ -245,10 +245,14 @@ func heldAsk(v app.DiscoveryVet, now time.Time) bool {
 		v.State == StateDone && v.Pending != "" && now.Sub(*v.RequestedAt) < askHold
 }
 
-// dueAgain says the job still vets the source on its own: new and not
-// vetted by the user.
-func dueAgain(s discoverysource.Summary) bool {
-	return discoveries.IsNew(s.Class) && s.Source.Vetting == ""
+// dueAgain says the job still vets the source on its own: not vetted by
+// the user, and new, or held back at low confidence after a vet whose
+// report it still shows.
+func dueAgain(s discoverysource.Summary, seen bool) bool {
+	if s.Source.Vetting != "" {
+		return false
+	}
+	return discoveries.IsNew(s.Class) || (seen && s.Class == discoveries.ClassLowConfidence)
 }
 
 // userReal says the user marked the source a real change of a star. The
@@ -274,7 +278,7 @@ func due(s discoverysource.Summary, hash string, v app.DiscoveryVet, seen bool, 
 		return true
 	}
 	byUser := refreshed(s)
-	if !dueAgain(s) && !byUser {
+	if !dueAgain(s, seen) && !byUser {
 		return false
 	}
 	if !seen {
