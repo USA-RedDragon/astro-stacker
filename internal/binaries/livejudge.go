@@ -166,12 +166,19 @@ func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 }
 
 // fit finds the timing whose curve, scaled in depth and set on a level,
-// best matches the subs, and the errors of timing and depth.
+// best matches the subs, and the errors of timing and depth. Once the subs
+// pass the expected middle, the timings tried reach as far as the subs do,
+// so a dip far from its expected time is still found.
 func (j *eclipseFit) fit(pts []LivePoint, m eclipseModel) {
 	if len(pts) < 3 || m.half <= 0 {
 		return
 	}
 	reach := m.half + 3*m.err
+	if last := pts[len(pts)-1].Time; last.After(m.mid.Add(m.err)) {
+		for _, p := range pts {
+			reach = max(reach, absDur(p.Time.Sub(m.mid)))
+		}
+	}
 	step := 2 * reach / fitSteps
 	type trial struct {
 		s       time.Duration
