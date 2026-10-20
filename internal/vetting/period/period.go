@@ -100,6 +100,9 @@ type Result struct {
 	// Trend is the star's change from season to season in ZTF, when it
 	// changes beyond its comparison stars.
 	Trend *Trend `json:"trend,omitempty"`
+	// Irregular is set when the star changes beyond its errors with no
+	// period: the ZTF row then says it varies.
+	Irregular bool `json:"irregular,omitempty"`
 }
 
 // Options bound the search. MinPeriod and MaxPeriod are in days, 0.2

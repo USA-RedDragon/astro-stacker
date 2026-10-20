@@ -93,6 +93,7 @@ func analyzeSeries(d *data, own, ztf []lc.Series, opts Options, at *Ephemeris) (
 	res.Checks = a.checks(res.Fits)
 	res.Fades = a.fades
 	res.SteadyFadeNights = a.steadyAt
+	res.Irregular = a.kind == KindIrregular
 	if a.kind == KindFlat || a.kind == KindIrregular {
 		return res, ErrNoPeriod
 	}
