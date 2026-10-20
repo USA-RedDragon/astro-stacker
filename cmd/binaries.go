@@ -72,6 +72,7 @@ func startBinaries(ctx context.Context, cfg *config.Config, appStore, schedStore
 	svc := newBinariesService(cfg, s3, appStore, schedStore, commands, backfill, reg.Task(activity.KindBinaries, "Confirmed variable stars"))
 	svc.TimingTask = reg.Task(activity.KindEclipseTiming, "Eclipse timings")
 	svc.LiveTask = reg.Task(activity.KindLiveCurve, "Live curve on the Now page")
+	svc.DipTask = reg.Task(activity.KindDipWindows, "Dip windows")
 	svc.Events = broker
 	if p, ok := svc.Photometry.(binaries.OwnPhotometry); ok && monitor != nil {
 		svc.LiveData = p.Data

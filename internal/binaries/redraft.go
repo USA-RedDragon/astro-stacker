@@ -67,7 +67,7 @@ func (s *Service) redraftMoved(ctx context.Context, stars []Star) error {
 		byID[st.Source.ID] = st
 	}
 	var reqs []app.EclipseRequest
-	if err := s.DB.WithContext(ctx).Where("state IN ?", []string{app.EclipseWaiting, app.EclipseSent}).Find(&reqs).Error; err != nil {
+	if err := s.DB.WithContext(ctx).Where("state IN ? AND kind <> ?", []string{app.EclipseWaiting, app.EclipseSent}, KindDip).Find(&reqs).Error; err != nil {
 		return err
 	}
 	now := s.now()

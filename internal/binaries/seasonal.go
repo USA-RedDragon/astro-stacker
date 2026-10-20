@@ -133,7 +133,7 @@ func seasonView(st Star, reqs []app.EclipseRequest, now time.Time) *SeasonView {
 	fails := 0
 	var lastFail string
 	for _, r := range reqs {
-		if r.SourceID != st.Source.ID || !sv.holds(r.Mid) {
+		if r.SourceID != st.Source.ID || r.Kind == KindDip || !sv.holds(r.Mid) {
 			continue
 		}
 		if r.Auto {
@@ -197,7 +197,7 @@ func (s *Service) autoRequests(ctx context.Context, stars []Star) error {
 	now := s.now()
 	openAuto := 0
 	for _, r := range reqs {
-		if r.Auto && open(r) {
+		if r.Auto && open(r) && r.Kind != KindDip {
 			openAuto++
 		}
 	}

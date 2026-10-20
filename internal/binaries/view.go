@@ -80,6 +80,8 @@ type Star struct {
 	Share  *app.ShareImage
 	// Timings are the star's eclipses timed in the user's own frames.
 	Timings []app.EclipseTiming
+	// Dipper is the star's stored dip cycle, nil when it has none.
+	Dipper *app.DipperEphemeris
 }
 
 // ephemeris is the ephemeris the pages use: the worked out one, else the

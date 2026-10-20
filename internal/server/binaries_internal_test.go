@@ -53,7 +53,7 @@ func binaryServerDB(t *testing.T) (*gin.Engine, *gorm.DB, app.DiscoverySource, a
 	t.Helper()
 	db := memStore(t).DB()
 	if err := db.AutoMigrate(&app.DiscoverySource{}, &app.DiscoveryVet{}, &app.VetBuild{}, &app.BinaryBook{}, &app.BinaryFacts{}, &app.BinarySetting{}, &app.DipWatch{},
-		&app.EclipseRequest{}, &app.ShareImage{}, &app.EclipseTiming{}); err != nil {
+		&app.EclipseRequest{}, &app.ShareImage{}, &app.EclipseTiming{}, &app.DipperEphemeris{}, &app.DipResult{}); err != nil {
 		t.Fatal(err)
 	}
 	src := app.DiscoverySource{Object: "Made-up field", Kind: app.DiscoveryKindChange, RA: 10, Dec: 20, Night: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), Vetting: app.VetReal}
@@ -228,5 +228,56 @@ func TestDipWatchLinkAndLiveCurve(t *testing.T) {
 	}
 	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/dip-watches", nil, &list); code != http.StatusOK || len(list.DipWatches) != 1 {
 		t.Errorf("list: %d %+v", code, list)
+	}
+}
+
+func TestDipperRoutes(t *testing.T) {
+	t.Parallel()
+	r, db, eb, _ := binaryServerDB(t)
+	dip := app.DiscoverySource{Object: eb.Object, Kind: app.DiscoveryKindChange, RA: 12, Dec: 22, Night: eb.Night, Vetting: app.VetReal}
+	if err := db.Create(&dip).Error; err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/v1/discoveries/dippers/" + strconv.Itoa(dip.ID)
+	var v binaries.DipperView
+	if code := call(t, r, http.MethodGet, base, nil, &v); code != http.StatusOK || v.Ephemeris != nil || len(v.Windows) != 0 {
+		t.Fatalf("before a cycle: %d %+v", code, v)
+	}
+	if code := call(t, r, http.MethodPut, base+"/every-window", map[string]bool{"on": true}, nil); code != http.StatusNotFound {
+		t.Errorf("every window with no cycle: %d", code)
+	}
+	cycle := binaries.DipCycle{Period: 9.3564, EpochMJD: 61297.08, WindowHours: 20, DepthLow: 0.15, DepthHigh: 0.6, DurLowHours: 2, DurHighHours: 18, ActiveShare: 0.25}
+	bad := cycle
+	bad.WindowHours = 300
+	if code := call(t, r, http.MethodPut, base+"/ephemeris", bad, nil); code != http.StatusBadRequest {
+		t.Errorf("window longer than the period: %d", code)
+	}
+	if code := call(t, r, http.MethodPut, base+"/ephemeris", cycle, &v); code != http.StatusOK || v.Ephemeris == nil || v.WindowsText != "every 9.356 days, 20 hours wide" || len(v.Windows) == 0 {
+		t.Fatalf("set cycle: %d %+v", code, v)
+	}
+	if code := call(t, r, http.MethodPut, base+"/every-window", map[string]bool{"on": true}, &v); code != http.StatusOK || !v.EveryWindow {
+		t.Errorf("every window: %d %+v", code, v)
+	}
+	if code := call(t, r, http.MethodPut, base+"/ephemeris", cycle, &v); code != http.StatusOK || !v.EveryWindow {
+		t.Errorf("a new cycle turned every window off: %d %+v", code, v)
+	}
+	var list BinaryList
+	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/binaries", nil, &list); code != http.StatusOK {
+		t.Fatal(code)
+	}
+	found := false
+	for _, o := range list.Others {
+		if o.SourceID == dip.ID {
+			found = o.Dipper != nil && o.Dipper.DipsText == "0.15 to 0.6 mag, 2 to 18 hours, in about 1 window in 4" && o.Dipper.EveryWindow
+		}
+	}
+	if !found {
+		t.Errorf("the dipper's card has no dip cycle: %+v", list.Others)
+	}
+	if code := call(t, r, http.MethodGet, "/api/v1/discoveries/dippers/"+strconv.Itoa(eb.ID), nil, nil); code != http.StatusNotFound {
+		t.Errorf("an eclipsing binary as a dipper: %d", code)
+	}
+	if code := call(t, r, http.MethodPost, base+"/requests", map[string]time.Time{"mid": time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC)}, nil); code != http.StatusBadRequest {
+		t.Errorf("a request between windows: %d", code)
 	}
 }

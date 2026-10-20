@@ -117,7 +117,7 @@ func fieldOf(snap *planning.Snapshot, origGUID, object string) (requestField, st
 	var f requestField
 	found := false
 	for _, p := range snap.Projects {
-		if strings.HasPrefix(p.Name, RequestPrefix) || strings.HasPrefix(p.Name, discoveryfollowup.ProjectPrefix) {
+		if strings.HasPrefix(p.Name, RequestPrefix) || strings.HasPrefix(p.Name, DipPrefix) || strings.HasPrefix(p.Name, discoveryfollowup.ProjectPrefix) {
 			continue
 		}
 		for _, t := range p.Targets {
@@ -202,3 +202,44 @@ func DraftRequest(snap *planning.Snapshot, origGUID string, r *app.EclipseReques
 	return payload, ""
 }
 
+// DipPrefix starts every dip window request project's name.
+const DipPrefix = "Dip watch: "
+
+// DipRequestGUID is the project of one attempt to image a dip window.
+func DipRequestGUID(sourceID int, mid time.Time, attempt int) string {
+	seed := fmt.Sprintf("dip-request:%d:%s", sourceID, mid.UTC().Format(time.RFC3339))
+	if attempt > 0 {
+		seed += fmt.Sprintf(":%d", attempt)
+	}
+	return uuidFrom(seed)
+}
+
+// DraftDipRequest is the Target Scheduler project that images one dip
+// window of a dipper: the field's own target and framing, one plan in the
+// filter nearest ZTF r, and a high-priority window over the dark part of
+// the dip window, r.Start to r.End. A nil payload comes with the reason.
+func DraftDipRequest(snap *planning.Snapshot, origGUID string, r *app.EclipseRequest, name, object string, g float64, loc *time.Location) (*schedcmd.ProjectCreatePayload, string) {
+	f, why := fieldOf(snap, origGUID, object)
+	if why != "" {
+		return nil, why
+	}
+	exposure := SubLength(g, 0, f.plan.Exposure)
+	window := r.End.Sub(r.Start)
+	subs := min(maxSubs, max(1, int(math.Ceil(window.Seconds()/(exposure+overheadSeconds)))))
+	tmplID, tmplName, filter := f.template(snap)
+	local := r.Mid.In(loc).Format("2006-01-02 3:04 PM MST")
+	guid := DipRequestGUID(r.SourceID, r.Mid, r.Attempt)
+	r.ProjectGUID, r.TargetGUID, r.Filter, r.Exposure, r.Subs = guid, uuidFrom("dip-request-target:"+guid), filter, exposure, subs
+	minutes := int(math.Ceil(window.Minutes()))
+	return &schedcmd.ProjectCreatePayload{
+		Project: schedcmd.NewProject{GUID: guid, Name: fmt.Sprintf(DipPrefix+"%s (predicted %s)", name, local),
+			Description: fmt.Sprintf("Images the dark part of the window of %s in %s whose middle is %s, when the star can dip, from %s to %s UTC: %d × %gs %s. Made by the dip windows planner; it is closed once the window has passed.",
+				name, object, local, r.Start.UTC().Format("Jan 2 15:04"), r.End.UTC().Format("Jan 2 15:04"), subs, exposure, filter),
+			Priority: 2, State: 1, MinimumTime: min(minutes, 30), MinimumAltitude: f.proj.MinimumAltitude, ProjectSettings: f.settings},
+		Targets: []schedcmd.NewTarget{{GUID: r.TargetGUID, Name: f.tgt.Name, RAHours: *f.tgt.RAHours, Dec: *f.tgt.Dec, Rotation: f.rotation(),
+			Window: &schedcmd.EventWindow{Start: r.Start.UTC(), End: r.End.UTC(), Priority: schedcmd.EventPriorityHigh, EventID: "dip-" + guid},
+			Plans: []schedcmd.NewPlan{{GUID: uuidFrom("dip-request-plan:" + guid), TemplateID: int64(tmplID), TemplateName: tmplName,
+				Filter: filter, Exposure: exposure, Desired: subs}}}},
+		RuleWeights: planning.WeightsFor(snap.GlobalWeights.Weights, false),
+	}, ""
+}

@@ -137,6 +137,8 @@ type Other struct {
 	VSX        VSXState  `json:"vsx"`
 	Notes      string    `json:"notes"`
 	Share      Share     `json:"share"`
+	// Dipper is the star's dip cycle in words, nil when none is stored.
+	Dipper *DipperSummary `json:"dipper"`
 }
 
 // OtherView is how the pages show s, a confirmed star that is not an
@@ -147,6 +149,10 @@ func (s Star) OtherView(shareURL func(id, version int) string) Other {
 		VSX: VSXState{Submitted: s.Book.VSXSubmitted, Ref: s.Book.VSXRef, SubmittedAt: s.Book.VSXSubmittedAt}}
 	if t, ok := starType(s.Book.StarType); ok {
 		o.StarType = &t
+	}
+	if s.Dipper != nil {
+		d := summaryOf(*s.Dipper)
+		o.Dipper = &d
 	}
 	if s.Share != nil {
 		o.Share = s.shareView(shareURL)
