@@ -382,6 +382,7 @@ func (s *sineBand) compTest(per float64, cb []map[string][]pt) {
 func (a *analysis) robustSine(r *Robust, cb []map[string][]pt) {
 	P := a.eph.Period
 	var best *sineBand
+	var all []*sineBand
 	for _, b := range a.bands() {
 		if !testedSurvey(a.d.groups[b.g].survey) {
 			continue
@@ -389,12 +390,16 @@ func (a *analysis) robustSine(r *Robust, cb []map[string][]pt) {
 		s := &sineBand{b: b, sig: fap(powerNear(b.raw, P), b.raw) < rawMaxFAP}
 		s.slowTest(P)
 		s.compTest(P, cb)
+		all = append(all, s)
 		if best == nil || s.rank() > best.rank() {
 			best = s
 		}
 	}
 	if best == nil {
 		return
+	}
+	if !best.stable {
+		best.partner, best.partnerFAP = sharedPartner(all, best)
 	}
 	r.Band = best.b.key
 	r.Stable, r.Unsteady = best.stable, best.unsteady
@@ -406,6 +411,32 @@ func (a *analysis) robustSine(r *Robust, cb []map[string][]pt) {
 	if !best.stable && best.partner > 0 && best.partnerFAP < rawMaxFAP {
 		r.Partner, r.PartnerFrom = best.partner, best.b.key
 	}
+}
+
+// sharedPartner is the one of the bands' partner periods that all bands
+// show best together, by each band's power at it times its points, with
+// its false alarm chance in the band that found it. A single band's
+// highest peak can be a daily echo of the true cycle: 167's ZTF g peaks
+// at 0.810 days where g and r together show 4.318 days.
+func sharedPartner(all []*sineBand, best *sineBand) (float64, float64) {
+	per, pf, top := best.partner, best.partnerFAP, -1.0
+	for _, c := range all {
+		if c.partner <= 0 || c.partnerFAP >= rawMaxFAP {
+			continue
+		}
+		score := 0.0
+		for _, s := range all {
+			pts := s.b.hp
+			if c.partner >= shortPeriod {
+				pts = s.b.detr
+			}
+			score += float64(len(pts)) * powerNear(pts, c.partner)
+		}
+		if score > top {
+			per, pf, top = c.partner, c.partnerFAP, score
+		}
+	}
+	return per, pf
 }
 
 type boxBand struct {
