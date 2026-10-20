@@ -11,6 +11,9 @@ type BinaryBook struct {
 	VSXRef         string `gorm:"not null;default:''"`
 	Notes          string `gorm:"type:text;not null;default:''"`
 	PrimaryName    string `gorm:"not null;default:''"`
+	// StarType is the kind the user named a confirmed star that is not an
+	// eclipsing binary, a binaries.StarType key.
+	StarType string `gorm:"not null;default:''"`
 	// Checklist is the VSX checklist as JSON {"key": true}.
 	Checklist string `gorm:"type:text;not null;default:''"`
 	UpdatedAt time.Time
