@@ -844,6 +844,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	if pr != nil && !hasPeriod(pr.Ephemeris) {
 		pr.Ephemeris = nil
 	}
+	pairVaries(pr, st.target, fx.ztf.Series)
 	var timing *period.Timing
 	if pr != nil && pr.Ephemeris != nil && curve != nil {
 		if t, ok := ownTiming(pr.Ephemeris, curve, sum); ok {
