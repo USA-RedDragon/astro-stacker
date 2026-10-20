@@ -1309,7 +1309,11 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 // own-frame transients vetted real in 2025, each on one night of the
 // frames that found it, were all artifacts, and 67045 on Sombrero
 // Galaxy's 2025-12-29 was diffuse light near a frame corner with its
-// shape unmeasured.
+// shape unmeasured. Frames stacked at the spot that refute it make it an
+// artifact before light there earlier or a catalogued star beside it
+// leave it open, unless a survey saw it: 46939 (Orion, 2026-10-05), 2.2
+// px from a G 15.0 star, stood 0.5 times its error above its far nights
+// with the star fitted, and stayed "a catalogued source sits there".
 func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 	ev := func(id string) string { return evidence(groups, id) }
 	st := func(id string) check.Status { return status(groups, id) }
@@ -1329,6 +1333,8 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: ATLAS saw nothing on the same date", Confidence: Medium, Why: ev(check.TransATLAS)}
 	case st(check.TransFlux) == check.Fail:
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: no new light in your own frames", Confidence: Medium, Why: ev(check.TransFlux)}
+	case fx.stackV == ownimage.StackRefuted && st(check.TransATLAS) != check.Pass && st(check.TransZTF) != check.Pass:
+		return ownFramesSuggest(groups, what, pendingNote, fx.stackV, fx.flux != nil && fx.flux.Halo != nil)
 	case st(check.TransNights) == check.Fail:
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: the light was there before", Confidence: Low, Why: ev(check.TransNights)}
 	case st(check.TransBefore) == check.Fail:
