@@ -501,7 +501,7 @@ func (a *analysis) depthZ(m *ecFit, g int) float64 {
 	if d < 0.01 || d < 0.05*math.Max(m.depth[g][0], m.depth[g][1]) {
 		return 0
 	}
-	return d / math.Hypot(m.depthSigma(g, 0), m.depthSigma(g, 1))
+	return d / math.Hypot(a.depthSigmaNights(m, g, 0), a.depthSigmaNights(m, g, 1))
 }
 
 func (a *analysis) eclipseSignificant(m *ecFit) bool {

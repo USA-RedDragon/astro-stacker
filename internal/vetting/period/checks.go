@@ -657,6 +657,10 @@ type win struct {
 	dnorm    map[string]float64
 	gy       map[int][2]float64
 	gd       map[int][2]float64
+	// pooled marks a TESS band whose odd and even cycles no one sector
+	// caught both of: its parities mix sectors of different depth and are
+	// not compared.
+	pooled map[int]bool
 }
 
 func (w *win) scale() (float64, float64) {
@@ -683,20 +687,36 @@ func (w *win) lacks() bool {
 // the dip when it has enough; the cycles of a parity are then combined
 // with cycles far from their median dropped, so one bad stretch of a
 // light curve cannot set a parity's depth.
+//
+// A cycle without its own baseline is measured against its series'
+// running level out of the dips (runningLevel), and its error takes in
+// the band's night-to-night offset about that level (nightOffsets): for
+// source 3635 ATLAS o nights sit 0.02 mag apart out of eclipse, where one
+// night's points alone claim 0.004. A cycle's own baseline adds its
+// median's error.
+//
+// TESS sectors see the star through different neighbours and apertures,
+// so a dip's depth differs from sector to sector (3635's is 1.5 times
+// deeper in sector 81 than in 54). Odd and even cycles are compared within
+// each sector, as a share of that sector's mean depth, and the sectors'
+// shares combined; sectors that caught only one parity are left out of
+// the comparison, and with none that caught both the band is not compared.
 func (a *analysis) parityWindows() [][2]*win {
 	m := a.ecl
 	out := make([][2]*win, len(m.dips))
 	for k := range out {
 		for p := range 2 {
 			out[k][p] = &win{k: k, surveys: map[string]bool{}, first: map[string]float64{}, cycle: map[string]int{}, sectors: map[int]bool{},
-				dsum: map[string]float64{}, dnorm: map[string]float64{}, gy: map[int][2]float64{}, gd: map[int][2]float64{}}
+				dsum: map[string]float64{}, dnorm: map[string]float64{}, gy: map[int][2]float64{}, gd: map[int][2]float64{}, pooled: map[int]bool{}}
 		}
 	}
-	type key struct{ k, g, cyc int }
+	type key struct{ k, g, s, cyc int }
 	type cyc struct {
-		in   []obs
-		sh   []float64
-		base []float64
+		in     []obs
+		sh     []float64
+		base   []float64
+		baseE  []float64
+		sector int
 	}
 	cycles := map[key]*cyc{}
 	get := func(c key) *cyc {
@@ -707,19 +727,23 @@ func (a *analysis) parityWindows() [][2]*win {
 		}
 		return x
 	}
+	type outPt struct {
+		g, s    int
+		t, y, e float64
+	}
+	var outside []outPt
 	a.rawPoints(func(se *series, p obs) {
-		inAny := false
-		for k := range m.dips {
-			if sh, _ := m.shapeAt(p.t, k); sh > 0 {
-				inAny = true
-			}
+		inAny := m.inAnyDip(p.t)
+		if !inAny {
+			outside = append(outside, outPt{p.g, p.s, p.t, p.y, p.e})
 		}
 		for k, dp := range m.dips {
 			sh, u := m.shapeAt(p.t, k)
 			n := int(math.Round((p.t-m.T0)/m.P - dp.phase))
-			c := key{k, p.g, n}
+			c := key{k, p.g, p.s, n}
 			if !inAny && math.Abs(u) < 2*dp.width {
 				get(c).base = append(get(c).base, p.y)
+				get(c).baseE = append(get(c).baseE, p.e)
 				continue
 			}
 			if sh < 0.5 {
@@ -728,6 +752,7 @@ func (a *analysis) parityWindows() [][2]*win {
 			x := get(c)
 			x.in = append(x.in, p)
 			x.sh = append(x.sh, sh)
+			x.sector = se.sector
 			w := out[k][((n%2)+2)%2]
 			w.surveys[se.survey] = true
 			if f, ok := w.first[se.survey]; !ok || p.t < f {
@@ -739,7 +764,22 @@ func (a *analysis) parityWindows() [][2]*win {
 			}
 		}
 	})
-	type est struct{ s, e float64 }
+	level := newRunningLevel(func(fn func(s int, t, y float64)) {
+		for _, p := range outside {
+			fn(p.s, p.t, p.y)
+		}
+	})
+	nightSD := nightOffsets(len(a.d.groups), a.f.tref, func(fn func(g, s int, t, y, e float64)) {
+		for _, p := range outside {
+			if l, ok := level.at(p.s, p.t); ok {
+				fn(p.g, p.s, p.t, p.y-l, p.e)
+			}
+		}
+	})
+	type est struct {
+		s, e   float64
+		sector int
+	}
 	per := map[[3]int][]est{}
 	for c, x := range cycles {
 		if len(x.in) == 0 {
@@ -750,28 +790,80 @@ func (a *analysis) parityWindows() [][2]*win {
 			continue
 		}
 		base := 0.0
-		if len(x.base) >= parityBasePts {
+		local := len(x.base) >= parityBasePts
+		in := x.in
+		if local {
 			base = median(x.base)
+		} else {
+			in = make([]obs, len(x.in))
+			for i, p := range x.in {
+				if l, ok := level.at(p.s, p.t); ok {
+					p.y -= l
+				}
+				in[i] = p
+			}
 		}
-		if s, e, ok := cycleScale(x.in, x.sh, dd, base); ok {
+		if s, e, ok := cycleScale(in, x.sh, dd, base); ok {
+			inv := 0.0
+			for _, sh := range x.sh {
+				inv += 1 / sh
+			}
+			inv /= float64(len(x.sh))
+			switch {
+			case local:
+				nb := math.Sqrt(float64(len(x.base)))
+				eb := math.Max(1.2533*mad(x.base, base), median(x.baseE)) / nb
+				e = math.Hypot(e, eb*inv/math.Abs(dd))
+			case nightSD[c.g] > 0:
+				e = math.Hypot(e, nightSD[c.g]*inv/math.Abs(dd))
+			}
 			pk := [3]int{c.k, ((c.cyc % 2) + 2) % 2, c.g}
-			per[pk] = append(per[pk], est{s, e})
+			per[pk] = append(per[pk], est{s, e, x.sector})
 		}
 	}
-	for pk, es := range per {
+	set := func(k, p, g int, s, e float64) {
+		w := out[k][p]
+		w.gy[g] = [2]float64{s / (e * e), 1 / (e * e)}
+		dd := m.depth[g][k]
+		w.gd[g] = [2]float64{s * dd / (e * e * dd * dd), 1 / (e * e * dd * dd)}
+	}
+	combine := func(es []est) (float64, float64, bool) {
 		ss, ee := make([]float64, len(es)), make([]float64, len(es))
 		for i, x := range es {
 			ss[i], ee[i] = x.s, x.e
 		}
-		s, e, ok := clippedMean(ss, ee)
-		if !ok {
+		return clippedMean(ss, ee)
+	}
+	done := map[[2]int]bool{}
+	for pk := range per {
+		kg := [2]int{pk[0], pk[2]}
+		if done[kg] {
 			continue
 		}
-		w := out[pk[0]][pk[1]]
-		g := pk[2]
-		w.gy[g] = [2]float64{s / (e * e), 1 / (e * e)}
-		dd := m.depth[g][pk[0]]
-		w.gd[g] = [2]float64{s * dd / (e * e * dd * dd), 1 / (e * e * dd * dd)}
+		done[kg] = true
+		k, g := kg[0], kg[1]
+		even, odd := per[[3]int{k, 0, g}], per[[3]int{k, 1, g}]
+		if a.d.groups[g].survey == lc.TESS {
+			if s, e, ok := sectorParity(even, odd, combine, func(x est) int { return x.sector }); ok {
+				set(k, 0, g, s[0], e[0])
+				set(k, 1, g, s[1], e[1])
+				continue
+			}
+			for p, es := range [][]est{even, odd} {
+				if s, e, ok := combine(es); ok {
+					set(k, p, g, s, e)
+				}
+			}
+			for p := range 2 {
+				out[k][p].pooled[g] = true
+			}
+			continue
+		}
+		for p, es := range [][]est{even, odd} {
+			if s, e, ok := combine(es); ok {
+				set(k, p, g, s, e)
+			}
+		}
 	}
 	for k := range out {
 		for p := range 2 {
@@ -987,7 +1079,7 @@ func (a *analysis) parityConflict(ws [][2]*win, dbl string) (check.Check, bool) 
 		var signs []float64
 		for g := range a.d.groups {
 			e, o := ws[k][0].gy[g], ws[k][1].gy[g]
-			if e[1] == 0 || o[1] == 0 || !a.realDip(ws, k, g) || m.depth[g][k] < 3*m.depthSigma(g, k) {
+			if e[1] == 0 || o[1] == 0 || ws[k][0].pooled[g] || !a.realDip(ws, k, g) || m.depth[g][k] < 3*m.depthSigma(g, k) {
 				continue
 			}
 			se, so := e[0]/e[1], o[0]/o[1]
@@ -1039,7 +1131,7 @@ func (a *analysis) oddEvenWords(ws [][2]*win, k int) string {
 	var de, do, z float64
 	for g := range a.d.groups {
 		e, o := ws[k][0].gy[g], ws[k][1].gy[g]
-		if e[1] == 0 || o[1] == 0 || !a.realDip(ws, k, g) || m.depth[g][k] < 3*m.depthSigma(g, k) {
+		if e[1] == 0 || o[1] == 0 || ws[k][0].pooled[g] || !a.realDip(ws, k, g) || m.depth[g][k] < 3*m.depthSigma(g, k) {
 			continue
 		}
 		se, so := e[0]/e[1], o[0]/o[1]
