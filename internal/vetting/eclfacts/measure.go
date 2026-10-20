@@ -266,8 +266,10 @@ func solve(ps []point, keep []bool, e *period.Ephemeris) *bandFit {
 // depths in a well sampled band where both dips are fainter than normal,
 // in sigma, with that band's depths: the only band's when one band can
 // tell, else the second largest among bands where the same dip is the
-// deeper, so one band's systematics cannot split the dips alone; Band is
-// empty when no band can tell or bands disagree. PhaseZ is how far
+// deeper, so one band's systematics cannot split the dips alone. When
+// bands disagree on which dip is deeper, or only one of several finds
+// them apart, it is the band that measures the difference best. Band is
+// empty when no band can tell. PhaseZ is how far
 // the second dip sits from mid-cycle, in sigma.
 type Twin struct {
 	Band     string  `json:"band"`
@@ -305,6 +307,10 @@ func twin(pts []point, e *period.Ephemeris) *Twin {
 		ds = append(ds, diff{key: key, f: f, z: math.Abs(d) / f.diffErr, d: d})
 	}
 	slices.SortStableFunc(ds, func(a, b diff) int { return cmp.Compare(b.z, a.z) })
+	var sharpest []diff
+	if len(ds) > 0 {
+		sharpest = []diff{slices.MinFunc(ds, func(a, b diff) int { return cmp.Compare(a.f.diffErr, b.f.diffErr) })}
+	}
 	if len(ds) > 1 {
 		same := ds[:1]
 		for _, x := range ds[1:] {
@@ -312,7 +318,7 @@ func twin(pts []point, e *period.Ephemeris) *Twin {
 				same = append(same, x)
 			}
 		}
-		ds = nil
+		ds = sharpest
 		if len(same) > 1 {
 			ds = same[1:2]
 		}
