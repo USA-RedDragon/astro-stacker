@@ -440,3 +440,29 @@ func TestRunHoldsADefectPixel(t *testing.T) {
 		t.Error("the defect pixel was not found and held")
 	}
 }
+
+func TestRunLeavesMagnitudesUnknownWithoutAGaiaTie(t *testing.T) {
+	t.Parallel()
+	f := newField(t)
+	in := f.input(t)
+	w, err := ParseWCS(tanWCS(150, 20, 2, 905, 640.5), f.H)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.WCS = w
+	res, err := Run(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AstroRMSArcsec != nil {
+		t.Fatalf("tied to Gaia %.2f\" on %d stars through a plate solution 4.5 px off", *res.AstroRMSArcsec, res.AstroStars)
+	}
+	if res.ZeroPoint != nil || res.Depth != nil || res.SubDepth != nil {
+		t.Fatalf("zero point, depth or sub depth set without a Gaia tie: %v %v %v", res.ZeroPoint != nil, res.Depth != nil, res.SubDepth != nil)
+	}
+	for _, c := range res.Candidates {
+		if c.NightMag != nil || c.RefMag != nil {
+			t.Fatalf("change at %.0f,%.0f has night and reference magnitudes without a Gaia tie", c.X, c.Y)
+		}
+	}
+}
