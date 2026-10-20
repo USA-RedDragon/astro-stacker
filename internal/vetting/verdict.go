@@ -58,7 +58,7 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		ps = &p
 	}
 	if ps != nil && ps.State == app.VetReal && known.Listed == "" && moving.Status != check.Fail {
-		if why := ownDoubt(flags, groups); why != "" {
+		if why := ownDoubt(flags, groups, pr.Ephemeris.Kind); why != "" {
 			ps.Why = joinSentences(ps.Why, why)
 		}
 		return *ps
@@ -87,6 +87,15 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 	}
 	if flags.NotStar {
 		return Suggestion{State: app.VetArtifact, Say: sayNotStar, Confidence: Medium, Why: evidence(groups, check.PSF)}
+	}
+	if varies := surveyVaries(pr); varies != "" {
+		if ps == nil {
+			return variesSuggestion(varies, known, groups)
+		}
+		if ps.State == app.VetUnsure {
+			ps.Why = joinSentences(ps.Why, varies)
+			return *ps
+		}
 	}
 	if ownFlat && ztfFlat {
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: the star did not change", Confidence: Medium,
@@ -135,9 +144,55 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 	return Suggestion{State: app.VetUnsure, Say: sayNotSure, Confidence: Low, Why: "The checks found nothing against it, and nothing that confirms it." + pending}
 }
 
+// sayVariesUnconfirmed is the verdict on a star the surveys prove
+// variable when the user's own frames do not confirm the change.
+const sayVariesUnconfirmed = "Not sure: the star varies in the surveys, but your detection was not confirmed"
+
+// surveyVaries says how the survey data prove the star variable on their
+// own, or "": its level changes from season to season in two or more ZTF
+// bands while nearby stars of the same brightness stay steady, or a cycle
+// that is no echo of the day, month or year survives taking out the slow
+// changes in two or more bands and stands above nearby steady stars.
+func surveyVaries(pr *period.Result) string {
+	if pr == nil {
+		return ""
+	}
+	var parts []string
+	if pr.Trend.Proven() {
+		l := pr.Trend.Largest()
+		var bands []string
+		for _, b := range pr.Trend.Bands {
+			bands = append(bands, strings.TrimSpace(strings.TrimPrefix(b.Band, "ZTF")))
+		}
+		parts = append(parts, fmt.Sprintf("In ZTF %s the star's level changes from season to season, by up to %.2f mag in %s, while %d nearby stars of the same brightness stay within %.2f mag.",
+			joinWords(bands), l.Range, strings.TrimSpace(strings.TrimPrefix(l.Band, "ZTF")), l.Comparisons, l.CompRange))
+	}
+	if r, e := pr.Robust, pr.Ephemeris; r != nil && e != nil && e.Kind == period.KindSinusoidal && r.Bands >= 2 && r.Echo == "" && r.CompPass {
+		parts = append(parts, fmt.Sprintf("Once its slow changes are taken out, %d survey bands show a cycle that nearby steady stars lack, strongest at %s days, which may still be a daily echo of the true period.", r.Bands, shortPeriod(e.Period)))
+	}
+	return joinSentences(parts...)
+}
+
+// variesSuggestion is the verdict on a star the surveys prove variable
+// without a period that passes every test: whether the user's frames
+// caught it or not, the star is worth knowing about, but not yet a new
+// variable star.
+func variesSuggestion(varies string, known Known, groups []Group) Suggestion {
+	if known.Expected != "" {
+		return Suggestion{State: app.VetKnown, Say: fmt.Sprintf("Known %s, irregular changes expected", known.Expected), Confidence: Medium,
+			Why: joinSentences(fmt.Sprintf("SIMBAD lists it as %s, a %s; such stars change without a fixed period.", known.ExpectedName, known.Expected), varies)}
+	}
+	if status(groups, check.OwnChange) == check.Pass {
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: the star varies in the surveys and in your frames", Confidence: Medium,
+			Why: joinSentences(varies, evidence(groups, check.OwnChange), "No catalog lists the star as variable, but no steady period stands out yet.")}
+	}
+	return Suggestion{State: app.VetUnsure, Say: sayVariesUnconfirmed, Confidence: Low,
+		Why: joinSentences(varies, evidence(groups, check.OwnChange), "No catalog lists the star as variable; the change you caught may not be real, but the star is.")}
+}
+
 // ownDoubt names what the own image checks found at the spot of a star
 // whose survey period stands on its own.
-func ownDoubt(flags ownimage.Flags, groups []Group) string {
+func ownDoubt(flags ownimage.Flags, groups []Group, kind period.Kind) string {
 	var what string
 	switch {
 	case flags.RefContaminated:
@@ -155,7 +210,11 @@ func ownDoubt(flags ownimage.Flags, groups []Group) string {
 	default:
 		return ""
 	}
-	return fmt.Sprintf("Your own frames show %s there, so the change you caught may not be an eclipse; the survey data stand on their own.", what)
+	caught := "an eclipse"
+	if kind != period.KindEclipsing {
+		caught = "the star's own"
+	}
+	return fmt.Sprintf("Your own frames show %s there, so the change you caught may not be %s; the survey data stand on their own.", what, caught)
 }
 
 func notChanged(ownFlat bool, c change) string {
@@ -184,7 +243,10 @@ func joinSentences(parts ...string) string {
 // changes within a night show it), and nearby steady stars of the same
 // brightness do not show it. A period that drifts from season to season
 // stays unsure. The own image checks do not decide it: confirmed
-// binaries fail them as often as false periods do.
+// binaries fail them as often as false periods do. A smooth cycle
+// promoted over a daily echo already stands out in two bands once the
+// slow changes are out, whatever the raw points show; without TESS or
+// the user's own frames behind it, it is real at low confidence.
 func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Timing, groups []Group, curve *ownimage.Curve, known Known) Suggestion {
 	e := pr.Ephemeris
 	ps := shortPeriod(e.Period)
@@ -196,14 +258,29 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 	}
 	p := periodText(e.Period)
 	surveysSeen := surveyWords(pr)
-	if e.Kind != period.KindEclipsing && status(groups, check.ZTF) != check.Pass && status(groups, check.ATLAS) != check.Pass {
+	if e.Kind != period.KindEclipsing && pr.Robust.Alias == 0 && status(groups, check.ZTF) != check.Pass && status(groups, check.ATLAS) != check.Pass {
 		return Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: the %s-day cycle is too faint in the survey data", ps), Confidence: Low,
 			Why: joinSentences(evidence(groups, check.ZTF), "A cycle no survey's own fit shows is not a new variable star yet.")}
 	}
 	if e.Kind != period.KindEclipsing {
-		return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new variable star, repeats every %s days", ps), Confidence: Medium,
+		conf := Medium
+		var alias string
+		if r := pr.Robust; r.Alias > 0 {
+			alias = fmt.Sprintf("The search first found %s days, next to %s, an echo of the surveys' nightly visits; the %s-day cycle stands out once the slow changes are taken out, in %d survey bands.", shortPeriod(r.Alias), r.AliasEcho, ps, r.Bands)
+			if r.TESS {
+				alias = joinSentences(alias, fmt.Sprintf("TESS shows the same %s-day cycle.", shortPeriod(r.TESSPeriod)))
+			} else if status(groups, check.OwnChange) != check.Pass {
+				conf = Low
+			}
+		}
+		var trend string
+		if pr.Trend.Proven() {
+			l := pr.Trend.Largest()
+			trend = fmt.Sprintf("Its level also changes from season to season, by up to %.2f mag in %s.", l.Range, l.Band)
+		}
+		return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new variable star, repeats every %s days", ps), Confidence: conf,
 			Why: joinSentences(fmt.Sprintf("%s show it varying every %s days, and no catalog lists the star as variable.", surveysSeen, p),
-				evidence(groups, check.Echo), evidence(groups, check.Compare))}
+				alias, trend, evidence(groups, check.Echo), evidence(groups, check.Compare))}
 	}
 	conf := Medium
 	foldOK := status(groups, check.Fold) == check.Pass
