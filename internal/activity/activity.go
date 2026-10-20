@@ -374,6 +374,7 @@ const (
 	KindDiscoveries   = "discoveries"
 	KindVetting       = "vetting"
 	KindTESS          = "tess"
+	KindATLAS         = "atlas"
 	KindTNS           = "tns"
 	KindMorning       = "morning-report"
 	KindSkyEvents     = "sky-events"
