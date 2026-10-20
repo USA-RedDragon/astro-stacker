@@ -1061,6 +1061,28 @@ func tessOnlyNegative(w *win) bool {
 	return s < 0 && len(w.surveys) == 1 && w.surveys[lc.TESS]
 }
 
+// missingParity is the parity of cycles on which a dip is missing while
+// it shows on the others; a negative depth from TESS alone is not a
+// missing dip.
+func missingParity(w [2]*win) (int, bool) {
+	for p := range 2 {
+		if w[p].lacks() && w[1-p].shows() && !tessOnlyNegative(w[p]) {
+			return p, true
+		}
+	}
+	return 0, false
+}
+
+// dipMissing says some dip is missing on odd or even cycles.
+func dipMissing(ws [][2]*win) bool {
+	for k := range ws {
+		if _, ok := missingParity(ws[k]); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // parityConflict fails the double check when a dip is missing on odd or
 // even cycles, or differs in depth between them: in the only band that
 // can tell, or in two bands that agree, so one band's systematics cannot
@@ -1069,11 +1091,9 @@ func tessOnlyNegative(w *win) bool {
 func (a *analysis) parityConflict(ws [][2]*win, dbl string) (check.Check, bool) {
 	m := a.ecl
 	for k := range ws {
-		for p := range 2 {
-			if ws[k][p].lacks() && ws[k][1-p].shows() && !tessOnlyNegative(ws[k][p]) {
-				return check.New(check.Double, check.Fail, fmt.Sprintf("%s is missing on %s cycles, so the true period may be %s days.",
-					capitalize(a.dipName(k)), parityName(p), dbl)), true
-			}
+		if p, ok := missingParity(ws[k]); ok {
+			return check.New(check.Double, check.Fail, fmt.Sprintf("%s is missing on %s cycles, so the true period may be %s days.",
+				capitalize(a.dipName(k)), parityName(p), dbl)), true
 		}
 		tested, bestG, bestZ := 0, -1, 0.0
 		var signs []float64
