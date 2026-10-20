@@ -61,6 +61,20 @@ func TestEclipseLateIsOff(t *testing.T) {
 	}
 }
 
+func TestEclipseFarLateIsOff(t *testing.T) {
+	t.Parallel()
+	j := judgeEclipse(synthRun(-130, 330, 150*time.Minute, 0.45, 0.02), liveModel())
+	if j.state != LiveOff || !strings.Contains(j.why, "min late") {
+		t.Fatalf("state %s (%s), want off and late", j.state, j.why)
+	}
+	if math.Abs(j.shift.Minutes()-150) > 4 {
+		t.Errorf("timing %.1f min, truth 150", j.shift.Minutes())
+	}
+	if before := judgeEclipse(synthRun(-130, 330, 150*time.Minute, 0.45, 0.02)[:30], liveModel()); before.state == LiveFollowing {
+		t.Errorf("before the late dip ends: state %s (%s)", before.state, before.why)
+	}
+}
+
 func TestEclipseShallowIsOff(t *testing.T) {
 	t.Parallel()
 	j := judgeEclipse(synthRun(-130, 60, 0, 0.25, 0.02), liveModel())
