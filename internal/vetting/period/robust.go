@@ -97,6 +97,19 @@ type Robust struct {
 	PartnerFrom string  `json:"partner_from,omitempty"`
 	// Band is the survey band the result rests on.
 	Band string `json:"band,omitempty"`
+	// Bands counts the survey bands in which a smooth cycle survives
+	// taking out the slow changes, at a false alarm chance under
+	// rawMaxFAP once they are out, and stands above the comparison stars.
+	Bands int `json:"bands,omitempty"`
+	// Alias is the period the search found first, and AliasEcho the cycle
+	// it sits next to, when the period is that period's partner: the
+	// cycle the bands show together once slow changes are taken out,
+	// promoted because the first one was an echo nothing confirms.
+	Alias     float64 `json:"alias,omitempty"`
+	AliasEcho string  `json:"alias_echo,omitempty"`
+	// TESSPeriod is the smooth cycle TESS shows on its own, when it shows
+	// one.
+	TESSPeriod float64 `json:"tess_period,omitempty"`
 	// HPSNR is the cycle's signal to noise ratio once slow changes are
 	// removed, in Band; BoxZ the same for an eclipse's depth.
 	HPSNR float64 `json:"hp_snr,omitempty"`
@@ -265,9 +278,12 @@ func (a *analysis) robust(comps [][]lc.Series) *Robust {
 	if r.Echo != "" {
 		r.Confirmed = a.confirm(r.TESS)
 	}
-	if r.Partner == 0 && a.kind == KindSinusoidal {
-		if p, ok := a.tessPeriod(); ok && math.Abs(p/e.Period-1) > 0.01 {
-			r.Partner, r.PartnerFrom = p, lc.TESS
+	if a.kind == KindSinusoidal {
+		if p, ok := a.tessPeriod(); ok {
+			r.TESSPeriod = p
+			if r.Partner == 0 && math.Abs(p/e.Period-1) > 0.01 {
+				r.Partner, r.PartnerFrom = p, lc.TESS
+			}
 		}
 	}
 	return r
@@ -299,6 +315,7 @@ type sineBand struct {
 	compOK     bool
 	partner    float64
 	partnerFAP float64
+	slowFAP    float64
 }
 
 func (s *sineBand) rank() int {
@@ -335,6 +352,7 @@ func (s *sineBand) slowTest(per float64) {
 		top = pg.top(3)
 	}
 	p := fap(powerNear(pts, per), pts)
+	s.slowFAP = p
 	if per < shortPeriod {
 		s.stable = ok && s.snr >= hpMinSNR && p < hpMaxFAP && amongPeriods(per, top)
 	} else {
@@ -391,6 +409,9 @@ func (a *analysis) robustSine(r *Robust, cb []map[string][]pt) {
 		s.slowTest(P)
 		s.compTest(P, cb)
 		all = append(all, s)
+		if s.stable && s.compOK && s.slowFAP < rawMaxFAP {
+			r.Bands++
+		}
 		if best == nil || s.rank() > best.rank() {
 			best = s
 		}

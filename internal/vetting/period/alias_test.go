@@ -10,12 +10,12 @@ import (
 // TestSlowFadeEcho167 is source 167 (Gaia DR3 387387289682776192), whose
 // ZTF light curve faded by 0.25 mag in g over 2022 and 2023 and came back.
 // Daily visits turn that slow fade into cycles of about one day: the vet
-// once called it an eclipsing binary of 0.997727 days. Once the fade is
-// taken out, ZTF g and r show a 4.318 day smooth cycle that its five
-// comparison stars lack, and TESS sectors 17, 57 and 84 show 4.27 to 4.35
-// days with nothing at one day. The vet must flag the period as a daily
-// echo that nothing confirms, and name 4.318 days, not its 0.810 day
-// echo, as the cycle left once the slow changes are taken out.
+// once called it an eclipsing binary of 0.997727 days, then a 0.99965 day
+// cycle next to one day. Once the fade is taken out, ZTF g and r show a
+// 4.318 day smooth cycle that its five comparison stars lack, and TESS
+// sectors 17, 57 and 84 show 4.27 to 4.35 days with nothing at one day.
+// The vet must report 4.318 days as the period, with the daily echo it
+// replaces, and the season to season fade in g, r and i.
 func TestSlowFadeEcho167(t *testing.T) {
 	t.Parallel()
 	series, comps := caseSeries(t, "testdata/alias/167.csv.zst")
@@ -27,14 +27,23 @@ func TestSlowFadeEcho167(t *testing.T) {
 	if e == nil || r == nil {
 		t.Fatalf("no period tests: %+v", res)
 	}
-	t.Logf("%s %.6f echo=%q confirmed=%q real=%v partner=%.5f from %s", e.Kind, e.Period, r.Echo, r.Confirmed, r.Real, r.Partner, r.PartnerFrom)
-	if r.Echo == "" {
-		t.Errorf("%.6f days not flagged as a daily echo", e.Period)
+	t.Logf("%s %.6f echo=%q real=%v bands=%d alias=%.5f %q", e.Kind, e.Period, r.Echo, r.Real, r.Bands, r.Alias, r.AliasEcho)
+	if e.Kind != KindSinusoidal || math.Abs(e.Period-4.318) > 0.01 {
+		t.Errorf("period %s %.5f days, want sinusoidal 4.318", e.Kind, e.Period)
 	}
-	if r.Confirmed != "" {
-		t.Errorf("echo confirmed by %s", r.Confirmed)
+	if r.Echo != "" || !r.Real || r.Bands < 2 {
+		t.Errorf("4.318 days not real in two bands: echo=%q real=%v bands=%d", r.Echo, r.Real, r.Bands)
 	}
-	if math.Abs(r.Partner-4.318) > 0.01 {
-		t.Errorf("partner %.5f days, want 4.318", r.Partner)
+	if r.AliasEcho != "one day" || math.Abs(r.Alias-1) > 0.01 {
+		t.Errorf("replaced %.5f days next to %q, want the daily echo", r.Alias, r.AliasEcho)
+	}
+	if !res.Trend.Proven() {
+		t.Fatalf("season to season fade not found: %+v", res.Trend)
+	}
+	for _, b := range res.Trend.Bands {
+		t.Logf("trend %s range=%.3f z=%.1f comp=%.3f n=%d", b.Band, b.Range, b.Z, b.CompRange, b.Comparisons)
+	}
+	if l := res.Trend.Largest(); l.Band != lc.ZTF+" g" || math.Abs(l.Range-0.27) > 0.03 {
+		t.Errorf("largest fade %s %.3f mag, want ZTF g about 0.27", l.Band, l.Range)
 	}
 }
