@@ -53,10 +53,12 @@ func parityName(p int) string {
 
 type tessMin struct {
 	sector int
+	at     float64
 	lag    float64
 	err    float64
 	pred   float64
 	good   bool
+	late   bool
 	faint  bool
 	shared bool
 }
@@ -193,8 +195,10 @@ func (a *analysis) tessJudge(se *series, fits []tessFit, skip []bool) ([]tessMin
 		if seen && !deep {
 			deep = ref-sf.scale <= tessDepthZ*scaleErr
 		}
-		good := !faint && deep && math.Abs(lag) <= 5*math.Hypot(tauErr*1440, f.pred)+5
-		out = append(out, tessMin{sector: se.sector, lag: lag, err: tauErr * 1440, pred: f.pred, good: good, faint: faint})
+		onTime := math.Abs(lag) <= 5*math.Hypot(tauErr*1440, f.pred)+5
+		good := !faint && deep && onTime
+		out = append(out, tessMin{sector: se.sector, at: f.tm + a.f.tref, lag: lag, err: tauErr * 1440, pred: f.pred,
+			good: good, late: !faint && !onTime, faint: faint})
 		taus = append(taus, sf.tau)
 	}
 	return out, taus
@@ -364,9 +368,9 @@ func (a *analysis) surveyFits() []SurveyFit {
 					}
 					sf.Minima++
 					sf.MaxLagM = math.Max(sf.MaxLagM, math.Abs(x.lag))
-					if !x.good {
-						sf.Agrees = false
-					}
+				}
+				if !tallyTESS(tm).agrees() {
+					sf.Agrees = false
 				}
 			}
 		}

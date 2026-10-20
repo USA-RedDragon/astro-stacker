@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
@@ -334,22 +335,107 @@ func (a *analysis) tessRow(si surveyInfo, fits []SurveyFit) check.Check {
 		}
 		return check.New(check.TESS, check.Pass, head+": caught only parts of dips, as deep as predicted.")
 	}
-	worst, worstBad, bad := 0.0, 0.0, 0
-	for _, x := range timed {
-		worst = math.Max(worst, math.Abs(x.lag))
-		if !x.good {
-			bad++
-			worstBad = math.Max(worstBad, math.Abs(x.lag))
+	t := tallyTESS(timed)
+	if !t.agrees() {
+		return check.New(check.TESS, check.Fail, fmt.Sprintf("%s: of %s, %s%s.", head, plural(t.n, "dip", "dips"), t.misses(), note))
+	}
+	if t.lone != nil {
+		return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: %s, each within %s of the predicted time; the one of %s in sector %d is at most half as deep as the same dip in the rest of the sector%s.",
+			head, plural(t.n, "dip", "dips"), minutes(t.worst), fmtDate(t.lone.at), t.lone.sector, note))
+	}
+	if t.n == 1 {
+		return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: 1 dip, %s from the predicted time%s.", head, minutes(t.worst), note))
+	}
+	return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: %s, each within %s of the predicted time%s.", head, plural(t.n, "dip", "dips"), minutes(t.worst), note))
+}
+
+// tessLoneMin is how many TESS minima on time and at full depth let one
+// more minimum, on time but shallow, pass as a fault in that stretch of
+// the sector: 2290's 32 such minima came with one on time to 5.3 min but
+// shallow, where a wrong period or a blend misplaces many.
+const tessLoneMin = 10
+
+// tessTally sorts the timed TESS minima by how they miss.
+type tessTally struct {
+	n         int
+	worst     float64
+	late      int
+	worstLate float64
+	shallow   []tessMin
+	lone      *tessMin
+}
+
+// tallyTESS counts the minima that are neither too blended to time nor
+// set aside for dimming with other stars. A minimum off its predicted
+// time misses. One on time but shallower than the same dip's other
+// minima in its sector misses too, unless it is the only miss among
+// tessLoneMin or more good minima.
+func tallyTESS(mins []tessMin) tessTally {
+	var t tessTally
+	good := 0
+	for _, x := range mins {
+		if x.faint || x.shared {
+			continue
+		}
+		t.n++
+		t.worst = math.Max(t.worst, math.Abs(x.lag))
+		switch {
+		case x.good:
+			good++
+		case x.late:
+			t.late++
+			t.worstLate = math.Max(t.worstLate, math.Abs(x.lag))
+		default:
+			t.shallow = append(t.shallow, x)
 		}
 	}
-	if bad > 0 {
-		return check.New(check.TESS, check.Fail, fmt.Sprintf("%s: of %s, %d miss the predicted time or depth, by up to %s%s.",
-			head, plural(len(timed), "dip", "dips"), bad, minutes(worstBad), note))
+	if t.late == 0 && len(t.shallow) == 1 && good >= tessLoneMin {
+		t.lone = &t.shallow[0]
 	}
-	if len(timed) == 1 {
-		return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: 1 dip, %s from the predicted time%s.", head, minutes(worst), note))
+	return t
+}
+
+func (t tessTally) agrees() bool {
+	return t.late == 0 && (len(t.shallow) == 0 || t.lone != nil)
+}
+
+// misses says which minima missed and how.
+func (t tessTally) misses() string {
+	var parts []string
+	if t.late > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s the predicted time by up to %s", t.late, verbN(t.late, "misses", "miss"), minutes(t.worstLate)))
 	}
-	return check.New(check.TESS, check.Pass, fmt.Sprintf("%s: %s, each within %s of the predicted time%s.", head, plural(len(timed), "dip", "dips"), minutes(worst), note))
+	if n := len(t.shallow); n > 0 {
+		worst := 0.0
+		secs := map[int]bool{}
+		for _, x := range t.shallow {
+			worst = math.Max(worst, math.Abs(x.lag))
+			secs[x.sector] = true
+		}
+		list := make([]int, 0, len(secs))
+		for s := range secs {
+			list = append(list, s)
+		}
+		slices.Sort(list)
+		names := make([]string, len(list))
+		for i, s := range list {
+			names[i] = strconv.Itoa(s)
+		}
+		where := "sector " + names[0]
+		if len(names) > 1 {
+			where = "sectors " + joinList(names)
+		}
+		parts = append(parts, fmt.Sprintf("%d %s on time to within %s but at most half as deep as the same dip in the rest of %s",
+			n, verbN(n, "is", "are"), minutes(worst), where))
+	}
+	return strings.Join(parts, ", and ")
+}
+
+func verbN(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // sharedNote counts the dips set aside because other stars in the sector

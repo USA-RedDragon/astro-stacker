@@ -626,17 +626,11 @@ func (a *analysis) tessConfirms() bool {
 			return false
 		}
 		mins := a.tessMinima()
-		good := 0
-		for _, m := range mins {
-			if m.faint {
-				continue
-			}
-			if !m.good {
-				return false
-			}
-			good++
+		if slices.ContainsFunc(mins, func(m tessMin) bool { return m.shared }) {
+			return false
 		}
-		return good >= 2
+		t := tallyTESS(mins)
+		return t.agrees() && t.n-len(t.shallow) >= 2
 	case KindSinusoidal:
 		p, ok := a.tessPeriod()
 		return ok && math.Abs(p/a.eph.Period-1) < 0.01
