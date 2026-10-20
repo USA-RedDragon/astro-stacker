@@ -39,9 +39,10 @@ func echoCleared(r *vetting.Report, p float64) bool {
 // EclipsingBinary says the vet's latest report makes the star an
 // eclipsing binary with a settled period: a real verdict that is an
 // eclipsing binary, from a pipeline that tests periods against false
-// ones, whose period is not a daily echo nothing confirms. A report from
-// before those tests cannot tell and is not one until the star is vetted
-// again.
+// ones, whose period is not a daily echo nothing confirms. ZTF or ATLAS
+// measuring the dips short of the period's depth, or a fit with two dips
+// whose double check failed, refutes it. A report from before those
+// tests cannot tell and is not one until the star is vetted again.
 func EclipsingBinary(r *vetting.Report) bool {
 	if !Periodic(r) || r.Suggestion.State != app.VetReal || !tested(r) {
 		return false
@@ -50,6 +51,9 @@ func EclipsingBinary(r *vetting.Report) bool {
 		return false
 	}
 	if r.Suggestion.Kind == "" && (failed(r, check.Echo) || failed(r, check.Compare)) && !passed(r, check.TESS) {
+		return false
+	}
+	if failed(r, check.ZTF) || failed(r, check.ATLAS) || (failed(r, check.Double) && len(r.Ephemeris.Eclipses) == 2) {
 		return false
 	}
 	e, _ := adopt(r)
