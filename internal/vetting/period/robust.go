@@ -48,6 +48,8 @@ const (
 	tessMinShare  = 0.3
 	groundShare   = 0.5
 	groundRuleZ   = 3.0
+	seasonKeepFAP = 0.01
+	seasonKeep    = 0.25
 )
 
 // Robust is how a found period stands up to the tests that catch false
@@ -134,6 +136,17 @@ type Robust struct {
 	// timing drifts.
 	SeasonFits int `json:"season_fits,omitempty"`
 	SeasonHits int `json:"season_hits,omitempty"`
+	// SeasonEcho says a smooth cycle next to a daily echo, which nothing
+	// confirms, goes away once each season's level is taken out. Next to
+	// a daily echo, nightly visits see a true cycle's phase drift by under
+	// half a cycle in a season, so a true cycle goes away too: the cycle
+	// may be the season-to-season changes, but this cannot refute it.
+	// SeasonBand is the band with the strongest raw cycle, and RawPower
+	// and SeasonPower its Lomb-Scargle power before and after.
+	SeasonEcho  bool    `json:"season_echo,omitempty"`
+	SeasonBand  string  `json:"season_band,omitempty"`
+	RawPower    float64 `json:"raw_power,omitempty"`
+	SeasonPower float64 `json:"season_power,omitempty"`
 }
 
 // HoldsBySeason says most seasons, fitted band by band on their own,
@@ -299,6 +312,9 @@ func (a *analysis) robust(comps [][]lc.Series) *Robust {
 	r.TESS = !r.TESSOnly && a.tessConfirms()
 	if r.Echo != "" {
 		r.Confirmed = a.confirm(r.TESS)
+	}
+	if a.kind == KindSinusoidal && r.Echo != "" && r.Confirmed == "" {
+		r.SeasonEcho, r.SeasonBand, r.RawPower, r.SeasonPower = a.seasonEcho()
 	}
 	if a.kind == KindSinusoidal {
 		if p, ok := a.tessPeriod(); ok {
@@ -792,6 +808,36 @@ func (a *analysis) tessPeriod() (float64, bool) {
 		return 0, false
 	}
 	return per, true
+}
+
+// seasonEcho says a smooth cycle next to a daily echo goes away once each
+// season's level is taken out, in every ZTF and ATLAS band that shows it
+// in the raw points: under seasonKeep of its raw Lomb-Scargle power
+// and no longer significant at seasonKeepFAP. It returns the band with
+// the strongest raw cycle and its power before and after.
+func (a *analysis) seasonEcho() (bool, string, float64, float64) {
+	P := a.eph.Period
+	band, raw, detr := "", 0.0, 0.0
+	for _, b := range a.bands() {
+		if !testedSurvey(a.d.groups[b.g].survey) {
+			continue
+		}
+		rp := powerNear(b.raw, P)
+		if fap(rp, b.raw) >= rawMaxFAP {
+			continue
+		}
+		if len(b.detr) < minBand {
+			return false, "", 0, 0
+		}
+		dp := powerNear(b.detr, P)
+		if fap(dp, b.detr) < seasonKeepFAP || dp >= seasonKeep*rp {
+			return false, "", 0, 0
+		}
+		if rp > raw {
+			band, raw, detr = b.key, rp, dp
+		}
+	}
+	return band != "", band, raw, detr
 }
 
 // siderealEcho says a period sits next to a sidereal day or a whole

@@ -344,6 +344,9 @@ func periodDoubt(e *period.Ephemeris, r *period.Robust, groups []Group, known Kn
 	case !slowOK && known.Expected != "":
 		s = Suggestion{State: app.VetKnown, Say: fmt.Sprintf("Known %s, irregular changes expected", known.Expected), Confidence: Medium,
 			Why: joinSentences(fmt.Sprintf("SIMBAD lists it as %s, a %s; such stars change without a fixed period.", known.ExpectedName, known.Expected), evidence(groups, check.Echo))}
+	case r.SeasonEcho:
+		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: the %s-day period may be an echo of changes between seasons", ps), Confidence: Low,
+			Why: joinSentences(evidence(groups, check.Echo), "The star may still vary, but nothing shows this period on its own.")}
 	case r.Echo != "" && r.Confirmed == "":
 		s = Suggestion{State: app.VetUnsure, Say: fmt.Sprintf("Not sure: a %s-day period next to %s needs TESS", ps, r.Echo), Confidence: Low,
 			Why: joinSentences(evidence(groups, check.Echo), "The star may still vary, but not on this period.")}

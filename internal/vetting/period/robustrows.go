@@ -31,6 +31,10 @@ func (a *analysis) echoRow() check.Check {
 		if r.Confirmed != "" {
 			return check.New(check.Echo, check.Pass, fmt.Sprintf("%s, but %s show it too.", capitalize(near), r.Confirmed))
 		}
+		if r.SeasonEcho {
+			return check.New(check.Echo, check.NotRun, fmt.Sprintf("%s. Once each season's level is taken out, the cycle is gone (its strength falls from %.2f to %.2f in %s). At this period, visits about once a night cannot tell a cycle from changes between seasons; TESS or a night-long run of your own can.%s",
+				capitalize(near), r.RawPower, r.SeasonPower, r.SeasonBand, partnerWords(r)))
+		}
 		return check.New(check.Echo, check.NotRun, fmt.Sprintf("%s. ZTF alone cannot tell it from an echo; TESS or a night-long run of your own can.%s", capitalize(near), partnerWords(r)))
 	}
 	if a.kind == KindEclipsing {
