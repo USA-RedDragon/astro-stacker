@@ -242,18 +242,33 @@ func trueLight(f ownimage.StackFacts, kept float64) ownimage.StackFacts {
 // peak among the nights and filters it did report light in. 17028
 // (Cygnus Loop Panel 2, 2026-08-10) was found in H-a at signal to noise
 // 8.1 over 6 subs, and its peak was the night's all filters, which stand
-// for broadband, where it reported nothing.
+// for broadband, where it reported nothing. A peak in one broadband
+// filter gives way to the night's all filters, the frames the detection
+// combined and measured its light in: the filter that stands out most
+// among them is picked from their noise, and the light reported for them
+// all is not that filter's. 60353 (Andromeda, 2025-10-27), a bulge
+// residual, stacked to 3.4 in its 13 Blue frames against a fake's 5.2,
+// and to 1.1 against 9.0 over all 45; 39197 (IC 4604 Panel 6,
+// 2025-07-28) was found at 17.5 over 8 subs in four filters, its 2
+// Luminance subs alone at 18.6 to 18.7.
 func stackNight(fc *ownimage.FluxCurve, reps map[string]reported) (ownimage.FluxNight, bool) {
 	has := func(n ownimage.FluxNight) bool {
 		r := reportedFor(reps, n.Filter, n.Night)
 		return r.ok || r.bySNR()
 	}
 	p, ok := peak(fc)
-	if !ok || has(p) {
+	if ok && !has(p) {
+		if q, qok := peakOf(fc, has); qok {
+			p = q
+		}
+	}
+	if !ok || p.Filter == ownimage.AllFilters || discoveries.GroupOf(p.Filter) != discoveries.GroupBroadband {
 		return p, ok
 	}
-	if q, qok := peakOf(fc, has); qok {
-		return q, true
+	for _, n := range fc.Nights {
+		if n.Night == p.Night && n.Filter == ownimage.AllFilters && n.Err > 0 && has(n) {
+			return n, true
+		}
 	}
 	return p, true
 }
