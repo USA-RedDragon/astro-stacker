@@ -622,6 +622,11 @@ type star struct {
 	bp, rp     float64
 	plx, plxE  float64
 	neighbours []surveys.Neighbour
+	// skipped is the nearest Gaia star to the spot when the vet took a
+	// farther one, with Sep its distance from the spot; sep is the taken
+	// star's distance from the spot.
+	skipped *surveys.Neighbour
+	sep     float64
 }
 
 // Star matching: a spot takes the nearest Gaia star within starArcsec
@@ -702,6 +707,7 @@ func (s *Service) identify(ctx context.Context, ra, dec, refMag float64) (star, 
 	}
 	g := stars[best]
 	out.found = true
+	out.skipped, out.sep = skippedOf(stars, best, ra, dec, epochYear(s.now()))
 	out.bp, out.rp = float64(g.BP), float64(g.RP)
 	out.plx, out.plxE = finite(g.Parallax), finite(float64(g.ParallaxError))
 	out.target = surveys.Target{GaiaID: g.SourceID, RA: g.RA, Dec: g.Dec, PMRA: finite(g.PMRA), PMDec: finite(g.PMDec), G: float64(g.G)}
@@ -713,6 +719,32 @@ func (s *Service) identify(ctx context.Context, ra, dec, refMag float64) (star, 
 	}
 	out.target.Neighbours = out.neighbours
 	return out, nil
+}
+
+// skippedOf is the star nearest the spot when pickStar took stars[best]
+// over it, and stars[best]'s distance from the spot.
+func skippedOf(stars []starcat.GaiaStar, best int, ra, dec, year float64) (*surveys.Neighbour, float64) {
+	bra, bdec := stars[best].At(year)
+	sep := arcsec(ra, dec, bra, bdec)
+	if best == 0 || math.IsNaN(float64(stars[0].G)) {
+		return nil, sep
+	}
+	n := stars[0]
+	nra, ndec := n.At(year)
+	return &surveys.Neighbour{GaiaID: n.SourceID, RA: n.RA, Dec: n.Dec, G: float64(n.G), Sep: arcsec(ra, dec, nra, ndec)}, sep
+}
+
+// matchNote says why the vet read a star farther from the spot than
+// another, or "": 28575 (Abell 85) sits 0.8" from a G 18.11 star, but its
+// reference light of magnitude 15.6 is the G 15.17 star's 3.5" away, so the
+// ZTF light curve read at 15.13 was that star's, though the source listed
+// the nearer star's G.
+func (st star) matchNote(refMag float64) string {
+	if !st.found || st.skipped == nil || math.IsNaN(refMag) || refMag <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("The spot's reference light of magnitude %.1f is that of the G %.2f star %.1f\" from it, not of the nearer G %.2f star %.1f\" away, so the checks read the G %.2f star.",
+		refMag, st.target.G, st.sep, st.skipped.G, st.skipped.Sep, st.target.G)
 }
 
 func epochYear(t time.Time) float64 {
@@ -835,6 +867,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	}
 	sug := onBadNights(suggest(sum, flags, curve, known, moving, fx, pr, timing, rep.Groups, change), badNights(sum.Members, skews, runs), rep.Groups)
 	rep.Suggestion = blendOf(st, change, refMagOf(sum.Members)).notSure(sug)
+	rep.Suggestion.Why = joinSentences(rep.Suggestion.Why, st.matchNote(refMagOf(sum.Members)))
 	return rep, nil
 }
 
