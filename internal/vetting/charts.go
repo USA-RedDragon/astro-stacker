@@ -163,8 +163,9 @@ func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ep
 	lo, hi := math.Inf(1), math.Inf(-1)
 	for _, p := range pts {
 		x := (p.BJD - zero) * 24
-		ch.Points = append(ch.Points, ChartPoint{X: round(x, 4), Y: round(p.DMag, 4), Err: round(p.Err, 4)})
-		lo, hi = math.Min(lo, p.DMag-p.Err), math.Max(hi, p.DMag+p.Err)
+		er := frameErr(p.Err, curve.Scatter)
+		ch.Points = append(ch.Points, ChartPoint{X: round(x, 4), Y: round(p.DMag, 4), Err: round(er, 4)})
+		lo, hi = math.Min(lo, p.DMag-er), math.Max(hi, p.DMag+er)
 	}
 	x0, x1 := ch.Points[0].X, ch.Points[len(ch.Points)-1].X
 	pad := math.Max(0.1, (x1-x0)*0.08)
@@ -186,6 +187,16 @@ func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ep
 		ch.Legend = append(ch.Legend, LegendItem{Style: "line", Label: "Predicted dip"})
 	}
 	return ch
+}
+
+// frameErr is a frame's error no smaller than the scatter of single
+// frames on normal nights: a fit's own error leaves out how far the
+// comparison stars' fits wander from frame to frame.
+func frameErr(err, scatter float64) float64 {
+	if scatter > err && !math.IsInf(scatter, 0) {
+		return scatter
+	}
+	return err
 }
 
 func nearestMinimum(e *period.Ephemeris, bjd float64) float64 {
