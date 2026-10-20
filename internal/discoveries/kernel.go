@@ -154,8 +154,8 @@ func solveSPD(a [][kernelTerms]float64, b []float64) ([]float64, bool) {
 	return x, true
 }
 
-// kernelStars picks bright, unsaturated, isolated stars of dst for fitting
-// kernels.
+// kernelStarsOf picks bright, unsaturated, isolated stars of dst for
+// fitting kernels.
 func kernelStarsOf(dst *Plane) []Source {
 	bg := Background(dst, 128, nil)
 	work := &Plane{W: dst.W, H: dst.H, Data: make([]float32, len(dst.Data))}
@@ -168,13 +168,21 @@ func kernelStarsOf(dst *Plane) []Source {
 			maxv = math.Max(maxv, float64(v))
 		}
 	}
+	return pickKernelStars(stars, maxv)
+}
+
+// pickKernelStars keeps the stars under 0.3 of the image's brightest pixel
+// with no other star, saturated ones included, within kernelIsolated: one
+// saturated star in a stamp outweighs the rest of the tile's stars in the
+// fit.
+func pickKernelStars(stars []Source, maxv float64) []Source {
 	var keep []Source
-	for _, s := range stars {
+	for _, s := range isolated(stars, kernelIsolated) {
 		if !s.Edge && s.Peak < 0.3*maxv {
 			keep = append(keep, s)
 		}
 	}
-	return isolated(keep, kernelIsolated)
+	return keep
 }
 
 func isolated(stars []Source, r float64) []Source {
