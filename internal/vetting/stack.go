@@ -186,6 +186,9 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 		f.RefuteMin = discoveries.MinLocalSNR
 	}
 	v, why := ownimage.JudgeStack(f)
+	if v == ownimage.StackConfirmed && !wing {
+		v, why = underTheHold(trueLight(f, p.Kept()), p.N, rep.subs)
+	}
 	if v == ownimage.StackUntested && !wing {
 		if c, ok := tooWeakToFind(trueLight(f, p.Kept()), p.N, rep.subs, ev); ok {
 			return c, ownimage.StackRefuted
@@ -319,6 +322,24 @@ func spotTooWeakToFind(f ownimage.StackFacts, n, subs int, ev string) (check.Che
 	}
 	return check.New(check.TransStack, check.Fail, ev+fmt.Sprintf(" It is too faint to have been found: over all %d subs the detection tested, the spot would stand at about %.1f against the noise around it, under the %.1f a detection needs, where the light it reported would stand at %.1f.",
 		max(subs, n), obs, discoveries.MinLocalSNR, f.Inj*k)), true
+}
+
+// underTheHold leaves a confirming stack doubtful when the spot, scaled to
+// all the subs the detection tested, stands under discoveries.MinLocalSNR:
+// a detection that measured the noise around the spot would not have
+// found it, and a fake the stack matches says only that the light could
+// be there. 13924 (Crab Nebula, 2026-09-13) and 39478 (Cygnus Loop Panel
+// 2, 2025-06-28), both artifacts, confirmed at 4.4 and 4.0 against fakes
+// of 5.6; AT 2026acsi, a real nova, stood at 6.2.
+func underTheHold(f ownimage.StackFacts, n, subs int) (ownimage.StackVerdict, string) {
+	k := 1.0
+	if n > 0 {
+		k = math.Sqrt(math.Max(1, float64(subs)/float64(n)))
+	}
+	if obs := f.Obs * k; obs < discoveries.MinLocalSNR {
+		return ownimage.StackDoubtful, fmt.Sprintf("over all %d subs the detection tested it would stand at only %.1f against the noise around it, under the %.1f a detection needs", max(subs, n), obs, discoveries.MinLocalSNR)
+	}
+	return ownimage.StackConfirmed, ""
 }
 
 // lostInWing refutes new light beside a bright star when, with the star

@@ -205,6 +205,33 @@ func TestStackRunsOnAllTheFiltersThatFoundIt(t *testing.T) {
 	}
 }
 
+func TestStackUnderTheDetectionHoldDoesNotConfirm(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		obs, inj float64
+		n, subs  int
+		want     ownimage.StackVerdict
+	}{
+		{"13924, Crab Nebula", 4.4, 5.6, 5, 5, ownimage.StackDoubtful},
+		{"39478, Cygnus Loop Panel 2", 4.0, 5.6, 2, 2, ownimage.StackDoubtful},
+		{"182, AT 2026acsi", 6.2, 5.8, 12, 12, ownimage.StackConfirmed},
+		{"fewer frames than the detection tested", 4.0, 5.6, 2, 8, ownimage.StackConfirmed},
+	}
+	for _, c := range cases {
+		e := auditLight / c.inj
+		n := ownimage.FluxNight{Night: "2026-09-13", Filter: lum, N: c.n, Flux: c.obs * e, Err: e, Local: e, Empty99: 2.4 * e, Flagged: true}
+		reps := auditReps("2026-09-13")
+		for k, r := range reps {
+			r.subs = c.subs
+			reps[k] = r
+		}
+		if ch, v := transientStack(curveOf(n), reps); v != c.want {
+			t.Errorf("%s: %s, want %s: %s", c.name, v, c.want, ch.Evidence)
+		}
+	}
+}
+
 func TestStackRefutesLightLostInAStarsWing(t *testing.T) {
 	t.Parallel()
 	wingCurve := func(sigma, err, floor, nightErr float64, n int) *ownimage.FluxCurve {
