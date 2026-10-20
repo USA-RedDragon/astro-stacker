@@ -18,4 +18,17 @@ func TestParseRemoteAnswers(t *testing.T) {
 	if err != nil || len(ds) != 2 || ds[0].Band != "g" || ds[0].Positive || ds[1].Band != "r" || !ds[1].Positive || ds[1].Mag != 16.7 {
 		t.Errorf("alerce %+v %v", ds, err)
 	}
+	head := "ebpminrp_gspphot,ebpminrp_gspphot_upper,teff_gspphot\n"
+	if r, err := parseReddening([]byte(head + "0.2019,0.2113,5637.239\n")); err != nil || !r.Found || r.EBPRP != 0.2019 || r.EBPRPUpper != 0.2113 || r.Teff != 5637.239 {
+		t.Errorf("gaia reddening %+v %v", r, err)
+	}
+	if r, err := parseReddening([]byte(head)); err != nil || r.Found {
+		t.Errorf("gaia without parameters %+v %v", r, err)
+	}
+	if r, err := parseReddening([]byte(head + ",,\n")); err != nil || r.Found {
+		t.Errorf("gaia with empty parameters %+v %v", r, err)
+	}
+	if _, err := parseReddening([]byte("<VOTABLE>")); err == nil {
+		t.Error("gaia error page read as an answer")
+	}
 }

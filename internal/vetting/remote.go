@@ -260,3 +260,87 @@ func parsePS1(b []byte) ([]PS1Object, error) {
 	}
 	return out, nil
 }
+
+// GaiaTAPURL is the Gaia archive's synchronous TAP service.
+const GaiaTAPURL = "https://gea.esac.esa.int/tap-server/tap/sync"
+
+// Reddening is Gaia DR3 GSP-Phot's reddening of one star: E(BP-RP) with
+// its 84th percentile, and its temperature, from the star's BP and RP
+// spectra.
+type Reddening struct {
+	EBPRP      float64 `json:"ebpminrp"`
+	EBPRPUpper float64 `json:"ebpminrp_upper"`
+	Teff       float64 `json:"teff"`
+	Found      bool    `json:"found"`
+}
+
+// GaiaReddening gives a Gaia DR3 star's GSP-Phot reddening.
+type GaiaReddening func(ctx context.Context, sourceID int64) (Reddening, error)
+
+// GaiaAP asks the Gaia archive for a star's GSP-Phot reddening, keeping
+// each answer under prefix for a year: DR3 does not change.
+func GaiaAP(client *http.Client, base string, cache Cache, prefix string, now func() time.Time) GaiaReddening {
+	if base == "" {
+		base = GaiaTAPURL
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 60 * time.Second}
+	}
+	return func(ctx context.Context, sourceID int64) (Reddening, error) {
+		key := fmt.Sprintf("%sgaia-ap/%d.json.zst", prefix, sourceID)
+		return cached(ctx, cache, key, 365*24*time.Hour, now, func() (Reddening, error) {
+			form := url.Values{}
+			form.Set("REQUEST", "doQuery")
+			form.Set("LANG", "ADQL")
+			form.Set("FORMAT", "csv")
+			form.Set("QUERY", fmt.Sprintf("SELECT ebpminrp_gspphot, ebpminrp_gspphot_upper, teff_gspphot FROM gaiadr3.astrophysical_parameters WHERE source_id = %d", sourceID))
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, base, strings.NewReader(form.Encode()))
+			if err != nil {
+				return Reddening{}, err
+			}
+			req.Header.Set("User-Agent", userAgent)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp, err := client.Do(req)
+			if err != nil {
+				return Reddening{}, fmt.Errorf("gaia: %w", err)
+			}
+			defer resp.Body.Close()
+			b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			if err != nil {
+				return Reddening{}, fmt.Errorf("gaia: %w", err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				return Reddening{}, fmt.Errorf("gaia: %s", resp.Status)
+			}
+			return parseReddening(b)
+		})
+	}
+}
+
+var errGaiaAP = errors.New("gaia: unexpected response")
+
+func parseReddening(b []byte) (Reddening, error) {
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "ebpminrp_gspphot,ebpminrp_gspphot_upper,teff_gspphot" {
+		return Reddening{}, errGaiaAP
+	}
+	if len(lines) < 2 {
+		return Reddening{}, nil
+	}
+	f := strings.Split(strings.TrimSpace(lines[1]), ",")
+	if len(f) != 3 {
+		return Reddening{}, errGaiaAP
+	}
+	v := make([]float64, 3)
+	for i, s := range f {
+		x, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		if err != nil {
+			if strings.TrimSpace(s) == "" {
+				return Reddening{}, nil
+			}
+			return Reddening{}, errGaiaAP
+		}
+		v[i] = x
+	}
+	return Reddening{EBPRP: v[0], EBPRPUpper: v[1], Teff: v[2], Found: true}, nil
+}

@@ -44,6 +44,9 @@ type Service struct {
 	// light where no star was.
 	PS1    PS1
 	Alerts Alerts
+	// Reddening gives a Gaia star's GSP-Phot reddening, which bounds how
+	// hot it can be for the dark companion test.
+	Reddening GaiaReddening
 	// ReadOnly leaves the field caches as they are: a preview pulls no
 	// survey fields.
 	ReadOnly bool
@@ -774,6 +777,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		ownSeries = curve.Series()
 	}
 	change := changeOf(sum)
+	colour := s.colourOf(ctx, st)
 	analyzeAll := func() (*period.Result, []lc.Series) {
 		var series []lc.Series
 		for _, x := range fx.all() {
@@ -782,7 +786,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		if sum.Source.Kind == kindMover || len(series) == 0 {
 			return nil, series
 		}
-		opts := period.Options{ChangeMag: change.Mag, G: finite(st.target.G), Parallax: st.plx, ParallaxErr: st.plxE}
+		opts := period.Options{ChangeMag: change.Mag, G: finite(st.target.G), Parallax: st.plx, ParallaxErr: st.plxE, Colour: colour}
 		if !change.Fainter {
 			opts.ChangeMag = -change.Mag
 		}
@@ -1028,6 +1032,24 @@ func (s *Service) Prefetch(ctx context.Context, objects []string) error {
 
 func hasPeriod(e *period.Ephemeris) bool {
 	return e != nil && e.Period > 0 && (e.Kind == period.KindEclipsing || e.Kind == period.KindSinusoidal)
+}
+
+// colourOf is the star's Gaia BP-RP with its GSP-Phot reddening, or nil
+// when either is missing.
+func (s *Service) colourOf(ctx context.Context, st star) *period.Colour {
+	bprp := st.bp - st.rp
+	if s.Reddening == nil || !st.found || st.target.GaiaID == 0 || math.IsNaN(bprp) || math.IsInf(bprp, 0) || st.bp == 0 || st.rp == 0 {
+		return nil
+	}
+	r, err := s.Reddening(ctx, st.target.GaiaID)
+	if err != nil {
+		slog.Warn("Gaia reddening lookup failed", "gaia", st.target.GaiaID, "error", err)
+		return nil
+	}
+	if !r.Found {
+		return nil
+	}
+	return &period.Colour{BPRP: bprp, EBPRPUpper: r.EBPRPUpper}
 }
 
 func finite(v float64) float64 {
