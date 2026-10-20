@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/binaries"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -55,6 +56,59 @@ func applyBinaryRoutes(g *gin.RouterGroup, svc *binaries.Service) {
 	g.DELETE("/discoveries/eclipses/requests/:id", func(c *gin.Context) { cancelEclipse(c, svc) })
 	g.GET("/discoveries/sources/:id/share", func(c *gin.Context) { sourceShare(c, svc) })
 	g.GET("/discoveries/sources/:id/share.jpg", func(c *gin.Context) { sourceShareJPEG(c, svc) })
+	g.GET("/discoveries/live-curve", func(c *gin.Context) { liveCurve(c, svc) })
+	g.GET("/discoveries/dip-watches", func(c *gin.Context) { dipWatches(c, svc) })
+	g.PUT("/discoveries/dip-watches", func(c *gin.Context) { saveDipWatch(c, svc) })
+}
+
+// LiveCurveView is the Now page's live card, or none.
+type LiveCurveView struct {
+	Live *binaries.LiveCurve `json:"live"`
+}
+
+func liveCurve(c *gin.Context, svc *binaries.Service) {
+	v, ok := svc.Live()
+	if !ok {
+		c.JSON(http.StatusOK, LiveCurveView{})
+		return
+	}
+	c.JSON(http.StatusOK, LiveCurveView{Live: &v})
+}
+
+func dipWatches(c *gin.Context, svc *binaries.Service) {
+	rows, err := svc.DipWatches(c.Request.Context())
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"dip_watches": rows})
+}
+
+func saveDipWatch(c *gin.Context, svc *binaries.Service) {
+	var body struct {
+		SourceID    int       `json:"source_id"`
+		ProjectGUID string    `json:"project_guid"`
+		Start       time.Time `json:"start"`
+		End         time.Time `json:"end"`
+		DepthLow    float64   `json:"depth_low"`
+		DepthHigh   float64   `json:"depth_high"`
+		ActiveShare float64   `json:"active_share"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		return
+	}
+	w, err := svc.SaveDipWatch(c.Request.Context(), app.DipWatch{SourceID: body.SourceID, ProjectGUID: body.ProjectGUID, Start: body.Start.UTC(),
+		End: body.End.UTC(), DepthLow: body.DepthLow, DepthHigh: body.DepthHigh, ActiveShare: body.ActiveShare})
+	if errors.Is(err, binaries.ErrBadDipWatch) {
+		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
+		return
+	}
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, w)
 }
 
 func binaryError(c *gin.Context, err error) {
