@@ -26,14 +26,16 @@ func opts3635(comps [][]lc.Series) Options {
 }
 
 // vetDumpSeries reads a vet input dump: the star's series, its own
-// points included, and the comparison stars in their order.
+// points included, and the comparison stars in their order. Rows of one
+// band with different notes are separate series, as the vet loads them:
+// each ATLAS camera has its own zero point.
 func vetDumpSeries(t *testing.T, path string) ([]lc.Series, [][]lc.Series) {
 	t.Helper()
-	type sk struct{ who, survey, band string }
+	type sk struct{ who, survey, band, note string }
 	by := map[sk]*lc.Series{}
 	var order []sk
 	for _, r := range readCSV(t, path) {
-		k := sk{r["who"], r["survey"], r["band"]}
+		k := sk{r["who"], r["survey"], r["band"], r["note"]}
 		s, ok := by[k]
 		if !ok {
 			dil := num(t, r["dil"])
