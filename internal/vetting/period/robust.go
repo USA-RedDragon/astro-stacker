@@ -143,10 +143,12 @@ type Robust struct {
 	// may be the season-to-season changes, but this cannot refute it.
 	// SeasonBand is the band with the strongest raw cycle, and RawPower
 	// and SeasonPower its Lomb-Scargle power before and after.
-	SeasonEcho  bool    `json:"season_echo,omitempty"`
-	SeasonBand  string  `json:"season_band,omitempty"`
-	RawPower    float64 `json:"raw_power,omitempty"`
-	SeasonPower float64 `json:"season_power,omitempty"`
+	SeasonEcho bool `json:"season_echo,omitempty"`
+	// TESSRule is set when TESS rules out the smooth cycle.
+	TESSRule    *TESSRule `json:"tess_rule,omitempty"`
+	SeasonBand  string    `json:"season_band,omitempty"`
+	RawPower    float64   `json:"raw_power,omitempty"`
+	SeasonPower float64   `json:"season_power,omitempty"`
 }
 
 // HoldsBySeason says most seasons, fitted band by band on their own,
@@ -312,6 +314,9 @@ func (a *analysis) robust(comps [][]lc.Series) *Robust {
 	r.TESS = !r.TESSOnly && a.tessConfirms()
 	if r.Echo != "" {
 		r.Confirmed = a.confirm(r.TESS)
+	}
+	if a.kind == KindSinusoidal && !r.TESS {
+		r.TESSRule = a.tessRules()
 	}
 	if a.kind == KindSinusoidal && r.Echo != "" && r.Confirmed == "" {
 		r.SeasonEcho, r.SeasonBand, r.RawPower, r.SeasonPower = a.seasonEcho()

@@ -480,6 +480,11 @@ func (a *analysis) sineRow(s string, si surveyInfo, fits []SurveyFit) check.Chec
 		}
 	}
 	amp := 2 * a.sine.amp[best]
+	if !agrees && s == lc.TESS && a.rob != nil && a.rob.TESSRule != nil {
+		tr := a.rob.TESSRule
+		return check.New(id, check.Fail, fmt.Sprintf("%s TESS would see the cycle and does not: with the neighbours' light taken out, in %s it changes by at most %s mag every %s days, twice that or half that, under half the %s mag %s shows. The same cycle added to the TESS points comes back at %s mag or more.",
+			base, plural(tr.Sectors, "sector", "sectors"), mag3(tr.Limit), fmtPeriod(a.sine.P, a.sine.res.sigma(0)), mag3(tr.Claim), tr.Band, mag3(tr.Recovered)))
+	}
 	if !agrees {
 		return check.New(id, check.NotRun, fmt.Sprintf("%s Too faint a change here to see the %s day cycle.", base, fmtPeriod(a.sine.P, a.sine.res.sigma(0))))
 	}
