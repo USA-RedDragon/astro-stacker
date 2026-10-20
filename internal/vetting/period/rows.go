@@ -93,24 +93,36 @@ func (a *analysis) eclipseRow(s string, si surveyInfo, fits []SurveyFit) check.C
 	id := surveyID(s)
 	m := a.ecl
 	base := fmt.Sprintf("%s %s.", si.counts, si.span)
-	in, agrees := 0, true
-	bestG, bestIn := -1, 0
+	in, bad := 0, -1
+	bestG, bestIn, bestShows, noisy := -1, 0, false, false
 	for _, g := range si.groups {
 		f := fits[g]
 		in += f.InDip1 + f.InDip2
-		agrees = agrees && f.Agrees
-		if f.InDip1+f.InDip2 > bestIn && (m.active[g][0] || (len(m.dips) > 1 && m.active[g][1])) {
-			bestG, bestIn = g, f.InDip1+f.InDip2
+		if !f.Agrees && bad < 0 {
+			bad = g
+		}
+		if !(m.active[g][0] || (len(m.dips) > 1 && m.active[g][1])) {
+			continue
+		}
+		n := f.InDip1 + f.InDip2
+		if (f.Shows && !bestShows) || (f.Shows == bestShows && n > bestIn) {
+			bestG, bestIn, bestShows = g, n, f.Shows
 		}
 	}
-	if !agrees {
-		return check.New(id, check.Fail, base+" The points that fall in the dips are not fainter, against the period from the other surveys.")
+	if bad >= 0 {
+		return check.New(id, check.Fail, base+" "+a.shallowWords(bad)+", against the period from the other surveys.")
 	}
 	if in == 0 {
 		return check.New(id, check.NotRun, base+" None fall in a dip.")
 	}
 	if bestG < 0 {
 		return check.New(id, check.NotRun, fmt.Sprintf("%s %s fall near dips, but too few deep inside one to measure it.", base, plural(in, "point", "points")))
+	}
+	for _, g := range si.groups {
+		noisy = noisy || a.coreDip(g)
+	}
+	if !bestShows && noisy {
+		return check.New(id, check.NotRun, fmt.Sprintf("%s %s fall in dips, but they scatter too much to show the dip or rule it out.", base, plural(in, "point", "points")))
 	}
 	if s == lc.ZTF {
 		return check.New(id, check.Pass, fmt.Sprintf("%s Repeats every %s days.", base, fmtPeriod(m.P, m.res.sigma(0))))
@@ -126,6 +138,47 @@ func (a *analysis) eclipseRow(s string, si surveyInfo, fits []SurveyFit) check.C
 	}
 	return check.New(id, check.Pass, fmt.Sprintf("%s %s fall in dips, %s %s mag deep in %s, as the period predicts.%s",
 		base, plural(in, "point", "points"), a.dipName(k), mag2(m.depth[bestG][k]), bandLabel(a.d.groups[bestG]), blendNote(si)))
+}
+
+// coreDip reports whether group g has three or more points deep inside
+// an active dip, enough that its depth was measured.
+func (a *analysis) coreDip(g int) bool {
+	m := a.ecl
+	n := 0
+	a.rawPoints(func(se *series, p obs) {
+		if se.group != g {
+			return
+		}
+		for k := range m.dips {
+			if sh, _ := m.shapeAt(p.t, k); sh > 0.5 && m.active[g][k] {
+				n++
+				return
+			}
+		}
+	})
+	return n >= 3
+}
+
+// shallowWords says how group g's dips fall short of the depth the other
+// bands predict.
+func (a *analysis) shallowWords(g int) string {
+	m := a.ecl
+	shown := m.shownDepths(a.d)
+	gr := a.d.groups[g]
+	for k := range m.dips {
+		if !m.active[g][k] {
+			continue
+		}
+		pred := predictedDepth(shown[k], g, gr.dil)
+		if pred < 0 {
+			continue
+		}
+		dep, se := m.depth[g][k], m.depthSigma(g, k)
+		if contradicts(dep, se, pred) {
+			return fmt.Sprintf("The points in %s %s are %s +- %s mag fainter, well short of the %s mag the other bands show", bandLabel(gr), a.dipName(k), mag2(dep), mag2(se), mag2(pred))
+		}
+	}
+	return fmt.Sprintf("The points in the dips are not fainter in %s", bandLabel(gr))
 }
 
 func (a *analysis) neowiseCatch() string {
