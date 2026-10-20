@@ -61,14 +61,18 @@ func (e *Ephemeris) Predict(bjd float64, band string) float64 { return predict(e
 // many of its points fall in each dip, whether those points are fainter
 // by the model's depth, and for well sampled dips (TESS) their timing.
 type SurveyFit struct {
-	Survey  string  `json:"survey"`
-	Band    string  `json:"band"`
-	Points  int     `json:"points"`
-	InDip1  int     `json:"in_dip1"`
-	InDip2  int     `json:"in_dip2"`
-	Depth1  float64 `json:"depth1"`
-	Depth2  float64 `json:"depth2"`
-	Agrees  bool    `json:"agrees"`
+	Survey string  `json:"survey"`
+	Band   string  `json:"band"`
+	Points int     `json:"points"`
+	InDip1 int     `json:"in_dip1"`
+	InDip2 int     `json:"in_dip2"`
+	Depth1 float64 `json:"depth1"`
+	Depth2 float64 `json:"depth2"`
+	// Agrees is false when the band's dips are significantly shallower
+	// than the other bands predict.
+	Agrees bool `json:"agrees"`
+	// Shows is set when the band shows a dip at three sigma.
+	Shows   bool    `json:"shows"`
 	Minima  int     `json:"minima"`
 	MaxLagM float64 `json:"max_lag_min"`
 }

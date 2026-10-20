@@ -315,6 +315,10 @@ func (a *analysis) surveyFits() []SurveyFit {
 		tm = a.tessMinima()
 	}
 	out := make([]SurveyFit, 0, len(a.d.groups))
+	var shown [][]float64
+	if a.ecl != nil {
+		shown = a.ecl.shownDepths(a.d)
+	}
 	for g, gr := range a.d.groups {
 		sf := SurveyFit{Survey: gr.survey, Band: gr.band, Points: gr.points, Agrees: true}
 		if a.ecl != nil {
@@ -339,7 +343,11 @@ func (a *analysis) surveyFits() []SurveyFit {
 				dep := 0.0
 				if m.active[g][k] {
 					dep = m.depth[g][k]
-					if core[k] >= 3 && dep < 3*m.depthSigma(g, k) {
+					se := m.depthSigma(g, k)
+					if core[k] >= 3 && dep >= 3*se {
+						sf.Shows = true
+					}
+					if core[k] >= 3 && contradicts(dep, se, predictedDepth(shown[k], g, gr.dil)) {
 						sf.Agrees = false
 					}
 				}
@@ -369,6 +377,49 @@ func (a *analysis) surveyFits() []SurveyFit {
 		out = append(out, sf)
 	}
 	return out
+}
+
+// shownDepths is, for each dip of m, every band's undiluted depth where
+// the band shows it at five sigma, by group; -1 where it does not.
+func (m *ecFit) shownDepths(d *data) [][]float64 {
+	out := make([][]float64, len(m.dips))
+	for k := range m.dips {
+		out[k] = make([]float64, len(d.groups))
+		for g := range d.groups {
+			out[k][g] = -1
+			if m.active[g][k] && m.depth[g][k] > 0 && m.depth[g][k] >= 5*m.depthSigma(g, k) {
+				out[k][g] = undilute(m.depth[g][k], d.groups[g].dil)
+			}
+		}
+	}
+	return out
+}
+
+// predictedDepth is the least depth group g should show, at dilution
+// dil, given the depths other bands show clearly: the shallowest of
+// them, diluted, since a dip's depth changes with colour. It is -1 when
+// no other band shows the dip clearly.
+func predictedDepth(shown []float64, g int, dil float64) float64 {
+	least := math.Inf(1)
+	for h, v := range shown {
+		if h != g && v > 0 {
+			least = math.Min(least, v)
+		}
+	}
+	if math.IsInf(least, 1) {
+		return -1
+	}
+	return dilute(least, dil)
+}
+
+// contradicts reports whether a band's depth dep +- se is too shallow
+// for the dip: at three sigma under half the depth the other bands
+// predict, or, when no other band shows the dip, under three sigma.
+func contradicts(dep, se, pred float64) bool {
+	if pred < 0 {
+		return dep < 3*se
+	}
+	return dep+3*se < 0.5*pred
 }
 
 func (a *analysis) checks(fits []SurveyFit) []check.Check {
