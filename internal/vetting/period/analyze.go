@@ -88,6 +88,7 @@ func analyzeSeries(d *data, own, ztf []lc.Series, opts Options, at *Ephemeris) (
 		a.rob = a.robust(comps)
 		res.Robust = a.rob
 	}
+	res.Trend = a.trend()
 	res.Checks = a.checks(res.Fits)
 	res.Fades = a.fades
 	res.SteadyFadeNights = a.steadyAt
@@ -623,5 +624,71 @@ func analyze(series []lc.Series, opts Options, at *Ephemeris) (*Result, error) {
 			ztf = append(ztf, s)
 		}
 	}
-	return analyzeSeries(prepare(series), own, ztf, opts, at)
+	opts.Comparisons = once(opts.Comparisons)
+	res, err := analyzeSeries(prepare(series), own, ztf, opts, at)
+	if at != nil {
+		return res, err
+	}
+	p, ok := partnerToPromote(res)
+	if !ok {
+		return res, err
+	}
+	alt, aerr := analyzeSeries(prepare(series), own, ztf, opts, &Ephemeris{Kind: KindSinusoidal, Period: p})
+	if aerr != nil || !promotable(alt, p) {
+		return res, err
+	}
+	alt.Robust.Alias, alt.Robust.AliasEcho = res.Ephemeris.Period, res.Robust.Echo
+	alt.Robust.Real = true
+	return alt, nil
+}
+
+// partnerToPromote is the partner cycle to test in place of a smooth
+// period that sits next to an echo of the day, month or year that
+// nothing confirms, when the partner is not such an echo itself.
+func partnerToPromote(res *Result) (float64, bool) {
+	if res == nil || res.Ephemeris == nil || res.Ephemeris.Kind != KindSinusoidal || res.Robust == nil {
+		return 0, false
+	}
+	r := res.Robust
+	if r.Echo == "" || r.Confirmed != "" || r.Partner <= 0 || echoOf(r.Partner, 0, true) != "" {
+		return 0, false
+	}
+	return r.Partner, true
+}
+
+// promotable says the fit at partner period p holds where the echo did
+// not: not an echo, at p, surviving the slow changes and above the
+// comparison stars in promoteBands bands or more, and not refuted by a
+// different cycle in TESS. Such a cycle is real even when the slow
+// changes hide it in the raw points.
+func promotable(alt *Result, p float64) bool {
+	if alt == nil || alt.Ephemeris == nil || alt.Ephemeris.Kind != KindSinusoidal || alt.Robust == nil {
+		return false
+	}
+	r := alt.Robust
+	if r.Echo != "" || !r.Stable || !r.CompPass || r.Bands < promoteBands {
+		return false
+	}
+	if math.Abs(alt.Ephemeris.Period/p-1) > 0.01 {
+		return false
+	}
+	return r.TESSPeriod == 0 || math.Abs(r.TESSPeriod/alt.Ephemeris.Period-1) < 0.02
+}
+
+// promoteBands is how many survey bands must show a partner cycle before
+// it replaces an echo.
+const promoteBands = 2
+
+func once(fn func() [][]lc.Series) func() [][]lc.Series {
+	if fn == nil {
+		return nil
+	}
+	var done bool
+	var v [][]lc.Series
+	return func() [][]lc.Series {
+		if !done {
+			v, done = fn(), true
+		}
+		return v
+	}
 }

@@ -93,6 +93,9 @@ type Result struct {
 	// night up. Fades counts them only from fadeNights backed nights; the
 	// verdict reads Fades alone.
 	SteadyFadeNights []float64 `json:"steady_fade_nights,omitempty"`
+	// Trend is the star's change from season to season in ZTF, when it
+	// changes beyond its comparison stars.
+	Trend *Trend `json:"trend,omitempty"`
 }
 
 // Options bound the search. MinPeriod and MaxPeriod are in days, 0.2
