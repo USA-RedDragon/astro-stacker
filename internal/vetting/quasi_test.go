@@ -6,6 +6,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
@@ -35,7 +36,7 @@ func TestDriftingCycleHeldBySeason(t *testing.T) {
 		{"Moon", 29.53, period.KindSinusoidal, "the Moon's cycle", 12, 12, app.VetUnsure},
 	} {
 		pr := &period.Result{Ephemeris: &period.Ephemeris{Period: x.period, Kind: x.kind},
-			Robust: &period.Robust{Echo: x.echo, Confirmed: "TESS", Stable: true, CompPass: true, Real: true, Comparisons: 5, SeasonFits: x.fits, SeasonHits: x.hits}}
+			Robust: &period.Robust{Echo: x.echo, Confirmed: lc.TESS, Stable: true, CompPass: true, Real: true, Comparisons: 5, SeasonFits: x.fits, SeasonHits: x.hits}}
 		groups := []Group{{ID: check.GroupSurveys, Checks: []check.Check{
 			check.New(check.ZTF, check.Pass, "Rises and falls."), check.New(check.Fold, check.Fail, "The 2021 season is late."),
 			check.New(check.Half, check.Pass, ""), check.New(check.Echo, check.Pass, ""), check.New(check.Compare, check.Pass, ""),

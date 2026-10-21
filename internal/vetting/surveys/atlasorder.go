@@ -79,15 +79,15 @@ func (f *Fetcher) wantsBefore(key string) int {
 // this run is still to ask. It returns the answer for the star at mine
 // when that star was queued, and how many of our tasks ATLAS held before;
 // callers hold atlasMu.
-func (f *Fetcher) atlasServe(ctx context.Context, mine string) (fe Fetch, got bool, queued int, err error) {
+func (f *Fetcher) atlasServe(ctx context.Context, mine string) (atlasServed, error) {
 	var qp struct {
 		Positions map[string]int `json:"queuepositions"`
 	}
 	if err := f.atlasRequest(ctx, http.MethodGet, f.atlasBase()+"/queuepositions.json", nil, &qp); err != nil {
-		return Fetch{}, false, 0, err
+		return atlasServed{}, err
 	}
-	queued = len(qp.Positions)
-	free := f.maxQueued() - queued
+	sv := atlasServed{queued: len(qp.Positions)}
+	free := f.maxQueued() - sv.queued
 	for _, k := range f.wantOrder() {
 		if free <= 0 {
 			break
@@ -98,7 +98,7 @@ func (f *Fetcher) atlasServe(ctx context.Context, mine string) (fe Fetch, got bo
 		}
 		out, throttled := f.atlasPost(ctx, w.field, w.t, w.refresh)
 		if k == mine {
-			fe, got = out, true
+			sv.fe, sv.got = out, true
 		}
 		if throttled {
 			break
@@ -106,7 +106,15 @@ func (f *Fetcher) atlasServe(ctx context.Context, mine string) (fe Fetch, got bo
 		delete(f.wants, k)
 		free--
 	}
-	return fe, got, queued, nil
+	return sv, nil
+}
+
+// atlasServed is what atlasServe did: fe is the answer for the star at
+// mine when got, and queued how many of our tasks ATLAS held before.
+type atlasServed struct {
+	fe     Fetch
+	got    bool
+	queued int
 }
 
 // ATLASServe gives the room our tasks at ATLAS left to the stars in line
@@ -117,7 +125,7 @@ func (f *Fetcher) ATLASServe(ctx context.Context) error {
 	if len(f.wants) == 0 || f.ATLASToken == "" {
 		return nil
 	}
-	_, _, _, err := f.atlasServe(ctx, "")
+	_, err := f.atlasServe(ctx, "")
 	return err
 }
 

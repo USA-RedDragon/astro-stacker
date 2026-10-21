@@ -1441,7 +1441,7 @@ func ownFramesSuggest(groups []Group, what, pendingNote string, stack ownimage.S
 // transientChart is the spot's own magnitude in each frame of its best
 // night.
 func transientChart(fc *ownimage.FluxCurve) Chart {
-	ch := Chart{ID: "night", Title: "Your night", XUnit: unitHours, YUnit: unitMag, YLabel: labelMag, Sub: "The new light at the spot in each of your frames.", Empty: notMeasured}
+	ch := Chart{ID: chartNight, Title: "Your night", XUnit: unitHours, YUnit: unitMag, YLabel: labelMag, Sub: "The new light at the spot in each of your frames.", Empty: notMeasured}
 	if fc == nil {
 		return ch
 	}

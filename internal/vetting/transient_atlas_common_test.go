@@ -32,7 +32,7 @@ func TestATLASCommonLight54893(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var rows []surveys.ATLASRow
+	rows := make([]surveys.ATLASRow, 0, len(recs)-1)
 	for _, r := range recs[1:] {
 		num := func(s string) float64 {
 			v, err := strconv.ParseFloat(s, 64)

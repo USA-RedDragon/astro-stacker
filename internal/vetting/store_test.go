@@ -8,6 +8,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 	"gorm.io/gorm"
 )
 
@@ -60,7 +61,7 @@ func checkPick(t *testing.T, db *gorm.DB) {
 	if due, _ := Pick(ctx, db, now.Add(time.Hour), nil, nil); len(due) != 0 {
 		t.Fatalf("a running source is not picked again: %v", ids(due))
 	}
-	r := &Report{Version: Version, Suggestion: Suggestion{State: app.VetReal, Confidence: High}, Pending: []string{"ATLAS"}}
+	r := &Report{Version: Version, Suggestion: Suggestion{State: app.VetReal, Confidence: High}, Pending: []string{lc.ATLAS}}
 	if err := save(ctx, db, newID, due0Hash(ctx, t, db), stamp{pipeline: starPipeline}, r, nil, now); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func checkRefreshPick(t *testing.T, db *gorm.DB) {
 	if got := pick(now.Add(time.Hour)); len(got) != 2 || !got[unvetted] || !got[marked] {
 		t.Fatalf("after a pipeline bump the unvetted and user-real sources are due, not artifact, known or a moving object: %v", got)
 	}
-	saveAt(marked, now, hashes[marked], starPipeline, []string{"ATLAS"})
+	saveAt(marked, now, hashes[marked], starPipeline, []string{lc.ATLAS})
 	if got := pick(now.Add(2 * time.Hour)); got[marked] {
 		t.Fatalf("a user-real source waiting on ATLAS waits %s: %v", realPendingAfter, got)
 	}
@@ -237,7 +238,7 @@ func TestPickPostgres(t *testing.T) {
 
 func TestSlug(t *testing.T) {
 	t.Parallel()
-	for in, want := range map[string]string{"Cygnis Loop Panel 2": "cygnis-loop-panel-2", "Barnard's E": "barnard-s-e", "M 15": "m-15"} {
+	for in, want := range map[string]string{"Cygnis Loop Panel 2": "cygnis-loop-panel-2", barnardsE: "barnard-s-e", "M 15": "m-15"} {
 		if got := Slug(in); got != want {
 			t.Errorf("%q: %q", in, got)
 		}

@@ -125,7 +125,7 @@ func yearOf(bjd float64) float64 { return 2000 + (bjd-2451545.0)/365.25 }
 
 func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ephemeris) Chart {
 	night := sum.Best.Night.UTC()
-	ch := Chart{ID: "night", Title: "Your night, " + dateWords(night), XUnit: unitHours, YUnit: unitDMag, YLabel: magFainter,
+	ch := Chart{ID: chartNight, Title: "Your night, " + dateWords(night), XUnit: unitHours, YUnit: unitDMag, YLabel: magFainter,
 		Sub: "Your own brightness for this star against steady nearby stars."}
 	if curve == nil {
 		ch.Title, ch.Empty = "Your night", "Not measured yet"
