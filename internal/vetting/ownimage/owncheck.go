@@ -124,9 +124,9 @@ func ownLC(sp *spotPlan, c *Curve) check.Check {
 	ev := fmt.Sprintf("Measured against %d steady nearby stars over %d frames.", c.Comps, len(pts))
 	ext := runningExtreme(pts, sp.signOf(c.ChangeNight, pts[0].Filter))
 	dip := math.Abs(ext) >= dipScatters*c.Scatter
-	clear := math.Abs(c.ChangeSigma) >= changeSigma
+	clearChange := math.Abs(c.ChangeSigma) >= changeSigma
 	switch {
-	case !dip && !clear:
+	case !dip && !clearChange:
 		ev += fmt.Sprintf(" That night shows no clear change against single frames scattering by %.2f mag.", c.Scatter)
 	case !dip:
 		ev += fmt.Sprintf(" No dip or peak within the night stands out against single frames scattering by %.2f mag.", c.Scatter)
@@ -135,7 +135,7 @@ func ownLC(sp *spotPlan, c *Curve) check.Check {
 	default:
 		ev += fmt.Sprintf(" It peaked %.2f mag brighter, against single frames scattering by %.2f mag.", -ext, c.Scatter)
 	}
-	if dip && !clear {
+	if dip && !clearChange {
 		ev += " The night's average alone is not clear of how much the star's level wanders from night to night."
 	}
 	return check.New(check.OwnLC, check.Pass, ev)

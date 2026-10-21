@@ -22,8 +22,9 @@ func TestCloseNeighboursAreMeasuredWithTheStar(t *testing.T) {
 	}
 	rng := rand.New(rand.NewPCG(15523, 1))
 	measure := func(model *starModel, blend [][3]float64) (spread, err, avg float64) {
-		var fs, es []float64
-		for range 200 {
+		const draws = 200
+		fs, es := make([]float64, 0, draws), make([]float64, 0, draws)
+		for range draws {
 			p := &discoveries.Plane{W: side, H: side, Data: make([]float32, side*side)}
 			for k := range p.Data {
 				x, y := float64(k%side), float64(k/side)

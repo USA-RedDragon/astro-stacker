@@ -29,6 +29,13 @@ const (
 	flaggedDay = "2025-06-03"
 	newX       = 232.4
 	newY       = 196.7
+	synthHa    = "H-a"
+	synthBlue  = "Blue"
+	synthGreen = "Green"
+	synthRed   = "Red"
+	brightDay  = "2025-06-01"
+	earlyDay   = "2025-01-02"
+	thinDay    = "2025-06-02"
 )
 
 type synthStar struct {
@@ -236,8 +243,12 @@ func day(s string) time.Time {
 	return t
 }
 
+func synthDays() []string {
+	return []string{earlyDay, "2025-01-05", "2025-03-01", "2025-03-04", brightDay, thinDay, flaggedDay, nextDay}
+}
+
 func synthNights() []time.Time {
-	days := []string{"2025-01-02", "2025-01-05", "2025-03-01", "2025-03-04", "2025-06-01", "2025-06-02", flaggedDay, nextDay}
+	days := synthDays()
 	out := make([]time.Time, 0, len(days))
 	for _, s := range days {
 		out = append(out, day(s))
@@ -336,7 +347,7 @@ func TestContaminatedReferenceFails(t *testing.T) {
 	f := newSynth()
 	f.addNights(synthNights(), 6)
 	for i := range f.subs {
-		if n := nightKey(f.subs[i].Night); n == "2025-01-02" || n == "2025-01-05" {
+		if n := nightKey(f.subs[i].Night); n == earlyDay || n == "2025-01-05" {
 			f.subs[i].hotSpot = 0.6
 		}
 	}
@@ -449,7 +460,7 @@ func TestPickRefTakesFarNightsFirst(t *testing.T) {
 	t.Parallel()
 	night := day(flaggedDay)
 	subs := []Sub{
-		{Night: day("2025-06-01"), Weight: 5}, {Night: day("2025-01-02"), Weight: 1}, {Night: day("2025-01-02"), Weight: 3},
+		{Night: day(brightDay), Weight: 5}, {Night: day(earlyDay), Weight: 1}, {Night: day(earlyDay), Weight: 3},
 		{Night: day("2025-03-01"), Weight: 2},
 	}
 	by := map[time.Time][]int{}
