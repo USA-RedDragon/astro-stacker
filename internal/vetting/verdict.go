@@ -40,18 +40,8 @@ func evidence(groups []Group, id string) string {
 func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.Curve, known Known, moving check.Check, fx fetches,
 	pr *period.Result, timing *period.Timing, groups []Group, c change,
 ) Suggestion {
-	direction := "brighter"
-	if c.Fainter {
-		direction = "fainter"
-	}
 	ownFlat := status(groups, check.OwnChange) == check.Fail
 	ztfFlat := status(groups, check.ZTF) == check.Fail
-	confirm := func() string {
-		if ownFlat || ztfFlat {
-			return High
-		}
-		return Medium
-	}
 	var ps *Suggestion
 	if pr != nil && pr.Ephemeris != nil {
 		p := periodic(sum, pr, timing, groups, curve, known)
@@ -63,18 +53,8 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		}
 		return *ps
 	}
-	switch {
-	case known.Reported != "":
-		return Suggestion{State: app.VetKnown, Say: sayAlreadyKnown, Confidence: High, Why: sentence(known.Reported)}
-	case flags.RefContaminated:
-		return Suggestion{State: app.VetArtifact, Say: "Artifact: reference image contaminated", Confidence: confirm(),
-			Why: joinSentences(notChanged(ownFlat, c), evidence(groups, check.RefClean), fmt.Sprintf("That made this spot look %s on the new nights.", direction))}
-	case flags.HotPixel:
-		return Suggestion{State: app.VetArtifact, Say: "Artifact: hot pixel", Confidence: confirm(), Why: evidence(groups, check.HotPixel)}
-	case flags.Trail:
-		return Suggestion{State: app.VetArtifact, Say: "Artifact: satellite trail", Confidence: confirm(), Why: evidence(groups, check.Trail)}
-	case flags.Edge:
-		return Suggestion{State: app.VetArtifact, Say: "Artifact: saturated star or image edge", Confidence: Medium, Why: evidence(groups, check.Edge)}
+	if sg, ok := flaggedSuggestion(known, flags, groups, c, ownFlat, ztfFlat); ok {
+		return sg
 	}
 	if moving.Status == check.Fail {
 		return Suggestion{State: app.VetKnown, Say: "Known asteroid or comet", Confidence: High, Why: moving.Evidence}
@@ -107,6 +87,41 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 	if ps != nil {
 		return *ps
 	}
+	return unexplained(fx, pr, groups, c, known, ztfFlat)
+}
+
+// flaggedSuggestion is the verdict on a spot a catalog already reports or
+// that the user's own frames flag as an artifact.
+func flaggedSuggestion(known Known, flags ownimage.Flags, groups []Group, c change, ownFlat, ztfFlat bool) (Suggestion, bool) {
+	direction := "brighter"
+	if c.Fainter {
+		direction = "fainter"
+	}
+	confirm := func() string {
+		if ownFlat || ztfFlat {
+			return High
+		}
+		return Medium
+	}
+	switch {
+	case known.Reported != "":
+		return Suggestion{State: app.VetKnown, Say: sayAlreadyKnown, Confidence: High, Why: sentence(known.Reported)}, true
+	case flags.RefContaminated:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: reference image contaminated", Confidence: confirm(),
+			Why: joinSentences(notChanged(ownFlat, c), evidence(groups, check.RefClean), fmt.Sprintf("That made this spot look %s on the new nights.", direction))}, true
+	case flags.HotPixel:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: hot pixel", Confidence: confirm(), Why: evidence(groups, check.HotPixel)}, true
+	case flags.Trail:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: satellite trail", Confidence: confirm(), Why: evidence(groups, check.Trail)}, true
+	case flags.Edge:
+		return Suggestion{State: app.VetArtifact, Say: "Artifact: saturated star or image edge", Confidence: Medium, Why: evidence(groups, check.Edge)}, true
+	}
+	return Suggestion{}, false
+}
+
+// unexplained is the verdict on a spot no check explains away and no
+// period accounts for.
+func unexplained(fx fetches, pr *period.Result, groups []Group, c change, known Known, ztfFlat bool) Suggestion {
 	if pr != nil && pr.Fades.Confirms() {
 		say, conf, kind := "Looks like a new variable star, brightens now and then", Medium, KindBrightens
 		if c.Fainter {
