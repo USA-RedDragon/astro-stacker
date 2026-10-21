@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/AOYs1yvdhGkip6axd06IvUJfKKE</id>
+  <title>arXiv Query: search_query=all:"Gaia21bcv"&amp;id_list=&amp;start=0&amp;max_results=5</title>
+  <updated>2026-10-21T15:41:16Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:%22Gaia21bcv%22&amp;start=0&amp;max_results=5&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>5</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2312.16367v1</id>
+    <title>An Episode of Occultation Events in Gaia21bcv</title>
+    <updated>2023-12-27T00:55:43Z</updated>
+    <link href="https://arxiv.org/abs/2312.16367v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2312.16367v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>A previously unremarkable star near the Canis Major OB1/R1 association underwent an episode of multiple deep brightness minima. Light curves based on archival Gaia, ZTF, NEOWISE data and additional observations from LCO and UKIRT show that the star was not variable prior to 2019 Aug 18 (MJD 58700), and on that date started showing brightness dips of up to 3 magnitudes in the Gaia G and ZTF r bandpasses. After MJD 59500, ~800 days after the onset of these dipping events, the star returned to its previous brightness, and no significant dipping events have been recorded since. Compared to the stable phase, NEOWISE infrared photometry in the W1 and W2 bands indicates a generally redder color, and both decreases and increases in brightness at different times during the dipping episode. The spectrum of Gaia21bcv taken after the end of the dipping episode shows several neutral and ionized metal absorption lines, including Li, indicating a spectral type of ~ K5. Variable emission from [OI] was observed. The H alpha absorption in Gaia21bcv is too faint and irregular for this spectral type, indicating that the line is partly filled in by variable emission, a signature of weak episodic accretion. Gaia21bcv lies above the zero-age main sequence, but is much fainter than typical R CrB stars. We interpret the light curve of Gaia21bcv as being similar to the occultation events in Epsilon Aurigae, i.e., occultation by a disk around a companion object orbiting the primary star.</summary>
+    <category term="astro-ph.SR" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-12-27T00:55:43Z</published>
+    <arxiv:comment>16 pages, 6 figures, accepted for publication in The Astronomical Journal</arxiv:comment>
+    <arxiv:primary_category term="astro-ph.SR"/>
+    <author>
+      <name>Klaus W. Hodapp</name>
+    </author>
+    <author>
+      <name>Eric Gaidos</name>
+    </author>
+    <author>
+      <name>Matthew A. Kenworthy</name>
+    </author>
+    <author>
+      <name>Michael Tucker</name>
+    </author>
+    <author>
+      <name>Benjamin J. Shappee</name>
+    </author>
+    <author>
+      <name>Anna V. Payne</name>
+    </author>
+    <author>
+      <name>Aaron Do</name>
+    </author>
+  </entry>
+</feed>

@@ -1,0 +1,23 @@
+#
+#   VizieR Astronomical Server vizier.cds.unistra.fr
+#    Date: 2026-10-21T15:37:02 [V7.6.1]
+#   In case of problem, please report to:	cds-question@unistra.fr
+#
+#
+#Coosys	J2000:	eq_FK5 J2000
+#INFO	service_protocol=ASU	  IVOID of the protocol through which the data was retrieved
+#INFO	request_date=2026-10-21T15:37:02	  Query execution date
+#INFO	request=https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=B/vsx/vsx&-c=359.581384%20%2B62.483537&-c.rs=5&-out=_r&-out.max=5	  Full request URL
+#INFO	contact=cds-question@unistra.fr	  Email or URL to contact publisher
+#INFO	server_software=VizieR/7.6.1	  Software version
+#INFO	publisher=CDS	  Data centre that produced the VOTable
+#INFO	-c=359.581384+62.483537,rs=5.	
+#Constraint -out.max=5
+
+#RESOURCE=VizieR_S845912222
+#Name: VizieR(2026-10-21T15:37:02)
+#Title: VizieR database maintained by CDS, see http://vizier.cds.unistra.fr
+#Table	VizieR_0:
+#Name: B/vsx/vsx
+#Title: Catalog(s) in vizier defined by: -source=B/vsx/vsx
+#Column	_r	(F4.2)	Distance from center (359.58138 62.48354)[FK5/J2000]	[ucd=pos.angDistance]

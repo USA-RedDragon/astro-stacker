@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF
+ xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" 
+ xmlns="http://purl.org/rss/1.0/"
+ xmlns:dc="http://purl.org/dc/elements/1.1/" >
+ <channel rdf:about="https://www.astronomerstelegram.org/?rss" >
+	<title>The Astronomer's Telegram:  Top ATels </title>
+	<link> https://www.astronomerstelegram.org </link>
+	<description> For reporting and commenting upon new observations of astronomical transients  by the professional astrophysics community. </description>
+
+	<dc:language>en-us</dc:language>
+
+<items>
+<rdf:Seq>
+
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18114" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18113" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18112" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18111" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18110" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18109" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18108" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18107" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18106" />
+<rdf:li rdf:resource="https://www.astronomerstelegram.org/?read=18105" />
+</rdf:Seq></items></channel>
+
+<item rdf:about="https://www.astronomerstelegram.org/?read=18114" >
+	<title> ATel 18114: Betelgeuse 2026 dimming is stopping at magnitude 1.0 at mid October </title>
+	<link> https://www.astronomerstelegram.org/?read=18114 </link>
+	<creator> Costantino Sigismondi, Fabio Mariuzza, Wolfgang Vollmann, Andrea Brucato, Andrea Reguitti  </creator>
+	<author> Costantino Sigismondi, Fabio Mariuzza, Wolfgang Vollmann, Andrea Brucato, Andrea Reguitti  </author>
+	<creatoremail> sigismondi@icra.it </creatoremail>
+	<provenance> Credentialed by: Andrea Reguitti (andreareguitti@gmail.com) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18114</identifier>
+	<description>  Betelgeuse is the closest red supergiant, and a first magnitude star, known since antiquity, lying in the constellation of Orion. In 1603 (ATel#16001) it has been classified as the brightest star of Orion by Johannes Bayer (Uranometria, Augusta, 1603) and it is the alpha star in Orion, even if -averagely- its visual magnitude is 0.45 while Rigel (beta Orionis) outshines Betelgeuse with 0.13 mag. ... </description>
+	<dc:date>2026-10-21T10:30:31-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18113" >
+	<title> ATel 18113: Spectroscopic Classification of AT 2026abza with the Lick Shane Telescope </title>
+	<link> https://www.astronomerstelegram.org/?read=18113 </link>
+	<creator> J. Karcheski, K. C. Patra, R. Kaur, R. J. Foley,  H. Abunemeh  </creator>
+	<author> J. Karcheski, K. C. Patra, R. Kaur, R. J. Foley,  H. Abunemeh  </author>
+	<creatoremail> kcpatra@ucsc.edu </creatoremail>
+	<provenance> Credentialed by: Kishore Patra (kcpatra@ucsc.edu) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18113</identifier>
+	<description>  We report the classification of AT2026abza from spectroscopic observations with the Kast spectrograph on the Shane telescope obtained on 2026 October 3 UT. ... </description>
+	<dc:date>2026-10-19T17:18:49-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18112" >
+	<title> ATel 18112:  XRISM/Xtend Transient Search (XTS) detected an X-ray flare possibly from 1eRASS J053652.4+211435 </title>
+	<link> https://www.astronomerstelegram.org/?read=18112 </link>
+	<creator> A. Yoshimoto, Y. Maeda, T. Hakamata, Y. Kanemaru, A. Miyamoto, Y. Omiya, Y. Uchida, T. Yoneyama, M. Audard, E. Behar, K. Fukushima, K. Hasegawa, H. Iinuma, S. Inoue, Y. Ishihara, N. Ishii,  S. Ishiwata, C. Kang, R. Kawada,  M. Kikuchi, T. Kiyomoto, T. Kohmura, H. Kuramoto, W. Lee, H. Matsumoto, A. Miyamoto, M. Mizumoto, Y. Motogami, H. Murakami, T. Narita, M. Nobukawa, H. Noda, S. Ogawa, K. Sakamoto, Y. Sakamoto, M. Shidatsu, H. Takahashi, T. Takagi, S. Takatsuka, F. Takisawa, Y. Terada, Y. Terashima, Y. Tsuboi, A. Uchida, H. Uchida, T. Usuki, M. Yoshimoto  </creator>
+	<author> A. Yoshimoto, Y. Maeda, T. Hakamata, Y. Kanemaru, A. Miyamoto, Y. Omiya, Y. Uchida, T. Yoneyama, M. Audard, E. Behar, K. Fukushima, K. Hasegawa, H. Iinuma, S. Inoue, Y. Ishihara, N. Ishii,  S. Ishiwata, C. Kang, R. Kawada,  M. Kikuchi, T. Kiyomoto, T. Kohmura, H. Kuramoto, W. Lee, H. Matsumoto, A. Miyamoto, M. Mizumoto, Y. Motogami, H. Murakami, T. Narita, M. Nobukawa, H. Noda, S. Ogawa, K. Sakamoto, Y. Sakamoto, M. Shidatsu, H. Takahashi, T. Takagi, S. Takatsuka, F. Takisawa, Y. Terada, Y. Terashima, Y. Tsuboi, A. Uchida, H. Uchida, T. Usuki, M. Yoshimoto  </author>
+	<creatoremail> tyoneyama263@g.chuo-u.ac.jp </creatoremail>
+	<provenance> Credentialed by: Tomokage Yoneyama (tyoneyama263@g.chuo-u.ac.jp) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18112</identifier>
+	<description> XRISM/Xtend Transient Search (XTS) detected an X-ray flare from an X-ray source XRISM J0537+2115 on 2026-10-08 TT. The source position was determined to be (R.A., Dec.) = (84.223, 21.247), with a systematic error of  &amp; sim; 40 arcsec. ... </description>
+	<dc:date>2026-10-19T13:01:26-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18111" >
+	<title> ATel 18111: MAXI/GSC detection of an X-ray flares from UX Ari on 2026-10-17 UT </title>
+	<link> https://www.astronomerstelegram.org/?read=18111 </link>
+	<creator> Y. Ishihara, H. Ogaki, S. Yatsuzuka, T. Mihara, W. Iwakiri, H. Negoro, M. Nakajima, K. Saito, T. Yokoyama, M. Wada, A. Aoyama, M. Ota, T. Tamagawa, N. Kawai, M. Matsuoka, T. Sakamoto, M. Serino, S. Sugita, Y. Kawakubo, H. Hiramatsu, T. Kato, A. Yoshida, Y. Tsuboi, M. Shidatsu, C. Kang, M. Uenishi, T. Usuki, H. Aoe, I. Takahashi, Y. Yatsu, S. Nakahira, S. Ueno, H. Tomida, M. Kurihara, Y. Ueda, K. Fujiwara, S. Kobayashi, M. Yamauchi, M. Nishio, C. Hiraizumi, K. Yamaoka, M. Sugizaki, T. Kawamuro, S. Yamada, S. Ogawa  </creator>
+	<author> Y. Ishihara, H. Ogaki, S. Yatsuzuka, T. Mihara, W. Iwakiri, H. Negoro, M. Nakajima, K. Saito, T. Yokoyama, M. Wada, A. Aoyama, M. Ota, T. Tamagawa, N. Kawai, M. Matsuoka, T. Sakamoto, M. Serino, S. Sugita, Y. Kawakubo, H. Hiramatsu, T. Kato, A. Yoshida, Y. Tsuboi, M. Shidatsu, C. Kang, M. Uenishi, T. Usuki, H. Aoe, I. Takahashi, Y. Yatsu, S. Nakahira, S. Ueno, H. Tomida, M. Kurihara, Y. Ueda, K. Fujiwara, S. Kobayashi, M. Yamauchi, M. Nishio, C. Hiraizumi, K. Yamaoka, M. Sugizaki, T. Kawamuro, S. Yamada, S. Ogawa  </author>
+	<creatoremail> ishiharay.c24@gmail.com </creatoremail>
+	<provenance> Credentialed by: Tatehiro Mihara (mihara@crab.riken.jp) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18111</identifier>
+	<description> At 07:20 on 2026-10-17 UT, the MAXI/GSC nova alert system triggered on a source at a position consistent with that of the RS CVn star UX Ari.  The light curve showed two peaks. ... </description>
+	<dc:date>2026-10-19T09:55:07-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18110" >
+	<title> ATel 18110: Spectroscopic Classification of Astrophysical Transients with KCWI on the Keck II Telescope </title>
+	<link> https://www.astronomerstelegram.org/?read=18110 </link>
+	<creator> R. Kaur, R. J. Foley, T. Murphey  </creator>
+	<author> R. Kaur, R. J. Foley, T. Murphey  </author>
+	<creatoremail> ravkaur@ucsc.edu </creatoremail>
+	<provenance> Credentialed by: Ravjit Kaur (ravkaur@ucsc.edu) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18110</identifier>
+	<description>  We report the classifications of astrophysical transients from spectroscopic observations with the Keck Cosmic Web Imager (KCWI) on the Keck II telescope obtained on 2026 October 15 UT. ... </description>
+	<dc:date>2026-10-19T00:46:36-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18109" >
+	<title> ATel 18109: uGMRT Radio Detection of the X-ray Binary 4U 1630-47 during 2026 outburst </title>
+	<link> https://www.astronomerstelegram.org/?read=18109 </link>
+	<creator> Sayantan Bhattacharya, Maxime Parra, Jyotirmoy Dey, Sudip Bhattacharyya, Isabella Mariani, Noa Grollimund  </creator>
+	<author> Sayantan Bhattacharya, Maxime Parra, Jyotirmoy Dey, Sudip Bhattacharyya, Isabella Mariani, Noa Grollimund  </author>
+	<creatoremail> sayantan34@gmail.com </creatoremail>
+	<provenance> Credentialed by: Sayantan Bhattacharya (sayantan34@gmail.com) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18109</identifier>
+	<description> We report a radio detection of the black hole X-ray binary 4U 1630-47 with the upgraded Giant Metrewave Radio Telescope (uGMRT) on 2026 September 27.  The source was observed for approximately 1 hour in Band 4, with an on-source integration time of 17 minutes. ... </description>
+	<dc:date>2026-10-18T19:41:13-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18108" >
+	<title> ATel 18108: The CSS quasar 3C 138 is still in a very bright optical state </title>
+	<link> https://www.astronomerstelegram.org/?read=18108 </link>
+	<creator> Alessandro Marchini ; Leonardo Stiaccini, Gaia Verna, University of Siena - Italy); Giacomo Bonnoli ; Pierfrancesco Basile, Pioltello  - Italy) </creator>
+	<author> Alessandro Marchini ; Leonardo Stiaccini, Gaia Verna, University of Siena - Italy); Giacomo Bonnoli ; Pierfrancesco Basile, Pioltello  - Italy) </author>
+	<creatoremail> gaia.verna@unisi.it </creatoremail>
+	<provenance> Credentialed by: Gaia Verna (gaia.verna@unisi.it) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18108</identifier>
+	<description> In the last nights the compact steep-spectrum (CSS) quasar 3C 138 (a.k.a. QSO B0518+165, 4FGL J0521.2+1637) at R.A. 80.292 deg, Dec. +16.629 deg (J2000.0) and z=0.759 (Lynds et al. ... </description>
+	<dc:date>2026-10-17T22:01:58-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18107" >
+	<title> ATel 18107: Independent Discovery of a Probable Nova in M81, M81N 2026-10a </title>
+	<link> https://www.astronomerstelegram.org/?read=18107 </link>
+	<creator> K. Hornoch, H. Kucakova, A. W. Shafter  </creator>
+	<author> K. Hornoch, H. Kucakova, A. W. Shafter  </author>
+	<creatoremail> k.hornoch@centrum.cz </creatoremail>
+	<provenance> Credentialed by: Allen W. Shafter (ashafter@sdsu.edu) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18107</identifier>
+	<description> We report the discovery of a probable nova in M81 on a co-added 3180-s unfiltered CMOS frame taken on 2026 Oct. 15.165 UT with the 0.65-m telescope at Ondrejov under cloudy conditions. ... </description>
+	<dc:date>2026-10-16T19:23:50-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18106" >
+	<title> ATel 18106: Superhumps in Gaia19bnd: a newly identified SU UMa-type dwarf nova </title>
+	<link> https://www.astronomerstelegram.org/?read=18106 </link>
+	<creator> D. Yu. Rusanova, A. O. Simon, S. Dufoer, F.-J. Hambsch, S. Kurowski, S. Fisek, S. Otken, A. Popowicz, A. Yu. Korosko, P. J. Mikolajczyk, L. Wyrzykowski, K. Kotysz, W. Ogloza, N. Karaman, J. M. Carrasco, D. Athanasopoulos, K. Vrontaki, E. Gkiokas, J. K.T. Qvam, R. A. Street, A. Pucek, W. Skrobacz,  J. Kolar  </creator>
+	<author> D. Yu. Rusanova, A. O. Simon, S. Dufoer, F.-J. Hambsch, S. Kurowski, S. Fisek, S. Otken, A. Popowicz, A. Yu. Korosko, P. J. Mikolajczyk, L. Wyrzykowski, K. Kotysz, W. Ogloza, N. Karaman, J. M. Carrasco, D. Athanasopoulos, K. Vrontaki, E. Gkiokas, J. K.T. Qvam, R. A. Street, A. Pucek, W. Skrobacz,  J. Kolar  </author>
+	<creatoremail> andrii.o.simon@gmail.com </creatoremail>
+	<provenance> Credentialed by: Andrew Simon (skazhenijandrew@gmail.com) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18106</identifier>
+	<description> Based on its long-term light curve, we identified Gaia19bnd/AT 2019dyn as a candidate SU UMa-type dwarf nova. Its outburst activity is characterized by frequent short outbursts and longer, brighter events, likely superoutbursts, lasting approximately 11-13 days. ... </description>
+	<dc:date>2026-10-16T09:34:20-00:00</dc:date></item>
+<item rdf:about="https://www.astronomerstelegram.org/?read=18105" >
+	<title> ATel 18105: Fermi-LAT detection of enhanced gamma-ray activity from the BL Lac source MG2 J130304+2434 </title>
+	<link> https://www.astronomerstelegram.org/?read=18105 </link>
+	<creator> P. Monti-Guarnieri, on behalf of the Fermi Large Area Telescope Collaboration </creator>
+	<author> P. Monti-Guarnieri, on behalf of the Fermi Large Area Telescope Collaboration </author>
+	<creatoremail> pietro.monti-guarnieri@phd.units.it </creatoremail>
+	<provenance> Credentialed by: Giovanni La Mura (giovanni.lamura@inaf.it) </provenance>
+	<publisher> The Astronomer's Telegram  </publisher>
+	<identifier>ATel18105</identifier>
+	<description>   The Large Area Telescope (LAT), one of the two instruments on the Fermi Gamma-ray Space Telescope, has observed enhanced gamma-ray activity from a source positionally consistent with the BL Lac source MG2 J130304+2434, also known as 4FGL J1303.0+2434 (Abdollahi et al. ... </description>
+	<dc:date>2026-10-15T17:38:14-00:00</dc:date></item>
+
+</rdf:RDF>

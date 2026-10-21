@@ -389,4 +389,5 @@ const (
 	KindWatching      = "discovery-watch"
 	KindLiveCurve     = "live-curve"
 	KindDipWindows    = "dip-windows"
+	KindClaims        = "claims-watch"
 )
