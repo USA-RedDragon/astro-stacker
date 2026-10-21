@@ -2,6 +2,7 @@ package discoveries
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"os"
@@ -39,7 +40,7 @@ func readKernelMosaic(t *testing.T) (src, dst *Plane, centres [][2]float64) {
 	var stamps []stamp
 	for {
 		var hdr [4]int32
-		if err := binary.Read(zr, binary.LittleEndian, &hdr); err == io.EOF {
+		if err := binary.Read(zr, binary.LittleEndian, &hdr); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			t.Fatal(err)
@@ -78,7 +79,7 @@ func readKernelMosaic(t *testing.T) (src, dst *Plane, centres [][2]float64) {
 func TestKernelStarsLeaveOutStarsBesideASaturatedOne(t *testing.T) {
 	t.Parallel()
 	src, dst, centres := readKernelMosaic(t)
-	var all []Source
+	all := make([]Source, 0, len(centres)+1)
 	for _, c := range centres {
 		all = append(all, Source{X: c[0], Y: c[1], Peak: float64(dst.At(int(math.Round(c[0])), int(math.Round(c[1]))))})
 	}
@@ -123,7 +124,7 @@ func TestKernelStarsLeaveOutStarsBesideASaturatedOne(t *testing.T) {
 	if c := k.K[kernelHalf][kernelHalf]; c < 0.1 {
 		t.Fatalf("kernel centre %.3f: the kernel is split around its centre", c)
 	}
-	var res []float64
+	res := make([]float64, 0, len(stars))
 	for _, s := range stars {
 		var night, left float64
 		xi, yi := int(math.Round(s.X)), int(math.Round(s.Y))

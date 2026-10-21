@@ -11,6 +11,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/schedsettle"
 )
 
+const createCmd = "create"
+
 type cmds struct{ recs map[string]schedcmd.Record }
 
 func (c *cmds) SubmitOnce(_ context.Context, id string, kind schedcmd.Kind, payload json.RawMessage, _ string) (schedcmd.Record, error) {
@@ -27,7 +29,7 @@ func (c *cmds) Status(_ context.Context, id string) (schedcmd.Record, error) {
 	return r, nil
 }
 
-func (c *cmds) Undo(_ context.Context, id, _ string) (schedcmd.Record, error) {
+func (c *cmds) Undo(_ context.Context, _, _ string) (schedcmd.Record, error) {
 	return schedcmd.Record{}, schedcmd.ErrNotUndoable
 }
 
@@ -37,14 +39,14 @@ func (c *cmds) Undo(_ context.Context, id, _ string) (schedcmd.Record, error) {
 func TestCancelledCreateWatchedToItsWindowEnd(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
-	c := &cmds{recs: map[string]schedcmd.Record{"create": {ID: "create", Status: schedcmd.StatusCancelled}}}
+	c := &cmds{recs: map[string]schedcmd.Record{createCmd: {ID: createCmd, Status: schedcmd.StatusCancelled}}}
 	var projects []planning.Project
 	read := func(context.Context) (*planning.Snapshot, error) { return &planning.Snapshot{Projects: projects}, nil }
-	a := schedsettle.Ask{Owe: schedsettle.Withdraw, ProjectGUID: "g", CreateCmd: "create", CloseID: "close-g", Start: now.Add(-time.Hour), End: now.Add(time.Hour)}
+	a := schedsettle.Ask{Owe: schedsettle.Withdraw, ProjectGUID: "g", CreateCmd: createCmd, CloseID: "close-g", Start: now.Add(-time.Hour), End: now.Add(time.Hour)}
 	if done, _, err := schedsettle.Step(context.Background(), c, &schedsettle.Snapshots{Read: read}, a, now); done || err != nil {
 		t.Fatalf("done %v %v, want a cancelled create watched until its window ends", done, err)
 	}
-	c.recs["create"] = schedcmd.Record{ID: "create", Status: schedcmd.StatusApplied}
+	c.recs[createCmd] = schedcmd.Record{ID: createCmd, Status: schedcmd.StatusApplied}
 	projects = []planning.Project{{ID: 7, GUID: "g", Name: "Watch", State: "Active"}}
 	done, closeCmd, err := schedsettle.Step(context.Background(), c, &schedsettle.Snapshots{Read: read}, a, now)
 	if done || err != nil || closeCmd != "close-g" || c.recs["close-g"].Kind != schedcmd.KindProjectEdit {
@@ -56,7 +58,7 @@ func TestCancelledCreateWatchedToItsWindowEnd(t *testing.T) {
 	}
 	gone := a
 	gone.CloseCmd = ""
-	c.recs["create"] = schedcmd.Record{ID: "create", Status: schedcmd.StatusCancelled}
+	c.recs[createCmd] = schedcmd.Record{ID: createCmd, Status: schedcmd.StatusCancelled}
 	if done, _, _ := schedsettle.Step(context.Background(), c, &schedsettle.Snapshots{Read: read}, gone, now.Add(2*time.Hour)); !done {
 		t.Error("a cancelled create is settled once its window has ended")
 	}
