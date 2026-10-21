@@ -22,7 +22,7 @@ cmd/tnsmirror.go	28	4
 cmd/triggers.go	24	24
 cmd/variablecatalogs.go	5	4
 cmd/vet.go	134	5
-internal/activity/activity.go	140	111
+internal/activity/activity.go	140	109
 internal/activity/jobs.go	150	112
 internal/activity/kube.go	66	47
 internal/activity/report.go	91	76
@@ -137,7 +137,7 @@ internal/discoveries/null.go	106	91
 internal/discoveries/offsetguard.go	44	41
 internal/discoveries/progress.go	77	72
 internal/discoveries/refnights.go	195	182
-internal/discoveries/runner.go	765	590
+internal/discoveries/runner.go	765	591
 internal/discoveries/sensor.go	212	205
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -153,7 +153,7 @@ internal/discoveryreport/ades.go	42	40
 internal/discoveryreport/bulk.go	24	22
 internal/discoveryreport/known.go	143	133
 internal/discoveryreport/report.go	335	299
-internal/discoveryreport/service.go	310	226
+internal/discoveryreport/service.go	310	225
 internal/discoveryreport/tns.go	97	81
 internal/discoverysource/list.go	255	233
 internal/discoverysource/match.go	27	24
