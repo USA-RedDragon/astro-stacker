@@ -121,6 +121,39 @@ func TestDBDataSubs(t *testing.T) {
 	}
 }
 
+// For photometry the subs left out on their score that were registered
+// are listed too; one that did not register is not.
+func TestDBDataSubsBelowCut(t *testing.T) {
+	t.Parallel()
+	d := seedDB(t)
+	d.BelowCut = true
+	subs, err := d.Subs(context.Background(), synthObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]bool{}
+	for _, s := range subs {
+		keys[s.Key] = true
+	}
+	if len(subs) != 4 || !keys["registered/d.xisf"] {
+		t.Fatalf("got %d subs: %+v", len(subs), subs)
+	}
+	var f app.Frame
+	if err := d.App.Where("key = ?", "raw/3.fits").First(&f).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := d.App.Model(&app.StackFrame{}).Where("frame_id = ?", f.ID).
+		Updates(map[string]any{"registered_key": nil, "status": app.StackStatusLowScore}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if subs, err = d.Subs(context.Background(), synthObj); err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 3 {
+		t.Errorf("a sub below the cut with no registered copy is listed: %+v", subs)
+	}
+}
+
 func TestDBDataFrameLoadAndGet(t *testing.T) {
 	t.Parallel()
 	d := seedDB(t)

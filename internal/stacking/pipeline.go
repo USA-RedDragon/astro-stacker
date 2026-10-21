@@ -440,6 +440,11 @@ type candidate struct {
 	source string
 	// placeable is whether its header alone places it (headerPlaceable).
 	placeable bool
+	// belowCut is whether its score is under the target's stacking cut.
+	belowCut bool
+	// photometryOnly marks a light below the cut that is calibrated and
+	// registered for measuring stars but not stacked (see photometryWindow).
+	photometryOnly bool
 }
 
 // RunOnce processes one batch of new lights for one master and returns how
@@ -538,6 +543,7 @@ func (p *Pipeline) triage(ctx context.Context, frames []app.Frame, scores map[st
 	if err != nil {
 		return nil, err
 	}
+	watch := p.photometryWatch(frames)
 	var batch []candidate
 	for _, f := range frames {
 		if dups[f.ID] {
@@ -549,6 +555,12 @@ func (p *Pipeline) triage(ctx context.Context, frames []app.Frame, scores map[st
 		c, status := p.classify(f, scores, sets, positions)
 		status = withMoon(status, moonlit[f.ID] != "", moonFree)
 		status, warm := withTemp(status, f, p.opts.RejectOffTempSince)
+		if status == app.StackStatusLowScore && c.belowCut && watch.wants(ctx, f) {
+			if pc, cal := p.matchCalibration(c, sets); cal == "" {
+				pc.photometryOnly = true
+				c, status = pc, ""
+			}
+		}
 		if status != "" {
 			sf := p.leftOut(c, status)
 			if why := moonlit[f.ID]; status == app.StackStatusMoon {
@@ -838,10 +850,18 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		// Against the target's best rather than MinScore alone: a panel
 		// imaged only under the moon is better stacked, weighted low as its
 		// score says, than a hole in the mosaic.
+		c.belowCut = true
 		return c, app.StackStatusLowScore
 	case f.Exposure == nil || *f.Exposure <= 0 || f.Night == nil:
 		return c, app.StackStatusNoMetadata
 	}
+	return p.matchCalibration(c, sets)
+}
+
+// matchCalibration picks the masters a light is calibrated with; it returns
+// a status when they are missing or still arriving.
+func (p *Pipeline) matchCalibration(c candidate, sets []calmatch.Set) (candidate, string) {
+	f := c.frame
 	if precalibrated(f) {
 		return c, ""
 	}
@@ -1104,6 +1124,7 @@ func (p *Pipeline) record(ctx context.Context, sf app.StackFrame) error {
 	switch {
 	case err == nil:
 		sf.ID = existing.ID
+		keepPhotometry(&sf, existing)
 		return p.db.WithContext(ctx).Save(&sf).Error
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		return p.db.WithContext(ctx).Create(&sf).Error

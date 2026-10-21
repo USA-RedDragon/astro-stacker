@@ -52,7 +52,9 @@ func newBinariesService(cfg *config.Config, s3 *minio.Client, appStore, schedSto
 		svc.Commands = schedCommands{s: commands}
 	}
 	if gaia != nil {
-		svc.Photometry = binaries.OwnPhotometry{Data: data, Threads: cfg.Vetting.Threads, WorkDir: cfg.Vetting.WorkDir}
+		phot := data
+		phot.BelowCut = true
+		svc.Photometry = binaries.OwnPhotometry{Data: phot, Threads: cfg.Vetting.Threads, WorkDir: cfg.Vetting.WorkDir}
 	}
 	return svc
 }
