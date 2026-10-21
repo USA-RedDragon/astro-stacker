@@ -25,6 +25,8 @@ const (
 	barnard  = "Barnard's E"
 	andromed = "Andromeda"
 	bb       = "broadband"
+	vetDone  = "done"
+	vetMed   = "medium"
 )
 
 func day(s string) time.Time {
@@ -201,26 +203,26 @@ func TestAVettedArtifactLeavesNeedsALook(t *testing.T) {
 func checkAVettedArtifactLeavesNeedsALook(t *testing.T, db *gorm.DB) {
 	store(t, db, realRows())
 	id := all(t, db)[15111].Source.ID
-	if err := db.Create(&app.DiscoveryVet{SourceID: id, State: "done", Suggested: app.VetArtifact, Confidence: "medium"}).Error; err != nil {
+	if err := db.Create(&app.DiscoveryVet{SourceID: id, State: vetDone, Suggested: app.VetArtifact, Confidence: vetMed}).Error; err != nil {
 		t.Fatal(err)
 	}
 	cyg := all(t, db)[15111]
 	if cyg.Look() || !cyg.In(discoverysource.ViewArtifacts) {
 		t.Errorf("artifact source look %v artifacts %v", cyg.Look(), cyg.In(discoverysource.ViewArtifacts))
 	}
-	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", "low").Error; err != nil {
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", discoverysource.ConfidenceLow).Error; err != nil {
 		t.Fatal(err)
 	}
 	if cyg := all(t, db)[15111]; cyg.Look() || !cyg.In(discoverysource.ViewArtifacts) {
 		t.Error("a low-confidence artifact stayed in needs a look")
 	}
-	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Updates(map[string]any{"suggested": app.VetUnsure, "confidence": "low"}).Error; err != nil {
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Updates(map[string]any{"suggested": app.VetUnsure, "confidence": discoverysource.ConfidenceLow}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if cyg := all(t, db)[15111]; cyg.Look() || !cyg.In(discoverysource.ViewUnsure) || cyg.In(discoverysource.ViewArtifacts) {
 		t.Error("an undecided source is not under not sure")
 	}
-	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Updates(map[string]any{"suggested": app.VetReal, "confidence": "medium"}).Error; err != nil {
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Updates(map[string]any{"suggested": app.VetReal, "confidence": vetMed}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if cyg := all(t, db)[15111]; !cyg.Look() || cyg.In(discoverysource.ViewUnsure) {
@@ -236,20 +238,20 @@ func TestACatalogListedSourceIsKnown(t *testing.T) {
 func checkACatalogListedSourceIsKnown(t *testing.T, db *gorm.DB) {
 	store(t, db, realRows())
 	id := all(t, db)[15111].Source.ID
-	if err := db.Create(&app.DiscoveryVet{SourceID: id, State: "done", Suggested: app.VetKnown, Confidence: "high"}).Error; err != nil {
+	if err := db.Create(&app.DiscoveryVet{SourceID: id, State: vetDone, Suggested: app.VetKnown, Confidence: "high"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	cyg := all(t, db)[15111]
 	if cyg.Look() || !cyg.In(discoverysource.ViewKnown) {
 		t.Errorf("listed source look %v known %v", cyg.Look(), cyg.In(discoverysource.ViewKnown))
 	}
-	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", "medium").Error; err != nil {
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", vetMed).Error; err != nil {
 		t.Fatal(err)
 	}
 	if cyg := all(t, db)[15111]; cyg.Look() || !cyg.In(discoverysource.ViewKnown) {
 		t.Error("a medium-confidence catalog match stayed in needs a look")
 	}
-	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", "low").Error; err != nil {
+	if err := db.Model(&app.DiscoveryVet{}).Where("source_id = ?", id).Update("confidence", discoverysource.ConfidenceLow).Error; err != nil {
 		t.Fatal(err)
 	}
 	if cyg := all(t, db)[15111]; !cyg.Look() {
@@ -383,7 +385,7 @@ func TestMoversStayPerTrack(t *testing.T) {
 		if s.Class != discoveries.ClassUnknownMover {
 			continue
 		}
-		if err := db.Create(&app.DiscoveryVet{SourceID: s.Source.ID, State: "done", Suggested: app.VetArtifact, Confidence: "medium"}).Error; err != nil {
+		if err := db.Create(&app.DiscoveryVet{SourceID: s.Source.ID, State: vetDone, Suggested: app.VetArtifact, Confidence: vetMed}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -588,7 +590,7 @@ func checkARerunsEmptiedSourceGoes(t *testing.T, db *gorm.DB) {
 	by := all(t, db)
 	gone, vetted, kept := by[1].Source.ID, by[2].Source.ID, by[3].Source.ID
 	for _, id := range []int{gone, vetted, kept} {
-		if err := db.Create(&app.DiscoveryVet{SourceID: id, State: "done", Suggested: app.VetUnsure, Confidence: "low"}).Error; err != nil {
+		if err := db.Create(&app.DiscoveryVet{SourceID: id, State: vetDone, Suggested: app.VetUnsure, Confidence: discoverysource.ConfidenceLow}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}

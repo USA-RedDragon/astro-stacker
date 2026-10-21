@@ -214,10 +214,15 @@ func TestDipWatchLinkAndLiveCurve(t *testing.T) {
 	if code := call(t, r, http.MethodPut, "/api/v1/discoveries/dip-watches", body, &w); code != http.StatusOK || w.DepthHigh != 0.7 {
 		t.Errorf("save again: %d %+v", code, w)
 	}
+	badWatch := func(id int, end time.Time) map[string]any {
+		return map[string]any{"source_id": id, "project_guid": "p-2", "start": start, "end": end}
+	}
+	depths := badWatch(src.ID, start.Add(time.Hour))
+	depths["depth_low"], depths["depth_high"] = 0.5, 0.1
 	for name, bad := range map[string]map[string]any{
-		"window": {"source_id": src.ID, "project_guid": "p-2", "start": start, "end": start},
-		"depths": {"source_id": src.ID, "project_guid": "p-2", "start": start, "end": start.Add(time.Hour), "depth_low": 0.5, "depth_high": 0.1},
-		"source": {"source_id": 999999, "project_guid": "p-2", "start": start, "end": start.Add(time.Hour)},
+		"window": badWatch(src.ID, start),
+		"depths": depths,
+		"source": badWatch(999999, start.Add(time.Hour)),
 	} {
 		if code := call(t, r, http.MethodPut, "/api/v1/discoveries/dip-watches", bad, nil); code != http.StatusBadRequest {
 			t.Errorf("%s: %d, want 400", name, code)

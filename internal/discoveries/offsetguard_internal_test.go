@@ -5,6 +5,7 @@ import (
 )
 
 func TestOffsetGuardCutsShiftedTile(t *testing.T) {
+	t.Parallel()
 	const W, H = 6000, 4000
 	w := &WCS{CRPIX1: W / 2, CRPIX2: H / 2, CRVAL1: 313, CRVAL2: 30, CD: [2][2]float64{{-1.92 / 3600, 0}, {0, 1.92 / 3600}}, H: H}
 	in := &Input{W: W, H: H, WCS: w}

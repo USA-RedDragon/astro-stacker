@@ -6,6 +6,7 @@ import (
 )
 
 func TestApertureMagsAgree(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name                 string
 		zp, ref, diff, sigma float64
@@ -18,6 +19,7 @@ func TestApertureMagsAgree(t *testing.T) {
 			18.05057073180319, 17.507004023492545, -0.5435667083106459, 18.518650763472955},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			dm, rm, nm := apertureMags(tc.ref, tc.diff, tc.sigma, &tc.zp)
 			if dm == nil || rm == nil || nm == nil {
 				t.Fatalf("got nil: dm %v ref %v night %v", dm, rm, nm)
