@@ -415,7 +415,8 @@ func third(ts []Timing, use []bool, used []Timing, best solved, span float64) Te
 	if dof < 1 {
 		return Test{State: StateNeed, Need: "Needs more timings than the fit has terms."}
 	}
-	obs, per, amp, ampErr := bestWave(days, res, sig, periods, dof)
+	waves := waveFits(days, sig, periods)
+	obs, per, amp, ampErr := bestWave(waves, res, sig, dof)
 	r := &rng{s: uint64(len(used))*2654435761 + 1}
 	exceed := 0
 	sim := make([]Timing, len(ts))
@@ -429,7 +430,7 @@ func third(ts []Timing, use []bool, used []Timing, best solved, span float64) Te
 			continue
 		}
 		sr, ss := residuals(sim, use, sb)
-		if v, _, _, _ := bestWave(days, sr, ss, periods, dof); v >= obs {
+		if v, _, _, _ := bestWave(waves, sr, ss, dof); v >= obs {
 			exceed++
 		}
 	}
@@ -474,23 +475,46 @@ func fitted(m solved, t Timing) float64 {
 	return v
 }
 
-// bestWave is the largest power a sine of any trial period gives the
-// residuals, its chi-square drop over the chi-square left per degree of
-// freedom, with that period, its amplitude and error.
-func bestWave(days, res, sig, periods []float64, dof float64) (float64, float64, float64, float64) {
+// waveFit is a trial period's sine and cosine at each timing with the
+// inverse normal matrix the timings' errors give them, which the
+// timings' values do not change, so it is worked out once for the noise
+// trials.
+type waveFit struct {
+	p    float64
+	rows [][]float64
+	cov  [][]float64
+}
+
+// waveFits is a waveFit for each trial period that can be solved on the
+// timings at days with errors sig.
+func waveFits(days, sig, periods []float64) []waveFit {
+	out := make([]waveFit, 0, len(periods))
+	for _, p := range periods {
+		rows := make([][]float64, len(days))
+		for i, d := range days {
+			w := 2 * math.Pi * d / p
+			rows[i] = []float64{math.Sin(w), math.Cos(w)}
+		}
+		if _, cov, _, ok := LSQ(rows, make([]float64, len(days)), sig); ok {
+			out = append(out, waveFit{p: p, rows: rows, cov: cov})
+		}
+	}
+	return out
+}
+
+// bestWave is the largest power a sine of any trial period in waves
+// gives the residuals, its chi-square drop over the chi-square left per
+// degree of freedom, with that period, its amplitude and error.
+func bestWave(waves []waveFit, res, sig []float64, dof float64) (float64, float64, float64, float64) {
 	var chi0 float64
 	for i := range res {
 		chi0 += (res[i] / sig[i]) * (res[i] / sig[i])
 	}
 	bestF, bestP, bestA, bestE := 0.0, 0.0, 0.0, 0.0
-	rows := make([][]float64, len(res))
-	for _, p := range periods {
-		for i, d := range days {
-			w := 2 * math.Pi * d / p
-			rows[i] = []float64{math.Sin(w), math.Cos(w)}
-		}
-		beta, cov, chi, ok := LSQ(rows, res, sig)
-		if !ok || !(chi > 0) {
+	for _, wf := range waves {
+		p, cov := wf.p, wf.cov
+		beta, chi := lsqWith(wf.rows, cov, nil, res, sig)
+		if !(chi > 0) {
 			continue
 		}
 		red := chi / dof
