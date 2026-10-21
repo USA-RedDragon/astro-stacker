@@ -91,7 +91,7 @@ func seasonalDB(t *testing.T, site sky.Site, now time.Time) *gorm.DB {
 			{Phase: 0.5, Width: 0.025, Shape: 1, Depth: map[string]float64{keyZTFr: 0.3}},
 		}}
 	ran := now.Add(-48 * time.Hour).Truncate(time.Microsecond)
-	rep := vetting.Report{SourceID: src.ID, RanAt: ran, Star: "Gaia DR3 7", Ephemeris: e, Suggestion: ebSuggestion,
+	rep := vetting.Report{SourceID: src.ID, RanAt: ran, Star: "Gaia DR3 7", Ephemeris: e, Suggestion: ebSuggestion(),
 		Groups: []vetting.Group{{Checks: []check.Check{check.New(check.Half, check.Pass, "fine"), check.New(check.Echo, check.Pass, "stands out")}}}}
 	raw, err := json.Marshal(rep)
 	if err != nil {

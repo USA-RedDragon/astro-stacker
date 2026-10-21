@@ -179,7 +179,7 @@ func TestRelabelledEclipsesKeepTheirRequests(t *testing.T) {
 	if kinds[KindPrimary] == 0 || kinds[KindSecondary] == 0 {
 		t.Errorf("kinds after doubling %v, want both", kinds)
 	}
-	var rows []app.EclipseTiming
+	rows := make([]app.EclipseTiming, 0, len(preds))
 	for _, pr := range preds {
 		rows = append(rows, app.EclipseTiming{SourceID: 1, Kind: KindPrimary, Predicted: pr.Mid})
 	}

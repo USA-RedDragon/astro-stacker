@@ -59,7 +59,7 @@ func subsOver(bjd, reach, step float64, firstID int) []ownimage.Sub {
 	id := firstID
 	for b := bjd - reach; b <= bjd+reach; b += step / 86400 {
 		mid := lc.UTCOfBJD(b, testRA, testDec)
-		out = append(out, ownimage.Sub{FrameID: id, Filter: "Red", Exposure: 120, Start: mid.Add(-time.Minute), Night: mid.Truncate(24 * time.Hour)})
+		out = append(out, ownimage.Sub{FrameID: id, Filter: redFilter, Exposure: 120, Start: mid.Add(-time.Minute), Night: mid.Truncate(24 * time.Hour)})
 		id++
 	}
 	return out

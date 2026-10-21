@@ -80,15 +80,15 @@ func TestCancelAndCloseOutlastALateCreate(t *testing.T) {
 	}
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	cmds := &lateCommands{sent: map[string]schedcmd.Record{}}
-	var landed []planning.Project
-	svc := &Service{DB: db, Commands: cmds, Now: func() time.Time { return now },
-		Snapshot: func(context.Context) (*planning.Snapshot, error) { return &planning.Snapshot{Projects: landed}, nil }}
-	ctx := context.Background()
 	reqs := []app.EclipseRequest{
 		{SourceID: 1, Kind: KindPrimary, Start: now.Add(48 * time.Hour), End: now.Add(52 * time.Hour)},
 		{SourceID: 2, Kind: KindPrimary, Start: now.Add(-time.Hour), End: now.Add(3 * time.Hour)},
 		{SourceID: 3, Kind: KindPrimary, Start: now.Add(-6 * time.Hour), End: now.Add(-2 * time.Hour)},
 	}
+	landed := make([]planning.Project, 0, len(reqs))
+	svc := &Service{DB: db, Commands: cmds, Now: func() time.Time { return now },
+		Snapshot: func(context.Context) (*planning.Snapshot, error) { return &planning.Snapshot{Projects: landed}, nil }}
+	ctx := context.Background()
 	for i := range reqs {
 		r := &reqs[i]
 		r.ProjectGUID, r.State, r.Mid = []string{"p-ahead", "p-under-way", "p-passed"}[i], app.EclipseSent, r.Start.Add(time.Hour)

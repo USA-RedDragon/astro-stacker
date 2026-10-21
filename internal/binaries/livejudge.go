@@ -105,7 +105,7 @@ type compsCheck struct {
 }
 
 func checkComps(pts []LivePoint) compsCheck {
-	var all []float64
+	all := make([]float64, 0, len(pts))
 	for _, p := range pts {
 		all = append(all, p.Comp)
 	}
