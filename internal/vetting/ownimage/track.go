@@ -442,8 +442,8 @@ func measureTrackMaster(p *discoveries.Plane, filter string, plans []*trackPlan,
 			}
 		}
 		refs := map[int][]float32{}
-		for k, r := range tp.rows {
-			if r.Filter == filter {
+		for k := range tp.rows {
+			if r := &tp.rows[k]; r.Filter == filter {
 				refs[k] = cutStamp(p, r.X, r.Y)
 			}
 		}
