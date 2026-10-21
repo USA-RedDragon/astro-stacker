@@ -32,10 +32,22 @@ jobs:
       - run: CGO_ENABLED=0 go test -run ^$ -benchmem -bench=. ./...
 
   backend-race-tests:
+    name: backend-race-tests (${{ matrix.part }})
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       checks: write
+    strategy:
+      fail-fast: false
+      matrix:
+        part:
+          - internal/binaries/minima
+          - internal/discoveries
+          - internal/vetting/period
+          - internal/stacking
+          - internal/vetting
+          - internal/vetting/ownimage
+          - rest
 
     steps:
       - name: Checkout repository
@@ -47,9 +59,17 @@ jobs:
           go-version-file: go.mod
 
       - name: Race tests
+        env:
+          PART: ${{ matrix.part }}
         run: |
           set -o pipefail
-          go test ./... -race -timeout 20m -json | tee race.json | jq -rj 'select(.Action == "output") | .Output'
+          mod=$(go list -m)
+          if [ "$PART" = rest ]; then
+            pkgs=$(go list ./... | grep -vxF -e "$mod/internal/binaries/minima" -e "$mod/internal/discoveries" -e "$mod/internal/vetting/period" -e "$mod/internal/stacking" -e "$mod/internal/vetting" -e "$mod/internal/vetting/ownimage")
+          else
+            pkgs="./$PART"
+          fi
+          go test $pkgs -race -timeout 20m -json | tee race.json | jq -rj 'select(.Action == "output") | .Output'
 
       - name: Slowest race packages
         if: always()
