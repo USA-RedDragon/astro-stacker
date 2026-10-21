@@ -117,12 +117,14 @@ func viewOf(db *gorm.DB, s discoverysource.Summary) (*View, error) {
 	for _, n := range nights {
 		day := n.Night.Format(time.DateOnly)
 		nv := NightView{Night: day, AskedMinutes: n.Minutes, Filter: n.Filter, State: n.State, Note: n.Note}
-		got, err := gotMinutes(db, n)
+		got, took, err := gotMinutes(db, n)
 		if err != nil {
 			return nil, err
 		}
-		nv.GotMinutes = got
-		if got != nil && *got > 0 {
+		if took {
+			nv.GotMinutes = &got
+		}
+		if took && got > 0 {
 			v.NightsImaged++
 		}
 		switch {
@@ -143,10 +145,10 @@ func viewOf(db *gorm.DB, s discoverysource.Summary) (*View, error) {
 }
 
 // gotMinutes is the exposure, in minutes, of the lights a night's project
-// took; nil until it took any.
-func gotMinutes(db *gorm.DB, n app.DiscoveryWatchNight) (*float64, error) {
+// took; false until it took any.
+func gotMinutes(db *gorm.DB, n app.DiscoveryWatchNight) (float64, bool, error) {
 	if n.TargetGUID == "" {
-		return nil, nil
+		return 0, false, nil
 	}
 	var row struct {
 		N   int
@@ -154,13 +156,12 @@ func gotMinutes(db *gorm.DB, n app.DiscoveryWatchNight) (*float64, error) {
 	}
 	if err := db.Model(&app.Frame{}).Select("COUNT(*) AS n, COALESCE(SUM(exposure), 0) AS sum").
 		Where("type = ? AND ts_target = ?", "LIGHT", n.TargetGUID).Scan(&row).Error; err != nil {
-		return nil, err
+		return 0, false, err
 	}
 	if row.N == 0 {
-		return nil, nil
+		return 0, false, nil
 	}
-	m := row.Sum / 60
-	return &m, nil
+	return row.Sum / 60, true, nil
 }
 
 // compared says a done run compared the field in the group on night.

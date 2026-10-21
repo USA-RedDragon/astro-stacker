@@ -65,7 +65,10 @@ func newNights(w app.DiscoveryWatch, nights []string) int {
 
 // setStart takes nights as the watch's fade nights at the start.
 func setStart(w *app.DiscoveryWatch, nights []string) {
-	b, _ := json.Marshal(nights)
+	b, err := json.Marshal(nights)
+	if err != nil {
+		return
+	}
 	n, f := len(nights), len(nights)
 	w.StartNights, w.FadesAtStart, w.Fades = string(b), &n, &f
 }
