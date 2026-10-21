@@ -27,6 +27,24 @@ func LSQ(rows [][]float64, y, s []float64) ([]float64, [][]float64, float64, boo
 	if !ok {
 		return nil, nil, 0, false
 	}
+	beta, chi := lsqWith(rows, cov, b, y, s)
+	return beta, cov, chi, true
+}
+
+// lsqWith is LSQ's coefficients and chi-square from the inverse normal
+// matrix cov the rows and errors s give and the right-hand side b; with
+// b nil it is worked out from y.
+func lsqWith(rows, cov [][]float64, b, y, s []float64) ([]float64, float64) {
+	k := len(cov)
+	if b == nil {
+		b = make([]float64, k)
+		for i, r := range rows {
+			w := 1 / (s[i] * s[i])
+			for p := range k {
+				b[p] += w * r[p] * y[i]
+			}
+		}
+	}
 	beta := make([]float64, k)
 	for p := range k {
 		for q := range k {
@@ -42,7 +60,7 @@ func LSQ(rows [][]float64, y, s []float64) ([]float64, [][]float64, float64, boo
 		z := (y[i] - m) / s[i]
 		chi += z * z
 	}
-	return beta, cov, chi, true
+	return beta, chi
 }
 
 // invert inverts a symmetric positive matrix by Gauss-Jordan with
