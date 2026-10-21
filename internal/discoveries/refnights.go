@@ -213,7 +213,11 @@ const minEnvelopeSubs = 2
 // from the median: AT 2026aeob, as bright on 2026-10-09 as on 2026-10-08,
 // by 0.3 mag of the light there. Each sub's error is the larger of its
 // noise and the night's scatter of subs, which on a bright star is its
-// seeing and scintillation: three times the noise there.
+// seeing and scintillation: three times the noise there. Where the
+// reference nights' median, by consensusNight, itself stands envelopeSigma
+// or more the change's way, the reference held light of other nights at the
+// spot, and the change is the night's own only where it stands beyond that
+// median by envelopeSigma or changed from it by minNewStarMag.
 func (c *cand) refNightShift() string {
 	if len(c.refNights) == 0 {
 		return ""
@@ -238,10 +242,10 @@ func (c *cand) refNightShift() string {
 		filters = append(filters, f)
 	}
 	slices.Sort(filters)
-	var envSum, medMag float64
+	var envSum, medMag, heldSum, ownSum, ownMag float64
 	var nf int
-	var at time.Time
-	worst := math.Inf(1)
+	var at, from time.Time
+	worst, apart := math.Inf(1), 0.0
 	for _, f := range filters {
 		a := per[f]
 		n := float64(len(a.fl))
@@ -273,6 +277,15 @@ func (c *cand) refNightShift() string {
 			continue
 		}
 		medMag = math.Max(medMag, magChange(c.refLight[f], mean-medianNight(rs).mean, c.Sign))
+		held, nm := consensusNight(rs)
+		heldSum += held / (sub / math.Sqrt(nm))
+		ownSum += (mean - held) / (sub * math.Sqrt(1/n+1/nm))
+		for _, rn := range rs {
+			if d := (held - rn.mean) / (sub / math.Sqrt(float64(rn.n))); d > apart {
+				apart, from = d, rn.night
+			}
+		}
+		ownMag = math.Max(ownMag, magChange(c.refLight[f]+float64(c.Sign)*held, mean-held, c.Sign))
 		envSum += zf
 		nf++
 		if zf < worst {
@@ -283,6 +296,10 @@ func (c *cand) refNightShift() string {
 		return ""
 	}
 	env := envSum / math.Sqrt(float64(nf))
+	held, own := heldSum/math.Sqrt(float64(nf)), ownSum/math.Sqrt(float64(nf))
+	if held >= envelopeSigma && own < envelopeSigma && ownMag < minNewStarMag {
+		return fmt.Sprintf("as %s in the reference nights' median: the reference held other light here, most on %s; %.1f sigma and %.2f mag from that median", signName(c.Sign), from.Format(time.DateOnly), own, ownMag)
+	}
 	if env < envelopeSigma && medMag < minNewStarMag {
 		return fmt.Sprintf("as %s on the reference night of %s: %.1f sigma beyond it, %.2f mag from the reference nights' median", signName(c.Sign), at.Format(time.DateOnly), env, medMag)
 	}
@@ -301,6 +318,22 @@ func magChange(ref, d float64, sign int) float64 {
 		return math.Inf(1)
 	}
 	return math.Abs(2.5 * math.Log10(r))
+}
+
+// consensusNight is the median of the reference nights' means, each night
+// one vote whatever its subs, and the median of their subs' counts. A
+// reference holds a variable star's outburst where its nights carry half
+// its weight or more, as they may with the cap of maxNightShare: source
+// 23991 in IC 4604 Panel 6, 2.5 mag up on 2025-05-20 and still up on
+// 2025-05-21, held 0.20 and 0.33 of the reference on 2026-03-20, and the
+// quiet star read 0.28 mag fainter there. Four quiet nights of six still
+// say where it is.
+func consensusNight(rs []refNight) (mean, n float64) {
+	means, counts := make([]float64, len(rs)), make([]float64, len(rs))
+	for i, r := range rs {
+		means[i], counts[i] = r.mean, float64(r.n)
+	}
+	return median64(means), median64(counts)
 }
 
 // medianNight is the night at half the reference nights' weight, by

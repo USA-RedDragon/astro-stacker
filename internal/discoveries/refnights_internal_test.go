@@ -186,3 +186,54 @@ func TestReferenceNightEnvelope(t *testing.T) {
 		t.Errorf("a change by a third of the light, as on 2025-01-22: %q", why)
 	}
 }
+
+// TestReferenceOutburstCannotMakeAFade replays source 23991 in IC 4604
+// Panel 6, whose two outburst nights held 0.20 and 0.33 of the reference
+// on 2026-03-20, so the quiet star read 0.28 mag fainter: here a star 2.5
+// and 1.75 mag up on two of six reference nights with 0.19 and 0.33 of the
+// weight. A real fade of 0.3 mag on the night still reads fainter.
+func TestReferenceOutburstCannotMakeAFade(t *testing.T) {
+	t.Parallel()
+	if underRace {
+		t.Skip("a synthetic night takes ten minutes under the race detector; TestRunFindsSyntheticChanges runs the same code there")
+	}
+	for _, tc := range []struct {
+		name  string
+		night float64
+		sign  int
+	}{{"quiet on the night", 0, 0}, {"fade on the night", 0.75, -1}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newField(t)
+			f.Nights = nil
+			for n := range 7 {
+				f.Nights = append(f.Nights, time.Date(2026, 3, 1+n, 0, 0, 0, 0, time.UTC))
+			}
+			f.start = time.Date(2026, 3, 7, 4, 0, 0, 0, time.UTC)
+			f.steady, f.dim = true, map[int]float64{0: 10, 1: 5}
+			if tc.night > 0 {
+				f.dim[6] = tc.night
+			}
+			res, err := Run(context.Background(), f.filterInput(t, []string{broadbandClear}, []int{6, 11, 4, 2, 7, 2, 6}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := f.Stars[f.Var]
+			got := 0
+			for _, c := range res.Candidates {
+				if math.Hypot(c.X-v.X, c.Y-v.Y) < 1.5 {
+					got = c.Sign
+					t.Logf("candidate %+d snr %.1f dmag %v", c.Sign, c.SNR, deref(c.DeltaMag))
+				}
+			}
+			for _, r := range res.Rejected {
+				if math.Hypot(r.X-v.X, r.Y-v.Y) < 1.5 {
+					t.Logf("rejected %+d snr %.1f: %s", r.Sign, r.SNR, r.Reason)
+				}
+			}
+			if got != tc.sign {
+				t.Errorf("candidate sign %+d, want %+d", got, tc.sign)
+			}
+		})
+	}
+}
