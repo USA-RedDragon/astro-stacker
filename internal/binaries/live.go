@@ -235,10 +235,10 @@ func (s *Service) liveLook(ctx context.Context, subsChanged bool) (bool, error) 
 			return false, nil
 		}
 		next, err := s.newRun(ctx, cur)
-		if err != nil {
+		if err != nil && !errors.Is(err, errNoRun) {
 			return false, err
 		}
-		if next == nil {
+		if errors.Is(err, errNoRun) {
 			s.liveMu.Lock()
 			if s.liveMiss == nil {
 				s.liveMiss = map[string]time.Time{}
@@ -268,8 +268,12 @@ func (s *Service) setLive(run *liveRun) {
 	}
 }
 
+// errNoRun says the current target's project is neither an eclipse
+// request nor a dip watch.
+var errNoRun = errors.New("project is neither an eclipse request nor a dip watch")
+
 // newRun is the run of the current target's project: an eclipse request
-// or a dip watch, or nil when it is neither.
+// or a dip watch, or errNoRun when it is neither.
 func (s *Service) newRun(ctx context.Context, cur *LiveTarget) (*liveRun, error) {
 	db := s.DB.WithContext(ctx)
 	var req app.EclipseRequest
@@ -283,7 +287,7 @@ func (s *Service) newRun(ctx context.Context, cur *LiveTarget) (*liveRun, error)
 	var w app.DipWatch
 	err = db.Where("project_guid = ?", cur.ProjectGUID).First(&w).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
+		return nil, errNoRun
 	}
 	if err != nil {
 		return nil, err
@@ -332,7 +336,8 @@ func (s *Service) eclipseRun(ctx context.Context, cur *LiveTarget, req app.Eclip
 	run.model.depth = depth
 	run.view.Eclipse = &LiveEclipseView{Kind: req.Kind, Mid: pred.Mid, ErrMin: pred.Err.Minutes(), Start: pred.Mid.Add(-half), End: pred.Mid.Add(half),
 		Depth: depth, Band: band, Planned: req.End, Basis: surveysOf(e.Eclipses[k].Depth)}
-	return run, s.startTracker(ctx, run)
+	s.startTracker(ctx, run)
+	return run, nil
 }
 
 func (s *Service) dipRun(ctx context.Context, cur *LiveTarget, w app.DipWatch) (*liveRun, error) {
@@ -354,24 +359,24 @@ func (s *Service) dipRun(ctx context.Context, cur *LiveTarget, w app.DipWatch) (
 		view: LiveCurve{Kind: LiveDipWatch, ProjectGUID: cur.ProjectGUID, ProjectName: cur.ProjectName, Object: src.Object, SourceID: src.ID,
 			Name: fmt.Sprint(src.ID), From: w.Start, To: w.End,
 			Dip: &LiveDipView{Start: w.Start, End: w.End, DepthLow: w.DepthLow, DepthHigh: w.DepthHigh, ActiveShare: w.ActiveShare}}}
-	return run, s.startTracker(ctx, run)
+	s.startTracker(ctx, run)
+	return run, nil
 }
 
 // startTracker reads the run's frame and Gaia stars once; a star with no
 // catalogued match or outside the frame is noted on the card.
-func (s *Service) startTracker(ctx context.Context, run *liveRun) error {
+func (s *Service) startTracker(ctx context.Context, run *liveRun) {
 	t, err := ownimage.NewLive(ctx, s.LiveData, run.object, run.spot)
 	switch {
 	case errors.Is(err, ownimage.ErrNoStar):
 		run.view.State, run.view.Note = LiveEarly, "Not measured: the target's frame has no catalogued star at this position."
-		return nil
+		return
 	case err != nil:
 		run.view.State, run.view.Note = LiveEarly, "Not measured yet: "+err.Error()+"."
-		return nil
+		return
 	}
 	run.tracker = t
 	run.view.State, run.view.Why = LiveEarly, "no sub is measured yet"
-	return nil
 }
 
 // measureRun measures up to livePerLook of the run's registered subs not
@@ -541,7 +546,8 @@ func shifted(pts []LivePoint, zero float64) []LivePoint {
 // levelOutside is the star's level from the subs outside the expected
 // dip, or from all of them when none is.
 func levelOutside(pts []LivePoint, m eclipseModel) float64 {
-	var out, all []float64
+	var out []float64
+	all := make([]float64, 0, len(pts))
 	for _, p := range pts {
 		all = append(all, p.Mag)
 		if m.at(p.Time, 0) == 0 && absDur(p.Time.Sub(m.mid)) > m.half+m.err {

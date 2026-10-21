@@ -22,7 +22,9 @@ import (
 	"gorm.io/gorm"
 )
 
-var ebSuggestion = vetting.Suggestion{State: app.VetReal, Confidence: vetting.High, Kind: vetting.KindEclipsingBinary}
+func ebSuggestion() vetting.Suggestion {
+	return vetting.Suggestion{State: app.VetReal, Confidence: vetting.High, Kind: vetting.KindEclipsingBinary}
+}
 
 func storedReport(t *testing.T, name string) *vetting.Report {
 	t.Helper()
@@ -72,7 +74,7 @@ func TestStoredReportsKnownAnswers(t *testing.T) {
 }
 
 func ebReport(p float64) *vetting.Report {
-	return &vetting.Report{Suggestion: ebSuggestion,
+	return &vetting.Report{Suggestion: ebSuggestion(),
 		Ephemeris: &period.Ephemeris{Period: p, Kind: period.KindEclipsing, Eclipses: []period.Eclipse{
 			{Phase: 0, Width: 0.03, Shape: 1, Depth: map[string]float64{keyZTFr: 0.4}},
 			{Phase: 0.5, Width: 0.03, Shape: 1, Depth: map[string]float64{keyZTFr: 0.2}}}},

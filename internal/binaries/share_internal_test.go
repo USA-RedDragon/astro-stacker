@@ -151,7 +151,7 @@ func TestNewMasterMakesANewShareVersion(t *testing.T) {
 	if err := db.Create(&src).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"Red", "Green", "Blue"} {
+	for _, f := range []string{redFilter, "Green", "Blue"} {
 		k := "stacks/x/" + f + "/linear.bin"
 		if err := db.Create(&app.Stack{Object: object, Filter: f, Width: w, Height: h, LinearKey: &k, EffectiveSeconds: 3600}).Error; err != nil {
 			t.Fatal(err)
