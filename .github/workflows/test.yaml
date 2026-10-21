@@ -42,6 +42,11 @@ jobs:
       matrix:
         include:
           - part: internal/binaries/minima
+            shard: " nights"
+            args: -run ^(TestTimeErrorGrowsWithRedNoise|TestTimeRecoversKnownMinima|TestTimeEvenNightsKeepTheirErrors|TestTimeAcrossDipWidths)$
+          - part: internal/binaries/minima
+            shard: " others"
+            args: -skip ^(TestTimeErrorGrowsWithRedNoise|TestTimeRecoversKnownMinima|TestTimeEvenNightsKeepTheirErrors|TestTimeAcrossDipWidths)$
           - part: internal/discoveries
           - part: internal/stacking
           - part: internal/vetting
