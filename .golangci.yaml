@@ -109,7 +109,7 @@ linters:
         linters:
           - gosec
         text: G404
-      - path: internal/(metrics/metrics|catalog/embedded|server/skyevents_internal_test|starcat/format|vetting/lc/bjd)\.go$
+      - path: internal/(metrics/metrics|catalog/embedded|server/skyevents_internal_test|starcat/format|vetting/lc/bjd|vetting/period/(darkness|limbdark))\.go$
         linters:
           - gochecknoglobals
       - path: internal/publicframe/watermark\.go$
