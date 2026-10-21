@@ -13,6 +13,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/binaries"
 	"github.com/USA-RedDragon/astro-stacker/internal/bodies"
 	"github.com/USA-RedDragon/astro-stacker/internal/calpublish"
+	"github.com/USA-RedDragon/astro-stacker/internal/claimswatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/collabswitch"
 	"github.com/USA-RedDragon/astro-stacker/internal/conditions"
 	"github.com/USA-RedDragon/astro-stacker/internal/darkneed"
@@ -72,6 +73,7 @@ type Extras struct {
 	Activity     *activity.Registry
 	Binaries     *binaries.Service
 	Watch        *discoverywatch.Service
+	Claims       *claimswatch.Service
 }
 
 const schedulerWriteTimeout = 45 * time.Second
