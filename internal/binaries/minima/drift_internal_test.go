@@ -90,6 +90,7 @@ func TestTimeEvenNightsKeepTheirErrors(t *testing.T) {
 	r := &rng{s: 43}
 	var c tally
 	var grow []float64
+	ns := make([]nightCase, 0, 60)
 	for i := range 60 {
 		pred := 2461900.5 + float64(i)*testPeriod
 		d := testDip(pred)
@@ -98,7 +99,10 @@ func TestTimeEvenNightsKeepTheirErrors(t *testing.T) {
 		if i%2 == 1 {
 			slope = 0.3 * (r.uniform() - 0.5)
 		}
-		m, why, ok := Time(curvedNight(r, d, truth, truth, 0, slope, -1.8, 1.8, 0.008), d)
+		ns = append(ns, nightCase{curvedNight(r, d, truth, truth, 0, slope, -1.8, 1.8, 0.008), d, truth})
+	}
+	for i, res := range timeNights(ns) {
+		m, why, ok, truth := res.m, res.why, res.ok, ns[i].truth
 		c.add(m, why, ok, truth)
 		if ok {
 			stat := math.Max(m.Formal*math.Max(1, m.Red), m.Bead)

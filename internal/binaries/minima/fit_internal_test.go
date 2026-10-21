@@ -37,12 +37,15 @@ func TestTimeRecoversKnownMinima(t *testing.T) {
 	t.Parallel()
 	r := &rng{s: 7}
 	pulls := make([]float64, 0, 120)
+	ns := make([]nightCase, 0, 120)
 	for i := range 120 {
 		pred := 2461000.5 + float64(i)*testPeriod
 		d := testDip(pred)
 		truth := pred + (r.uniform()-0.5)*0.4*d.Half
-		pts := synth(r, truth, d, night{from: pred - 1.6*d.Half, to: pred + 1.6*d.Half, step: 180.0 / 86400, noise: 0.012, depth: 0.4})
-		m, why, ok := Time(pts, d)
+		ns = append(ns, nightCase{synth(r, truth, d, night{from: pred - 1.6*d.Half, to: pred + 1.6*d.Half, step: 180.0 / 86400, noise: 0.012, depth: 0.4}), d, truth})
+	}
+	for i, res := range timeNights(ns) {
+		m, why, ok, truth := res.m, res.why, res.ok, ns[i].truth
 		if !ok {
 			t.Fatalf("trial %d: no minimum: %s", i, why)
 		}
@@ -71,12 +74,15 @@ func TestTimeErrorGrowsWithRedNoise(t *testing.T) {
 	t.Parallel()
 	r := &rng{s: 11}
 	var pulls []float64
+	ns := make([]nightCase, 0, 100)
 	for i := range 100 {
 		pred := 2461000.5 + float64(i)*testPeriod
 		d := testDip(pred)
 		truth := pred + (r.uniform()-0.5)*0.2*d.Half
-		pts := synth(r, truth, d, night{from: pred - 1.6*d.Half, to: pred + 1.6*d.Half, step: 120.0 / 86400, noise: 0.008, red: 0.006, depth: 0.35})
-		m, _, ok := Time(pts, d)
+		ns = append(ns, nightCase{synth(r, truth, d, night{from: pred - 1.6*d.Half, to: pred + 1.6*d.Half, step: 120.0 / 86400, noise: 0.008, red: 0.006, depth: 0.35}), d, truth})
+	}
+	for i, res := range timeNights(ns) {
+		m, ok, truth := res.m, res.ok, ns[i].truth
 		if !ok {
 			continue
 		}
