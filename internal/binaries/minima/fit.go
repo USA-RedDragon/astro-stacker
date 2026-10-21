@@ -567,7 +567,8 @@ func fitBest(use []Point, ng int, gs []*shapeGrid) (fitOut, Dip, bool, failure) 
 	span := gs[0].span()
 	for _, g := range gs {
 		ds := g.d
-		f, fail := fitShapeIn(use, ng, g, false)
+		fs := fitShapes(use, ng, g, false, len(use) >= slopeMin)
+		f, fail := fs[0].f, fs[0].fail
 		if fail != fitDone {
 			why = worse(why, fail)
 			continue
@@ -576,7 +577,7 @@ func fitBest(use []Point, ng int, gs []*shapeGrid) (fitOut, Dip, bool, failure) 
 		if len(use) < slopeMin {
 			continue
 		}
-		if l, fail := fitShapeIn(use, ng, g, true); fail == fitDone && l.n > l.k {
+		if l, fail := fs[1].f, fs[1].fail; fail == fitDone && l.n > l.k {
 			lines = append(lines, widthFit{l, ds})
 		}
 	}
@@ -705,6 +706,76 @@ func normalized(pts []Point, f fitOut) []Point {
 // is where chi-square rises by the reduced chi-square, at least 1,
 // either side.
 func fitShapeIn(pts []Point, ng int, g *shapeGrid, slope bool) (fitOut, failure) {
+	r := fitShapes(pts, ng, g, slope)
+	return r[0].f, r[0].fail
+}
+
+// shapeFit is one of fitShapes' fits.
+type shapeFit struct {
+	f    fitOut
+	fail failure
+}
+
+// fitShapes is fitShapeIn for each of slopes, the dip's terms summed
+// once at each step for all of them.
+func fitShapes(pts []Point, ng int, g *shapeGrid, slopes ...bool) []shapeFit {
+	type lane struct {
+		i      int
+		slope  bool
+		st     steady
+		sums   []normal
+		chis   []float64
+		bi     int
+		solved bool
+	}
+	n := len(pts)
+	out := make([]shapeFit, len(slopes))
+	var lanes []*lane
+	for i, slope := range slopes {
+		per := 2
+		if slope {
+			per = 3
+		}
+		if n <= per*ng || g.hi <= g.lo || ng == 0 {
+			out[i].fail = noSolve
+			continue
+		}
+		lanes = append(lanes, &lane{i: i, slope: slope, st: newSteady(pts, g.d.Mid, ng, slope), sums: make([]normal, ng), chis: make([]float64, g.steps+1), bi: -1})
+	}
+	if len(lanes) == 0 {
+		return out
+	}
+	rows := make([][]float64, n)
+	for i, p := range pts {
+		rows[i] = g.row(p.T)
+	}
+	terms := make([]dipTerms, ng)
+	w, x := lanes[0].st.w, lanes[0].st.x
+	for j := range g.steps + 1 {
+		addDip(pts, rows, j, w, x, terms)
+		for _, l := range lanes {
+			l.st.with(terms, l.sums, l.slope)
+			chi, ok, dip := chiOf(l.sums, l.slope)
+			l.solved = l.solved || ok
+			if !ok || !dip {
+				l.chis[j] = math.Inf(1)
+				continue
+			}
+			l.chis[j] = chi
+			if l.bi < 0 || chi < l.chis[l.bi] {
+				l.bi = j
+			}
+		}
+	}
+	for _, l := range lanes {
+		out[l.i].f, out[l.i].fail = finishShape(pts, ng, g, l.slope, l.chis, l.bi, l.solved)
+	}
+	return out
+}
+
+// finishShape is fitShapeIn's fit from chi-square at each of g's middles
+// in chis, the least at bi, solved saying whether any step solved.
+func finishShape(pts []Point, ng int, g *shapeGrid, slope bool, chis []float64, bi int, solved bool) (fitOut, failure) {
 	per := 2
 	if slope {
 		per = 3
@@ -712,32 +783,7 @@ func fitShapeIn(pts []Point, ng int, g *shapeGrid, slope bool) (fitOut, failure)
 	k := per * ng
 	n := len(pts)
 	d, lo, hi, steps, h := g.d, g.lo, g.hi, g.steps, g.h
-	if n <= k || hi <= lo || ng == 0 {
-		return fitOut{}, noSolve
-	}
 	span := (hi - lo) / 2
-	chis := make([]float64, steps+1)
-	sums := make([]normal, ng)
-	rows := make([][]float64, n)
-	for i, p := range pts {
-		rows[i] = g.row(p.T)
-	}
-	st := newSteady(pts, d.Mid, ng, slope)
-	bi := -1
-	solved := false
-	for j := range chis {
-		st.add(pts, rows, j, sums, slope)
-		chi, ok, dip := chiOf(sums, slope)
-		solved = solved || ok
-		if !ok || !dip {
-			chis[j] = math.Inf(1)
-			continue
-		}
-		chis[j] = chi
-		if bi < 0 || chi < chis[bi] {
-			bi = j
-		}
-	}
 	if bi < 0 {
 		if solved {
 			return fitOut{}, noDip
