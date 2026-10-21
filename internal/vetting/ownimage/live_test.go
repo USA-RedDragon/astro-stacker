@@ -2,6 +2,7 @@ package ownimage
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 )
@@ -65,7 +66,7 @@ func TestLiveNeedsAStar(t *testing.T) {
 	f.addNights(synthNights()[:1], 2)
 	s := f.spot(0, 0)
 	s.RA, s.Dec = f.w.SkyOf(20, 20)
-	if _, err := NewLive(context.Background(), f, synthObj, s); err != ErrNoStar {
+	if _, err := NewLive(context.Background(), f, synthObj, s); !errors.Is(err, ErrNoStar) {
 		t.Fatalf("got %v, want ErrNoStar", err)
 	}
 }

@@ -93,7 +93,7 @@ func TestLocalErrorComesFromThePlacesAroundTheSpot(t *testing.T) {
 	if !(quiet.Local > 0) {
 		t.Errorf("the night after was not measured around the spot: %+v", quiet)
 	}
-	if early := nightOf(t, c, "2025-01-02"); early.Local != 0 {
+	if early := nightOf(t, c, earlyDay); early.Local != 0 {
 		t.Errorf("a night far from the flagged one was measured around the spot: %+v", early)
 	}
 
@@ -130,7 +130,7 @@ func TestThinNightsAndFreshFrames(t *testing.T) {
 	kept := f.subs[:0]
 	thin := 0
 	for _, s := range f.subs {
-		if nightKey(s.Night) == "2025-06-02" {
+		if nightKey(s.Night) == thinDay {
 			if thin == 2 {
 				continue
 			}
@@ -142,7 +142,7 @@ func TestThinNightsAndFreshFrames(t *testing.T) {
 	s := bareSpot(f)
 	s.Nights[0].Light = used
 	c := measureBareSpot(t, f, s)
-	if n := nightOf(t, c, "2025-06-02"); !n.Thin || n.N != 2 {
+	if n := nightOf(t, c, thinDay); !n.Thin || n.N != 2 {
 		t.Errorf("a two-frame night is not thin: %+v", n)
 	}
 	if n := nightOf(t, c, flaggedDay); n.FreshN != 0 || n.FreshSNR() != 0 {
@@ -161,7 +161,7 @@ func TestWingOfABrightStarIsFittedWithEachFramesOwnShape(t *testing.T) {
 	// -0.1 sigma. AT 2026uti, 2.8 px from a G 15.77 star, showed +4.9 to
 	// +18.3.
 	const sx, sy = newX + 5, newY
-	nights := []time.Time{day("2024-12-01"), day("2024-12-10"), day("2024-12-20"), day("2025-01-15"), day("2025-06-01"), day("2025-06-02"), day(flaggedDay)}
+	nights := []time.Time{day("2024-12-01"), day("2024-12-10"), day("2024-12-20"), day("2025-01-15"), day(brightDay), day(thinDay), day(flaggedDay)}
 	build := func(light float64) *FluxCurve {
 		f := newSynth()
 		f.stars = append(f.stars, synthStar{x: sx, y: sy, g: 13.8, bprp: 1})
@@ -279,7 +279,7 @@ func TestFakesAndEmptyPlacesAreMeasuredLikeTheSpot(t *testing.T) {
 	if z := n.Empty99 / n.Err; !(z > 1.5) || z > 4 {
 		t.Errorf("the empty places' 99th percentile stands at %.2f of the night's error", z)
 	}
-	if early := nightOf(t, c, "2025-01-02"); early.Empty99 != 0 {
+	if early := nightOf(t, c, earlyDay); early.Empty99 != 0 {
 		t.Errorf("a night far from the flagged one has empty places measured: %+v", early)
 	}
 }

@@ -86,14 +86,16 @@ func TestDegenerateSubIsLeftOut(t *testing.T) {
 	// M 15, 2026-10-18 (68912): the one Green sub measured, at 3.9e-9 with
 	// an error of 9.9e-10, beside Blue, Luminance and Red subs of the usual
 	// errors, from the night's zero points.
-	zero := map[string]float64{"Blue": 12.12, "Green": 12.28, "Luminance": 13.28, "Red": 12.41}
-	var pts []FluxPoint
-	for i, f := range []string{"Blue", "Luminance", "Red", "Blue", "Luminance", "Red", "Blue", "Red"} {
-		e := map[string]float64{"Blue": 5.1e-4, "Luminance": 1.2e-3, "Red": 8.7e-4}[f]
-		pts = append(pts, FluxPoint{FrameID: i, Night: "2026-10-18", Filter: f, Flux: e, Err: e * math.Sqrt(5)})
+	const night = "2026-10-18"
+	zero := map[string]float64{synthBlue: 12.12, synthGreen: 12.28, broadbandClear: 13.28, synthRed: 12.41}
+	filters := []string{synthBlue, broadbandClear, synthRed, synthBlue, broadbandClear, synthRed, synthBlue, synthRed}
+	pts := make([]FluxPoint, 0, len(filters)+2)
+	for i, f := range filters {
+		e := map[string]float64{synthBlue: 5.1e-4, broadbandClear: 1.2e-3, synthRed: 8.7e-4}[f]
+		pts = append(pts, FluxPoint{FrameID: i, Night: night, Filter: f, Flux: e, Err: e * math.Sqrt(5)})
 	}
-	pts = append(pts, FluxPoint{FrameID: 99, Night: "2026-10-18", Filter: "Green", Flux: 3.9e-9, Err: 9.9e-10},
-		FluxPoint{FrameID: 100, Night: "2026-10-18", Filter: "H-a", Flux: 1e-3, Err: 2e-3})
+	pts = append(pts, FluxPoint{FrameID: 99, Night: night, Filter: synthGreen, Flux: 3.9e-9, Err: 9.9e-10},
+		FluxPoint{FrameID: 100, Night: night, Filter: synthHa, Flux: 1e-3, Err: 2e-3})
 	got := dropDegenerate(pts, zero)
 	if len(got) != 9 {
 		t.Fatalf("kept %d of 10", len(got))
@@ -190,7 +192,7 @@ func TestMasterShareOfTheNightsLight(t *testing.T) {
 	// master that also holds 7 other nights: the level of those nights
 	// shows the master's share as light missing, and taking it away gives
 	// the night all its light, as a master without it does.
-	nights := []string{"2025-01-02", "2025-01-05", "2025-03-01", "2025-03-04", "2025-06-01", "2025-06-02", flaggedDay, nextDay}
+	nights := synthDays()
 	got, c := flaggedLight(t, shareField(nights, 6, 4, 1), false)
 	want, _ := flaggedLight(t, shareField(nights, 6, 4, 1), true)
 	t.Logf("with level: %.4f ± %.4f, clean master %.4f, base %v", got.Flux, got.Err, want.Flux, c.Base)
@@ -200,10 +202,10 @@ func TestMasterShareOfTheNightsLight(t *testing.T) {
 	// With 2 subs of another night, weighted 5 times, too few for a level,
 	// the master keeps its 6 × 1.5 / (6 × 1.5 + 2 × 7.5) = 37.5% share, near
 	// enough for the subs' random weights, and the night shows the rest.
-	f := shareField([]string{"2025-06-01", flaggedDay}, 6, 1, 5)
+	f := shareField([]string{brightDay, flaggedDay}, 6, 1, 5)
 	f.subs = f.subs[4:]
 	got, c = flaggedLight(t, f, false)
-	g := shareField([]string{"2025-06-01", flaggedDay}, 6, 1, 5)
+	g := shareField([]string{brightDay, flaggedDay}, 6, 1, 5)
 	g.subs = g.subs[4:]
 	want, _ = flaggedLight(t, g, true)
 	t.Logf("no level: %.4f ± %.4f, clean master %.4f, share %.3f of %d subs", got.Flux, got.Err, want.Flux, got.Shared, got.MasterSubs)

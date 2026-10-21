@@ -11,23 +11,25 @@ import (
 
 // night2217 is source 2217's Luminance night of 2026-10-12 as its star:19
 // report charts it: hours from the predicted minimum and mag fainter.
-var night2217 = [][2]float64{
-	{-1.1164, 0.3075}, {-1.0273, 0.1298}, {-0.9382, 0.4885}, {-0.849, 0.2811}, {-0.7642, 0.3393}, {-0.6794, 0.4312},
-	{-0.5898, 0.4158}, {-0.5013, 0.46}, {-0.4165, 0.6995}, {-0.3258, 0.5043}, {-0.241, 0.5771}, {-0.1514, 0.7678},
-	{-0.0665, 0.5427}, {0.0237, 0.9791}, {0.1086, 0.842}, {0.1983, 0.2828}, {0.2831, 0.821}, {0.3732, 0.7593},
+func night2217() [][2]float64 {
+	return [][2]float64{
+		{-1.1164, 0.3075}, {-1.0273, 0.1298}, {-0.9382, 0.4885}, {-0.849, 0.2811}, {-0.7642, 0.3393}, {-0.6794, 0.4312},
+		{-0.5898, 0.4158}, {-0.5013, 0.46}, {-0.4165, 0.6995}, {-0.3258, 0.5043}, {-0.241, 0.5771}, {-0.1514, 0.7678},
+		{-0.0665, 0.5427}, {0.0237, 0.9791}, {0.1086, 0.842}, {0.1983, 0.2828}, {0.2831, 0.821}, {0.3732, 0.7593},
+	}
 }
 
 func case2217(change, sigma float64) (*spotPlan, *Curve) {
 	d := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
 	rep := 0.12
 	sp := &spotPlan{
-		spot:     Spot{Nights: []Night{{Night: d, Group: discoveries.GroupOf("Luminance"), Sign: -1, DeltaMag: &rep}}},
+		spot:     Spot{Nights: []Night{{Night: d, Group: discoveries.GroupOf(broadbandClear), Sign: -1, DeltaMag: &rep}}},
 		flagged:  map[string]bool{nightKey(d): true},
 		fadeSign: -1,
 	}
 	c := &Curve{Comps: 12, Scatter: 0.192, ChangeNight: nightKey(d), Change: change, ChangeSigma: sigma, ChangeLevels: 1}
-	for i, p := range night2217 {
-		c.Points = append(c.Points, Point{FrameID: i, BJD: 2461326 + p[0]/24, Night: nightKey(d), Filter: "Luminance", DMag: p[1] + change - 0.53, Err: 0.1918})
+	for i, p := range night2217() {
+		c.Points = append(c.Points, Point{FrameID: i, BJD: 2461326 + p[0]/24, Night: nightKey(d), Filter: broadbandClear, DMag: p[1] + change - 0.53, Err: 0.1918})
 	}
 	return sp, c
 }

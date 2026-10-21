@@ -8,6 +8,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 )
 
+const noUnusedCross = " No frames of the same night that the detection did not use cross its path."
+
 // StarGlow is how a stack check refuting a track as star glow says so.
 const StarGlow = "It is the glow of those stars, not a moving object"
 
@@ -252,7 +254,7 @@ func stackWords(ts *TrackStack) string {
 	if ts.Unused > 0 {
 		ev += fmt.Sprintf(" In %s of the same night the detection did not use it shows at %.1f, where the fake shows at %.1f.", FrameWord(ts.Unused), ts.UnusedSNR, ts.UnusedInjected)
 	} else {
-		ev += " No frames of the same night that the detection did not use cross its path."
+		ev += noUnusedCross
 	}
 	if ts.Other > 0 {
 		ev += " " + colourWords(ts)
@@ -299,7 +301,7 @@ func glowCheck(ts *TrackStack) (check.Check, StackVerdict) {
 			return check.Skipped(check.MoverStack, "Not clear. "+ev+" Away from the stars it may be there."), StackUntested
 		}
 	} else {
-		ev += " No frames of the same night that the detection did not use cross its path."
+		ev += noUnusedCross
 	}
 	if ts.Unused > 0 && u.testable() {
 		return check.New(check.MoverStack, check.Fail, ev+" "+StarGlow+": away from them, where a real object would stand clear, it is not there."), StackRefuted
@@ -329,7 +331,7 @@ func besideCheck(ts *TrackStack) (check.Check, StackVerdict) {
 		if ts.Unused > 0 {
 			ev += fmt.Sprintf(" In %s of the same night the detection did not use, a fake of its brightness shows at only %.1f, too faint to tell.", FrameWord(ts.Unused), u.Inj)
 		} else {
-			ev += " No frames of the same night that the detection did not use cross its path."
+			ev += noUnusedCross
 		}
 		return check.Skipped(check.MoverStack, "Not clear. "+ev), StackUntested
 	}

@@ -64,11 +64,11 @@ func TestAuditedMoversStackToTheirKnownAnswers(t *testing.T) {
 func TestFakeLightOnlyInTheFiltersFound(t *testing.T) {
 	t.Parallel()
 	sp := &stackPlan{}
-	sp.light, sp.mag = trackLight([]TrackPoint{{Filter: "Luminance", Flux: 2, Mag: 18}, {Filter: "Luminance", Flux: 1, Mag: 18.75}})
-	if v, ok := sp.lightIn("Luminance"); !ok || v < 1 || v > 2 {
+	sp.light, sp.mag = trackLight([]TrackPoint{{Filter: broadbandClear, Flux: 2, Mag: 18}, {Filter: broadbandClear, Flux: 1, Mag: 18.75}})
+	if v, ok := sp.lightIn(broadbandClear); !ok || v < 1 || v > 2 {
 		t.Errorf("Luminance light %.2f %v", v, ok)
 	}
-	if _, ok := sp.lightIn("Red"); ok {
+	if _, ok := sp.lightIn(synthRed); ok {
 		t.Errorf("a filter the track was not found in got a fake")
 	}
 }
@@ -153,7 +153,7 @@ func TestBesideStarsKnownAnswers(t *testing.T) {
 func cygnus23765(otherSNR float64) *TrackStack {
 	return &TrackStack{SourceID: 23765, Frames: 6, SNR: 8.31, Peak: 8.64, Injected: 10.58, InjectedLo: 9.49, InjectedHi: 11.60, Mag: 17.07,
 		Random: 636, Random99: 2.79, Unused: 4, UnusedSNR: -0.63, UnusedInjected: 8.03,
-		Other: 14, OtherFilters: []string{"Blue", "Green", "Red"}, OtherSNR: otherSNR, OtherInjected: 53.6, OtherFaint: 53.6 * math.Pow(10, -0.4*StackColourAllowance)}
+		Other: 14, OtherFilters: []string{synthBlue, synthGreen, synthRed}, OtherSNR: otherSNR, OtherInjected: 53.6, OtherFaint: 53.6 * math.Pow(10, -0.4*StackColourAllowance)}
 }
 
 func TestOtherFiltersRefute23765(t *testing.T) {
@@ -192,7 +192,7 @@ func TestOtherFiltersTooFaintSayNothing(t *testing.T) {
 			Wrong: 300, Wrong99: a.ctrl, WrongMax: a.ctrl, Random: 700, Random99: a.ctrl,
 			Unused: a.unusedN, UnusedSNR: a.unused, UnusedInjected: a.unusedInj}
 		_, before := StackCheck(ts)
-		ts.Other, ts.OtherFilters, ts.OtherSNR, ts.OtherInjected, ts.OtherFaint = 5, []string{"Red"}, -1, 18, 18*math.Pow(10, -0.4*StackColourAllowance)
+		ts.Other, ts.OtherFilters, ts.OtherSNR, ts.OtherInjected, ts.OtherFaint = 5, []string{synthRed}, -1, 18, 18*math.Pow(10, -0.4*StackColourAllowance)
 		if _, v := StackCheck(ts); v != before {
 			t.Errorf("%s: %s with untestable other filters, %s without", a.name, v, before)
 		}

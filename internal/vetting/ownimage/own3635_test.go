@@ -43,8 +43,8 @@ func readOwnCase(t *testing.T, path string) ([]Sub, []*rec) {
 		}
 		return v
 	}
-	var subs []Sub
-	var recs []*rec
+	subs := make([]Sub, 0, len(rows)-1)
+	recs := make([]*rec, 0, len(rows)-1)
 	for _, r := range rows[1:] {
 		id, _ := strconv.Atoi(r[0])
 		night, err := time.Parse(time.DateOnly, r[2])
@@ -106,7 +106,7 @@ func TestOwnCurve3635(t *testing.T) {
 	if n != 15 {
 		t.Fatalf("measured %d frames of 2026-10-13, want 15", n)
 	}
-	lum := byFilter["Luminance"]
+	lum := byFilter[broadbandClear]
 	if len(lum) != 5 {
 		t.Fatalf("%d Luminance frames on 2026-10-13, want 5", len(lum))
 	}
