@@ -103,6 +103,9 @@ func TestSIMBADRecorded(t *testing.T) {
 	if ms[0].Key != "obj:Gaia DR3 1859904118325304192" || !strings.Contains(ms[0].Detail, "EB*") {
 		t.Errorf("object %+v", ms[0])
 	}
+	if !strings.HasSuffix(ms[1].Detail, "eclipsing-binary candidates.") {
+		t.Errorf("paper line %q", ms[1].Detail)
+	}
 	if ms[1].Key != "bib:2023A&A...674A..16M" || ms[1].Title != "2023A&A...674A..16M (2023)" || ms[1].Dated != nil {
 		t.Errorf("paper %+v", ms[1])
 	}

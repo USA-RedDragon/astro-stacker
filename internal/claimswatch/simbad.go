@@ -123,8 +123,8 @@ func SIMBADMentions(st Star, rows []SIMBADRow) []Mention {
 		seen["bib:"+r.Bibcode] = true
 		m := Mention{Key: "bib:" + r.Bibcode, Title: r.Bibcode, Detail: "Paper SIMBAD links to " + r.MainID,
 			URL: "https://ui.adsabs.harvard.edu/abs/" + url.PathEscape(r.Bibcode)}
-		if r.Title != "" {
-			m.Detail += ": " + r.Title
+		if t := strings.TrimRight(strings.TrimSpace(r.Title), "."); t != "" {
+			m.Detail += ": " + t
 		}
 		m.Detail += "."
 		if r.Year > 0 {
