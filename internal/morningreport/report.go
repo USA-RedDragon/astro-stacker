@@ -78,6 +78,11 @@ type Report struct {
 	// stars it watches.
 	Claims     []claimswatch.NewMention
 	ClaimStars int
+
+	// Runs are the night's stored dip window and eclipse request runs
+	// with their charts; RunsMissing says why they could not be read.
+	Runs        []RunChart
+	RunsMissing string
 }
 
 // Subs are the night's lights and the stacker's verdicts on them.

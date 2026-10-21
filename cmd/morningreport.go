@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/activity"
+	"github.com/USA-RedDragon/astro-stacker/internal/binaries"
 	"github.com/USA-RedDragon/astro-stacker/internal/config"
 	"github.com/USA-RedDragon/astro-stacker/internal/morningreport"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	configulator "github.com/USA-RedDragon/configulator/v2"
 	"github.com/minio/minio-go/v7"
 	"github.com/spf13/cobra"
@@ -53,6 +55,7 @@ func newMorningReport(cfg *config.Config, appStore, schedStore store.Store, send
 		Logs:     morningreport.Logs{URL: m.LokiURL, Client: &http.Client{Timeout: 2 * time.Minute}},
 		Schedule: sched,
 		Site:     siteFunc(cfg, appStore),
+		RunChart: func(n app.RunNight) ([]byte, error) { return binaries.NightChart(n, loc, m.ZoneLabel) },
 	}
 	if cfg.S3.AccessKey != "" {
 		s3, err := newS3(cfg)

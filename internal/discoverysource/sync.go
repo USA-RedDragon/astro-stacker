@@ -49,7 +49,7 @@ func Sync(ctx context.Context, db *gorm.DB) error {
 func pruneEmpty(tx *gorm.DB) error {
 	q := tx.Model(&app.DiscoverySource{}).Select("id").Where("vetting = ''").
 		Where("NOT EXISTS (?)", tx.Model(&app.DiscoveryCandidate{}).Select("1").Where("discovery_candidates.source_id = discovery_sources.id"))
-	for _, m := range []any{&app.BinaryBook{}, &app.BinaryFacts{}, &app.EclipseRequest{}, &app.EclipseTiming{}, &app.ShareImage{}, &app.DiscoveryWatchNight{}, &app.DipWatch{}, &app.DipperEphemeris{}, &app.DipResult{}} {
+	for _, m := range []any{&app.BinaryBook{}, &app.BinaryFacts{}, &app.EclipseRequest{}, &app.EclipseTiming{}, &app.ShareImage{}, &app.DiscoveryWatchNight{}, &app.DipWatch{}, &app.DipperEphemeris{}, &app.DipResult{}, &app.RunNight{}} {
 		if tx.Migrator().HasTable(m) {
 			q = q.Where("id NOT IN (?)", tx.Model(m).Select("source_id"))
 		}

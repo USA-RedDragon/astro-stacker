@@ -167,7 +167,7 @@ type LiveCurveView struct {
 }
 
 func liveCurve(c *gin.Context, svc *binaries.Service) {
-	v, ok := svc.Live()
+	v, ok := svc.Live(c.Request.Context())
 	if !ok {
 		c.JSON(http.StatusOK, LiveCurveView{})
 		return
