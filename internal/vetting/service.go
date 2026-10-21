@@ -787,16 +787,11 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	artifact := flags.HotPixel || flags.RefContaminated || flags.Trail || flags.Edge
 	var fx fetches
 	more := false
-	fetchMore := func() {
-		more = true
-		fx.neowise = s.Surveys.NEOWISE(ctx, f, st.target)
-		fx.atlas = s.Surveys.ATLAS(ctx, f, st.target)
-		fx.tess = s.Surveys.TESS(ctx, f, st.target)
-	}
 	if s.Surveys != nil && sum.Source.Kind != kindMover {
 		fx.ztf = s.Surveys.ZTF(ctx, f, st.target)
 		if refreshed(sum) || (!artifact && known.Listed == "" && worthMore(fx.ztf, curve, sum)) {
-			fetchMore()
+			more = true
+			s.fetchMore(ctx, f, st.target, &fx)
 		} else {
 			why := "Not fetched: the checks above already explain the spot."
 			fx.neowise = surveys.Fetch{Survey: lc.NEOWISE, Note: why}
@@ -810,31 +805,10 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	}
 	change := changeOf(sum)
 	colour := s.colourOf(ctx, st)
-	analyzeAll := func() (*period.Result, []lc.Series) {
-		var series []lc.Series
-		for _, x := range fx.all() {
-			series = append(series, x.Series...)
-		}
-		if sum.Source.Kind == kindMover || len(series) == 0 {
-			return nil, series
-		}
-		opts := period.Options{ChangeMag: change.Mag, G: finite(st.target.G), Parallax: st.plx, ParallaxErr: st.plxE, Colour: colour}
-		if !change.Fainter {
-			opts.ChangeMag = -change.Mag
-		}
-		opts.Comparisons = func() [][]lc.Series { return s.comparisons(ctx, f, st) }
-		opts.Neighbours = func() [][]lc.Series { return s.fadeNeighbours(ctx, f, st) }
-		opts.TESSComparisons = func() []period.TESSComp { return s.tessComparisons(ctx, f, st, fx.tess.Sectors) }
-		pr, err := period.Analyze(append(series, ownSeries...), opts)
-		if err != nil && !errors.Is(err, period.ErrNoPeriod) {
-			slog.Warn("Period search failed", "source", sum.Source.ID, "error", err)
-		}
-		return pr, series
-	}
-	pr, series := analyzeAll()
+	pr, series := s.analyzeAll(ctx, f, sum, st, &fx, ownSeries, change, colour)
 	if !more && s.Surveys != nil && !artifact && known.Listed == "" && surveyVaries(pr) != "" {
-		fetchMore()
-		pr, series = analyzeAll()
+		s.fetchMore(ctx, f, st.target, &fx)
+		pr, series = s.analyzeAll(ctx, f, sum, st, &fx, ownSeries, change, colour)
 	}
 	for _, x := range fx.all() {
 		if x.State == surveys.Pending {
@@ -845,12 +819,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		pr.Ephemeris = nil
 	}
 	pairVaries(pr, st.target, fx.ztf.Series)
-	var timing *period.Timing
-	if pr != nil && pr.Ephemeris != nil && curve != nil {
-		if t, ok := ownTiming(pr.Ephemeris, curve, sum); ok {
-			timing = &t
-		}
-	}
+	timing := ownTimingOf(pr, curve, sum)
 	moving := s.movingCheck(ctx, sum, runs, fx.ztf)
 	rep.Groups = groupsOf(sum, ownChecks, fx, pr, timing, known, moving)
 	rep.Charts = chartsOf(sum, curve, fx, pr, change)
@@ -867,17 +836,59 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		slog.Warn("Could not count the changes of the source's runs", "source", sum.Source.ID, "error", err)
 	}
 	sug := suggest(sum, flags, curve, known, moving, fx, pr, timing, rep.Groups, change)
-	if s.Alerts != nil && alertOpen(sug) {
-		if objs, err := s.Alerts(ctx, cra, cdec, alertArcsec); err != nil {
-			slog.Warn("Could not ask for ZTF alerts at the star", "source", sum.Source.ID, "error", err)
-		} else {
-			sug = alertSupport(sug, objs, cra, cdec, sum.Members, rep.Groups)
-		}
-	}
+	sug = s.withAlerts(ctx, sug, sum, cra, cdec, rep.Groups)
 	sug = onBadNights(sug, badNights(sum.Members, skews, runs), rep.Groups)
 	rep.Suggestion = blendOf(st, change, refMagOf(sum.Members)).notSure(sug)
 	rep.Suggestion.Why = joinSentences(rep.Suggestion.Why, st.matchNote(refMagOf(sum.Members)))
 	return rep, nil
+}
+
+func (s *Service) fetchMore(ctx context.Context, f surveys.Field, t surveys.Target, fx *fetches) {
+	fx.neowise = s.Surveys.NEOWISE(ctx, f, t)
+	fx.atlas = s.Surveys.ATLAS(ctx, f, t)
+	fx.tess = s.Surveys.TESS(ctx, f, t)
+}
+
+func (s *Service) analyzeAll(ctx context.Context, f surveys.Field, sum discoverysource.Summary, st star, fx *fetches, ownSeries []lc.Series, change change, colour *period.Colour) (*period.Result, []lc.Series) {
+	var series []lc.Series
+	for _, x := range fx.all() {
+		series = append(series, x.Series...)
+	}
+	if sum.Source.Kind == kindMover || len(series) == 0 {
+		return nil, series
+	}
+	opts := period.Options{ChangeMag: change.Mag, G: finite(st.target.G), Parallax: st.plx, ParallaxErr: st.plxE, Colour: colour}
+	if !change.Fainter {
+		opts.ChangeMag = -change.Mag
+	}
+	opts.Comparisons = func() [][]lc.Series { return s.comparisons(ctx, f, st) }
+	opts.Neighbours = func() [][]lc.Series { return s.fadeNeighbours(ctx, f, st) }
+	opts.TESSComparisons = func() []period.TESSComp { return s.tessComparisons(ctx, f, st, fx.tess.Sectors) }
+	pr, err := period.Analyze(append(series, ownSeries...), opts)
+	if err != nil && !errors.Is(err, period.ErrNoPeriod) {
+		slog.Warn("Period search failed", "source", sum.Source.ID, "error", err)
+	}
+	return pr, series
+}
+
+func ownTimingOf(pr *period.Result, curve *ownimage.Curve, sum discoverysource.Summary) *period.Timing {
+	if pr != nil && pr.Ephemeris != nil && curve != nil {
+		if t, ok := ownTiming(pr.Ephemeris, curve, sum); ok {
+			return &t
+		}
+	}
+	return nil
+}
+
+func (s *Service) withAlerts(ctx context.Context, sug Suggestion, sum discoverysource.Summary, cra, cdec float64, groups []Group) Suggestion {
+	if s.Alerts != nil && alertOpen(sug) {
+		if objs, err := s.Alerts(ctx, cra, cdec, alertArcsec); err != nil {
+			slog.Warn("Could not ask for ZTF alerts at the star", "source", sum.Source.ID, "error", err)
+		} else {
+			sug = alertSupport(sug, objs, cra, cdec, sum.Members, groups)
+		}
+	}
+	return sug
 }
 
 // surveySummaries measures an eclipsing ephemeris's dips in the survey

@@ -146,20 +146,49 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	if p.Shared > 0 {
 		lead += " " + sharedWords(p)
 	}
-	wing, wingLight := false, 0.0
-	if w := fc.Wing; w != nil && w.Measured && w.Err > 0 {
-		wrep := reportedFor(reps, w.Filter, w.Night)
-		if wl, wok := wrep.flux(fc, w.Filter); wok {
-			wing, wingLight = true, wl*fc.RespOf(w.Filter)
-			f.Obs, f.Peak, f.Inj = w.Sigma, w.Sigma, wingLight/w.Err
-			lead = fmt.Sprintf("Fitted beside a star of magnitude %.1f %.1f px away with each frame's own star shape, its frames of %s in %s show it %.1f times its error above its level on far nights; a fake of the light the detection reported (magnitude %.1f) shows at %.1f.",
-				w.G, w.SepPx, w.Night, w.Filter, w.Sigma, wrep.mag, f.Inj)
-		}
-	}
+	wing, wingLight, lead := wingFacts(fc, reps, &f, lead)
 	if !wing && !p.Judgeable() {
 		return check.Skipped(check.TransStack, fmt.Sprintf("Not judged. Stacked over its %s of %s in %s it shows at signal to noise %.1f. ", ownimage.FrameWord(p.N), p.Night, p.Filter, p.SNR())+
 			sharedWords(p)+" "+unjudgeableWords), ownimage.StackUntested
 	}
+	words := stackWords(fc, p, fake, wing, &f)
+	ev := strings.Join(append([]string{lead}, words...), " ")
+	if !wing && rep.subs <= p.N {
+		f.RefuteMin = discoveries.MinLocalSNR
+	}
+	v, why := ownimage.JudgeStack(f)
+	if v == ownimage.StackConfirmed && !wing {
+		v, why = underTheHold(trueLight(f, p.Kept()), p.N, rep.subs)
+	}
+	if c, ok := refutedWeak(v, f, p, fc.Wing, wing, wingLight, rep.subs, ev); ok {
+		return c, ownimage.StackRefuted
+	}
+	return stackCheck(v, why, f, ev), v
+}
+
+// wingFacts replaces the stack's facts and lead with the fit beside a
+// bright neighbour when the spot sits in its wing and the detection
+// reported light for that night.
+func wingFacts(fc *ownimage.FluxCurve, reps map[string]reported, f *ownimage.StackFacts, lead string) (bool, float64, string) {
+	w := fc.Wing
+	if w == nil || !w.Measured || !(w.Err > 0) {
+		return false, 0, lead
+	}
+	wrep := reportedFor(reps, w.Filter, w.Night)
+	wl, wok := wrep.flux(fc, w.Filter)
+	if !wok {
+		return false, 0, lead
+	}
+	wingLight := wl * fc.RespOf(w.Filter)
+	f.Obs, f.Peak, f.Inj = w.Sigma, w.Sigma, wingLight/w.Err
+	lead = fmt.Sprintf("Fitted beside a star of magnitude %.1f %.1f px away with each frame's own star shape, its frames of %s in %s show it %.1f times its error above its level on far nights; a fake of the light the detection reported (magnitude %.1f) shows at %.1f.",
+		w.G, w.SepPx, w.Night, w.Filter, w.Sigma, wrep.mag, f.Inj)
+	return true, wingLight, lead
+}
+
+// stackWords adds the empty places, the night's unused frames and the
+// following nights to f and says what each shows.
+func stackWords(fc *ownimage.FluxCurve, p ownimage.FluxNight, fake float64, wing bool, f *ownimage.StackFacts) []string {
 	var words []string
 	if f.HasControl {
 		words = append(words, fmt.Sprintf("At empty places around it the same frames give under %.1f in 99 of 100.", f.Control99))
@@ -181,42 +210,45 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 		}
 		words = append(words, fmt.Sprintf("On %s it shows at %.1f, where the fake shows at %.1f.", n.Night, u.SNR, u.Inj))
 	}
-	ev := strings.Join(append([]string{lead}, words...), " ")
-	if !wing && rep.subs <= p.N {
-		f.RefuteMin = discoveries.MinLocalSNR
-	}
-	v, why := ownimage.JudgeStack(f)
-	if v == ownimage.StackConfirmed && !wing {
-		v, why = underTheHold(trueLight(f, p.Kept()), p.N, rep.subs)
-	}
+	return words
+}
+
+// refutedWeak refutes a stack verdict whose light is too faint to have
+// been found, or lost in a bright neighbour's wing.
+func refutedWeak(v ownimage.StackVerdict, f ownimage.StackFacts, p ownimage.FluxNight, w *ownimage.Wing, wing bool, wingLight float64, subs int, ev string) (check.Check, bool) {
 	if v == ownimage.StackUntested && !wing {
-		if c, ok := tooWeakToFind(trueLight(f, p.Kept()), p.N, rep.subs, ev); ok {
-			return c, ownimage.StackRefuted
+		if c, ok := tooWeakToFind(trueLight(f, p.Kept()), p.N, subs, ev); ok {
+			return c, true
 		}
 	}
 	if v == ownimage.StackDoubtful && !wing && f.Short() {
-		if c, ok := spotTooWeakToFind(trueLight(f, p.Kept()), p.N, rep.subs, ev); ok {
-			return c, ownimage.StackRefuted
+		if c, ok := spotTooWeakToFind(trueLight(f, p.Kept()), p.N, subs, ev); ok {
+			return c, true
 		}
 	}
 	if v == ownimage.StackUntested && wing {
-		if c, ok := lostInWing(fc.Wing, wingLight, rep.subs, ev); ok {
-			return c, ownimage.StackRefuted
+		if c, ok := lostInWing(w, wingLight, subs, ev); ok {
+			return c, true
 		}
 	}
+	return check.Check{}, false
+}
+
+// stackCheck words the stack's verdict.
+func stackCheck(v ownimage.StackVerdict, why string, f ownimage.StackFacts, ev string) check.Check {
 	switch v {
 	case ownimage.StackUntested:
-		return check.Skipped(check.TransStack, fmt.Sprintf("Not clear. The fake shows at only %.1f, too faint for your frames to tell. ", f.Inj)+ev), v
+		return check.Skipped(check.TransStack, fmt.Sprintf("Not clear. The fake shows at only %.1f, too faint for your frames to tell. ", f.Inj)+ev)
 	case ownimage.StackRefuted:
 		if why == ownimage.StackNoAboveControls {
-			return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the spot stands no higher than the empty places around it."), v
+			return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the spot stands no higher than the empty places around it.")
 		}
-		return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the frames the detection did not use show nothing clear (signal to noise under 2)."), v
+		return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the frames the detection did not use show nothing clear (signal to noise under 2).")
 	case ownimage.StackDoubtful:
-		return check.New(check.TransStack, check.Fail, ev+" Not confirmed: "+why+"."), v
+		return check.New(check.TransStack, check.Fail, ev+" Not confirmed: "+why+".")
 	case ownimage.StackConfirmed:
 	}
-	return check.New(check.TransStack, check.Pass, ev+" It shows as new light of the brightness reported would, above 99 of 100 empty places."), v
+	return check.New(check.TransStack, check.Pass, ev+" It shows as new light of the brightness reported would, above 99 of 100 empty places.")
 }
 
 // unjudgeableWords says why a night whose master holds too much of its
