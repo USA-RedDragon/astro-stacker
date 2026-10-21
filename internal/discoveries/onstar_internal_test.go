@@ -23,7 +23,7 @@ func TestNewSourceOnAStar(t *testing.T) {
 		{"AT 2026uti", 15.77, 2.8, -0.15, ClassNova},
 	} {
 		c := Candidate{RA: 10.70, Dec: 41.30, Sign: 1, SNR: 7.4, LocalSNR: 7, PresentIn: 8, SubsTested: 8,
-			NearStarG: f(tc.g), NearStarPx: tc.px, DeltaMag: f(tc.dm)}
+			NearStarG: f(tc.g), NearStarPx: tc.px, LightDeltaMag: f(tc.dm)}
 		ls := classifyChanges(context.Background(), t, &Result{Candidates: []Candidate{c}, PixelScale: 1.9}, Known{Galaxies: []Galaxy{m31}})
 		onStar := false
 		for _, m := range ls[0].Matches {

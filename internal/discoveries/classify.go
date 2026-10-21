@@ -404,7 +404,7 @@ func onStarMatch(c Candidate, scale float64) []Match {
 		return nil
 	}
 	return []Match{{Catalog: catalogOnStar, Name: "on a star", SepArcsec: c.NearStarPx * scale, Mag: c.NearStarG,
-		Note: fmt.Sprintf("%.1f px from a G %.2f star, and the light there changed by only %.2f mag", c.NearStarPx, *c.NearStarG, math.Abs(*c.DeltaMag))}}
+		Note: fmt.Sprintf("%.1f px from a G %.2f star, and the light there changed by only %.2f mag", c.NearStarPx, *c.NearStarG, math.Abs(*c.LightDeltaMag))}}
 }
 
 // heldWhy are the matches telling why a new source is held at low
