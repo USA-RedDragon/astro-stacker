@@ -128,7 +128,7 @@ const RefreshEvery = refreshEvery
 const (
 	moverPipeline     = "mover:9"
 	transientPipeline = "transient:11"
-	starPipeline      = "star:22"
+	starPipeline      = "star:23"
 )
 
 func pipelineOf(s discoverysource.Summary) string {
