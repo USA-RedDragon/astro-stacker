@@ -32,7 +32,7 @@ jobs:
       - run: CGO_ENABLED=0 go test -run ^$ -benchmem -bench=. ./...
 
   backend-race-tests:
-    name: backend-race-tests (${{ matrix.part }})
+    name: backend-race-tests (${{ matrix.part }}${{ matrix.shard }})
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -40,14 +40,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part:
-          - internal/binaries/minima
-          - internal/discoveries
-          - internal/vetting/period
-          - internal/stacking
-          - internal/vetting
-          - internal/vetting/ownimage
-          - rest
+        include:
+          - part: internal/binaries/minima
+          - part: internal/discoveries
+          - part: internal/stacking
+          - part: internal/vetting
+          - part: internal/vetting/ownimage
+          - part: rest
+          - part: internal/vetting/period
+            shard: " binaries"
+            args: -run ^TestConfirmedBinaryPeriods$
+          - part: internal/vetting/period
+            shard: " audits"
+            args: -run ^(TestAudit.*|TestAnalyzeStars)$
+          - part: internal/vetting/period
+            shard: " others"
+            args: -skip ^(TestConfirmedBinaryPeriods|TestAudit.*|TestAnalyzeStars)$
 
     steps:
       - name: Checkout repository
@@ -61,6 +69,7 @@ jobs:
       - name: Race tests
         env:
           PART: ${{ matrix.part }}
+          ARGS: ${{ matrix.args }}
         run: |
           set -o pipefail
           mod=$(go list -m)
@@ -69,7 +78,7 @@ jobs:
           else
             pkgs="./$PART"
           fi
-          go test $pkgs -race -timeout 20m -json | tee race.json | jq -rj 'select(.Action == "output") | .Output'
+          go test $pkgs $ARGS -race -timeout 20m -json | tee race.json | jq -rj 'select(.Action == "output") | .Output'
 
       - name: Slowest race packages
         if: always()
