@@ -113,7 +113,7 @@ func TestBatchesOrder(t *testing.T) {
 	}
 	dues := []Due{
 		d(1, "Abell 85", nil), d(2, "Abell 85", nil), d(3, "Pelican Nebula Panel 2", nil), d(4, "Pelican Nebula Panel 2", at(5)),
-		d(5, "IC 1396 Panel 1", at(4)), d(6, "Barnard's E", at(6)), d(7, "IC 1396 Panel 1", nil),
+		d(5, "IC 1396 Panel 1", at(4)), d(6, barnardsE, at(6)), d(7, "IC 1396 Panel 1", nil),
 	}
 	got := batches(dues, map[int]bool{6: true})
 	want := []struct {
@@ -121,7 +121,7 @@ func TestBatchesOrder(t *testing.T) {
 		ids    []int
 	}{
 		{"IC 1396 Panel 1", []int{5, 7}}, {"Pelican Nebula Panel 2", []int{4, 3}},
-		{"Abell 85", []int{1, 2}}, {"Barnard's E", []int{6}},
+		{"Abell 85", []int{1, 2}}, {barnardsE, []int{6}},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("%d batches, want %d: %+v", len(got), len(want), got)

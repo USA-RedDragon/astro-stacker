@@ -11,6 +11,8 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/surveys"
 )
 
+const barnardsE = "Barnard's E"
+
 func lineDue(id int, object, vetting, suggested, confidence, pending string) Due {
 	d := Due{Summary: discoverysource.Summary{Source: app.DiscoverySource{ID: id, Object: object, Kind: app.DiscoveryKindChange, Vetting: vetting}}}
 	if suggested != "" {
@@ -27,7 +29,7 @@ func lineDues() []Due {
 	ds := []Due{
 		lineDue(1, "Andromeda", "", app.VetArtifact, Medium, lc.ATLAS),
 		lineDue(2, "Andromeda", "", app.VetArtifact, High, lc.ATLAS),
-		lineDue(3635, "Barnard's E", "", app.VetReal, Low, lc.ATLAS),
+		lineDue(3635, barnardsE, "", app.VetReal, Low, lc.ATLAS),
 		lineDue(4, "Caldwell 14", "", app.VetUnsure, Low, lc.ATLAS),
 		lineDue(5, "Caldwell 14", "", app.VetArtifact, Medium, lc.ATLAS),
 		lineDue(6, "Horsehead Nebula", "", "", "", ""),
@@ -60,7 +62,7 @@ func TestBatchesPutATLASLineFirst(t *testing.T) {
 		ids    []int
 	}{
 		{"Abell 85", []int{11}},
-		{"Barnard's E", []int{3635}},
+		{barnardsE, []int{3635}},
 		{"Caldwell 14", []int{4, 5}},
 		{"Sombrero Galaxy", []int{9, 10}},
 		{"Horsehead Nebula", []int{6}},

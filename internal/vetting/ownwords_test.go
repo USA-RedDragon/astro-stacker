@@ -31,7 +31,7 @@ func TestOwnWords2217(t *testing.T) {
 		{-0.0665, 0.5427}, {0.0237, 0.9791}, {0.1086, 0.842}, {0.1983, 0.2828}, {0.2831, 0.821}, {0.3732, 0.7593},
 	}
 	tm := e.T0 + 527*e.Period
-	var pts []lc.Point
+	pts := make([]lc.Point, 0, len(hours))
 	curve := &ownimage.Curve{}
 	for _, h := range hours {
 		pts = append(pts, lc.Point{BJD: tm + h[0]/24, Mag: h[1], Err: 0.1918})

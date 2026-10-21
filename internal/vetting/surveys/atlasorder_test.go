@@ -39,7 +39,8 @@ func TestATLASLineServesBestPlaceFirst(t *testing.T) {
 	if err := f.ATLASServe(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"astro-stacker vetting 13", "astro-stacker vetting 15"}
+	want := make([]string, 0, 6)
+	want = append(want, "astro-stacker vetting 13", "astro-stacker vetting 15")
 	if !slices.Equal(fake.posted, want) {
 		t.Fatalf("queued %v, want %v", fake.posted, want)
 	}

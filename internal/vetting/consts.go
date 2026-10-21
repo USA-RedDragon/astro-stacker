@@ -21,4 +21,5 @@ const (
 	sayNotStar      = "Artifact: not shaped like a star"
 	sayAlreadyKnown = "Already known"
 	sayNotSure      = "Not sure"
+	chartNight      = "night"
 )

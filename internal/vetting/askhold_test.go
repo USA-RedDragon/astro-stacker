@@ -8,6 +8,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/discoveries"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/testdb"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 	"gorm.io/gorm"
 )
 
@@ -74,7 +75,7 @@ func checkAskHeld(t *testing.T, db *gorm.DB) {
 	if _, err := Request(ctx, db, id, askedAt); err != nil {
 		t.Fatal(err)
 	}
-	runOnce(t, db, id, hash, start, end, []string{"ATLAS", "TESS"})
+	runOnce(t, db, id, hash, start, end, []string{lc.ATLAS, lc.TESS})
 
 	if d := pickOne(t, db, id, end.Add(10*time.Minute)); d != nil {
 		t.Fatalf("a run that just finished is not taken again at once: %+v", d.AskedAt)
@@ -97,7 +98,7 @@ func checkAskHeld(t *testing.T, db *gorm.DB) {
 		t.Fatalf("its target goes first: rank %d", bs[0].rank)
 	}
 
-	runOnce(t, db, id, hash, next, next.Add(5*time.Minute), []string{"TESS"})
+	runOnce(t, db, id, hash, next, next.Add(5*time.Minute), []string{lc.TESS})
 	if d := pickOne(t, db, id, next.Add(time.Hour)); d != nil {
 		t.Fatalf("the next hourly run leaves it: %+v", d.AskedAt)
 	}
@@ -128,7 +129,7 @@ func checkAskLapses(t *testing.T, db *gorm.DB) {
 	}
 	at := askedAt.Add(time.Minute)
 	for at.Before(askedAt.Add(askHold)) {
-		runOnce(t, db, id, hash, at, at.Add(5*time.Minute), []string{"ATLAS"})
+		runOnce(t, db, id, hash, at, at.Add(5*time.Minute), []string{lc.ATLAS})
 		at = at.Add(askPendingAfter + time.Hour)
 		if at.Before(askedAt.Add(askHold)) {
 			if d := pickOne(t, db, id, at); d == nil || d.AskedAt == nil {

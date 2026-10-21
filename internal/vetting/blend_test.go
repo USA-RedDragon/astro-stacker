@@ -49,8 +49,8 @@ func TestBlendCrowdedCore(t *testing.T) {
 func TestBlendLeavesOthers(t *testing.T) {
 	t.Parallel()
 	st := starWith(15.19, surveys.Neighbour{G: 16.03, Sep: 2.3})
-	real := Suggestion{State: app.VetReal, Say: "Looks like a new eclipsing binary, repeats every 49.642 days"}
-	if s := blendOf(st, change{Mag: 0.202, Fainter: true}, 14.88).notSure(real); s != real {
+	want := Suggestion{State: app.VetReal, Say: "Looks like a new eclipsing binary, repeats every 49.642 days"}
+	if s := blendOf(st, change{Mag: 0.202, Fainter: true}, 14.88).notSure(want); s != want {
 		t.Errorf("1592 changed: %+v", s)
 	}
 	pending := Suggestion{State: app.VetUnsure, Say: "Not sure: no survey saw it change"}

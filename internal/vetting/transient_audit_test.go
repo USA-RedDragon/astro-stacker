@@ -102,7 +102,7 @@ func TestThinNightsNeitherConfirmNorSetTheTrend(t *testing.T) {
 	// 66053: light on 2025-01-21, then the skipped run of 01-23 with one
 	// Green and one Blue sub read as 17.6, and a night a season later that
 	// made the text say "brightened 0.5 mag".
-	fc := curveOf(zNight("2025-01-21", lum, 6, 12, true), zNight("2025-01-22", lum, 1, 10, false), zNight("2025-01-23", lum, 9, 2, false))
+	fc := curveOf(zNight(wingNight, lum, 6, 12, true), zNight("2025-01-22", lum, 1, 10, false), zNight("2025-01-23", lum, 9, 2, false))
 	c := nightsCheckTransient(fc)
 	if c.Status != check.NotRun || !strings.Contains(c.Evidence, "from 2 frames only") {
 		t.Errorf("66053: %s %s", c.Status, c.Evidence)
@@ -192,8 +192,8 @@ func TestGalaxyNucleusResidual(t *testing.T) {
 func TestBrightStarWingIsNeverReal(t *testing.T) {
 	t.Parallel()
 	wing := func(sigma float64, measured bool) *ownimage.FluxCurve {
-		fc := curveOf(zNight("2025-01-21", lum, 7.5, 12, true))
-		fc.Wing = &ownimage.Wing{G: 14.65, SepPx: 5.6, Night: "2025-01-21", Filter: lum, Sigma: sigma, Far: 12, Measured: measured}
+		fc := curveOf(zNight(wingNight, lum, 7.5, 12, true))
+		fc.Wing = &ownimage.Wing{G: 14.65, SepPx: 5.6, Night: wingNight, Filter: lum, Sigma: sigma, Far: 12, Measured: measured}
 		return fc
 	}
 	if c := wingCheck(wing(-0.4, true)); c.Status != check.Fail {

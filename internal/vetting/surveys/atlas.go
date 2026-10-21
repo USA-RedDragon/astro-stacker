@@ -227,14 +227,14 @@ func (f *Fetcher) maxQueued() int {
 func (f *Fetcher) atlasQueue(ctx context.Context, field Field, t Target, refresh bool) Fetch {
 	key := f.atlasKey(field, t)
 	f.addWant(key, atlasWant{field: field, t: t, refresh: refresh, prio: priorityOf(ctx)})
-	fe, got, queued, err := f.atlasServe(ctx, key)
+	sv, err := f.atlasServe(ctx, key)
 	if err != nil {
 		return f.atlasError("could not read the ATLAS queue", err)
 	}
-	if got {
-		return fe
+	if sv.got {
+		return sv.fe
 	}
-	return Fetch{Survey: lc.ATLAS, State: Pending, Note: fmt.Sprintf("waiting for room: %d of our ATLAS tasks are queued and %d stars wait before this one", queued, f.wantsBefore(key))}
+	return Fetch{Survey: lc.ATLAS, State: Pending, Note: fmt.Sprintf("waiting for room: %d of our ATLAS tasks are queued and %d stars wait before this one", sv.queued, f.wantsBefore(key))}
 }
 
 // atlasPost queues one star at ATLAS and records its task. Throttled says

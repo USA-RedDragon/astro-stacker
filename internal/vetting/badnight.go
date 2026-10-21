@@ -59,7 +59,7 @@ func runSkews(ctx context.Context, db *gorm.DB, members []app.DiscoveryCandidate
 		}
 	}
 	if db == nil || len(ids) == 0 {
-		return nil, nil
+		return map[int]runSkew{}, nil
 	}
 	list := make([]int, 0, len(ids))
 	for id := range ids {
