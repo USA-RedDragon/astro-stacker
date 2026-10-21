@@ -714,37 +714,113 @@ func (a *analysis) parityWindows() [][2]*win {
 				dsum: map[string]float64{}, dnorm: map[string]float64{}, gy: map[int][2]float64{}, gd: map[int][2]float64{}, pooled: map[int]bool{}}
 		}
 	}
-	type key struct{ k, g, s, cyc int }
-	type cyc struct {
-		in     []obs
-		sh     []float64
-		base   []float64
-		baseE  []float64
-		sector int
+	cycles, outside := a.parityCycles(out)
+	level := newRunningLevel(func(fn func(s int, t, y float64)) {
+		for _, p := range outside {
+			fn(p.s, p.t, p.y)
+		}
+	})
+	nightSD := nightOffsets(len(a.d.groups), a.f.tref, func(fn func(g, s int, t, y, e float64)) {
+		for _, p := range outside {
+			if l, ok := level.at(p.s, p.t); ok {
+				fn(p.g, p.s, p.t, p.y-l, p.e)
+			}
+		}
+	})
+	per := a.parityEstimates(cycles, level, nightSD)
+	set := func(k, p, g int, s, e float64) {
+		w := out[k][p]
+		w.gy[g] = [2]float64{s / (e * e), 1 / (e * e)}
+		dd := m.depth[g][k]
+		w.gd[g] = [2]float64{s * dd / (e * e * dd * dd), 1 / (e * e * dd * dd)}
 	}
-	cycles := map[key]*cyc{}
-	get := func(c key) *cyc {
+	combine := func(es []parityEst) (float64, float64, bool) {
+		ss, ee := make([]float64, len(es)), make([]float64, len(es))
+		for i, x := range es {
+			ss[i], ee[i] = x.s, x.e
+		}
+		return clippedMean(ss, ee)
+	}
+	done := map[[2]int]bool{}
+	for pk := range per {
+		kg := [2]int{pk[0], pk[2]}
+		if done[kg] {
+			continue
+		}
+		done[kg] = true
+		k, g := kg[0], kg[1]
+		even, odd := per[[3]int{k, 0, g}], per[[3]int{k, 1, g}]
+		if a.d.groups[g].survey == lc.TESS {
+			if s, e, ok := sectorParity(even, odd, combine, func(x parityEst) int { return x.sector }); ok {
+				set(k, 0, g, s[0], e[0])
+				set(k, 1, g, s[1], e[1])
+				continue
+			}
+			for p, es := range [][]parityEst{even, odd} {
+				if s, e, ok := combine(es); ok {
+					set(k, p, g, s, e)
+				}
+			}
+			for p := range 2 {
+				out[k][p].pooled[g] = true
+			}
+			continue
+		}
+		for p, es := range [][]parityEst{even, odd} {
+			if s, e, ok := combine(es); ok {
+				set(k, p, g, s, e)
+			}
+		}
+	}
+	a.parityTotals(out)
+	return out
+}
+
+type parityKey struct{ k, g, s, cyc int }
+
+type parityCycle struct {
+	in     []obs
+	sh     []float64
+	base   []float64
+	baseE  []float64
+	sector int
+}
+
+type parityOut struct {
+	g, s    int
+	t, y, e float64
+}
+
+type parityEst struct {
+	s, e   float64
+	sector int
+}
+
+// parityCycles sorts the raw points into each dip's cycles, with the
+// points just outside a dip as that cycle's baseline, notes in out which
+// surveys and sectors caught each parity, and returns the points out of
+// every dip.
+func (a *analysis) parityCycles(out [][2]*win) (map[parityKey]*parityCycle, []parityOut) {
+	m := a.ecl
+	cycles := map[parityKey]*parityCycle{}
+	get := func(c parityKey) *parityCycle {
 		x := cycles[c]
 		if x == nil {
-			x = &cyc{}
+			x = &parityCycle{}
 			cycles[c] = x
 		}
 		return x
 	}
-	type outPt struct {
-		g, s    int
-		t, y, e float64
-	}
-	var outside []outPt
+	var outside []parityOut
 	a.rawPoints(func(se *series, p obs) {
 		inAny := m.inAnyDip(p.t)
 		if !inAny {
-			outside = append(outside, outPt{p.g, p.s, p.t, p.y, p.e})
+			outside = append(outside, parityOut{p.g, p.s, p.t, p.y, p.e})
 		}
 		for k, dp := range m.dips {
 			sh, u := m.shapeAt(p.t, k)
 			n := int(math.Round((p.t-m.T0)/m.P - dp.phase))
-			c := key{k, p.g, p.s, n}
+			c := parityKey{k, p.g, p.s, n}
 			if !inAny && math.Abs(u) < 2*dp.width {
 				get(c).base = append(get(c).base, p.y)
 				get(c).baseE = append(get(c).baseE, p.e)
@@ -768,23 +844,14 @@ func (a *analysis) parityWindows() [][2]*win {
 			}
 		}
 	})
-	level := newRunningLevel(func(fn func(s int, t, y float64)) {
-		for _, p := range outside {
-			fn(p.s, p.t, p.y)
-		}
-	})
-	nightSD := nightOffsets(len(a.d.groups), a.f.tref, func(fn func(g, s int, t, y, e float64)) {
-		for _, p := range outside {
-			if l, ok := level.at(p.s, p.t); ok {
-				fn(p.g, p.s, p.t, p.y-l, p.e)
-			}
-		}
-	})
-	type est struct {
-		s, e   float64
-		sector int
-	}
-	per := map[[3]int][]est{}
+	return cycles, outside
+}
+
+// parityEstimates scales each cycle's dip to its group's depth, keyed by
+// dip, parity and group.
+func (a *analysis) parityEstimates(cycles map[parityKey]*parityCycle, level *runningLevel, nightSD []float64) map[[3]int][]parityEst {
+	m := a.ecl
+	per := map[[3]int][]parityEst{}
 	for c, x := range cycles {
 		if len(x.in) == 0 {
 			continue
@@ -822,53 +889,14 @@ func (a *analysis) parityWindows() [][2]*win {
 				e = math.Hypot(e, nightSD[c.g]*inv/math.Abs(dd))
 			}
 			pk := [3]int{c.k, ((c.cyc % 2) + 2) % 2, c.g}
-			per[pk] = append(per[pk], est{s, e, x.sector})
+			per[pk] = append(per[pk], parityEst{s, e, x.sector})
 		}
 	}
-	set := func(k, p, g int, s, e float64) {
-		w := out[k][p]
-		w.gy[g] = [2]float64{s / (e * e), 1 / (e * e)}
-		dd := m.depth[g][k]
-		w.gd[g] = [2]float64{s * dd / (e * e * dd * dd), 1 / (e * e * dd * dd)}
-	}
-	combine := func(es []est) (float64, float64, bool) {
-		ss, ee := make([]float64, len(es)), make([]float64, len(es))
-		for i, x := range es {
-			ss[i], ee[i] = x.s, x.e
-		}
-		return clippedMean(ss, ee)
-	}
-	done := map[[2]int]bool{}
-	for pk := range per {
-		kg := [2]int{pk[0], pk[2]}
-		if done[kg] {
-			continue
-		}
-		done[kg] = true
-		k, g := kg[0], kg[1]
-		even, odd := per[[3]int{k, 0, g}], per[[3]int{k, 1, g}]
-		if a.d.groups[g].survey == lc.TESS {
-			if s, e, ok := sectorParity(even, odd, combine, func(x est) int { return x.sector }); ok {
-				set(k, 0, g, s[0], e[0])
-				set(k, 1, g, s[1], e[1])
-				continue
-			}
-			for p, es := range [][]est{even, odd} {
-				if s, e, ok := combine(es); ok {
-					set(k, p, g, s, e)
-				}
-			}
-			for p := range 2 {
-				out[k][p].pooled[g] = true
-			}
-			continue
-		}
-		for p, es := range [][]est{even, odd} {
-			if s, e, ok := combine(es); ok {
-				set(k, p, g, s, e)
-			}
-		}
-	}
+	return per
+}
+
+// parityTotals sums each window's groups whose dip is real.
+func (a *analysis) parityTotals(out [][2]*win) {
 	for k := range out {
 		for p := range 2 {
 			w := out[k][p]
@@ -887,7 +915,6 @@ func (a *analysis) parityWindows() [][2]*win {
 			}
 		}
 	}
-	return out
 }
 
 const (

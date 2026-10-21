@@ -552,18 +552,7 @@ func (a *analysis) flatRow(s string, si surveyInfo) check.Check {
 		word = "brightening"
 	}
 	size := mag2(math.Abs(c))
-	seen := 0
-	nights := map[float64]bool{}
-	for _, g := range si.groups {
-		for _, se := range a.d.groups[g].series {
-			for _, p := range a.d.series[se].raw {
-				if math.Copysign(1, c)*p.y >= 0.6*math.Abs(c) {
-					seen++
-					nights[math.Floor(p.t)] = true
-				}
-			}
-		}
-	}
+	seen, nights := a.reachedChange(si, c)
 	strict := s == lc.ZTF || s == lc.ATLAS
 	reached := fmt.Sprintf("%s reach the reported %s mag %s.", plural(seen, "point", "points"), size, word)
 	if s == lc.ZTF && !a.steadyRun && math.Abs(c) >= 5*scatter {
@@ -587,6 +576,24 @@ func (a *analysis) flatRow(s string, si surveyInfo) check.Check {
 		return check.New(id, check.Fail, fmt.Sprintf("%s A %s mag %s would have shown.", txt, size, word))
 	}
 	return check.New(id, check.NotRun, fmt.Sprintf("%s A %s mag %s would have shown here too.", txt, size, word))
+}
+
+// reachedChange counts the survey's points that reach 0.6 of the
+// reported change c, and the nights they fall on.
+func (a *analysis) reachedChange(si surveyInfo, c float64) (int, map[float64]bool) {
+	seen := 0
+	nights := map[float64]bool{}
+	for _, g := range si.groups {
+		for _, se := range a.d.groups[g].series {
+			for _, p := range a.d.series[se].raw {
+				if math.Copysign(1, c)*p.y >= 0.6*math.Abs(c) {
+					seen++
+					nights[math.Floor(p.t)] = true
+				}
+			}
+		}
+	}
+	return seen, nights
 }
 
 func percentile(v []float64, p float64) float64 {
