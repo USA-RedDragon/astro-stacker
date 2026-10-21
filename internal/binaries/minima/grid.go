@@ -76,23 +76,40 @@ func newSteady(pts []Point, mid float64, ng int, slope bool) steady {
 	return st
 }
 
-// add sets sums to the normal equations with the dip's middle at step j
-// of rows, the dip's shape at each point. A point outside the dip adds
-// nothing to the dip's terms and is passed over.
-func (st steady) add(pts []Point, rows [][]float64, j int, sums []normal, slope bool) {
-	copy(sums, st.sums)
+// dipTerms is one filter's sums in the normal equations that hold the
+// dip's shape.
+type dipTerms struct{ b1, a01, a11, a12 float64 }
+
+// addDip sets terms to each filter's dip sums with the dip's middle at
+// step j of rows, the dip's shape at each point, w and x each point's
+// weight and time from the middle. A point outside the dip adds nothing
+// and is passed over.
+func addDip(pts []Point, rows [][]float64, j int, w, x []float64, terms []dipTerms) {
+	clear(terms)
 	for i, p := range pts {
 		c := rows[i][j]
 		if c == 0 {
 			continue
 		}
-		wc := st.w[i] * c
-		s := &sums[p.G]
-		s.b[1] += wc * p.Y
-		s.a[0][1] += wc
-		s.a[1][1] += wc * c
+		wc := w[i] * c
+		t := &terms[p.G]
+		t.b1 += wc * p.Y
+		t.a01 += wc
+		t.a11 += wc * c
+		t.a12 += wc * x[i]
+	}
+}
+
+// with sets sums to the normal equations of st with the dip's terms.
+func (st steady) with(terms []dipTerms, sums []normal, slope bool) {
+	copy(sums, st.sums)
+	for g, t := range terms {
+		s := &sums[g]
+		s.b[1] = t.b1
+		s.a[0][1] = t.a01
+		s.a[1][1] = t.a11
 		if slope {
-			s.a[1][2] += wc * st.x[i]
+			s.a[1][2] = t.a12
 		}
 	}
 }
