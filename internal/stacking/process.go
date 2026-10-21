@@ -100,18 +100,9 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 			return err
 		}
 	}
-	var stacked, photometry []addedSub
-	for _, a := range added {
-		if a.c.c.photometryOnly {
-			photometry = append(photometry, a)
-		} else {
-			stacked = append(stacked, a)
-		}
-	}
-	if err := p.recordPhotometry(ctx, stack, photometry); err != nil {
+	if added, err = p.recordPhotometry(ctx, stack, added); err != nil {
 		return err
 	}
-	added = stacked
 	if len(added) == 0 {
 		return nil
 	}
