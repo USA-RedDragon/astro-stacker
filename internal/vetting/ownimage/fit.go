@@ -202,24 +202,11 @@ func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip boo
 		if pass == fitPasses-1 || !(s > 0) {
 			break
 		}
-		changed := false
-		for i := range px {
-			u := math.Abs(res[i]) < fitClip*s
-			if u != use[i] {
-				changed = true
-			}
-			use[i] = u
-		}
-		if !changed {
+		if !reclip(res, use, s) {
 			break
 		}
 	}
-	var rss float64
-	for i := range px {
-		if use[i] {
-			rss += res[i] * res[i]
-		}
-	}
+	rss := keptRSS(res, use)
 	if !clip {
 		return fitOut{flux: coef[m.self], rss: rss, ok: true}
 	}
@@ -230,6 +217,31 @@ func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip boo
 		return fitOut{}
 	}
 	return fitOut{flux: coef[m.self], err: s * math.Sqrt(z[m.self]), rss: rss, ok: true}
+}
+
+// reclip keeps the pixels whose residual is under fitClip times s and
+// reports whether the kept set changed.
+func reclip(res []float64, use []bool, s float64) bool {
+	changed := false
+	for i := range res {
+		u := math.Abs(res[i]) < fitClip*s
+		if u != use[i] {
+			changed = true
+		}
+		use[i] = u
+	}
+	return changed
+}
+
+// keptRSS is the sum of the squared residuals of the kept pixels.
+func keptRSS(res []float64, use []bool) float64 {
+	var rss float64
+	for i := range res {
+		if use[i] {
+			rss += res[i] * res[i]
+		}
+	}
+	return rss
 }
 
 // solveSPD solves a symmetric positive definite system by Cholesky, with a
