@@ -430,8 +430,14 @@ func (p *Pipeline) readLinear(ctx context.Context, key string) (*linearImage, er
 	if err != nil {
 		return nil, err
 	}
-	// Stored gzip-encoded for browsers; MinIO returns it as stored.
+	return linearOf(raw)
+}
+
+// linearOf decodes a linear preview as stored: gzip-encoded for browsers,
+// which MinIO returns as stored.
+func linearOf(raw []byte) (*linearImage, error) {
 	if zr, zerr := gzip.NewReader(bytes.NewReader(raw)); zerr == nil {
+		var err error
 		if raw, err = io.ReadAll(zr); err != nil {
 			return nil, err
 		}

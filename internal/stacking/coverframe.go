@@ -1,6 +1,12 @@
 package stacking
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"image"
+	"image/jpeg"
 	"math"
 	"slices"
 
@@ -15,11 +21,17 @@ type CoverFrame struct {
 	X, Y, W, H int
 }
 
-// CoverFrameOf works out a target's cover frame from its masters by the
-// rules refreshCover and renderCover follow: the palette chosen, the
-// channels' common size and their common well-covered crop. ok is false
-// for a target whose cover shows comet masters or has no colour palette.
-func CoverFrameOf(object string, stacks []app.Stack) (CoverFrame, bool) {
+// coverPlan is a target's cover palette, its filters' linear previews and
+// the colour channels' bin and common size on the previews.
+type coverPlan struct {
+	pal    palette
+	linear map[string]layer
+	bin    int
+	w, h   int
+	layers []layer
+}
+
+func planCover(object string, stacks []app.Stack) (coverPlan, bool) {
 	var with []app.Stack
 	for _, s := range stacks {
 		if s.LinearKey != nil && s.Width > 0 && s.Height > 0 {
@@ -27,7 +39,7 @@ func CoverFrameOf(object string, stacks []app.Stack) (CoverFrame, bool) {
 		}
 	}
 	if CometCover(with) {
-		return CoverFrame{}, false
+		return coverPlan{}, false
 	}
 	linear := map[string]layer{}
 	size := map[string][2]int{}
@@ -37,28 +49,80 @@ func CoverFrameOf(object string, stacks []app.Stack) (CoverFrame, bool) {
 	}
 	pal, ok := choosePalette(linear, shoSubject.MatchString(object))
 	if !ok {
-		return CoverFrame{}, false
+		return coverPlan{}, false
 	}
-	bin := 0
-	w, h := math.MaxInt, math.MaxInt
-	var layers []layer
+	p := coverPlan{pal: pal, linear: linear, w: math.MaxInt, h: math.MaxInt}
 	for _, f := range pal.filters() {
 		if f == filterLuminance {
 			continue
 		}
 		sz := size[f]
 		b := max(1, int(math.Ceil(float64(sz[0])/LinearMaxWidth)))
-		if bin == 0 {
-			bin = b
+		if p.bin == 0 {
+			p.bin = b
 		}
-		w, h = min(w, sz[0]/b), min(h, sz[1]/b)
-		layers = append(layers, linear[f])
+		p.w, p.h = min(p.w, sz[0]/b), min(p.h, sz[1]/b)
+		p.layers = append(p.layers, linear[f])
 	}
-	if bin == 0 || w <= 0 || h <= 0 || slices.ContainsFunc(layers, func(l layer) bool { return l.Key == "" }) {
+	if p.bin == 0 || p.w <= 0 || p.h <= 0 || slices.ContainsFunc(p.layers, func(l layer) bool { return l.Key == "" }) {
+		return coverPlan{}, false
+	}
+	return p, true
+}
+
+// CoverFrameOf works out a target's cover frame from its masters by the
+// rules refreshCover and renderCover follow: the palette chosen, the
+// channels' common size and their common well-covered crop. ok is false
+// for a target whose cover shows comet masters or has no colour palette.
+func CoverFrameOf(object string, stacks []app.Stack) (CoverFrame, bool) {
+	p, ok := planCover(object, stacks)
+	if !ok {
 		return CoverFrame{}, false
 	}
-	r := commonCrop(layers, w, h)
-	return CoverFrame{Bin: bin, X: r.X, Y: r.Y, W: r.W, H: r.H}, true
+	r := commonCrop(p.layers, p.w, p.h)
+	return CoverFrame{Bin: p.bin, X: r.X, Y: r.Y, W: r.W, H: r.H}, true
+}
+
+// WholeCover renders a target's colour picture as its cover is rendered,
+// but over the whole of its masters. The cover keeps only the part that
+// every colour filter covered well, so a star at the masters' edge can be
+// cut off it. get reads an object of the processed bucket.
+func WholeCover(ctx context.Context, get func(context.Context, string) ([]byte, error), object string, stacks []app.Stack) (image.Image, CoverFrame, error) {
+	p, ok := planCover(object, stacks)
+	if !ok {
+		return nil, CoverFrame{}, errors.New("no colour palette from the masters")
+	}
+	planes := map[string]*linearImage{}
+	whole := map[string]layer{}
+	for _, f := range p.pal.filters() {
+		raw, err := get(ctx, p.linear[f].Key)
+		if err != nil {
+			return nil, CoverFrame{}, fmt.Errorf("read the %s preview: %w", f, err)
+		}
+		img, err := linearOf(raw)
+		if err != nil {
+			return nil, CoverFrame{}, fmt.Errorf("the %s preview: %w", f, err)
+		}
+		planes[f] = img
+		l := p.linear[f]
+		if f != filterLuminance {
+			l.CropX, l.CropY, l.CropW, l.CropH = 0, 0, 0, 0
+		}
+		whole[f] = l
+	}
+	pal, planes, w, h, ok := framePlanes(object, p.pal, whole, planes)
+	if !ok {
+		return nil, CoverFrame{}, errors.New("the colour masters don't line up")
+	}
+	b, _, err := composeCover(pal, planes, w, h)
+	if err != nil {
+		return nil, CoverFrame{}, err
+	}
+	img, err := jpeg.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil, CoverFrame{}, err
+	}
+	return img, CoverFrame{Bin: p.bin, W: w, H: h}, nil
 }
 
 // Pixel is where master pixel x, y falls on the cover, both counted from

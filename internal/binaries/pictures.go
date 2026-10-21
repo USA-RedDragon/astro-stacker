@@ -28,14 +28,19 @@ type pictureWork struct {
 	chart bool
 }
 
-// coverStamp names the colour picture and plate solution a picture is made
-// from; it changes whenever the stacker renders the cover again.
+// pictureMethod is the version of how pictures are placed and made; a new
+// one makes every picture again, those that could not be made included.
+const pictureMethod = 2
+
+// coverStamp names the colour picture, plate solution and method a picture
+// is made from; it changes whenever the stacker renders the cover again.
 func coverStamp(c *app.Cover, tr *app.TargetReference) string {
 	if c == nil {
 		return "none"
 	}
 	h := sha256.New()
 	fmt.Fprintf(h, "%s|%d|%d", c.PreviewKey, c.UpdatedAt.UnixNano(), c.Version)
+	fmt.Fprintf(h, "|method %d", pictureMethod)
 	if tr != nil && tr.WCS != nil {
 		h.Write([]byte(*tr.WCS))
 	}
@@ -151,8 +156,13 @@ func (s *Service) makePictures(ctx context.Context, w pictureWork) error {
 	chart := FileFact{State: FileNone}
 	img, frame, wcs, err := s.coverOf(ctx, w)
 	var mark Mark
+	note := ""
 	if err == nil {
 		mark, err = s.markOf(ctx, w, frame, wcs)
+		if errors.Is(err, errOffCover) {
+			img, frame, mark, err = s.wholeOf(ctx, w, wcs)
+			note = edgeNote(w)
+		}
 	}
 	retry := false
 	if err != nil {
@@ -180,7 +190,7 @@ func (s *Service) makePictures(ctx context.Context, w pictureWork) error {
 			if err := s.Objects.Put(ctx, sh.Key, b, "image/jpeg"); err != nil {
 				return err
 			}
-			sh.State, sh.Note, sh.Bytes = ShareReady, "", len(b)
+			sh.State, sh.Note, sh.Bytes = ShareReady, note, len(b)
 			if old != "" && old != sh.Key {
 				_ = s.Objects.RemovePrefix(ctx, old)
 			}
@@ -215,6 +225,46 @@ func (s *Service) makePictures(ctx context.Context, w pictureWork) error {
 // picture or plate solution changes; any other is tried again at the
 // next look.
 type lasting struct{ error }
+
+func (l lasting) Unwrap() error { return l.error }
+
+// errOffCover is a source the cover crops off: it may still be on the
+// masters' edge, which the cover leaves out.
+var errOffCover = errors.New("off the colour picture")
+
+// edgeNote says why a picture shows the whole frame rather than the cover.
+func edgeNote(w pictureWork) string {
+	what := "The star is"
+	if w.src.Kind == app.DiscoveryKindMover {
+		what = "The moving object's track is"
+	}
+	return what + " at the edge of the frame, outside the colour picture, which keeps only the part every filter covered well. " +
+		"This picture is made from the same colour stacks over the whole frame, edges included."
+}
+
+// wholeOf is the colour picture over the whole of the target's masters,
+// and where the source sits on it, for a source the cover crops off.
+func (s *Service) wholeOf(ctx context.Context, w pictureWork, wcs *discoveries.WCS) (image.Image, stacking.CoverFrame, Mark, error) {
+	var stacks []app.Stack
+	if err := s.DB.WithContext(ctx).Where("object = ?", w.src.Object).Find(&stacks).Error; err != nil {
+		return nil, stacking.CoverFrame{}, Mark{}, err
+	}
+	img, frame, err := stacking.WholeCover(ctx, s.Objects.Get, w.src.Object, stacks)
+	if err != nil {
+		return nil, stacking.CoverFrame{}, Mark{}, fmt.Errorf("the colour picture crops it off, and the whole frame could not be made: %w", err)
+	}
+	if bb := img.Bounds(); bb.Dx() != frame.W || bb.Dy() != frame.H {
+		return nil, stacking.CoverFrame{}, Mark{}, fmt.Errorf("the whole frame is %dx%d, its masters give %dx%d", bb.Dx(), bb.Dy(), frame.W, frame.H)
+	}
+	mark, err := s.markOf(ctx, w, frame, wcs)
+	if errors.Is(err, errOffCover) {
+		if w.src.Kind == app.DiscoveryKindMover {
+			return nil, stacking.CoverFrame{}, Mark{}, lasting{errors.New("the moving object's track is not on the target's stacks")}
+		}
+		return nil, stacking.CoverFrame{}, Mark{}, lasting{errors.New("the star is outside the target's stacks")}
+	}
+	return img, frame, mark, err
+}
 
 // coverOf reads the target's colour picture and where it sits on the
 // masters.
@@ -267,11 +317,13 @@ func (s *Service) markOf(ctx context.Context, w pictureWork, frame stacking.Cove
 		if err := s.DB.WithContext(ctx).Where("source_id = ? AND track <> ''", w.src.ID).Order("night").Find(&cands).Error; err != nil {
 			return Mark{}, err
 		}
+		tracked := false
 		for _, c := range cands {
 			var t discoveries.TrackRecord
 			if json.Unmarshal([]byte(c.Track), &t) != nil || len(t.Points) < 2 {
 				continue
 			}
+			tracked = true
 			a, b := t.Points[0], t.Points[len(t.Points)-1]
 			x0, y0, ok0 := at(a.RA, a.Dec)
 			x1, y1, ok1 := at(b.RA, b.Dec)
@@ -279,12 +331,15 @@ func (s *Service) markOf(ctx context.Context, w pictureWork, frame stacking.Cove
 				return Mark{X: x0, Y: y0, X1: x1, Y1: y1, Track: true}, nil
 			}
 		}
-		return Mark{}, lasting{errors.New("the moving object's track is not on the colour picture")}
+		if !tracked {
+			return Mark{}, lasting{errors.New("no track of the moving object is kept")}
+		}
+		return Mark{}, lasting{fmt.Errorf("the moving object's track is %w", errOffCover)}
 	}
 	ra, dec := s.skyPos(w)
 	x, y, ok := at(ra, dec)
 	if !ok {
-		return Mark{}, lasting{errors.New("the star is outside the colour picture")}
+		return Mark{}, lasting{fmt.Errorf("the star is %w", errOffCover)}
 	}
 	return Mark{X: x, Y: y}, nil
 }
