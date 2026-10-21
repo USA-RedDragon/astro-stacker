@@ -190,7 +190,7 @@ func holds(r *Robust) bool {
 // otherCycle is the true period of an audit case whose audited period is
 // false: 167's 0.9977 day eclipses were a daily echo of its slow fade,
 // and ZTF g and r and TESS sectors 17, 57 and 84 show a 4.318 day cycle.
-var otherCycle = map[string]float64{"167": 4.318}
+func otherCycle() map[string]float64 { return map[string]float64{"167": 4.318} }
 
 // TestAuditSearch runs the vet's own period search on each audit case, as
 // production does: no false or echoed star may come out with a period
@@ -218,7 +218,7 @@ func TestAuditSearch(t *testing.T) {
 			t.Logf("%s %s at %.5f: %+v", c.Key, e.Kind, e.Period, *r)
 			switch c.Want {
 			case wantNotReal, wantAlias:
-				if p, ok := otherCycle[c.Key]; ok && math.Abs(e.Period/p-1) < 0.01 {
+				if p, ok := otherCycle()[c.Key]; ok && math.Abs(e.Period/p-1) < 0.01 {
 					if !holds(r) {
 						t.Errorf("the star's own %.3f day cycle fails: %+v", p, *r)
 					}

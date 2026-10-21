@@ -75,7 +75,7 @@ func TestTwinRuns3635(t *testing.T) {
 	t.Parallel()
 	one := &period.Ephemeris{Period: 3.919735367653492, PeriodErr: 1.2857e-05, T0: 2458317.3639296764, T0Err: 0.0058, Kind: period.KindEclipsing,
 		Eclipses: []period.Eclipse{{Phase: 0, Width: 0.03166251527803854, Shape: 1.39416297165816, Depth: map[string]float64{
-			"ATLAS c": 0.14438179898922565, "ATLAS o": 0.19014528947232395, "NEOWISE W1": 0.30880236827873486,
+			"ATLAS c": 0.14438179898922565, atlasO: 0.19014528947232395, "NEOWISE W1": 0.30880236827873486,
 			"NEOWISE W2": 0.2355212102749828, "TESS": 0.11856824085436138, "ZTF r": 0.19577203821877576}}}}
 	s := Summarize(series3635(t), Doubled(one))
 	if s == nil || s.Twin == nil {

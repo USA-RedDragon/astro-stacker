@@ -60,7 +60,7 @@ func TestSeasonEcho28741(t *testing.T) {
 	if e == nil || r == nil || e.Kind != KindSinusoidal || math.Abs(e.Period-0.99688) > 0.0005 {
 		t.Fatalf("want the 0.9969-day smooth cycle, got %+v %+v", e, r)
 	}
-	if r.Echo != "one sidereal day" {
+	if r.Echo != echoSidereal {
 		t.Fatalf("echo %q, want one sidereal day", r.Echo)
 	}
 	c := echoCheck(t, res)

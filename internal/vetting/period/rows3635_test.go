@@ -33,12 +33,13 @@ func half3635() *Ephemeris {
 // only their rows say how often the dips repeat.
 func TestRows3635(t *testing.T) {
 	t.Parallel()
-	series, comps := vetDumpSeries(t, vet3635)
 	for _, c := range []struct {
 		name string
 		e    *Ephemeris
-	}{{"true", ephem3635()}, {"half", half3635()}} {
+	}{{"true period", ephem3635()}, {"half", half3635()}} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			series, comps := vetDumpSeries(t, vet3635)
 			res, err := AnalyzeAt(series, c.e, opts3635(comps))
 			if err != nil {
 				t.Fatal(err)

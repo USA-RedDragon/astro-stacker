@@ -34,7 +34,7 @@ func TestSlowFadeEcho167(t *testing.T) {
 	if r.Echo != "" || !r.Real || r.Bands < 2 {
 		t.Errorf("4.318 days not real in two bands: echo=%q real=%v bands=%d", r.Echo, r.Real, r.Bands)
 	}
-	if r.AliasEcho != "one day" || math.Abs(r.Alias-1) > 0.01 {
+	if r.AliasEcho != echoOneDay || math.Abs(r.Alias-1) > 0.01 {
 		t.Errorf("replaced %.5f days next to %q, want the daily echo", r.Alias, r.AliasEcho)
 	}
 	if !res.Trend.Proven() {
@@ -50,7 +50,7 @@ func TestSlowFadeEcho167(t *testing.T) {
 
 func TestEchoOfNamesDailyAliases(t *testing.T) {
 	t.Parallel()
-	for p, want := range map[float64]string{0.997727: "one sidereal day", 1.0004: "one day", 0.4999: "half a day", 4.318: "", 9.3564: "", 7.83949: ""} {
+	for p, want := range map[float64]string{0.997727: echoSidereal, 1.0004: echoOneDay, 0.4999: "half a day", 4.318: "", 9.3564: "", 7.83949: ""} {
 		if got := EchoOf(p); got != want {
 			t.Errorf("EchoOf(%g) = %q, want %q", p, got, want)
 		}

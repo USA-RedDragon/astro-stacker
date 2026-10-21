@@ -16,11 +16,12 @@ import (
 // light dil, and a cycle of semi-amplitude amp at per seen through it.
 func tessSectors(sd, dil, amp, per float64) []lc.Series {
 	rng := rand.New(rand.NewPCG(28741, 71))
-	var out []lc.Series
-	for _, sec := range []struct {
+	sectors := []struct {
 		n  int
 		t0 float64
-	}{{43, 2459474.0}, {44, 2459500.5}, {45, 2459526.0}, {71, 2460207.0}} {
+	}{{43, 2459474.0}, {44, 2459500.5}, {45, 2459526.0}, {71, 2460207.0}}
+	out := make([]lc.Series, 0, len(sectors))
+	for _, sec := range sectors {
 		s := lc.Series{Survey: lc.TESS, Note: "sector " + strconv.Itoa(sec.n), Relative: true, Dilution: dil}
 		for t := sec.t0; t < sec.t0+25; t += 10.0 / 1440 {
 			if t > sec.t0+12 && t < sec.t0+13.5 {

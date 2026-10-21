@@ -54,8 +54,8 @@ func TestEchoOf(t *testing.T) {
 		smooth bool
 		want   string
 	}{
-		{0.9997318, true, "one day"},
-		{0.9977268, false, "one sidereal day"},
+		{0.9997318, true, echoOneDay},
+		{0.9977268, false, echoSidereal},
 		{0.4997585, true, "half a day"},
 		{2.99779, false, "three days"},
 		{1.03, true, ""},
