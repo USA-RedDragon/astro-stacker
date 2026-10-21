@@ -20,6 +20,11 @@ const (
 	startSigma  = 1.3
 	shapeBright = 5
 	fitTiny     = 1e-9
+	// blendSigmas is how close, in star widths, a Gaia neighbour must be
+	// to a star for the fit to take their light as one: source 15523 has
+	// G 18.7 and G 19.5 neighbours 0.7 and 1.1 widths away at 1.9"/px,
+	// and fitting the three apart threw its flux about by 0.3 mag a sub.
+	blendSigmas = 1.5
 )
 
 // starModel is one star to fit and the Gaia stars around it, all at their
@@ -30,6 +35,38 @@ type starModel struct {
 	self int
 	// g is the star's Gaia G, 0 for a spot with no star.
 	g float64
+}
+
+// blended is the model with the neighbours closer than blendSigmas widths
+// to a catalogued star left out, so their light counts as the star's.
+func (m *starModel) blended(sigma float64) *starModel {
+	if !(m.g > 0) {
+		return m
+	}
+	reach := blendSigmas * sigma
+	self := m.nbs[m.self]
+	keep := func(j int) bool {
+		return j == m.self || math.Hypot(m.nbs[j][0]-self[0], m.nbs[j][1]-self[1]) >= reach
+	}
+	n := 0
+	for j := range m.nbs {
+		if keep(j) {
+			n++
+		}
+	}
+	if n == len(m.nbs) {
+		return m
+	}
+	out := &starModel{x: m.x, y: m.y, g: m.g, nbs: make([][2]float64, 0, n)}
+	for j, nb := range m.nbs {
+		if keep(j) {
+			if j == m.self {
+				out.self = len(out.nbs)
+			}
+			out.nbs = append(out.nbs, nb)
+		}
+	}
+	return out
 }
 
 type fitOut struct {
@@ -65,8 +102,12 @@ func regionOf(p *discoveries.Plane, cx, cy float64) []pix {
 // fitStar fits Gaussians of one shared width to the star and its
 // neighbours with a sloped plane for the sky, leaving out pixels more than
 // 5 times the spread from the fit when clip is set, and returns the star's
-// flux and its error.
+// flux and its error. When clip is set, a catalogued star's neighbours
+// closer than blendSigmas widths are measured with it as one.
 func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip bool) fitOut {
+	if clip {
+		m = m.blended(sigma)
+	}
 	cx, cy := m.x+sx, m.y+sy
 	px := regionOf(p, cx, cy)
 	if len(px) < minFitPix {
