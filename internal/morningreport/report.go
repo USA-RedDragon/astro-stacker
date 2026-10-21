@@ -1,6 +1,10 @@
 package morningreport
 
-import "time"
+import (
+	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/claimswatch"
+)
 
 // Report is what one night measured. A nil pointer, or a Missing reason, is
 // a value with no measurement behind it; the message says so instead of
@@ -68,6 +72,12 @@ type Report struct {
 	// don't hold.
 	Dust       []DustChange
 	DustLights *DustLights
+
+	// Claims are the mentions of the user's confirmed stars elsewhere that
+	// the claims watch first found in the window; ClaimStars is how many
+	// stars it watches.
+	Claims     []claimswatch.NewMention
+	ClaimStars int
 }
 
 // Subs are the night's lights and the stacker's verdicts on them.
