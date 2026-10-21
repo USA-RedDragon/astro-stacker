@@ -471,7 +471,7 @@ func dipPoints(depth func(i int) float64, n int) []LivePoint {
 func TestJudgeResultStates(t *testing.T) {
 	t.Parallel()
 	loc := time.UTC
-	flat := judgeResult(app.DipResult{}, dipPoints(func(int) float64 { return 0 }, 40), loc)
+	flat := judgeResult(app.DipResult{}, dipPoints(func(int) float64 { return 0 }, 40), goalOf(0.15, 2), loc)
 	if flat.State != app.DipNone || flat.Note != fmt.Sprintf("steady to %.2f mag", flat.Smallest) || flat.Smallest < dipFloor || flat.Measured != 40 {
 		t.Errorf("flat %+v", flat)
 	}
@@ -480,11 +480,11 @@ func TestJudgeResultStates(t *testing.T) {
 			return 0.3
 		}
 		return 0
-	}, 40), loc)
+	}, 40), goalOf(0.15, 2), loc)
 	if dip.State != app.DipSeen || math.Abs(dip.Depth-0.3) > 0.03 || dip.Note != fmt.Sprintf("faded %.2f mag from 4:05 AM", dip.Depth) {
 		t.Errorf("dip %+v", dip)
 	}
-	few := judgeResult(app.DipResult{}, dipPoints(func(int) float64 { return 0 }, 3), loc)
+	few := judgeResult(app.DipResult{}, dipPoints(func(int) float64 { return 0 }, 3), goalOf(0.15, 2), loc)
 	if few.State != app.DipUnsure || few.Note != "3 subs gave a measurement, 6 are needed" {
 		t.Errorf("few %+v", few)
 	}

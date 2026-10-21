@@ -1185,13 +1185,13 @@ func (s *Service) judgeWindow(ctx context.Context, d dipper, w dipSpan, subs []o
 	}
 	raw, _, _ := t.Points()
 	pts, _, _ := mainFilter(raw)
-	return judgeResult(res, pts, s.loc()), nil
+	return judgeResult(res, pts, goalOf(d.e.DepthLow, d.e.DurLowHours), s.loc()), nil
 }
 
 // judgeResult is the window's result from its measured subs.
-func judgeResult(res app.DipResult, pts []LivePoint, loc *time.Location) app.DipResult {
+func judgeResult(res app.DipResult, pts []LivePoint, goal dipGoal, loc *time.Location) app.DipResult {
 	res.Measured = len(pts)
-	j := judgeDip(pts)
+	j := judgeDip(pts, goal)
 	res.Smallest = j.smallest
 	switch j.state {
 	case LiveDip:
@@ -1199,10 +1199,10 @@ func judgeResult(res app.DipResult, pts []LivePoint, loc *time.Location) app.Dip
 		res.Note = fmt.Sprintf("faded %.2f mag from %s", j.depth, clock(j.start, loc))
 	case LiveNoDip:
 		res.State, res.Note = app.DipNone, fmt.Sprintf("steady to %.2f mag", j.smallest)
-	case LiveComps:
+	case LiveComps, LiveFaint:
 		res.State, res.Note = app.DipUnsure, j.comps.why+", so the subs could not be judged"
 	default:
-		res.State, res.Note = app.DipUnsure, fmt.Sprintf("%s gave a measurement, %d are needed", plural(len(pts), "sub"), liveMinSubs)
+		res.State, res.Note = app.DipUnsure, fmt.Sprintf("%s gave a measurement, %d are needed", plural(len(pts), "sub"), max(liveMinSubs, j.run))
 	}
 	return res
 }
@@ -1227,7 +1227,8 @@ func mainFilter(raw []ownimage.LivePoint) ([]LivePoint, string, int) {
 			other++
 			continue
 		}
-		pts = append(pts, LivePoint{FrameID: p.FrameID, Time: p.Time, Filter: p.Filter, Mag: p.Mag, Err: math.Max(p.Err, errFloor), Comp: p.Comp})
+		pts = append(pts, LivePoint{FrameID: p.FrameID, Time: p.Time, Filter: p.Filter, Mag: p.Mag, Err: math.Max(p.Err, errFloor), Comp: p.Comp,
+			Spread: p.Spread, Agree: p.Agree, Present: p.Present})
 	}
 	return pts, filter, other
 }

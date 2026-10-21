@@ -62,14 +62,19 @@ type LiveCurve struct {
 	To          time.Time `json:"to"`
 	// Points are the subs measured, in magnitudes fainter than the
 	// star's normal level, with the nearby stars together beside them.
-	Points      []LivePoint      `json:"points"`
-	Comps       int              `json:"comps"`
-	CompScatter *float64         `json:"comp_scatter,omitempty"`
-	Scatter     *float64         `json:"scatter,omitempty"`
-	LastSub     *time.Time       `json:"last_sub,omitempty"`
-	Eclipse     *LiveEclipseView `json:"eclipse,omitempty"`
-	Dip         *LiveDipView     `json:"dip,omitempty"`
-	UpdatedAt   time.Time        `json:"updated_at"`
+	Points      []LivePoint `json:"points"`
+	Comps       int         `json:"comps"`
+	CompScatter *float64    `json:"comp_scatter,omitempty"`
+	// CompShift is how much fainter than usual the nearby stars read
+	// together over the latest subs, a dimming taken out of the star's
+	// points, and CompSpread how far they scatter about each other.
+	CompShift  *float64         `json:"comp_shift,omitempty"`
+	CompSpread *float64         `json:"comp_spread,omitempty"`
+	Scatter    *float64         `json:"scatter,omitempty"`
+	LastSub    *time.Time       `json:"last_sub,omitempty"`
+	Eclipse    *LiveEclipseView `json:"eclipse,omitempty"`
+	Dip        *LiveDipView     `json:"dip,omitempty"`
+	UpdatedAt  time.Time        `json:"updated_at"`
 }
 
 // LiveEclipseView is the expected eclipse and how the subs time it.
@@ -111,6 +116,21 @@ type LiveDipView struct {
 	OverMin     *float64   `json:"over_min,omitempty"`
 	DipStart    *time.Time `json:"dip_start,omitempty"`
 	DipDepth    *float64   `json:"dip_depth,omitempty"`
+	// Run is how many subs in a row one reading averages, and Bins the
+	// subs averaged that many at a time, the latest bin ending at the
+	// latest sub.
+	Run  int       `json:"run,omitempty"`
+	Bins []LiveBin `json:"bins,omitempty"`
+}
+
+// LiveBin is a run of subs averaged: its middle, its weighted mean in
+// magnitudes fainter than the normal level, the error of that mean from
+// the single sub scatter, and how many subs it holds.
+type LiveBin struct {
+	Time time.Time `json:"time"`
+	Mag  float64   `json:"mag"`
+	Err  float64   `json:"err"`
+	Subs int       `json:"subs"`
 }
 
 // liveRun is the run being followed: what it expects and the star's
@@ -123,6 +143,7 @@ type liveRun struct {
 	spot    ownimage.Spot
 	model   *eclipseModel
 	dip     *app.DipWatch
+	goal    dipGoal
 	tracker *ownimage.Live
 	view    LiveCurve
 }
@@ -299,7 +320,16 @@ func (s *Service) dipRun(ctx context.Context, cur *LiveTarget, w app.DipWatch) (
 	if err := s.DB.WithContext(ctx).First(&src, w.SourceID).Error; err != nil {
 		return nil, fmt.Errorf("dip watch source %d: %w", w.SourceID, err)
 	}
-	run := &liveRun{guid: cur.ProjectGUID, object: src.Object, from: w.Start, to: w.End, dip: &w,
+	goal := goalOf(w.DepthLow, 0)
+	var e app.DipperEphemeris
+	err := s.DB.WithContext(ctx).Where("source_id = ?", w.SourceID).First(&e).Error
+	switch {
+	case err == nil:
+		goal = goalOf(w.DepthLow, e.DurLowHours)
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return nil, fmt.Errorf("dipper of source %d: %w", w.SourceID, err)
+	}
+	run := &liveRun{guid: cur.ProjectGUID, object: src.Object, from: w.Start, to: w.End, dip: &w, goal: goal,
 		spot: ownimage.Spot{SourceID: src.ID, Object: src.Object, Kind: src.Kind, RA: src.RA, Dec: src.Dec, GaiaG: src.GaiaG},
 		view: LiveCurve{Kind: LiveDipWatch, ProjectGUID: cur.ProjectGUID, ProjectName: cur.ProjectName, Object: src.Object, SourceID: src.ID,
 			Name: fmt.Sprint(src.ID), From: w.Start, To: w.End,
@@ -380,7 +410,7 @@ func (s *Service) refreshLive(run *liveRun) {
 func liveView(run *liveRun, raw []ownimage.LivePoint, kept int, now time.Time) LiveCurve {
 	v := run.view
 	v.UpdatedAt, v.Comps, v.Points, v.Filter, v.OtherSubs = now, kept, nil, "", 0
-	v.LastSub, v.Scatter, v.CompScatter = nil, nil, nil
+	v.LastSub, v.Scatter, v.CompScatter, v.CompShift, v.CompSpread = nil, nil, nil, nil, nil
 	var pts []LivePoint
 	pts, v.Filter, v.OtherSubs = mainFilter(raw)
 	if len(pts) > 0 {
@@ -405,28 +435,25 @@ func liveView(run *liveRun, raw []ownimage.LivePoint, kept int, now time.Time) L
 		}
 		v.Points = shifted(pts, zero)
 		if len(pts) >= 2 {
-			cs := j.comps.scatter
-			v.CompScatter = &cs
+			v.CompScatter, v.CompShift, v.CompSpread = compsOf(j.comps)
 		}
 	case run.dip != nil:
-		j := judgeDip(pts)
+		j := judgeDip(pts, run.goal)
 		v.State, v.Why = j.state, j.why
 		v.Points = shifted(pts, j.zero)
 		d := *v.Dip
-		d.Latest, d.Smallest, d.OverMin, d.DipStart, d.DipDepth = nil, nil, nil, nil, nil
-		if len(pts) >= liveMinSubs {
-			var last []float64
-			for _, p := range v.Points[max(0, len(v.Points)-compRecent):] {
-				last = append(last, p.Mag)
-			}
-			l, sm, sc := medianOf(last), j.smallest, j.scatter
+		d.Latest, d.Smallest, d.OverMin, d.DipStart, d.DipDepth, d.Run, d.Bins = nil, nil, nil, nil, nil, 0, nil
+		if len(pts) >= max(liveMinSubs, j.run) {
+			l, sm, sc := j.latest, j.smallest, j.scatter
 			d.Latest, d.Smallest, v.Scatter = &l, &sm, &sc
 			if j.over > 0 {
 				o := j.over.Minutes()
 				d.OverMin = &o
 			}
-			cs := j.comps.scatter
-			v.CompScatter = &cs
+			d.Run, d.Bins = j.run, j.bins(pts)
+		}
+		if len(pts) >= liveMinSubs {
+			v.CompScatter, v.CompShift, v.CompSpread = compsOf(j.comps)
 		}
 		if j.found {
 			st, dd := j.start, j.depth
@@ -438,6 +465,25 @@ func liveView(run *liveRun, raw []ownimage.LivePoint, kept int, now time.Time) L
 		v.State, v.Why = LiveEarly, ""
 	}
 	return v
+}
+
+// compsOf is the nearby stars' scatter, shift and spread for the card.
+func compsOf(c compsCheck) (*float64, *float64, *float64) {
+	sc, sh, sp := c.scatter, c.shift, c.spread
+	return &sc, &sh, &sp
+}
+
+// bins is the subs averaged a run at a time, counted back from the
+// latest so the last bin is the latest reading.
+func (j *dipFit) bins(pts []LivePoint) []LiveBin {
+	var out []LiveBin
+	for end := len(pts); end-j.run >= 0; end -= j.run {
+		run := pts[end-j.run : end]
+		mid := run[0].Time.Add(run[len(run)-1].Time.Sub(run[0].Time) / 2)
+		out = append(out, LiveBin{Time: mid, Mag: j.mean(run), Err: j.scatter / math.Sqrt(float64(j.run)), Subs: j.run})
+	}
+	slices.Reverse(out)
+	return out
 }
 
 func shifted(pts []LivePoint, zero float64) []LivePoint {

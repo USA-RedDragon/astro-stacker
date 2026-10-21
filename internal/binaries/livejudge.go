@@ -13,6 +13,7 @@ const (
 	LiveFollowing = "following"
 	LiveOff       = "off"
 	LiveComps     = "comps"
+	LiveFaint     = "faint"
 	LiveNoDip     = "no-dip"
 	LiveDip       = "dip"
 )
@@ -21,11 +22,12 @@ const (
 	// liveMinSubs is the fewest measured subs before the card judges.
 	liveMinSubs = 6
 	// compRecent is how many of the latest subs judge whether the nearby
-	// stars are moving; compShift is how far their median may sit from
-	// the typical level and compSpread how much they may scatter.
+	// stars agree and the star can be read; compAgree is the least share
+	// of the nearby stars that must agree in a sub, and faintErr the
+	// largest error a sub may typically have.
 	compRecent = 5
-	compShift  = 0.1
-	compSpread = 0.05
+	compAgree  = 0.6
+	faintErr   = 0.25
 	// shiftSigma and depthSigma are how many of its own errors a timing
 	// or depth must clear the expected one by to count as off.
 	shiftSigma = 2.0
@@ -35,19 +37,24 @@ const (
 	depthShare = 0.2
 	// fitSteps is how many trial timings the fit tries across the dip.
 	fitSteps = 400
-	// dipRun is how many subs in a row a dip watch averages, dipFloor the
-	// least fade it calls a dip and dipSigma how far beyond the single
-	// sub scatter of that average it must fall.
-	dipRun   = 4
-	dipFloor = 0.05
-	dipSigma = 4.0
+	// dipRun is the fewest subs in a row a dip watch averages, dipFloor
+	// the least fade it calls a dip and dipSigma how far beyond the
+	// scatter of that average it must fall. runSpan is the longest a run
+	// of subs may last, and runSpanMin the least.
+	dipRun     = 4
+	dipFloor   = 0.05
+	dipSigma   = 4.0
+	runSpan    = time.Hour
+	runSpanMin = 12 * time.Minute
 	// errFloor is the least error given one sub.
 	errFloor = 0.003
 )
 
 // LivePoint is one measured sub: the star in magnitudes fainter than its
-// normal level and the nearby stars together in magnitudes fainter than
-// their typical level.
+// normal level against the nearby stars, so a dimming they share drops
+// out, and the nearby stars together in magnitudes fainter than their
+// typical level. Agree of the Present nearby stars agreed with each
+// other, scattering by Spread magnitudes.
 type LivePoint struct {
 	FrameID int       `json:"frame_id"`
 	Time    time.Time `json:"time"`
@@ -55,6 +62,15 @@ type LivePoint struct {
 	Mag     float64   `json:"mag"`
 	Err     float64   `json:"err"`
 	Comp    float64   `json:"comp"`
+	Spread  float64   `json:"spread"`
+	Agree   int       `json:"agree"`
+	Present int       `json:"present"`
+}
+
+// agrees says whether most of the sub's nearby stars agree; a sub that
+// does not say is taken as agreeing.
+func (p LivePoint) agrees() bool {
+	return p.Present == 0 || float64(p.Agree) >= compAgree*float64(p.Present)
 }
 
 // eclipseModel is the expected eclipse: its middle and timing error, half
@@ -72,11 +88,19 @@ func (m eclipseModel) at(t time.Time, shift time.Duration) float64 {
 	return m.shape(t.Sub(m.mid) - shift)
 }
 
-// compsCheck is how the nearby stars behave: their typical scatter, and
-// whether the latest subs show them moving.
+// compsCheck is how the nearby stars and the star behave: the scatter of
+// the nearby stars' shared level, how far it sits from usual and how far
+// the stars scatter about each other in the latest subs, and whether the
+// reading is held back, with its state and why. A dimming the nearby
+// stars share, haze or a low sky, drops out of the star's reading and
+// holds nothing back; the reading is held back only when the nearby
+// stars disagree with each other or the star is too faint to read.
 type compsCheck struct {
 	scatter float64
-	moving  bool
+	shift   float64
+	spread  float64
+	held    bool
+	state   string
 	why     string
 }
 
@@ -86,18 +110,34 @@ func checkComps(pts []LivePoint) compsCheck {
 		all = append(all, p.Comp)
 	}
 	c := compsCheck{scatter: spreadOf(all)}
-	recent := all[max(0, len(all)-compRecent):]
+	recent := pts[max(0, len(pts)-compRecent):]
 	if len(recent) < 3 {
 		return c
 	}
-	if m := medianOf(recent); math.Abs(m) > compShift {
-		dir := "fainter"
-		if m < 0 {
-			dir = "brighter"
+	var shift, spread, share, errs []float64
+	agree, present := 0, 0
+	for _, p := range recent {
+		shift = append(shift, p.Comp)
+		errs = append(errs, p.Err)
+		if p.Present > 0 {
+			spread = append(spread, p.Spread)
+			share = append(share, float64(p.Agree)/float64(p.Present))
+			agree += p.Agree
+			present += p.Present
 		}
-		c.moving, c.why = true, fmt.Sprintf("the nearby stars read %.2f mag %s than usual over the last %d subs", math.Abs(m), dir, len(recent))
-	} else if s := spreadOf(recent); s > compSpread {
-		c.moving, c.why = true, fmt.Sprintf("the nearby stars jump by %.2f mag from sub to sub", s)
+	}
+	c.shift = medianOf(shift)
+	if len(spread) > 0 {
+		c.spread = medianOf(spread)
+	}
+	switch {
+	case len(share) >= 3 && medianOf(share) < compAgree:
+		n := float64(len(share))
+		c.held, c.state = true, LiveComps
+		c.why = fmt.Sprintf("only %.0f of the %.0f nearby stars agree with each other over the last %d subs", float64(agree)/n, float64(present)/n, len(recent))
+	case medianOf(errs) > faintErr:
+		c.held, c.state = true, LiveFaint
+		c.why = fmt.Sprintf("the star is measured only to %.2f mag over the last %d subs", medianOf(errs), len(recent))
 	}
 	return c
 }
@@ -134,8 +174,8 @@ func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 		j.state, j.why = LiveEarly, fmt.Sprintf("%d of the %d subs needed are measured", len(pts), liveMinSubs)
 	case near == 0:
 		j.state, j.why = LiveEarly, "no sub is near the expected middle yet"
-	case j.comps.moving:
-		j.state, j.why = LiveComps, j.comps.why+", so the reading is held back"
+	case j.comps.held:
+		j.state, j.why = j.comps.state, j.comps.why+", so the reading is held back"
 	case !j.ok:
 		j.state, j.why = LiveEarly, "the subs do not pin the dip down yet"
 	default:
@@ -247,15 +287,35 @@ func levelFit(pts []LivePoint, f func(time.Time) float64) (z, d, dVar, chi float
 	return z, d, dVar, chi, true
 }
 
+// dipGoal is the dip a watch looks for: the shallowest of the past dips
+// and the longest a run of subs may last, half the shortest past dip.
+type dipGoal struct {
+	depth float64
+	span  time.Duration
+}
+
+// goalOf is the goal for past dips depth deep at the least and durHours
+// long at the least, either 0 when not known.
+func goalOf(depth, durHours float64) dipGoal {
+	span := runSpan
+	if durHours > 0 {
+		span = min(span, max(runSpanMin, time.Duration(durHours/2*float64(time.Hour))))
+	}
+	return dipGoal{depth: depth, span: span}
+}
+
 // dipFit is a dip watch's subs so far: their normal level and scatter,
-// the smallest dip they would show, and any dip they show.
+// how many subs in a row one reading averages, the smallest dip that
+// average would show, the latest average and any dip it shows.
 type dipFit struct {
 	state    string
 	why      string
 	zero     float64
 	scatter  float64
+	run      int
 	smallest float64
 	over     time.Duration
+	latest   float64
 	start    time.Time
 	depth    float64
 	found    bool
@@ -263,13 +323,23 @@ type dipFit struct {
 }
 
 // judgeDip levels a dip watch's subs on their normal level, leaving out
-// any dip, and looks for dipRun subs in a row that fade beyond the noise
-// while the nearby stars stay steady.
-func judgeDip(pts []LivePoint) dipFit {
-	j := dipFit{comps: checkComps(pts)}
+// any dip, and looks for a run of subs in a row whose weighted mean fades
+// beyond its noise while the nearby stars agree. The run is the fewest
+// subs, at least dipRun, whose mean would show the goal's depth, and no
+// longer than the goal's span.
+func judgeDip(pts []LivePoint, goal dipGoal) dipFit {
+	j := dipFit{comps: checkComps(pts), run: dipRun}
 	if len(pts) == 0 {
 		j.state, j.why = LiveEarly, "no sub is measured yet"
 		return j
+	}
+	var gaps []float64
+	for i := 1; i < len(pts); i++ {
+		gaps = append(gaps, pts[i].Time.Sub(pts[i-1].Time).Seconds())
+	}
+	gap := time.Duration(0)
+	if len(gaps) > 0 {
+		gap = time.Duration(medianOf(gaps) * float64(time.Second))
 	}
 	in := make([]bool, len(pts))
 	for range 3 {
@@ -290,72 +360,88 @@ func judgeDip(pts []LivePoint) dipFit {
 			}
 		}
 		j.scatter = spreadOf(res)
-		j.smallest = math.Max(dipFloor, dipSigma*j.scatter/math.Sqrt(dipRun))
-		in = cover(j.dipStarts(pts))
+		j.run = runFor(j.scatter, gap, goal)
+		j.smallest = math.Max(dipFloor, dipSigma*j.scatter/math.Sqrt(float64(j.run)))
+		in = cover(j.dipStarts(pts), j.run)
 	}
 	starts := j.dipStarts(pts)
-	var gaps []float64
-	for i := 1; i < len(pts); i++ {
-		gaps = append(gaps, pts[i].Time.Sub(pts[i-1].Time).Seconds())
+	j.over = gap * time.Duration(j.run)
+	if len(pts) >= j.run {
+		j.latest = j.mean(pts[len(pts)-j.run:])
 	}
-	if len(gaps) > 0 {
-		j.over = time.Duration(medianOf(gaps)*dipRun) * time.Second
-	}
-	for i := 0; i+dipRun <= len(pts); i++ {
+	for i := 0; i+j.run <= len(pts); i++ {
 		if !starts[i] {
 			continue
 		}
 		if !j.found {
 			j.found = true
-			for _, p := range pts[i : i+dipRun] {
+			for _, p := range pts[i : i+j.run] {
 				if p.Mag-j.zero >= j.smallest {
 					j.start = p.Time
 					break
 				}
 			}
 		}
-		var sum float64
-		for _, p := range pts[i : i+dipRun] {
-			sum += p.Mag - j.zero
-		}
-		j.depth = math.Max(j.depth, sum/dipRun)
+		j.depth = math.Max(j.depth, j.mean(pts[i:i+j.run]))
 	}
+	need := max(liveMinSubs, j.run)
 	switch {
-	case len(pts) < liveMinSubs:
-		j.state, j.why = LiveEarly, fmt.Sprintf("%d of the %d subs needed are measured", len(pts), liveMinSubs)
-	case j.comps.moving:
-		j.state, j.why = LiveComps, j.comps.why+", so the reading is held back"
+	case len(pts) < need:
+		j.state, j.why = LiveEarly, fmt.Sprintf("%d of the %d subs one reading needs are measured", len(pts), need)
+	case j.comps.held:
+		j.state, j.why = j.comps.state, j.comps.why+", so the reading is held back"
 	case j.found:
-		j.state, j.why = LiveDip, fmt.Sprintf("the star faded %.2f mag from %s while the nearby stars stayed steady", j.depth, j.start.UTC().Format(time.RFC3339))
+		j.state, j.why = LiveDip, fmt.Sprintf("the star faded %.2f mag from %s against nearby stars that agree", j.depth, j.start.UTC().Format(time.RFC3339))
 	default:
-		j.state, j.why = LiveNoDip, fmt.Sprintf("no %d subs in a row fade %.2f mag or more", dipRun, j.smallest)
+		j.state, j.why = LiveNoDip, fmt.Sprintf("no %d subs in a row fade %.2f mag or more", j.run, j.smallest)
 	}
 	return j
 }
 
-// dipStarts marks the first sub of every dipRun in a row whose mean fades
-// past the smallest dip with the nearby stars steady in each.
+// runFor is how many subs in a row, gap apart, a reading averages: the
+// fewest, at least dipRun, whose mean at scatter would show the goal's
+// depth, and no more than its span holds.
+func runFor(scatter float64, gap time.Duration, goal dipGoal) int {
+	most := dipRun
+	if gap > 0 {
+		most = max(dipRun, int(goal.span/gap))
+	}
+	n := dipRun
+	for n < most && dipSigma*scatter/math.Sqrt(float64(n)) > math.Max(goal.depth, dipFloor) {
+		n++
+	}
+	return n
+}
+
+// mean is the subs' weighted mean against the normal level.
+func (j *dipFit) mean(pts []LivePoint) float64 {
+	var sw, sy float64
+	for _, p := range pts {
+		w := 1 / sq(math.Max(p.Err, errFloor))
+		sw += w
+		sy += w * (p.Mag - j.zero)
+	}
+	return sy / sw
+}
+
+// dipStarts marks the first sub of every run whose weighted mean fades
+// past the smallest dip with the nearby stars agreeing in each sub.
 func (j *dipFit) dipStarts(pts []LivePoint) []bool {
 	out := make([]bool, len(pts))
-	for i := 0; i+dipRun <= len(pts); i++ {
-		var sum float64
-		steady := true
-		for _, p := range pts[i : i+dipRun] {
-			sum += p.Mag - j.zero
-			steady = steady && math.Abs(p.Comp) <= compShift
-		}
-		if steady && sum/dipRun >= j.smallest {
+	for i := 0; i+j.run <= len(pts); i++ {
+		run := pts[i : i+j.run]
+		if slices.IndexFunc(run, func(p LivePoint) bool { return !p.agrees() }) < 0 && j.mean(run) >= j.smallest {
 			out[i] = true
 		}
 	}
 	return out
 }
 
-// cover marks every sub of the runs that starts begin.
-func cover(starts []bool) []bool {
+// cover marks every sub of the runs of n that starts begin.
+func cover(starts []bool, n int) []bool {
 	out := make([]bool, len(starts))
 	for i, s := range starts {
-		for k := i; s && k < min(len(out), i+dipRun); k++ {
+		for k := i; s && k < min(len(out), i+n); k++ {
 			out[k] = true
 		}
 	}
