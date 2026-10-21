@@ -32,6 +32,9 @@ type Collector struct {
 	Schedule Schedule
 	// Site is the observatory's, for when the night was dark.
 	Site func(ctx context.Context) (sky.Site, error)
+	// RunChart draws a stored dip window or eclipse request night as a
+	// JPEG; nil sends no run charts.
+	RunChart func(app.RunNight) ([]byte, error)
 }
 
 // NINAQuery selects every NINA log line, to tell a quiet night from logs
@@ -110,6 +113,7 @@ func (c Collector) Collect(ctx context.Context, night time.Time) (Report, error)
 	c.discoveries(ctx, &r)
 	c.known(ctx, &r)
 	c.claims(ctx, &r)
+	c.runs(ctx, &r)
 	if r.Subs.Count > 0 {
 		r.Images = c.images(ctx, r.Subs, night)
 	}

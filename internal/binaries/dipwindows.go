@@ -910,6 +910,9 @@ func (s *Service) dipWork(ctx context.Context) error {
 	if err := s.linkAll(ctx, ds); err != nil {
 		errs = append(errs, err)
 	}
+	if err := s.judgeNights(ctx); err != nil {
+		errs = append(errs, err)
+	}
 	if err := s.judgeDips(ctx, ds); err != nil {
 		errs = append(errs, err)
 	}
@@ -1170,6 +1173,10 @@ func (s *Service) judgeWindow(ctx context.Context, d dipper, w dipSpan, subs []o
 	for _, sub := range subs {
 		res.Seconds += sub.Exposure
 	}
+	goal := goalOf(d.e.DepthLow, d.e.DurLowHours)
+	if pts, ok := s.storedPoints(ctx, src.ID, w, len(subs)); ok {
+		return judgeResult(res, pts, goal, s.loc()), nil
+	}
 	t, err := ownimage.NewLive(ctx, s.LiveData, src.Object, ownimage.Spot{SourceID: src.ID, Object: src.Object, Kind: src.Kind, RA: src.RA, Dec: src.Dec, GaiaG: src.GaiaG})
 	if errors.Is(err, ownimage.ErrNoStar) {
 		res.State, res.Note = app.DipUnsure, "the field's frame has no catalogued star at this position"
@@ -1185,7 +1192,7 @@ func (s *Service) judgeWindow(ctx context.Context, d dipper, w dipSpan, subs []o
 	}
 	raw, _, _ := t.Points()
 	pts, _, _ := mainFilter(raw)
-	return judgeResult(res, pts, goalOf(d.e.DepthLow, d.e.DurLowHours), s.loc()), nil
+	return judgeResult(res, pts, goal, s.loc()), nil
 }
 
 // judgeResult is the window's result from its measured subs.

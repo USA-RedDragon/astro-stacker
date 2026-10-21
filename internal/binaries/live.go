@@ -75,6 +75,13 @@ type LiveCurve struct {
 	Eclipse    *LiveEclipseView `json:"eclipse,omitempty"`
 	Dip        *LiveDipView     `json:"dip,omitempty"`
 	UpdatedAt  time.Time        `json:"updated_at"`
+	// Stored says the card is the stored verdict of the night Night, the
+	// evening's date, shown until the next night's imaging starts.
+	Stored bool   `json:"stored,omitempty"`
+	Night  string `json:"night,omitempty"`
+	// LowFrom is when the star dropped below the planner's height limit
+	// while subs were still taken.
+	LowFrom *time.Time `json:"low_from,omitempty"`
 }
 
 // LiveEclipseView is the expected eclipse and how the subs time it.
@@ -117,20 +124,22 @@ type LiveDipView struct {
 	DipStart    *time.Time `json:"dip_start,omitempty"`
 	DipDepth    *float64   `json:"dip_depth,omitempty"`
 	// Run is how many subs in a row one reading averages, and Bins the
-	// subs averaged that many at a time, the latest bin ending at the
-	// latest sub.
+	// subs averaged that many at a time from the first sub, the last
+	// holding what is left.
 	Run  int       `json:"run,omitempty"`
 	Bins []LiveBin `json:"bins,omitempty"`
 }
 
-// LiveBin is a run of subs averaged: its middle, its weighted mean in
-// magnitudes fainter than the normal level, the error of that mean from
-// the single sub scatter, and how many subs it holds.
+// LiveBin is a run of subs averaged: its middle and ends, its weighted
+// mean in magnitudes fainter than the normal level, the error of that
+// mean, and how many subs it holds.
 type LiveBin struct {
-	Time time.Time `json:"time"`
-	Mag  float64   `json:"mag"`
-	Err  float64   `json:"err"`
-	Subs int       `json:"subs"`
+	Time  time.Time `json:"time"`
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+	Mag   float64   `json:"mag"`
+	Err   float64   `json:"err"`
+	Subs  int       `json:"subs"`
 }
 
 // liveRun is the run being followed: what it expects and the star's
@@ -146,6 +155,7 @@ type liveRun struct {
 	goal    dipGoal
 	tracker *ownimage.Live
 	view    LiveCurve
+	dirty   bool
 }
 
 // KickLive asks for a look at the live card soon: object's subs changed.
@@ -180,17 +190,25 @@ func (s *Service) RunLive(ctx context.Context) {
 	})
 }
 
-// Live is the live card: the run being followed, or the last one until
-// another target starts. ok is false when there is none.
-func (s *Service) Live() (LiveCurve, bool) {
+// Live is the live card: the run being followed, else the latest stored
+// night until the next night's imaging starts, else the last run. ok is
+// false when there is none.
+func (s *Service) Live(ctx context.Context) (LiveCurve, bool) {
 	s.liveMu.Lock()
-	defer s.liveMu.Unlock()
-	if s.live == nil {
-		return LiveCurve{}, false
+	run := s.live
+	var v LiveCurve
+	if run != nil {
+		v = run.view
+		v.Points = slices.Clone(v.Points)
 	}
-	v := s.live.view
-	v.Points = slices.Clone(v.Points)
-	return v, true
+	s.liveMu.Unlock()
+	if run != nil && s.following(run.guid) {
+		return v, true
+	}
+	if st, ok := s.storedCard(ctx); ok {
+		return st, true
+	}
+	return v, run != nil
 }
 
 // liveLook starts following the current target when it is a run, and
@@ -201,10 +219,12 @@ func (s *Service) liveLook(ctx context.Context, subsChanged bool) (bool, error) 
 	run := s.live
 	s.liveMu.Unlock()
 	if cur == nil || cur.ProjectGUID == "" {
+		s.endRun(ctx, run)
 		return false, nil
 	}
 	fresh := false
 	if run == nil || run.guid != cur.ProjectGUID {
+		s.endRun(ctx, run)
 		s.liveMu.Lock()
 		until, ok := s.liveMiss[cur.ProjectGUID]
 		s.liveMu.Unlock()
@@ -386,6 +406,7 @@ func (s *Service) measureRun(ctx context.Context, run *liveRun) (bool, error) {
 		if err := run.tracker.Add(ctx, s.LiveData, sub); err != nil {
 			errs = append(errs, fmt.Errorf("sub %d: %w", sub.FrameID, err))
 		}
+		run.dirty = true
 		s.LiveTask.Step(1)
 		s.refreshLive(run)
 	}
@@ -473,17 +494,39 @@ func compsOf(c compsCheck) (*float64, *float64, *float64) {
 	return &sc, &sh, &sp
 }
 
-// bins is the subs averaged a run at a time, counted back from the
-// latest so the last bin is the latest reading.
+// bins is the subs averaged a run at a time, counted from the first so
+// every sub is in an average; the last may hold fewer. Each average's
+// error is that of its subs' weighted mean, scaled up by how far the subs
+// scatter beyond their own errors.
 func (j *dipFit) bins(pts []LivePoint) []LiveBin {
 	var out []LiveBin
-	for end := len(pts); end-j.run >= 0; end -= j.run {
-		run := pts[end-j.run : end]
-		mid := run[0].Time.Add(run[len(run)-1].Time.Sub(run[0].Time) / 2)
-		out = append(out, LiveBin{Time: mid, Mag: j.mean(run), Err: j.scatter / math.Sqrt(float64(j.run)), Subs: j.run})
+	for start := 0; start < len(pts); start += j.run {
+		run := pts[start:min(len(pts), start+j.run)]
+		a, b := run[0].Time, run[len(run)-1].Time
+		mean, err := j.weighted(run)
+		out = append(out, LiveBin{Time: a.Add(b.Sub(a) / 2), Start: a, End: b, Mag: mean, Err: err, Subs: len(run)})
 	}
-	slices.Reverse(out)
 	return out
+}
+
+// weighted is the subs' weighted mean against the normal level and its
+// error, scaled by the square root of the reduced chi-square when the
+// subs scatter more than their errors say.
+func (j *dipFit) weighted(pts []LivePoint) (float64, float64) {
+	var sw float64
+	for _, p := range pts {
+		sw += 1 / sq(math.Max(p.Err, errFloor))
+	}
+	mean := j.mean(pts)
+	err := 1 / math.Sqrt(sw)
+	if len(pts) > 1 {
+		var chi float64
+		for _, p := range pts {
+			chi += sq((p.Mag - j.zero - mean) / math.Max(p.Err, errFloor))
+		}
+		err *= math.Max(1, math.Sqrt(chi/float64(len(pts)-1)))
+	}
+	return mean, err
 }
 
 func shifted(pts []LivePoint, zero float64) []LivePoint {

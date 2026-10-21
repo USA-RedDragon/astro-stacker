@@ -48,6 +48,11 @@ func (s *Service) Render(ctx context.Context, night time.Time) (string, []Photo,
 		return "", nil, r, err
 	}
 	photos := s.Formatter.dustPhotos(r)
+	for _, rc := range r.Runs {
+		if len(rc.JPEG) > 0 {
+			photos = append(photos, Photo{Caption: s.Formatter.RunCaption(rc.Night), JPEG: rc.JPEG})
+		}
+	}
 	for _, im := range r.Images {
 		if len(im.JPEG) == 0 {
 			continue
