@@ -33,7 +33,11 @@ func TestFadesConfirmDipper(t *testing.T) {
 func TestFadesNeighboursNotConfirmed(t *testing.T) {
 	t.Parallel()
 	_, comps := caseSeries(t, fades15523)
-	for i := range comps {
+	step := 1
+	if underRace {
+		step = 6
+	}
+	for i := 0; i < len(comps); i += step {
 		others := append(append([][]lc.Series{}, comps[:i]...), comps[i+1:]...)
 		for _, c := range []float64{0.06, 0.1, -0.1, 0.21, -0.21} {
 			r, _ := Analyze(comps[i], Options{ChangeMag: c, Neighbours: func() [][]lc.Series { return others }})
