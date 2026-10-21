@@ -109,16 +109,20 @@ func refit(ng int, dips []Dip, span float64, slope bool, best fitOut, count, ste
 	reach := math.Min(span, beadReach*best.formal)
 	lo, hi := math.Max(-span, best.tau-reach), math.Min(span, best.tau+reach)
 	edge := (hi - lo) / float64(steps)
+	gs := make([]*shapeGrid, len(dips))
+	for i, d := range dips {
+		gs[i] = newShapeGrid(d, lo, hi, steps)
+	}
 	hit := false
 	for j := range count {
 		ps := night(j)
 		var bf fitOut
 		var bd Dip
 		found := false
-		for _, d := range dips {
-			f, fail := fitShapeIn(ps, ng, d, lo, hi, steps, slope)
+		for _, g := range gs {
+			f, fail := fitShapeIn(ps, ng, g, slope)
 			if fail == fitDone && (!found || f.chi < bf.chi) {
-				bf, bd, found = f, d, true
+				bf, bd, found = f, g.d, true
 			}
 		}
 		if !found {
