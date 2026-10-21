@@ -489,6 +489,15 @@ func TestServiceAsksStopsAndWithdraws(t *testing.T) {
 			return planning.Load(ctx, sched, db, planning.Inputs{})
 		}}
 	ctx := context.Background()
+	nights := askedNights(ctx, t, db, svc, cmds)
+	list := watchingView(ctx, t, db)
+	imagedNight(ctx, t, db, list, nights)
+	now = now.Add(2 * time.Hour)
+	stoppedWatch(ctx, t, db, svc, cmds)
+}
+
+func askedNights(ctx context.Context, t *testing.T, db *gorm.DB, svc *Service, cmds *fakeCommands) []app.DiscoveryWatchNight {
+	t.Helper()
 	if err := svc.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -508,6 +517,11 @@ func TestServiceAsksStopsAndWithdraws(t *testing.T) {
 	if len(cmds.kinds(schedcmd.KindProjectCreate)) != 5 {
 		t.Errorf("a second look sent %d commands, want the same 5", len(cmds.kinds(schedcmd.KindProjectCreate)))
 	}
+	return nights
+}
+
+func watchingView(ctx context.Context, t *testing.T, db *gorm.DB) []discoverysource.Summary {
+	t.Helper()
 	list, counts, err := discoverysource.List(ctx, db, discoverysource.Filter{View: discoverysource.ViewWatching})
 	if err != nil {
 		t.Fatal(err)
@@ -524,6 +538,11 @@ func TestServiceAsksStopsAndWithdraws(t *testing.T) {
 		v.NextSurveyCheck == nil || *v.NextSurveyCheck != "2026-10-26" || len(v.Nights) != 5 || v.Nights[0].GotMinutes != nil || v.Nights[0].Result != "" {
 		t.Fatalf("view %+v", v)
 	}
+	return list
+}
+
+func imagedNight(ctx context.Context, t *testing.T, db *gorm.DB, list []discoverysource.Summary, nights []app.DiscoveryWatchNight) {
+	t.Helper()
 	exp := 180.0
 	night0 := nights[0].Night
 	frames := []app.Frame{{Key: "a", Type: "LIGHT", Object: "Barnard's E", Exposure: &exp, TSTarget: &nights[0].TargetGUID, Night: &night0},
@@ -534,14 +553,18 @@ func TestServiceAsksStopsAndWithdraws(t *testing.T) {
 	if err := db.Create(&app.DiscoveryRun{Object: "Barnard's E", Group: discoveries.GroupBroadband, Night: night0, State: app.DiscoveryDone}).Error; err != nil {
 		t.Fatal(err)
 	}
-	views, _ = Views(ctx, db, list)
+	views, _ := Views(ctx, db, list)
 	if n := views[3635].Nights[0]; n.GotMinutes == nil || *n.GotMinutes != 6 || n.Result != ResultSteady || views[3635].NightsImaged != 1 {
 		t.Errorf("night 0 %+v, want 6 minutes got and steady", n)
 	}
-	now = now.Add(2 * time.Hour)
+}
+
+func stoppedWatch(ctx context.Context, t *testing.T, db *gorm.DB, svc *Service, cmds *fakeCommands) {
+	t.Helper()
 	if err := svc.Stop(ctx, 3635); err != nil {
 		t.Fatal(err)
 	}
+	var nights []app.DiscoveryWatchNight
 	db.Order("night").Find(&nights)
 	for _, n := range nights {
 		if n.State != app.EclipseCancel {
@@ -551,8 +574,8 @@ func TestServiceAsksStopsAndWithdraws(t *testing.T) {
 	if len(cmds.undone) != 4 || slices.Contains(cmds.undone, nights[0].CreateCmd) {
 		t.Errorf("taken back %v; want the 4 nights to come, not the one under way, which is closed instead", cmds.undone)
 	}
-	list, counts, _ = discoverysource.List(ctx, db, discoverysource.Filter{View: discoverysource.ViewWatching})
-	views, _ = Views(ctx, db, list)
+	list, counts, _ := discoverysource.List(ctx, db, discoverysource.Filter{View: discoverysource.ViewWatching})
+	views, _ := Views(ctx, db, list)
 	if counts.Watching != 1 || views[3635].Imaging != ImagingStoppedUser {
 		t.Errorf("after stop: counts %+v view %+v; want it still in Watching, not asking", counts, views[3635])
 	}
