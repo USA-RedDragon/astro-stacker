@@ -89,15 +89,24 @@ func TestPhotometryBelowCut(t *testing.T) {
 	if done.Status != app.StackStatusLowScore || done.RegisteredKey == nil || *done.RegisteredKey != doneKey || done.Weight != 18 {
 		t.Errorf("registered light judged again: status %q key %v weight %v", done.Status, done.RegisteredKey, done.Weight)
 	}
+	checkPhotometryRecords(ctx, t, p, &stack, batch, frames[1])
+}
 
+// checkPhotometryRecords records the batch's photometry light as
+// registered, and frame as not registered.
+func checkPhotometryRecords(ctx context.Context, t *testing.T, p *Pipeline, stack *app.Stack, batch []candidate, frame app.Frame) {
+	t.Helper()
+	db := p.db
 	var moonlit candidate
 	for _, c := range batch {
 		if c.photometryOnly {
 			moonlit = c
 		}
 	}
-	if err := p.recordPhotometry(ctx, &stack, []addedSub{{c: calibrated{c: moonlit}, key: "registered/moonlit.xisf"}}); err != nil {
-		t.Fatal(err)
+	moonlit.photometryOnly = true
+	rest, err := p.recordPhotometry(ctx, stack, []addedSub{{c: calibrated{c: moonlit}, key: "registered/moonlit.xisf"}})
+	if err != nil || len(rest) != 0 {
+		t.Fatal(rest, err)
 	}
 	var sf app.StackFrame
 	if err := db.Where("frame_id = ?", moonlit.frame.ID).First(&sf).Error; err != nil {
@@ -109,7 +118,7 @@ func TestPhotometryBelowCut(t *testing.T) {
 	}
 
 	unsolved := moonlit
-	unsolved.frame = frames[1]
+	unsolved.frame = frame
 	added, unregistered, err := p.storeRegistered(ctx, objectHartley, filterRed, []calibrated{{c: unsolved}}, []string{""})
 	if err != nil {
 		t.Fatal(err)

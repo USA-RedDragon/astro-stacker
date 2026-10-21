@@ -73,7 +73,7 @@ func loadPhotometryWindows(ctx context.Context, db *gorm.DB, ids []int) (map[str
 		if err := stmt.Parse(table); err != nil {
 			return nil, nil, err
 		}
-		if err := db.WithContext(ctx).Table(stmt.Schema.Table+" w").
+		if err := db.WithContext(ctx).Table(stmt.Schema.Table + " w").
 			Select("ds.object, w.start, w.\"end\"").
 			Joins("JOIN discovery_sources ds ON ds.id = w.source_id").
 			Scan(&part).Error; err != nil {
@@ -110,10 +110,16 @@ func keepPhotometry(sf *app.StackFrame, existing app.StackFrame) {
 	sf.BiasMaster, sf.DarkMaster, sf.FlatMaster, sf.FlatMatch = existing.BiasMaster, existing.DarkMaster, existing.FlatMaster, existing.FlatMatch
 }
 
-// recordPhotometry records lights registered for photometry only: below
-// the cut, out of the master, with the registered copy measurements read.
-func (p *Pipeline) recordPhotometry(ctx context.Context, stack *app.Stack, subs []addedSub) error {
+// recordPhotometry records the lights registered for photometry only:
+// below the cut, out of the master, with the registered copy measurements
+// read. It returns the others, which go on the master.
+func (p *Pipeline) recordPhotometry(ctx context.Context, stack *app.Stack, subs []addedSub) ([]addedSub, error) {
+	var stacked []addedSub
 	for _, a := range subs {
+		if !a.c.c.photometryOnly {
+			stacked = append(stacked, a)
+			continue
+		}
 		sf := p.leftOut(a.c.c, app.StackStatusLowScore)
 		exp := *a.c.c.frame.Exposure
 		key := a.key
@@ -121,8 +127,8 @@ func (p *Pipeline) recordPhotometry(ctx context.Context, stack *app.Stack, subs 
 		sf.DarkScale, sf.NoDark = a.c.darkScale, a.c.c.cal.Dark.Set == nil && !precalibrated(a.c.c.frame)
 		sf.BiasMaster, sf.DarkMaster, sf.FlatMaster, sf.FlatMatch = optional(a.c.bias), optional(a.c.dark), optional(a.c.flat), a.c.flatMatch()
 		if err := p.record(ctx, sf); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return stacked, nil
 }
