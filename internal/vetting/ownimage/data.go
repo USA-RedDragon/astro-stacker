@@ -24,6 +24,10 @@ type DBData struct {
 	App   *gorm.DB
 	Store discoveries.ObjectStore
 	Gaia  *starcat.Gaia
+	// BelowCut also lists the subs left out of their stack on their score
+	// that were registered for photometry, for measuring a star through a
+	// dip watch or eclipse request rather than vetting.
+	BelowCut bool
 }
 
 type subRow struct {
@@ -48,7 +52,7 @@ func (d DBData) Subs(ctx context.Context, object string) ([]Sub, error) {
 		Joins("JOIN frames f ON f.id = sf.frame_id").
 		Joins("JOIN stacks s ON s.id = sf.stack_id").
 		Joins("LEFT JOIN calibration_masters cm ON cm.set_key = sf.dark_master").
-		Where("sf.status = ? AND sf.registered_key IS NOT NULL AND sf.weight > 0 AND f.night IS NOT NULL AND f.date_obs IS NOT NULL AND f.exposure > 0", app.StackStatusAdded).
+		Where("sf.status IN ? AND sf.registered_key IS NOT NULL AND sf.weight > 0 AND f.night IS NOT NULL AND f.date_obs IS NOT NULL AND f.exposure > 0", d.statuses()).
 		Where("s.object = ?", object).
 		Order("f.date_obs").Scan(&rows).Error
 	if err != nil {
@@ -63,6 +67,13 @@ func (d DBData) Subs(ctx context.Context, object string) ([]Sub, error) {
 		}
 	}
 	return out, nil
+}
+
+func (d DBData) statuses() []string {
+	if d.BelowCut {
+		return []string{app.StackStatusAdded, app.StackStatusLowScore}
+	}
+	return []string{app.StackStatusAdded}
 }
 
 // Load reads one registered sub.

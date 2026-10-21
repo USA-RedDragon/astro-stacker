@@ -100,6 +100,18 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 			return err
 		}
 	}
+	var stacked, photometry []addedSub
+	for _, a := range added {
+		if a.c.c.photometryOnly {
+			photometry = append(photometry, a)
+		} else {
+			stacked = append(stacked, a)
+		}
+	}
+	if err := p.recordPhotometry(ctx, stack, photometry); err != nil {
+		return err
+	}
+	added = stacked
 	if len(added) == 0 {
 		return nil
 	}
@@ -191,6 +203,12 @@ func (p *Pipeline) storeRegistered(ctx context.Context, object, filter string, c
 	unregistered := 0
 	for i, c := range cals {
 		reg := registered[i]
+		if reg == "" && c.c.photometryOnly {
+			if err := p.record(ctx, p.leftOut(c.c, app.StackStatusLowScore)); err != nil {
+				return nil, 0, err
+			}
+			continue
+		}
 		if reg == "" {
 			sf := app.StackFrame{FrameID: c.c.frame.ID, Status: app.StackStatusRegistration,
 				Score: c.c.score.Score, Exposure: *c.c.frame.Exposure, DarkScale: c.darkScale}
