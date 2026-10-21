@@ -167,19 +167,22 @@ type LightPoint struct {
 
 // Candidate is a source that changed between the night and the reference.
 type Candidate struct {
-	X, Y      float64
-	RA, Dec   float64
-	Sign      int
-	SNR       float64
-	DiffFlux  float64
-	RefFlux   float64
-	Frac      float64
-	Dipole    float64
-	DeltaMag  *float64
-	NightMag  *float64
-	RefMag    *float64
-	GaiaG     *float64
-	GaiaSepPx float64
+	X, Y     float64
+	RA, Dec  float64
+	Sign     int
+	SNR      float64
+	DiffFlux float64
+	RefFlux  float64
+	Frac     float64
+	Dipole   float64
+	DeltaMag *float64
+	// LightDeltaMag is the change of all the light within residualR, a
+	// neighbour's within onStarPx included, which onStar weighs.
+	LightDeltaMag *float64
+	NightMag      *float64
+	RefMag        *float64
+	GaiaG         *float64
+	GaiaSepPx     float64
 	// GaiaMotionPx is how far the matched star moved between the
 	// reference's and the night's epochs.
 	GaiaMotionPx float64
@@ -1328,7 +1331,7 @@ const (
 // onStar says whether a change no star was matched to sits on a star
 // within onStarPx and moves the light there by under onStarMag.
 func (c Candidate) onStar() bool {
-	return c.GaiaG == nil && c.NearStarG != nil && c.DeltaMag != nil && math.Abs(*c.DeltaMag) < onStarMag
+	return c.GaiaG == nil && c.NearStarG != nil && c.LightDeltaMag != nil && math.Abs(*c.LightDeltaMag) < onStarMag
 }
 
 // movingStar says whether a change is the dipole a catalogued star leaves
@@ -1432,25 +1435,44 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			if c.RefFlux > 0 && ra > 3*res.NightApSigma {
 				if tot := c.RefFlux + c.DiffFlux; tot > 0 {
 					dm := -2.5 * math.Log10(tot/c.RefFlux)
-					cc.DeltaMag = &dm
+					cc.LightDeltaMag = &dm
 				}
 			}
-			if res.ZeroPoint != nil {
-				na := ra + Aperture(diff, c.X, c.Y, apertureR)
-				if ra > 3*res.NightApSigma {
-					m := *res.ZeroPoint - 2.5*math.Log10(ra)
-					cc.RefMag = &m
-				}
-				if na > 3*res.NightApSigma {
-					m := *res.ZeroPoint - 2.5*math.Log10(na)
-					cc.NightMag = &m
-				}
-			}
+			cc.DeltaMag, cc.RefMag, cc.NightMag = apertureMags(ra, Aperture(diff, c.X, c.Y, apertureR), res.NightApSigma, res.ZeroPoint)
 			out = append(out, cc)
 		}
 		res.Funnel[name] = fn
 	}
 	return out
+}
+
+// apertureMags measures a change in the apertureR aperture the zero point
+// zp is calibrated for: ref is the reference's light there and diff the
+// difference's. The change in magnitudes is the night's light against the
+// reference's in that one aperture, so it is always nightMag less refMag; a
+// wider aperture takes in more of the light around a star in the reference
+// than the change adds there, and understates it. Candidate 241804 (IC 4604,
+// 2025-05-20) changed by -0.85 mag in apertureR but by -0.48 in residualR,
+// where the reference held 4.5 times its apertureR light against a star's
+// 2.1. Each is nil when the light under it is not over 3 sigma.
+func apertureMags(ref, diff, sigma float64, zp *float64) (deltaMag, refMag, nightMag *float64) {
+	night := ref + diff
+	if ref > 3*sigma && night > 0 {
+		dm := -2.5 * math.Log10(night/ref)
+		deltaMag = &dm
+	}
+	if zp == nil {
+		return deltaMag, nil, nil
+	}
+	if ref > 3*sigma {
+		m := *zp - 2.5*math.Log10(ref)
+		refMag = &m
+	}
+	if night > 3*sigma {
+		m := *zp - 2.5*math.Log10(night)
+		nightMag = &m
+	}
+	return deltaMag, refMag, nightMag
 }
 
 // subTest is the candidate as the per-sub test measures it, in its own
