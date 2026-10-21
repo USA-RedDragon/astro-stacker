@@ -58,9 +58,10 @@ func TestFadesNeighboursNotConfirmed(t *testing.T) {
 // that much fainter.
 func noisyStar(seed uint64, sigma, off float64) ([]lc.Series, [][]lc.Series) {
 	rng := lcg(seed)
-	var times []float64
-	for n := range 400 {
-		for k := range 4 {
+	const nights, perNight = 400, 4
+	times := make([]float64, 0, nights*perNight)
+	for n := range nights {
+		for k := range perNight {
 			times = append(times, 2458300+float64(n)+0.7+0.02*float64(k))
 		}
 	}

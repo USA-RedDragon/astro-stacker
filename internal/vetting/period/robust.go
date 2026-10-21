@@ -35,6 +35,8 @@ const (
 	seasonFitsMin = 4
 	seasonHitTol  = 0.06
 	sidereal      = 1.0027379
+	echoOneDay    = "one day"
+	echoSidereal  = "one sidereal day"
 	echoShare     = 0.0015
 	echoNear      = 0.03
 	lunar         = 29.530589
@@ -179,7 +181,7 @@ func echoOf(p, span float64, smooth bool) string {
 		}
 		return t
 	}
-	names := map[float64]string{1: "one day", 2: "half a day", 3: "a third of a day", 4: "a quarter of a day",
+	names := map[float64]string{1: echoOneDay, 2: "half a day", 3: "a third of a day", 4: "a quarter of a day",
 		1.0 / 2: "two days", 1.0 / 3: "three days", 1.0 / 4: "four days"}
 	for _, k := range []float64{1, 2, 3, 4} {
 		for _, kk := range []float64{k, 1 / k} {
@@ -188,7 +190,7 @@ func echoOf(p, span float64, smooth bool) string {
 				continue
 			}
 			if kk == 1 && !solar {
-				return "one sidereal day"
+				return echoSidereal
 			}
 			return names[kk]
 		}

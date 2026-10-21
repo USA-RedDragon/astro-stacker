@@ -20,6 +20,8 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
+const ztfRBand = "ZTF r"
+
 const andDir = "3_And"
 
 type star struct {
@@ -237,7 +239,7 @@ func checkPeriod(t *testing.T, e *Ephemeris, w want) {
 		t.Errorf("second dip at phase %.4f, want %.4f", e.Eclipses[1].Phase, w.phase2)
 	}
 	for k := range 2 {
-		if got := e.Eclipses[k].Depth["ZTF r"]; math.Abs(got-w.depthR[k]) > 0.04 {
+		if got := e.Eclipses[k].Depth[ztfRBand]; math.Abs(got-w.depthR[k]) > 0.04 {
 			t.Errorf("dip %d depth in r %.3f, want %.3f", k+1, got, w.depthR[k])
 		}
 	}
@@ -282,13 +284,13 @@ func TestAnalyzeStars(t *testing.T) {
 			}
 			checkPeriod(t, r.Ephemeris, c.want)
 			e := r.Ephemeris
-			if v := e.Predict(e.T0+3*e.Period, "ZTF r"); math.Abs(v-e.Eclipses[0].Depth["ZTF r"]) > 1e-9 {
+			if v := e.Predict(e.T0+3*e.Period, ztfRBand); math.Abs(v-e.Eclipses[0].Depth[ztfRBand]) > 1e-9 {
 				t.Errorf("predict at the deep minimum %.3f, want its depth", v)
 			}
-			if v := e.Predict(e.T0+(e.Eclipses[1].Phase-2)*e.Period, "ZTF r"); math.Abs(v-e.Eclipses[1].Depth["ZTF r"]) > 1e-9 {
+			if v := e.Predict(e.T0+(e.Eclipses[1].Phase-2)*e.Period, ztfRBand); math.Abs(v-e.Eclipses[1].Depth[ztfRBand]) > 1e-9 {
 				t.Errorf("predict at the shallow minimum %.3f, want its depth", v)
 			}
-			if v := e.Predict(e.T0+0.3*e.Period, "ZTF r"); v != 0 {
+			if v := e.Predict(e.T0+0.3*e.Period, ztfRBand); v != 0 {
 				t.Errorf("predict between dips %.3f, want 0", v)
 			}
 			if ph := e.Phase(e.T0 + 0.8*e.Period); math.Abs(ph+0.2) > 1e-9 {
@@ -356,10 +358,10 @@ func TestOwnTiming(t *testing.T) {
 		t.Errorf("depth %.3f, want about 0.31", tm.Depth)
 	}
 	ref := &Ephemeris{Period: 9.987150067027478, T0: hjdToBJD(59063.30971988075), Kind: KindEclipsing, Eclipses: []Eclipse{
-		{Phase: 0, Width: 0.14072579680090022 / 9.987150067027478, Shape: 5, Depth: map[string]float64{"ZTF r": 0.5310204904175049}},
-		{Phase: 0.500204454313903, Width: 0.1273366739329821 / 9.987150067027478, Shape: 3.4120691316525624, Depth: map[string]float64{"ZTF r": 0.3222765699258643}},
+		{Phase: 0, Width: 0.14072579680090022 / 9.987150067027478, Shape: 5, Depth: map[string]float64{ztfRBand: 0.5310204904175049}},
+		{Phase: 0.500204454313903, Width: 0.1273366739329821 / 9.987150067027478, Shape: 3.4120691316525624, Depth: map[string]float64{ztfRBand: 0.3222765699258643}},
 	}}
-	rt, ok := TimeMinimum(ref, pts, "ZTF r")
+	rt, ok := TimeMinimum(ref, pts, ztfRBand)
 	if !ok {
 		t.Fatal("no minimum covered with the reference ephemeris")
 	}

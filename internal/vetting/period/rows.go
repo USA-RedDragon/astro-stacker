@@ -106,7 +106,7 @@ func (a *analysis) eclipseRow(s string, si surveyInfo, fits []SurveyFit) check.C
 		if !f.Agrees && bad < 0 {
 			bad = g
 		}
-		if !(m.active[g][0] || (len(m.dips) > 1 && m.active[g][1])) {
+		if !m.active[g][0] && (len(m.dips) <= 1 || !m.active[g][1]) {
 			continue
 		}
 		n := f.InDip1 + f.InDip2

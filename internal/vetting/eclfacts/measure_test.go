@@ -10,7 +10,10 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
 
-const ztfR = "ZTF r"
+const (
+	ztfR   = "ZTF r"
+	atlasO = "ATLAS o"
+)
 
 func ephem(phase2, d1, d2 float64) *period.Ephemeris {
 	return &period.Ephemeris{Period: 3.5, PeriodErr: 1e-5, T0: 2459000.3, T0Err: 0.001, Kind: period.KindEclipsing,
@@ -67,13 +70,13 @@ func TestTwinNeedsTwoBands(t *testing.T) {
 	e := ephem(0.5, 0.3, 0.3)
 	r := sample(e, 1500, 0.02, 4)
 	odd := ephem(0.5, 0.36, 0.18)
-	odd.Eclipses[0].Depth = map[string]float64{"ATLAS o": 0.36}
-	odd.Eclipses[1].Depth = map[string]float64{"ATLAS o": 0.18}
+	odd.Eclipses[0].Depth = map[string]float64{atlasO: 0.36}
+	odd.Eclipses[1].Depth = map[string]float64{atlasO: 0.18}
 	rng := rand.New(rand.NewPCG(5, 1))
 	o := lc.Series{Survey: lc.ATLAS, Band: "o"}
 	for i := range 1500 {
 		tt := 2458300 + float64(i)*1.29 + 0.2*rng.Float64()
-		o.Points = append(o.Points, lc.Point{BJD: tt, Mag: 15 + odd.Predict(tt, "ATLAS o") + 0.03*rng.NormFloat64(), Err: 0.03})
+		o.Points = append(o.Points, lc.Point{BJD: tt, Mag: 15 + odd.Predict(tt, atlasO) + 0.03*rng.NormFloat64(), Err: 0.03})
 	}
 	s := Summarize([]lc.Series{r, o}, e)
 	if s.Twin.DepthZ >= 3 {
