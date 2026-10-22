@@ -41,8 +41,8 @@ internal/binaries/facts.go	119	51
 internal/binaries/flags.go	68	58
 internal/binaries/kind.go	84	73
 internal/binaries/kit.go	192	151
-internal/binaries/live.go	284	112
-internal/binaries/livejudge.go	203	193
+internal/binaries/live.go	310	135
+internal/binaries/livejudge.go	211	201
 internal/binaries/minima/check.go	60	60
 internal/binaries/minima/fit.go	573	531
 internal/binaries/minima/grid.go	48	48
@@ -58,7 +58,7 @@ internal/binaries/record.go	182	120
 internal/binaries/redraft.go	49	41
 internal/binaries/request.go	101	74
 internal/binaries/runchart.go	141	131
-internal/binaries/runnight.go	223	95
+internal/binaries/runnight.go	227	98
 internal/binaries/seasonal.go	136	116
 internal/binaries/service.go	393	231
 internal/binaries/share.go	121	110
@@ -166,7 +166,7 @@ internal/discoveryreport/ades.go	42	40
 internal/discoveryreport/bulk.go	24	22
 internal/discoveryreport/known.go	143	133
 internal/discoveryreport/report.go	335	299
-internal/discoveryreport/service.go	310	226
+internal/discoveryreport/service.go	310	225
 internal/discoveryreport/tns.go	97	81
 internal/discoverysource/list.go	255	233
 internal/discoverysource/match.go	27	24
@@ -220,7 +220,7 @@ internal/horizonsurvey/nina.go	101	81
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
-internal/horizonsurvey/runner.go	451	351
+internal/horizonsurvey/runner.go	451	350
 internal/horizonsurvey/segment.go	96	94
 internal/horizonsurvey/sim/sim.go	267	240
 internal/horizonsurvey/skyline.go	119	113
@@ -234,7 +234,7 @@ internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/memlimit/memlimit.go	15	7
-internal/memwatch/memwatch.go	58	49
+internal/memwatch/memwatch.go	58	44
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -331,7 +331,7 @@ internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/schedglobal.go	53	48
-internal/schedcmd/service.go	234	205
+internal/schedcmd/service.go	234	203
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/templates.go	30	28
 internal/schedcmd/window.go	58	53
