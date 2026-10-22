@@ -280,7 +280,12 @@ func TestDipWatchTonightTooFaintIsHeld(t *testing.T) {
 // model reads back from its samples.
 func tonight27822(t *testing.T) ([]LivePoint, eclipseModel) {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/live27822-20261022.json.zst")
+	return live27822(t, "testdata/live27822-20261022.json.zst")
+}
+
+func live27822(t *testing.T, path string) ([]LivePoint, eclipseModel) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,5 +453,92 @@ func TestTonight27822BothSidesMeasuresTheDepth(t *testing.T) {
 	}
 	if math.Abs(*e.FitDepth-truth.depth) > math.Max(0.01, 3**e.DepthErr) {
 		t.Errorf("depth %.3f ± %.3f mag, truth %.3f", *e.FitDepth, *e.DepthErr, truth.depth)
+	}
+}
+
+// TestTonight27822AtTwoThirtySevenIsNotOff is the card at 02:37 CDT, 151
+// Red subs to 07:35 UTC, an hour past the expected middle. A curve held
+// at the surveys' width put the middle 38 ± 12 min early and called the
+// eclipse off its 5 min timing error, yet 14 TESS second eclipses of
+// 2019 to 2025 sit 1 ± 2 min from the ephemeris. With one side of the dip
+// still open, a wider dip fits as well with its middle near the expected
+// one, so the timing error must take in the width.
+func TestTonight27822AtTwoThirtySevenIsNotOff(t *testing.T) {
+	t.Parallel()
+	pts, m := live27822(t, "testdata/live27822-20261022-0237.json.zst")
+	if len(pts) != 151 || m.err.Minutes() < 5.1 || m.err.Minutes() > 5.2 {
+		t.Fatalf("%d subs and a %.2f min timing error, want 151 and 5.14", len(pts), m.err.Minutes())
+	}
+	j := judgeEclipse(pts, m)
+	if j.state == LiveOff {
+		t.Errorf("state off (%s), want the subs within reach of the expected curve", j.why)
+	}
+	if !j.ok || j.shiftErr < 15*time.Minute || j.shift < -45*time.Minute || j.shift > 0 {
+		t.Errorf("timing %.1f ± %.1f min (ok %v), want about 27 ± 20 min early", j.shift.Minutes(), j.shiftErr.Minutes(), j.ok)
+	}
+}
+
+// TestWiderDipIsNotTakenForAnEarlyOne draws tonight's 02:37 subs again
+// from a dip on time but 1.25 times as wide as the surveys': a curve held
+// at their width put its middle a median 18 min early, with half the
+// draws beyond twice their error.
+func TestWiderDipIsNotTakenForAnEarlyOne(t *testing.T) {
+	t.Parallel()
+	pts, m := live27822(t, "testdata/live27822-20261022-0237.json.zst")
+	at := m.widened(1.25)
+	var shifts []float64
+	within := 0
+	for seed := range uint64(40) {
+		r := rand.New(rand.NewPCG(27822, seed))
+		for i := range pts {
+			pts[i].Mag = m.depth*at(pts[i].Time, 0) + pts[i].Err*r.NormFloat64()
+		}
+		j := judgeEclipse(pts, m)
+		if !j.ok {
+			continue
+		}
+		shifts = append(shifts, j.shift.Minutes())
+		if absDur(j.shift) <= 2*j.shiftErr {
+			within++
+		}
+	}
+	slices.Sort(shifts)
+	if n := len(shifts); n < 30 || math.Abs(shifts[n/2]) > 5 || float64(within) < 0.85*float64(n) {
+		t.Errorf("%d of 40 draws fitted, median %.1f min, %d within twice their error", n, shifts[n/2], within)
+	}
+}
+
+func TestNoDipIsNotTimed(t *testing.T) {
+	t.Parallel()
+	pts, m := live27822(t, "testdata/live27822-20261022-0237.json.zst")
+	timed := 0
+	for seed := range uint64(40) {
+		r := rand.New(rand.NewPCG(seed, 99))
+		for i := range pts {
+			pts[i].Mag = pts[i].Err * r.NormFloat64()
+		}
+		if j := judgeEclipse(pts, m); j.ok {
+			timed++
+		}
+	}
+	if timed > 4 {
+		t.Errorf("%d of 40 nights with no dip at all gave a timing", timed)
+	}
+}
+
+// TestTonight27822AllSubs is the whole night, 167 Red subs from 01:35 to
+// 08:14 UTC, 99 min past the expected middle with the dip's last 91 min
+// unseen. The curve held at the surveys' width could not bound the
+// middle (19.5 min early, give or take 137); with the width fitted too
+// it lands 4.5 min early, give or take 21, on the expected time.
+func TestTonight27822AllSubs(t *testing.T) {
+	t.Parallel()
+	pts, m := live27822(t, "testdata/live27822-20261022-0318.json.zst")
+	if len(pts) != 167 {
+		t.Fatalf("%d subs, want 167", len(pts))
+	}
+	j := judgeEclipse(pts, m)
+	if !j.ok || !j.timed || j.state == LiveOff || math.Abs(j.shift.Minutes()+4.5) > 3 || j.shiftErr < 15*time.Minute || j.shiftErr > 30*time.Minute {
+		t.Errorf("timing %.1f ± %.1f min, ok %v, timed %v, state %s (%s); want about 4.5 ± 21 min early, on time", j.shift.Minutes(), j.shiftErr.Minutes(), j.ok, j.timed, j.state, j.why)
 	}
 }

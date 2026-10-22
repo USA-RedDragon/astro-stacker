@@ -545,11 +545,11 @@ func meanDepth(betas [][]float64, vds []float64, red float64) (float64, float64,
 	return sws / sw, 1 / math.Sqrt(sw), true
 }
 
-// widthScales gives the widths fitBest fits the dip at, as shares of the
+// WidthScales gives the widths fitBest fits the dip at, as shares of the
 // ephemeris's: a night's dip can look half as wide or twice as wide as
 // the surveys' mean shape, and a dip fitted too narrow moves its middle
 // toward the side the frames cover best.
-func widthScales() []float64 {
+func WidthScales() []float64 {
 	return []float64{0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.12, 1.25, 1.4, 1.6, 1.8, 2.0}
 }
 

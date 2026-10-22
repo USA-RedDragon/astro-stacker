@@ -22,7 +22,7 @@ func newShapeGrid(d Dip, lo, hi float64, steps int) *shapeGrid {
 // widthGrids is a shapeGrid over ±span about d.Mid in gridSteps for d at
 // each width in widthScales.
 func widthGrids(d Dip, span float64) []*shapeGrid {
-	ws := widthScales()
+	ws := WidthScales()
 	gs := make([]*shapeGrid, len(ws))
 	for i, s := range ws {
 		gs[i] = newShapeGrid(scaled(d, s), -span, span, gridSteps)

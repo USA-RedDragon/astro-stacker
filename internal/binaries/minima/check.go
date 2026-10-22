@@ -63,7 +63,7 @@ func checkSpread(pts []Point, ng int, d, fd Dip, span float64, slope bool, best 
 	if rms := math.Sqrt(ss / float64(n)); rms > 0 && rms < 1 {
 		scale /= rms
 	}
-	ws := widthScales()
+	ws := WidthScales()
 	at := 0
 	for i, s := range ws {
 		if math.Abs(s*d.Half-fd.Half) < math.Abs(ws[at]*d.Half-fd.Half) {
