@@ -47,19 +47,21 @@ type LiveTarget struct {
 // LiveCurve is the Now page's live card: the expected curve of the
 // current eclipse request or dip watch and the subs measured so far.
 type LiveCurve struct {
-	Kind        string    `json:"kind"`
-	ProjectGUID string    `json:"project_guid"`
-	ProjectName string    `json:"project_name"`
-	Object      string    `json:"object"`
-	SourceID    int       `json:"source_id"`
-	Name        string    `json:"name"`
-	State       string    `json:"state"`
-	Why         string    `json:"why"`
-	Note        string    `json:"note,omitempty"`
-	Filter      string    `json:"filter,omitempty"`
-	OtherSubs   int       `json:"other_subs"`
-	From        time.Time `json:"from"`
-	To          time.Time `json:"to"`
+	Kind        string `json:"kind"`
+	ProjectGUID string `json:"project_guid"`
+	ProjectName string `json:"project_name"`
+	Object      string `json:"object"`
+	SourceID    int    `json:"source_id"`
+	Name        string `json:"name"`
+	// Star is the star's name as My discoveries shows it, "Gaia DR3 …".
+	Star      string    `json:"star,omitempty"`
+	State     string    `json:"state"`
+	Why       string    `json:"why"`
+	Note      string    `json:"note,omitempty"`
+	Filter    string    `json:"filter,omitempty"`
+	OtherSubs int       `json:"other_subs"`
+	From      time.Time `json:"from"`
+	To        time.Time `json:"to"`
 	// Points are the subs measured, in magnitudes fainter than the
 	// star's normal level, with the nearby stars together beside them.
 	Points      []LivePoint `json:"points"`
@@ -82,6 +84,10 @@ type LiveCurve struct {
 	// LowFrom is when the star dropped below the planner's height limit
 	// while subs were still taken.
 	LowFrom *time.Time `json:"low_from,omitempty"`
+	// DarkStart and DarkEnd bound the night's dark and high enough time
+	// inside the run, by the eclipse planner's rule, when the site is known.
+	DarkStart *time.Time `json:"dark_start,omitempty"`
+	DarkEnd   *time.Time `json:"dark_end,omitempty"`
 }
 
 // LiveEclipseView is the expected eclipse and how the subs time it.
@@ -99,7 +105,6 @@ type LiveEclipseView struct {
 	ShiftErr *float64      `json:"shift_err_min,omitempty"`
 	FitDepth *float64      `json:"fit_depth,omitempty"`
 	DepthErr *float64      `json:"fit_depth_err,omitempty"`
-	Planned  time.Time     `json:"planned_end"`
 }
 
 // CurveSample is the expected curve at one time, with the range the
@@ -309,6 +314,7 @@ func (s *Service) eclipseRun(ctx context.Context, cur *LiveTarget, req app.Eclip
 	}
 	st := stars[0]
 	run.object, run.view.Object = st.Source.Object, st.Source.Object
+	run.view.Star, _ = st.Names()
 	e, _ := st.ephemeris()
 	if e == nil || e.Period <= 0 || st.Facts == nil || st.Facts.Gaia == nil || len(e.Eclipses) == 0 {
 		run.view.State, run.view.Note = LiveEarly, "The star has no worked out ephemeris yet, so there is no expected curve."
@@ -335,7 +341,8 @@ func (s *Service) eclipseRun(ctx context.Context, cur *LiveTarget, req app.Eclip
 	depth, band := depthIn(e.Eclipses[k].Depth, req.Filter)
 	run.model.depth = depth
 	run.view.Eclipse = &LiveEclipseView{Kind: req.Kind, Mid: pred.Mid, ErrMin: pred.Err.Minutes(), Start: pred.Mid.Add(-half), End: pred.Mid.Add(half),
-		Depth: depth, Band: band, Planned: req.End, Basis: surveysOf(e.Eclipses[k].Depth)}
+		Depth: depth, Band: band, Basis: surveysOf(e.Eclipses[k].Depth)}
+	run.view.DarkStart, run.view.DarkEnd = s.darkAround(ctx, ra, dec, req.Start, req.End, run.view.Eclipse.Start, run.view.Eclipse.End)
 	s.startTracker(ctx, run)
 	return run, nil
 }
@@ -359,8 +366,46 @@ func (s *Service) dipRun(ctx context.Context, cur *LiveTarget, w app.DipWatch) (
 		view: LiveCurve{Kind: LiveDipWatch, ProjectGUID: cur.ProjectGUID, ProjectName: cur.ProjectName, Object: src.Object, SourceID: src.ID,
 			Name: fmt.Sprint(src.ID), From: w.Start, To: w.End,
 			Dip: &LiveDipView{Start: w.Start, End: w.End, DepthLow: w.DepthLow, DepthHigh: w.DepthHigh, ActiveShare: w.ActiveShare}}}
+	if stars, err := s.load(ctx, []int{src.ID}); err == nil && len(stars) > 0 {
+		run.view.Star, _ = stars[0].Names()
+	}
 	s.startTracker(ctx, run)
 	return run, nil
+}
+
+// darkAround is the dark and high enough span between from and to that
+// overlaps the eclipse from start to end the most, or the longest when
+// none does, or nils when the site is not known or there is none.
+func (s *Service) darkAround(ctx context.Context, ra, dec float64, from, to, start, end time.Time) (*time.Time, *time.Time) {
+	if s.Site == nil {
+		return nil, nil
+	}
+	site, err := s.Site(ctx)
+	if err != nil {
+		return nil, nil
+	}
+	sp, ok := bestDark(DarkSpans(site, ra, dec, from, to), start, end)
+	if !ok {
+		return nil, nil
+	}
+	return &sp.Start, &sp.End
+}
+
+// bestDark is the span that overlaps start to end the most, the longest
+// when none does.
+func bestDark(spans []TimeSpan, start, end time.Time) (TimeSpan, bool) {
+	overlap := func(sp TimeSpan) time.Duration {
+		return max(0, minTime(sp.End, end).Sub(maxTime(sp.Start, start)))
+	}
+	var best TimeSpan
+	found := false
+	for _, sp := range spans {
+		o, b := overlap(sp), overlap(best)
+		if !found || o > b || o == b && sp.End.Sub(sp.Start) > best.End.Sub(best.Start) {
+			best, found = sp, true
+		}
+	}
+	return best, found
 }
 
 // startTracker reads the run's frame and Gaia stars once; a star with no
