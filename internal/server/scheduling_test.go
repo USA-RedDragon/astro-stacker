@@ -24,7 +24,7 @@ func TestSchedulingRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmds := &schedcmd.Service{Log: schedcmd.NewGormLog(appDB), AppDB: appDB}
-	s := &schedauto.Service{App: appDB, Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 31.5, Longitude: -99.4}, nil }}
+	s := &schedauto.Service{App: appDB, Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 35, Longitude: -110}, nil }}
 	h := newHandler(t, memDB(t, "s"), appDB, server.Extras{Commands: cmds, Scheduling: s})
 	code, body := do(t, h, http.MethodGet, "/api/v1/scheduling", "")
 	var res schedauto.Result

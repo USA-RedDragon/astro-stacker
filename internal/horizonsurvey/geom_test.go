@@ -55,11 +55,11 @@ func TestPrecession(t *testing.T) {
 func TestSunPosition(t *testing.T) {
 	t.Parallel()
 	s := testSite()
-	az, alt := s.SunAltAz(time.Date(2026, 10, 13, 0, 5, 0, 0, time.UTC))
+	az, alt := s.SunAltAz(time.Date(2026, 10, 13, 0, 49, 0, 0, time.UTC))
 	if !near(alt, 0, 1.5) || az < 250 || az > 270 {
 		t.Fatalf("Sun at sunset is az %v alt %v", az, alt)
 	}
-	_, alt = s.SunAltAz(time.Date(2026, 3, 20, 18, 37, 0, 0, time.UTC))
+	_, alt = s.SunAltAz(time.Date(2026, 3, 20, 19, 27, 0, 0, time.UTC))
 	if !near(alt, 90-s.Lat, 1.5) {
 		t.Fatalf("equinox noon Sun altitude %v, want about %v", alt, 90-s.Lat)
 	}

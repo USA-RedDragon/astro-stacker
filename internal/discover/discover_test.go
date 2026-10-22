@@ -37,7 +37,7 @@ const (
 	leoTriplet = "Leo Triplet"
 	m13Name    = "M 13"
 	hydrogen   = "H-a"
-	testSiteLa = 31.5
+	testSiteLa = 35.0
 	visitName  = "Frames per visit"
 	single     = "single"
 )
@@ -118,7 +118,7 @@ func newService(t *testing.T) *discover.Service {
 	}
 	return &discover.Service{
 		Catalog: ix, AppDB: appDB, SchedDB: sched,
-		Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: testSiteLa, Longitude: -99.4}, nil },
+		Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: testSiteLa, Longitude: -110}, nil },
 		Rig: discover.Rig{
 			Frame: sky.Frame{FocalLength: 405, PixelSize: 3.76, WidthPx: 6248, HeightPx: 4176}, MinAltitude: 30, SkyBright: 21.4,
 			Filters: discover.ParseFilterValues([]string{"L,R,G,B,H=3,O=3,S=3"}), Exposures: discover.ParseFilterValues([]string{"H=600,O=600,L=300"}),

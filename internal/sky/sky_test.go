@@ -9,8 +9,8 @@ import (
 )
 
 func testSite() sky.Site {
-	elev := 473.0
-	return sky.Site{Latitude: 31.5, Longitude: -99.4, Elevation: &elev}
+	elev := 1000.0
+	return sky.Site{Latitude: 35, Longitude: -110, Elevation: &elev}
 }
 
 func TestSunPosition(t *testing.T) {
@@ -41,7 +41,7 @@ func TestNightOf(t *testing.T) {
 	s := testSite()
 	n := s.NightOf(time.Date(2026, 10, 10, 3, 0, 0, 0, time.UTC), 5*time.Minute)
 	if n.Dusk == nil || n.Dawn == nil {
-		t.Fatal("no astronomical night in October at 31.5° N")
+		t.Fatal("no astronomical night in October at 35° N")
 	}
 	if h := n.DarkHours(); h < 9 || h > 11.5 {
 		t.Errorf("October dark hours %.1f", h)
@@ -50,7 +50,7 @@ func TestNightOf(t *testing.T) {
 		t.Errorf("dusk %v dawn %v start %v", n.Dusk, n.Dawn, n.Start)
 	}
 	m31 := n.Window(10.68, 41.27, 30)
-	if m31.Hours < 6 || m31.PeakAlt == nil || *m31.PeakAlt < 75 || *m31.PeakAlt > 82 {
+	if m31.Hours < 6 || m31.PeakAlt == nil || *m31.PeakAlt < 82 || *m31.PeakAlt > 85 {
 		t.Errorf("M31 window %+v", m31)
 	}
 	if polar := n.Window(37.95, 89.26, 20); polar.End == nil || polar.End.After(*n.Dawn) {
@@ -167,7 +167,7 @@ func TestNightWithoutDarknessHasNoPeakOrMoonSeparation(t *testing.T) {
 func TestSunsets(t *testing.T) {
 	t.Parallel()
 	s := testSite()
-	want := time.Date(2026, 10, 11, 0, 12, 0, 0, time.UTC)
+	want := time.Date(2026, 10, 11, 0, 51, 0, 0, time.UTC)
 	near := func(name string, got time.Time, ok bool, want time.Time) {
 		t.Helper()
 		if d := got.Sub(want); !ok || d < -4*time.Minute || d > 4*time.Minute {
@@ -185,7 +185,7 @@ func TestSunsets(t *testing.T) {
 	got, ok = s.TonightSunset(night)
 	near("tonight at night", got, ok, want)
 	got, ok = s.PreviousSunset(day)
-	near("previous by day", got, ok, want.Add(-24*time.Hour-time.Minute))
+	near("previous by day", got, ok, want.Add(-24*time.Hour+2*time.Minute))
 	if a := s.SunAltitude(got.Add(-2 * time.Minute)); a <= sky.SunsetAltitude {
 		t.Errorf("sun already down before sunset: %.2f", a)
 	}

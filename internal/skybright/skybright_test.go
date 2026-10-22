@@ -88,7 +88,7 @@ func TestMeasureSaysWhyItHasNoValue(t *testing.T) {
 func TestMeasureLeavesOutMoonlitSubs(t *testing.T) {
 	t.Parallel()
 	db := openDB(t)
-	const lat, lon = 31.5, -99.4
+	const lat, lon = 35.0, -110.0
 	up := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
 	for moon.At(up).Altitude(up, lat, lon) < 20 {
 		up = up.Add(30 * time.Minute)
@@ -244,7 +244,7 @@ func TestMeasureInOneFilter(t *testing.T) {
 func TestSourceDoesNotKeepAValueFromACancelledRequest(t *testing.T) {
 	t.Parallel()
 	db := openDB(t)
-	const lat, lon = 31.5, -99.4
+	const lat, lon = 35.0, -110.0
 	up := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
 	for moon.At(up).Altitude(up, lat, lon) < 20 {
 		up = up.Add(30 * time.Minute)

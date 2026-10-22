@@ -7,13 +7,13 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/horizonsurvey/sim"
 )
 
-func testSite() hs.Site { return hs.Site{Lat: 31.5, Lon: -99.3} }
+func testSite() hs.Site { return hs.Site{Lat: 35, Lon: -110} }
 
-func duskTime() time.Time { return time.Date(2026, 10, 13, 0, 25, 0, 0, time.UTC) }
+func duskTime() time.Time { return time.Date(2026, 10, 13, 1, 9, 0, 0, time.UTC) }
 
-func nightTime() time.Time { return time.Date(2026, 10, 13, 2, 30, 0, 0, time.UTC) }
+func nightTime() time.Time { return time.Date(2026, 10, 13, 3, 14, 0, 0, time.UTC) }
 
-func deepNight() time.Time { return time.Date(2026, 10, 13, 5, 0, 0, 0, time.UTC) }
+func deepNight() time.Time { return time.Date(2026, 10, 13, 5, 44, 0, 0, time.UTC) }
 
 func smallCamera(c sim.Camera) sim.Camera {
 	c.W, c.H, c.Scale = 240, 135, 55

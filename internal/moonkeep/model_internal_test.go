@@ -188,7 +188,7 @@ func TestRunLeavesEachNightOut(t *testing.T) {
 func TestNight(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 1, 3, 6, 0, 0, 0, time.UTC)
-	lat, lon := 31.5, -99.4
+	lat, lon := 35.0, -110.0
 	g := moon.At(at).Topocentric(at, lat, lon)
 	site := sky.Site{Latitude: lat, Longitude: lon}
 	var near, far Candidate
@@ -246,7 +246,7 @@ func TestSamples(t *testing.T) {
 	}
 	in = append(in, Input{Object: objM31, Filter: "Ha", Exposure: 600, Start: start, Status: app.StackStatusOffTarget, RA: 10, Dec: 41, HasPos: true},
 		Input{Object: "X", Filter: red, Exposure: 300, Start: start, Status: app.StackStatusAdded})
-	s := Samples(in, 31.5, -99.4)
+	s := Samples(in, 35.0, -110.0)
 	if len(s) != 4 {
 		t.Fatalf("lights without a verdict or a position are left out: %d", len(s))
 	}
@@ -259,7 +259,7 @@ func TestSamples(t *testing.T) {
 	if s[3].Quality == nil || math.Abs(*s[3].Quality-0.2) > 1e-9 {
 		t.Errorf("the median of the three earlier scores: %v", s[3].Quality)
 	}
-	want := At(start.Add(5*time.Minute), 10, 41, 31.5, -99.4)
+	want := At(start.Add(5*time.Minute), 10, 41, 35.0, -110.0)
 	if s[0].Moon != want {
 		t.Errorf("the Moon is placed at mid-exposure: %+v want %+v", s[0].Moon, want)
 	}
@@ -325,7 +325,7 @@ func fixture(t *testing.T, table bool) *Service {
 	}
 	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
 	return &Service{App: appDB, Sched: sched, Mode: ModeOn, Now: func() time.Time { return now },
-		Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 31.5, Longitude: -99.4}, nil }}
+		Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 35, Longitude: -110}, nil }}
 }
 
 func TestServicePublishes(t *testing.T) {

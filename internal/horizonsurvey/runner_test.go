@@ -208,7 +208,7 @@ func TestPreflightRefusesWithoutMoving(t *testing.T) {
 		{"guiding", sim.Options{PHD2State: "Guiding"}, duskTime(), hs.ErrPHD2Busy},
 		{"no safety monitor", sim.Options{SafetyOff: true}, duskTime(), hs.ErrRoofUnsafe},
 		{"daylight", sim.Options{}, time.Date(2026, 10, 12, 21, 0, 0, 0, time.UTC), hs.ErrSunTooHigh},
-		{"Sun on the horizon", sim.Options{}, time.Date(2026, 10, 13, 0, 5, 0, 0, time.UTC), hs.ErrSunTooHigh},
+		{"Sun on the horizon", sim.Options{}, time.Date(2026, 10, 13, 0, 49, 0, 0, time.UTC), hs.ErrSunTooHigh},
 		{"unknown pixel scale", sim.Options{NoPixelScale: true}, duskTime(), hs.ErrNoPixelScale},
 		{"mount clock is off", sim.Options{ClockSkew: 1}, duskTime(), hs.ErrSite},
 	}
@@ -262,7 +262,7 @@ func TestClientsRefuseUnlistedEndpoints(t *testing.T) {
 func TestSiteMismatchRefuses(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, sim.Options{}, hs.ModeDusk, duskTime())
-	h.cfg.Site = &hs.Site{Lat: 31.5, Lon: -99.5}
+	h.cfg.Site = &hs.Site{Lat: 35, Lon: -110.2}
 	if err := h.run(t.Context()); !errors.Is(err, hs.ErrSite) || !errors.Is(err, hs.ErrPreflight) {
 		t.Fatalf("got %v, want a preflight ErrSite", err)
 	}

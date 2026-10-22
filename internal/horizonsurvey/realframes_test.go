@@ -24,10 +24,10 @@ type realFrame struct {
 
 func realFrames() []realFrame {
 	return []realFrame{
-		{"hs_000_20_00_2000ms", 20, 22.19, 2000, 129.825, 80.59972, 0, 0},
-		{"hs_000_08_00_2000ms", 8, 9.33, 2000, 131.5583, 67.77084, 0.075, 0.007},
-		{"hs_000_05_00_2000ms", 5, 6.12, 2000, 131.7375, 64.56111, 0.1, 0.005},
-		{"hs_000_03_01_500ms", 3, 3.98, 500, 132.4083, 62.42083, 0.027, 0.004},
+		{"hs_000_20_00_2000ms", 20, 25.60, 2000, 129.825, 80.59972, 0, 0},
+		{"hs_000_08_00_2000ms", 8, 12.77, 2000, 131.5583, 67.77084, 0.075, 0.007},
+		{"hs_000_05_00_2000ms", 5, 9.56, 2000, 131.7375, 64.56111, 0.1, 0.005},
+		{"hs_000_03_01_500ms", 3, 7.42, 500, 132.4083, 62.42083, 0.027, 0.004},
 	}
 }
 
@@ -66,7 +66,7 @@ func writeRealRun(t *testing.T, dir string, frameDir func(name string) string) h
 	t.Helper()
 	site := testSite()
 	pc := hs.PlanConfig{AzStep: 10, AltMin: 0, AltMax: 35, Overlap: 0.3, FieldW: 2.72, FieldH: 1.53}
-	h := hs.RunHeader{Started: time.Date(2026, 10, 13, 2, 0, 0, 0, time.UTC), Site: site, Mode: hs.ModeNight, PixelScale: 5.09, FrameW: 1920, FrameH: 1080, Plan: pc, Safety: hs.DefaultSafety()}
+	h := hs.RunHeader{Started: time.Date(2026, 10, 13, 2, 44, 0, 0, time.UTC), Site: site, Mode: hs.ModeNight, PixelScale: 5.09, FrameW: 1920, FrameH: 1080, Plan: pc, Safety: hs.DefaultSafety()}
 	if err := hs.WriteJSON(filepath.Join(dir, hs.RunFile), h); err != nil {
 		t.Fatal(err)
 	}
@@ -197,8 +197,8 @@ func TestRealNightFramesAnalyze(t *testing.T) {
 			continue
 		}
 		edges++
-		if b.Alt < 4.5 || b.Alt > 6.5 || math.Abs(math.Mod(b.Az+180, 360)-180) > 4 {
-			t.Fatalf("edge at az %.2f alt %.2f, want alt 4.5-6.5 near az 0", b.Az, b.Alt)
+		if b.Alt < 8 || b.Alt > 10 || math.Abs(math.Mod(b.Az+180, 360)-180) > 4 {
+			t.Fatalf("edge at az %.2f alt %.2f, want alt 8-10 near az 0", b.Az, b.Alt)
 		}
 	}
 	if edges < 5 {
