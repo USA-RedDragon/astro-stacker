@@ -334,17 +334,40 @@ func twin(pts []point, e *period.Ephemeris) *Twin {
 }
 
 // fitPhase2 finds the second dip's phase by the least total chi-square of
-// the per band depth fits over a grid of phases, and its one sigma error
-// where that chi-square, scaled by its reduced value, rises by one.
+// the per band depth fits over a grid of phases. Its one sigma error is
+// the larger of two: where that chi-square, scaled by its reduced value,
+// rises by one, and the error from the second eclipses timed one by one
+// (eventSpread). Points of one eclipse share its slow drifts and eclipses
+// can disagree beyond their points' errors, as for an orbit that turns,
+// which the joint chi-square alone takes for noise.
 func fitPhase2(pts []point, e *period.Ephemeris) (float64, float64) {
-	w := e.Eclipses[1].Width
-	ph0 := e.Eclipses[1].Phase
+	best, chi, ok := bestPhase2(pts, e)
+	if !ok {
+		return e.Eclipses[1].Phase, 0
+	}
+	return best, math.Max(chiError(chi, best, e.Eclipses[1].Width), eventSpread(pts, e, best))
+}
+
+// minPhaseEvents is how many second eclipses timed one by one eventSpread
+// needs.
+const minPhaseEvents = 3
+
+// minEventSide is how many points a second eclipse timed on its own
+// needs in the dip on each side of its middle, as the user's own
+// eclipses need frames.
+const minEventSide = 3
+
+// phaseSteps is how many grid steps span the second dip's width each way.
+const phaseSteps = 40
+
+// phaseChi is the total chi-square of the depth fits with the second dip
+// at a phase, and how many points it takes in.
+type phaseChi func(ph float64) (float64, int)
+
+func chiOf(pts []point, e *period.Ephemeris) phaseChi {
 	base := fitBands(pts, e)
-	chi := func(ph float64) (float64, int) {
-		c := *e
-		c.Eclipses = slices.Clone(e.Eclipses)
-		c.Eclipses[1].Phase = ph
-		fits := fitBands(pts, &c)
+	return func(ph float64) (float64, int) {
+		fits := fitBands(pts, withPhase2(e, ph))
 		var sum float64
 		n := 0
 		for key := range base {
@@ -357,19 +380,25 @@ func fitPhase2(pts []point, e *period.Ephemeris) (float64, float64) {
 		}
 		return sum, n
 	}
-	const steps = 80
+}
+
+// bestPhase2 is the second dip's best phase on the grid, refined, with
+// the chi-square it was found by; ok is false when no phase fits.
+func bestPhase2(pts []point, e *period.Ephemeris) (float64, phaseChi, bool) {
+	w := e.Eclipses[1].Width
+	ph0 := e.Eclipses[1].Phase
+	chi := chiOf(pts, e)
 	best, bestChi, bestN := ph0, math.Inf(1), 0
-	for i := 0; i <= steps; i++ {
-		ph := ph0 + w*(float64(i)/steps*2-1)
+	for i := -phaseSteps; i <= phaseSteps; i++ {
+		ph := ph0 + w*float64(i)/phaseSteps
 		if c, n := chi(ph); c < bestChi {
 			best, bestChi, bestN = ph, c, n
 		}
 	}
 	if math.IsInf(bestChi, 1) || bestN == 0 {
-		return ph0, 0
+		return ph0, nil, false
 	}
-	scale := math.Max(bestChi/float64(bestN), 1)
-	fine := w / steps / 4
+	fine := w / phaseSteps / 8
 	for range 2 {
 		for _, ph := range []float64{best - fine, best + fine} {
 			if c, _ := chi(ph); c < bestChi {
@@ -377,11 +406,19 @@ func fitPhase2(pts []point, e *period.Ephemeris) (float64, float64) {
 			}
 		}
 	}
+	return best, chi, true
+}
+
+// chiError is half the span of phases around best where the chi-square,
+// scaled by its reduced value, stays within one of its least.
+func chiError(chi phaseChi, best, w float64) float64 {
+	bestChi, n := chi(best)
+	scale := math.Max(bestChi/float64(max(n, 1)), 1)
+	step := w / phaseSteps / 4
 	var lo, hi float64
 	for _, side := range []float64{-1, 1} {
-		step := w / steps / 2
 		ph := best
-		for range 4 * steps {
+		for range 16 * phaseSteps {
 			ph += side * step
 			if c, _ := chi(ph); (c-bestChi)/scale >= 1 {
 				break
@@ -393,7 +430,124 @@ func fitPhase2(pts []point, e *period.Ephemeris) (float64, float64) {
 			hi = ph
 		}
 	}
-	return best, (hi - lo) / 2
+	return (hi - lo) / 2
+}
+
+// eventSpread is the second dip's phase error from each caught second
+// eclipse timed on its own, at the depths of the joint fit at best: the
+// weighted mean's error, scaled up by the eclipses' scatter about it
+// beyond their errors. It is 0 with fewer than minPhaseEvents eclipses
+// that pin their own phase down.
+func eventSpread(pts []point, e *period.Ephemeris, best float64) float64 {
+	w := e.Eclipses[1].Width
+	at := withPhase2(e, best)
+	fits := fitBands(pts, at)
+	byEvent := map[int][]point{}
+	for _, p := range pts {
+		f, ok := fits[p.key]
+		if !ok {
+			continue
+		}
+		x := (p.t-e.T0)/e.Period - best
+		n := math.Round(x)
+		if math.Abs(x-n) >= 2*w {
+			continue
+		}
+		p.e *= math.Sqrt(math.Max(f.chi2/float64(max(f.n-len(e.Eclipses), 1)), 1))
+		if math.Abs(p.y-model(at, f.depths, p.t)) > 5*p.e {
+			continue
+		}
+		byEvent[int(n)] = append(byEvent[int(n)], p)
+	}
+	var phs, ws []float64
+	for _, n := range slices.Sorted(maps.Keys(byEvent)) {
+		if ph, err, ok := eventPhase(byEvent[n], e, fits, best); ok {
+			phs = append(phs, ph)
+			ws = append(ws, 1/(err*err))
+		}
+	}
+	if len(phs) < minPhaseEvents {
+		return 0
+	}
+	var sw, swp float64
+	for i, ph := range phs {
+		sw += ws[i]
+		swp += ws[i] * ph
+	}
+	mean := swp / sw
+	var chi float64
+	for i, ph := range phs {
+		chi += ws[i] * (ph - mean) * (ph - mean)
+	}
+	return math.Sqrt(1/sw) * math.Sqrt(math.Max(chi/float64(len(phs)-1), 1))
+}
+
+// eventPhase is the second dip's phase in one eclipse's points ps alone,
+// with its one sigma error where their chi-square rises by one, scaled
+// by their reduced chi-square when that is above one; ok is
+// false unless minEventSide points fall in the dip on each side of its
+// middle at best and they bound the phase within the dip's width of it.
+func eventPhase(ps []point, e *period.Ephemeris, fits map[string]*bandFit, best float64) (float64, float64, bool) {
+	w := e.Eclipses[1].Width
+	var before, after int
+	for _, p := range ps {
+		x := (p.t-e.T0)/e.Period - best
+		d := x - math.Round(x)
+		switch {
+		case d > -w && d < 0:
+			before++
+		case d >= 0 && d < w:
+			after++
+		}
+	}
+	if before < minEventSide || after < minEventSide {
+		return 0, 0, false
+	}
+	chi := func(ph float64) float64 {
+		c := withPhase2(e, ph)
+		var s float64
+		for _, p := range ps {
+			r := (p.y - model(c, fits[p.key].depths, p.t)) / p.e
+			s += r * r
+		}
+		return s
+	}
+	const steps = 4 * phaseSteps
+	step := w / steps
+	cs := make([]float64, 2*steps+1)
+	lowest := 0
+	for i := range cs {
+		cs[i] = chi(best + step*float64(i-steps))
+		if cs[i] < cs[lowest] {
+			lowest = i
+		}
+	}
+	lo, hi := -1, -1
+	for i := lowest; i >= 0; i-- {
+		if cs[i]-cs[lowest] >= 1 {
+			lo = i
+			break
+		}
+	}
+	for i := lowest; i < len(cs); i++ {
+		if cs[i]-cs[lowest] >= 1 {
+			hi = i
+			break
+		}
+	}
+	if lo < 0 || hi < 0 {
+		return 0, 0, false
+	}
+	red := math.Sqrt(math.Max(cs[lowest]/float64(max(len(ps)-1, 1)), 1))
+	return best + step*float64(lowest-steps), red * step * float64(hi-lo) / 2, true
+}
+
+// withPhase2 is e with its second dip at phase ph.
+func withPhase2(e *period.Ephemeris, ph float64) *period.Ephemeris {
+	c := *e
+	c.Eclipses = slices.Clone(e.Eclipses)
+	c.Eclipses[1].Phase = ph
+	return &c
 }
 
 // doubled is e at twice its period with its one dip on both halves, for
@@ -529,6 +683,19 @@ func Summarize(series []lc.Series, e *period.Ephemeris) *Summary {
 		}
 	}
 	return s
+}
+
+// TwinOf compares the two dips of e in the survey series, as Summarize
+// does; nil without two dips or points.
+func TwinOf(series []lc.Series, e *period.Ephemeris) *Twin {
+	if e == nil || e.Period <= 0 || len(e.Eclipses) != 2 {
+		return nil
+	}
+	pts := points(period.AlignSrc(series, e), e)
+	if len(pts) == 0 {
+		return nil
+	}
+	return twin(pts, e)
 }
 
 // Doubled is e at twice its period with its one dip on both halves, for a
