@@ -5,6 +5,8 @@ import (
 	"math"
 	"slices"
 	"time"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/binaries/minima"
 )
 
 // The live card's states.
@@ -88,6 +90,14 @@ func (m eclipseModel) at(t time.Time, shift time.Duration) float64 {
 	return m.shape(t.Sub(m.mid) - shift)
 }
 
+// widened is the model's shape at w times its width, as a function of
+// time and shift.
+func (m eclipseModel) widened(w float64) func(time.Time, time.Duration) float64 {
+	return func(t time.Time, shift time.Duration) float64 {
+		return m.shape(time.Duration(float64(t.Sub(m.mid)-shift) / w))
+	}
+}
+
 // compsCheck is how the nearby stars and the star behave: the scatter of
 // the nearby stars' shared level, how far it sits from usual and how far
 // the stars scatter about each other in the latest subs, and whether the
@@ -151,6 +161,7 @@ type eclipseFit struct {
 	shiftErr time.Duration
 	depth    float64
 	depthErr float64
+	width    float64
 	scatter  float64
 	ok       bool
 	// timed says the subs cover both sides of the middle, expected and
@@ -230,10 +241,15 @@ func bothSides(pts []LivePoint, m eclipseModel, mid time.Time) bool {
 	return before >= minFramesSide && after >= minFramesSide && before+after >= minFramesDip
 }
 
-// fit finds the timing whose curve, scaled in depth and set on a level,
-// best matches the subs, and the errors of timing and depth. Once the subs
-// pass the expected middle, the timings tried reach as far as the subs do,
-// so a dip far from its expected time is still found.
+// fit finds the timing and width whose curve, scaled to a depth that
+// dims, never brightens, and set on a level, best matches the subs, and
+// the errors of timing and depth. The widths are the timing code's
+// (minima.WidthScales): with subs mostly on one side, a curve too narrow
+// moves the middle toward them, so the timing error spans every middle
+// some width fits about as well. Once the subs pass the expected middle,
+// the timings tried reach as far as the subs do, so a dip far from its
+// expected time is still found. A dip less than depthSigma errors deep is
+// no dip to time.
 func (j *eclipseFit) fit(pts []LivePoint, m eclipseModel) {
 	if len(pts) < 3 || m.half <= 0 {
 		return
@@ -246,44 +262,73 @@ func (j *eclipseFit) fit(pts []LivePoint, m eclipseModel) {
 	}
 	step := 2 * reach / fitSteps
 	type trial struct {
-		s       time.Duration
-		chi     float64
-		z, d    float64
-		dVar    float64
-		healthy bool
+		s    time.Duration
+		w    float64
+		chi  float64
+		z, d float64
+		dVar float64
 	}
-	var tr []trial
-	for k := 0; k <= fitSteps; k++ {
-		s := -reach + time.Duration(k)*step
-		z, d, dv, chi, ok := levelFit(pts, func(t time.Time) float64 { return m.at(t, s) })
-		tr = append(tr, trial{s, chi, z, d, dv, ok})
-	}
-	best := -1
-	for i, t := range tr {
-		if t.healthy && (best < 0 || t.chi < tr[best].chi) {
-			best = i
+	z0, chi0 := flatFit(pts)
+	prof := make([]*trial, fitSteps+1)
+	var best *trial
+	for _, w := range minima.WidthScales() {
+		at := m.widened(w)
+		for k := 0; k <= fitSteps; k++ {
+			s := -reach + time.Duration(k)*step
+			z, d, dv, chi, ok := levelFit(pts, func(t time.Time) float64 { return at(t, s) })
+			if !ok {
+				continue
+			}
+			if d <= 0 {
+				z, d, chi = z0, 0, chi0
+			}
+			t := &trial{s, w, chi, z, d, dv}
+			if prof[k] == nil || chi < prof[k].chi {
+				prof[k] = t
+			}
+			if best == nil || chi < best.chi {
+				best = t
+			}
 		}
 	}
-	if best < 0 {
+	if best == nil {
 		return
 	}
-	b := tr[best]
-	red := math.Max(1, b.chi/float64(max(1, len(pts)-3)))
+	b := *best
+	red := math.Max(1, b.chi/float64(max(1, len(pts)-4)))
 	lo, hi := b.s, b.s
-	for _, t := range tr {
-		if t.healthy && t.chi-b.chi <= red {
+	for _, t := range prof {
+		if t != nil && t.chi-b.chi <= red {
 			lo, hi = min(lo, t.s), max(hi, t.s)
 		}
 	}
-	j.zero, j.shift, j.depth = b.z, b.s, b.d
+	at := m.widened(b.w)
+	j.zero, j.shift, j.depth, j.width = b.z, b.s, b.d, b.w
 	j.shiftErr = max((hi-lo)/2, step)
 	j.depthErr = math.Sqrt(b.dVar * red)
 	var res []float64
 	for _, p := range pts {
-		res = append(res, p.Mag-b.z-b.d*m.at(p.Time, b.s))
+		res = append(res, p.Mag-b.z-b.d*at(p.Time, b.s))
 	}
 	j.scatter = spreadOf(res)
-	j.ok = b.d > 0 && lo > -reach && hi < reach
+	j.ok = b.d > depthSigma*j.depthErr && lo > -reach && hi < reach
+}
+
+// flatFit is the weighted mean level of the subs and its chi-square: the
+// fit of a dip held at no depth, which a brightening cannot beat.
+func flatFit(pts []LivePoint) (float64, float64) {
+	var sw, sy float64
+	for _, p := range pts {
+		w := 1 / sq(math.Max(p.Err, errFloor))
+		sw += w
+		sy += w * p.Mag
+	}
+	z := sy / sw
+	var chi float64
+	for _, p := range pts {
+		chi += sq((p.Mag - z) / math.Max(p.Err, errFloor))
+	}
+	return z, chi
 }
 
 // levelFit is the weighted least squares level z and depth d of y = z +
