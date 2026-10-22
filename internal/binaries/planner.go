@@ -9,6 +9,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
 
@@ -217,14 +218,48 @@ func matchRequest(reqs []app.EclipseRequest, id int, p Predicted) *RequestView {
 	return &RequestView{ID: best.ID, State: best.State, Note: best.Note, Auto: best.Auto}
 }
 
-// withPhaseError adds the second dip's own phase error to its timing
-// error: its place in the cycle is fitted, not fixed at half.
+// withPhaseError places the second dip by its phase in the cycle, which
+// is measured, not fixed at half. The surveys' place, the ephemeris's
+// with its error grown by the phase's own error, is weighted together
+// with the place each of the user's good timings of the dip predicts
+// for this eclipse: the timing carried on by whole periods, with its
+// own error and the period's error over the cycles between. A timing of
+// this same eclipse is left out, so a prediction never leans on its own
+// outcome. A survey phase without an error leaves the timings alone to
+// place the dip.
 func (s Star) withPhaseError(p Predicted, e *period.Ephemeris) Predicted {
-	if p.Kind != KindSecondary || s.Facts == nil || s.Facts.Survey == nil || s.Facts.Survey.Twin == nil || s.Facts.Doubled {
+	if p.Kind != KindSecondary || s.Facts == nil || s.Facts.Doubled || p.Dip >= len(e.Eclipses) {
 		return p
 	}
-	if pe := s.Facts.Survey.Twin.PhaseErr; pe > 0 {
-		p.Err = time.Duration(math.Hypot(p.Err.Seconds(), pe*e.Period*86400) * 1e9)
+	var pe float64
+	if s.Facts.Survey != nil && s.Facts.Survey.Twin != nil {
+		pe = s.Facts.Survey.Twin.PhaseErr
 	}
+	var sw, swd float64
+	if pe > 0 {
+		sig := math.Hypot(p.Err.Seconds()/86400, pe*e.Period)
+		sw = 1 / (sig * sig)
+	}
+	if s.Facts.Gaia != nil {
+		ph := e.Eclipses[p.Dip].Phase
+		ra, dec := s.Facts.Gaia.Now(p.Mid)
+		cycle := math.Round((lc.BJD(p.Mid, ra, dec)-e.T0)/e.Period - ph)
+		for _, t := range place(s.Timings, e, s.Facts.Gaia) {
+			n := t.cycle - ph
+			if t.dip != p.Dip || t.row.State != app.TimingGood || !(t.row.Err > 0) || n == cycle {
+				continue
+			}
+			dn := cycle - n
+			sig := math.Sqrt(t.row.Err*t.row.Err + dn*dn*e.PeriodErr*e.PeriodErr)
+			w := 1 / (sig * sig)
+			sw += w
+			swd += w * t.oc
+		}
+	}
+	if sw == 0 {
+		return p
+	}
+	p.Mid = p.Mid.Add(time.Duration(swd / sw * 86400e9))
+	p.Err = time.Duration(math.Sqrt(1/sw) * 86400e9)
 	return p
 }
