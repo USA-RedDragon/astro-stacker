@@ -28,10 +28,14 @@ type faceKey struct {
 	size float64
 }
 
+// glyphMu serializes measuring and drawing: an opentype face keeps one
+// glyph buffer and is not safe for concurrent use.
+//
 //nolint:gochecknoglobals // font faces made once per size
 var (
-	faceMu sync.Mutex
-	faces  = map[faceKey]font.Face{}
+	faceMu  sync.Mutex
+	faces   = map[faceKey]font.Face{}
+	glyphMu sync.Mutex
 )
 
 func face(size float64, bold bool) font.Face {
@@ -137,6 +141,8 @@ func textWidth(s string, size float64, bold bool) float64 {
 	if f == nil {
 		return 0
 	}
+	glyphMu.Lock()
+	defer glyphMu.Unlock()
 	return float64(font.MeasureString(f, s)) / 64
 }
 
@@ -149,6 +155,8 @@ func (c *canvas) text(x, y float64, s string, size float64, bold bool, col color
 	}
 	x -= align * textWidth(s, size, bold)
 	d := font.Drawer{Dst: c.img, Src: image.NewUniform(col), Face: f, Dot: fixed.Point26_6{X: fixed.Int26_6(x * 64), Y: fixed.Int26_6(y * 64)}}
+	glyphMu.Lock()
+	defer glyphMu.Unlock()
 	d.DrawString(s)
 }
 
