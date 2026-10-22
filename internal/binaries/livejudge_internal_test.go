@@ -6,10 +6,13 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -268,5 +271,145 @@ func TestDipWatchTonightTooFaintIsHeld(t *testing.T) {
 	}
 	if j := judgeDip(pts, goalOf(0.15, 2)); j.state != LiveFaint || !strings.Contains(j.why, "measured only to 0.30 mag") {
 		t.Errorf("state %s (%s), want too faint", j.state, j.why)
+	}
+}
+
+// tonight27822 is the second eclipse of find 27822 on 2026-10-22 UTC as
+// the live card measured it by 05:07: 88 Red subs from 01:35, all before
+// the expected middle at 06:35, and the expected curve, whose shape the
+// model reads back from its samples.
+func tonight27822(t *testing.T) ([]LivePoint, eclipseModel) {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/live27822-20261022.json.zst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := zstd.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dec.Close()
+	var in struct {
+		Points []struct {
+			T       time.Time `json:"t"`
+			Mag     float64   `json:"mag"`
+			Err     float64   `json:"err"`
+			Comp    float64   `json:"comp"`
+			Spread  float64   `json:"spread"`
+			Agree   int       `json:"agree"`
+			Present int       `json:"present"`
+		} `json:"points"`
+		Eclipse struct {
+			Mid    time.Time `json:"mid"`
+			ErrMin float64   `json:"err_min"`
+			Start  time.Time `json:"start"`
+			End    time.Time `json:"end"`
+			Depth  float64   `json:"depth"`
+			Curve  []struct {
+				T time.Time `json:"t"`
+				V float64   `json:"v"`
+			} `json:"curve"`
+		} `json:"eclipse"`
+	}
+	if err := json.NewDecoder(dec).Decode(&in); err != nil {
+		t.Fatal(err)
+	}
+	pts := make([]LivePoint, len(in.Points))
+	for i, r := range in.Points {
+		pts[i] = LivePoint{FrameID: i + 1, Time: r.T, Filter: redFilter, Mag: r.Mag, Err: r.Err, Comp: r.Comp, Spread: r.Spread, Agree: r.Agree, Present: r.Present}
+	}
+	e := in.Eclipse
+	curve := e.Curve
+	shape := func(dt time.Duration) float64 {
+		at := e.Mid.Add(dt)
+		k := sort.Search(len(curve), func(i int) bool { return !curve[i].T.Before(at) })
+		if k == 0 || k == len(curve) {
+			return 0
+		}
+		a, b := curve[k-1], curve[k]
+		f := at.Sub(a.T).Seconds() / b.T.Sub(a.T).Seconds()
+		return (a.V + f*(b.V-a.V)) / e.Depth
+	}
+	m := eclipseModel{mid: e.Mid, err: time.Duration(e.ErrMin * float64(time.Minute)), half: e.End.Sub(e.Start) / 2, depth: e.Depth, shape: shape}
+	return pts, m
+}
+
+// synth27822 is tonight's sub times and errors carried on at the same
+// pace to until, with the expected eclipse shift late on a flat level and
+// noise at each sub's own error.
+func synth27822(pts []LivePoint, m eclipseModel, until time.Time, shift time.Duration) []LivePoint {
+	r := rand.New(rand.NewPCG(27822, 1022))
+	gap := pts[len(pts)-1].Time.Sub(pts[0].Time) / time.Duration(len(pts)-1)
+	out := slices.Clone(pts)
+	for t, i := pts[len(pts)-1].Time.Add(gap), 0; !t.After(until); t, i = t.Add(gap), i+1 {
+		p := pts[i%len(pts)]
+		p.FrameID, p.Time = len(out)+1, t
+		out = append(out, p)
+	}
+	for i := range out {
+		out[i].Mag = m.depth*m.at(out[i].Time, shift) + out[i].Err*r.NormFloat64()
+	}
+	return out
+}
+
+func liveRun27822(m eclipseModel) *liveRun {
+	return &liveRun{model: &m, from: m.mid.Add(-9 * time.Hour), to: m.mid.Add(9 * time.Hour),
+		view: LiveCurve{Kind: LiveEclipse, Eclipse: &LiveEclipseView{Mid: m.mid, Depth: m.depth}}}
+}
+
+func rawOf(pts []LivePoint) []ownimage.LivePoint {
+	out := make([]ownimage.LivePoint, len(pts))
+	for i, p := range pts {
+		out[i] = ownimage.LivePoint{FrameID: p.FrameID, Time: p.Time, Filter: p.Filter, Mag: p.Mag, Err: p.Err, Comp: p.Comp, Spread: p.Spread, Agree: p.Agree, Present: p.Present}
+	}
+	return out
+}
+
+func TestTonight27822BeforeTheMiddleHasNoTiming(t *testing.T) {
+	t.Parallel()
+	pts, m := tonight27822(t)
+	if last := pts[len(pts)-1].Time; len(pts) != 88 || !last.Before(m.mid) {
+		t.Fatalf("%d subs to %s, want tonight's 88 all before the middle %s", len(pts), last, m.mid)
+	}
+	j := judgeEclipse(pts, m)
+	if !j.ok || j.shift > -30*time.Minute {
+		t.Fatalf("one-sided fit ok %v at %.0f min, want tonight's fit of about 48 min early", j.ok, j.shift.Minutes())
+	}
+	if j.timed || strings.Contains(j.why, "early") || strings.Contains(j.why, "timing error of") {
+		t.Errorf("timed %v (%s), want no timing before the middle", j.timed, j.why)
+	}
+	v := liveView(liveRun27822(m), rawOf(pts), 15, pts[len(pts)-1].Time)
+	if v.Eclipse.ShiftMin != nil || v.Eclipse.ShiftErr != nil {
+		t.Errorf("the card times the minimum at %v ± %v min before the middle", *v.Eclipse.ShiftMin, *v.Eclipse.ShiftErr)
+	}
+}
+
+func TestTonight27822BothSidesIsTimed(t *testing.T) {
+	t.Parallel()
+	pts, m := tonight27822(t)
+	const truth = 6 * time.Minute
+	full := synth27822(pts, m, m.mid.Add(m.half), truth)
+	v := liveView(liveRun27822(m), rawOf(full), 15, full[len(full)-1].Time)
+	e := v.Eclipse
+	if e.ShiftMin == nil || e.ShiftErr == nil {
+		t.Fatalf("state %s (%s), want a timing once both sides are covered", v.State, v.Why)
+	}
+	if math.Abs(*e.ShiftMin-truth.Minutes()) > math.Max(4, 2**e.ShiftErr) {
+		t.Errorf("timing %.1f ± %.1f min, truth %.0f", *e.ShiftMin, *e.ShiftErr, truth.Minutes())
+	}
+	early := synth27822(pts, m, m.mid.Add(truth+2*time.Minute), truth)
+	if j := judgeEclipse(early, m); j.timed {
+		t.Errorf("timed %.1f min with only the subs to %s, before %d past the fitted middle", j.shift.Minutes(), early[len(early)-1].Time, minFramesSide)
+	}
+}
+
+func TestLiveViewDropsAStaleTiming(t *testing.T) {
+	t.Parallel()
+	pts, m := tonight27822(t)
+	run := liveRun27822(m)
+	stale, se := -48.0, 24.0
+	run.view.Eclipse.ShiftMin, run.view.Eclipse.ShiftErr = &stale, &se
+	if v := liveView(run, rawOf(pts[:3]), 15, pts[2].Time); v.Eclipse.ShiftMin != nil || v.Eclipse.FitDepth != nil {
+		t.Errorf("a timing of %v min carried over from an earlier look", *v.Eclipse.ShiftMin)
 	}
 }

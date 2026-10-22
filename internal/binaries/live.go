@@ -446,14 +446,19 @@ func liveView(run *liveRun, raw []ownimage.LivePoint, kept int, now time.Time) L
 	switch {
 	case run.model != nil:
 		v.Eclipse = eclipseView(*v.Eclipse, *run.model, run.from, run.to)
+		v.Eclipse.ShiftMin, v.Eclipse.ShiftErr, v.Eclipse.FitDepth, v.Eclipse.DepthErr = nil, nil, nil, nil
 		j := judgeEclipse(pts, *run.model)
 		v.State, v.Why = j.state, j.why
 		zero := j.zero
 		if !j.ok {
 			zero = levelOutside(pts, *run.model)
 		} else {
-			sh, se, d, de := j.shift.Minutes(), j.shiftErr.Minutes(), j.depth, j.depthErr
-			v.Eclipse.ShiftMin, v.Eclipse.ShiftErr, v.Eclipse.FitDepth, v.Eclipse.DepthErr = &sh, &se, &d, &de
+			d, de := j.depth, j.depthErr
+			v.Eclipse.FitDepth, v.Eclipse.DepthErr = &d, &de
+			if j.timed {
+				sh, se := j.shift.Minutes(), j.shiftErr.Minutes()
+				v.Eclipse.ShiftMin, v.Eclipse.ShiftErr = &sh, &se
+			}
 		}
 		if j.ok && j.scatter > 0 {
 			sc := j.scatter
