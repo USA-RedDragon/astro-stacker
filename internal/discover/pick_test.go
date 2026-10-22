@@ -150,7 +150,7 @@ func pickFixtureOn(t *testing.T, db *gorm.DB) *discover.Service {
 	mag := skyNow
 	s := &discover.Service{
 		Catalog: ix, AppDB: db,
-		Site:   func(context.Context) (sky.Site, error) { return sky.Site{Latitude: testSiteLa, Longitude: -99.4}, nil },
+		Site:   func(context.Context) (sky.Site, error) { return sky.Site{Latitude: testSiteLa, Longitude: -110}, nil },
 		Rig:    discover.Rig{Frame: sky.Frame{FocalLength: 405, PixelSize: 3.76, WidthPx: 6248, HeightPx: 4176}, MinAltitude: 30},
 		HAlpha: func() (*halpha.Map, halpha.Status) { return m, halpha.Status{State: halpha.StateReady} },
 		Sky: func(context.Context) skybright.Value {
@@ -186,7 +186,7 @@ func pickProjects(t *testing.T) *gorm.DB {
 func darkMoment(night time.Time) time.Time {
 	for h := range 48 {
 		at := night.Add(time.Duration(h) * 30 * time.Minute)
-		if moon.At(at).Altitude(at, testSiteLa, -99.4) < -5 {
+		if moon.At(at).Altitude(at, testSiteLa, -110) < -5 {
 			return at
 		}
 	}

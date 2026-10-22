@@ -42,8 +42,8 @@ func TestDiscoverDefaultsWithoutConfig(t *testing.T) {
 func TestDiscoverEnv(t *testing.T) {
 	t.Parallel()
 	env := map[string]string{
-		"DISCOVER_SITE_LATITUDE":     "31.5",
-		"DISCOVER_SITE_LONGITUDE":    "-99.4",
+		"DISCOVER_SITE_LATITUDE":     "35",
+		"DISCOVER_SITE_LONGITUDE":    "-110",
 		"DISCOVER_SITE_ELEVATION":    "1000",
 		"DISCOVER_MIN_ALTITUDE":      "25",
 		"DISCOVER_SKY_BRIGHTNESS":    "21.5",
@@ -63,8 +63,8 @@ func TestDiscoverEnv(t *testing.T) {
 	d := loadEnv(t, env).Discover
 	elev := 1000.0
 	checks := map[string][2]any{
-		"DISCOVER_SITE_LATITUDE":     {d.SiteLatitude, 31.5},
-		"DISCOVER_SITE_LONGITUDE":    {d.SiteLongitude, -99.4},
+		"DISCOVER_SITE_LATITUDE":     {d.SiteLatitude, 35.0},
+		"DISCOVER_SITE_LONGITUDE":    {d.SiteLongitude, -110.0},
 		"DISCOVER_SITE_ELEVATION":    {d.SiteElevation, &elev},
 		"DISCOVER_MIN_ALTITUDE":      {d.MinAltitude, 25.0},
 		"DISCOVER_SKY_BRIGHTNESS":    {d.SkyBrightness, 21.5},

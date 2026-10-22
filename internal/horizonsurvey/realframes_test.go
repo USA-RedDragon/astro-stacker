@@ -66,7 +66,7 @@ func writeRealRun(t *testing.T, dir string, frameDir func(name string) string) h
 	t.Helper()
 	site := testSite()
 	pc := hs.PlanConfig{AzStep: 10, AltMin: 0, AltMax: 35, Overlap: 0.3, FieldW: 2.72, FieldH: 1.53}
-	h := hs.RunHeader{Started: time.Date(2026, 10, 13, 2, 0, 0, 0, time.UTC), Site: site, Mode: hs.ModeNight, PixelScale: 5.09, FrameW: 1920, FrameH: 1080, Plan: pc, Safety: hs.DefaultSafety()}
+	h := hs.RunHeader{Started: time.Date(2026, 10, 13, 2, 44, 0, 0, time.UTC), Site: site, Mode: hs.ModeNight, PixelScale: 5.09, FrameW: 1920, FrameH: 1080, Plan: pc, Safety: hs.DefaultSafety()}
 	if err := hs.WriteJSON(filepath.Join(dir, hs.RunFile), h); err != nil {
 		t.Fatal(err)
 	}
@@ -197,8 +197,8 @@ func TestRealNightFramesAnalyze(t *testing.T) {
 			continue
 		}
 		edges++
-		if b.Alt < 4.5 || b.Alt > 6.5 || math.Abs(math.Mod(b.Az+180, 360)-180) > 4 {
-			t.Fatalf("edge at az %.2f alt %.2f, want alt 4.5-6.5 near az 0", b.Az, b.Alt)
+		if b.Alt < 8 || b.Alt > 10 || math.Abs(math.Mod(b.Az+180, 360)-180) > 4 {
+			t.Fatalf("edge at az %.2f alt %.2f, want alt 8-10 near az 0", b.Az, b.Alt)
 		}
 	}
 	if edges < 5 {

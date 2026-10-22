@@ -325,7 +325,7 @@ func fixture(t *testing.T, table bool) *Service {
 	}
 	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
 	return &Service{App: appDB, Sched: sched, Mode: ModeOn, Now: func() time.Time { return now },
-		Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 35.0, Longitude: -110.0}, nil }}
+		Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 35, Longitude: -110}, nil }}
 }
 
 func TestServicePublishes(t *testing.T) {

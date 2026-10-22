@@ -51,7 +51,7 @@ func TestMoonKeepRoute(t *testing.T) {
 	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}); err != nil {
 		t.Fatal(err)
 	}
-	s := &moonkeep.Service{App: db, Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 35.0, Longitude: -110.0}, nil }}
+	s := &moonkeep.Service{App: db, Site: func(context.Context) (sky.Site, error) { return sky.Site{Latitude: 35, Longitude: -110}, nil }}
 	code, body = get(s, "?start=2026-01-01T00:00:00Z&end=2026-01-01T01:00:00Z")
 	if code != http.StatusOK || body["computed_at"] == nil || body["rules"] == nil {
 		t.Fatalf("%d %v", code, body)

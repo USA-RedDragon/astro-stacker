@@ -125,7 +125,7 @@ func TestSamplesCarryTheTargetAltitude(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 3, 1, 6, 0, 0, 0, time.UTC)
 	s := Samples([]Input{{Object: "Polaris", Filter: "L", Exposure: 300, Start: at, Status: "added", RA: 37.95, Dec: 89.26, HasPos: true}}, 35.0, -110.0)
-	if len(s) != 1 || s[0].Altitude < 30.7 || s[0].Altitude > 32.3 {
+	if len(s) != 1 || s[0].Altitude < 34.2 || s[0].Altitude > 35.8 {
 		t.Fatalf("Polaris stands at the latitude: %+v", s)
 	}
 }
