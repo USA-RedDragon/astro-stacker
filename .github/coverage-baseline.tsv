@@ -23,7 +23,7 @@ cmd/tnsmirror.go	28	4
 cmd/triggers.go	24	24
 cmd/variablecatalogs.go	5	4
 cmd/vet.go	134	5
-internal/activity/activity.go	140	109
+internal/activity/activity.go	140	111
 internal/activity/jobs.go	150	112
 internal/activity/kube.go	66	47
 internal/activity/report.go	91	76
@@ -33,7 +33,7 @@ internal/astrometry/solvefield.go	52	44
 internal/autofocus/autofocus.go	55	52
 internal/binaries/chart.go	67	0
 internal/binaries/dipwatch.go	22	18
-internal/binaries/dipwindows.go	617	436
+internal/binaries/dipwindows.go	618	437
 internal/binaries/draw.go	79	74
 internal/binaries/dryrun.go	34	0
 internal/binaries/eclipses.go	49	48
@@ -51,7 +51,7 @@ internal/binaries/minima/scan.go	17	14
 internal/binaries/minima/stats.go	159	139
 internal/binaries/minima/text.go	27	13
 internal/binaries/pictures.go	238	153
-internal/binaries/planner.go	95	77
+internal/binaries/planner.go	96	82
 internal/binaries/plot.go	135	0
 internal/binaries/prune.go	32	23
 internal/binaries/record.go	182	120
@@ -59,11 +59,12 @@ internal/binaries/redraft.go	49	41
 internal/binaries/request.go	101	74
 internal/binaries/runchart.go	141	131
 internal/binaries/runnight.go	227	98
-internal/binaries/seasonal.go	136	116
-internal/binaries/service.go	393	231
+internal/binaries/seasonal.go	136	118
+internal/binaries/service.go	397	235
 internal/binaries/share.go	121	110
 internal/binaries/timing.go	272	208
 internal/binaries/timingdebug.go	82	56
+internal/binaries/vague.go	72	54
 internal/binaries/view.go	136	119
 internal/binaries/watch.go	19	0
 internal/bodies/asteroids.go	387	350
@@ -150,7 +151,7 @@ internal/discoveries/null.go	106	91
 internal/discoveries/offsetguard.go	44	41
 internal/discoveries/progress.go	77	72
 internal/discoveries/refnights.go	195	182
-internal/discoveries/runner.go	765	590
+internal/discoveries/runner.go	765	591
 internal/discoveries/sensor.go	212	205
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -217,7 +218,7 @@ internal/horizonsurvey/geom.go	63	63
 internal/horizonsurvey/manifest.go	46	34
 internal/horizonsurvey/night.go	288	285
 internal/horizonsurvey/nina.go	101	81
-internal/horizonsurvey/phd2.go	152	113
+internal/horizonsurvey/phd2.go	152	115
 internal/horizonsurvey/plan.go	375	358
 internal/horizonsurvey/plot.go	107	12
 internal/horizonsurvey/runner.go	451	350
@@ -278,7 +279,7 @@ internal/ninapath/ninapath.go	9	9
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	44
+internal/observatory/loops.go	59	45
 internal/observatory/monitor.go	207	178
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -331,7 +332,7 @@ internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/schedglobal.go	53	48
-internal/schedcmd/service.go	234	203
+internal/schedcmd/service.go	234	205
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/templates.go	30	28
 internal/schedcmd/window.go	58	53
