@@ -31,7 +31,7 @@ packaging==26.3
 pandas==3.0.6
 pillow==12.3.0
 pycparser==3.11
-pycryptodome==4.0.0
+pycryptodome==4.1.0
 pyerfa==2.0.1.5
 pyparsing==3.3.3
 python-dateutil==2.9.0.post0
