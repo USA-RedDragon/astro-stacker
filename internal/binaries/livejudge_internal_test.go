@@ -413,3 +413,40 @@ func TestLiveViewDropsAStaleTiming(t *testing.T) {
 		t.Errorf("a timing of %v min carried over from an earlier look", *v.Eclipse.ShiftMin)
 	}
 }
+
+func TestTonight27822BeforeTheMiddleHasNoDepth(t *testing.T) {
+	t.Parallel()
+	pts, m := tonight27822(t)
+	j := judgeEclipse(pts, m)
+	if !j.ok || j.depth <= 0 {
+		t.Fatalf("one-sided fit ok %v at depth %.3f, want tonight's one-sided depth", j.ok, j.depth)
+	}
+	if strings.Contains(j.why, "deeper") || strings.Contains(j.why, "shallower") {
+		t.Errorf("state %s (%s), want no depth judged before the middle", j.state, j.why)
+	}
+	v := liveView(liveRun27822(m), rawOf(pts), 15, pts[len(pts)-1].Time)
+	if v.Eclipse.FitDepth != nil || v.Eclipse.DepthErr != nil {
+		t.Errorf("the card gives a depth of %v ± %v mag from subs before the middle only", *v.Eclipse.FitDepth, *v.Eclipse.DepthErr)
+	}
+	half := m
+	half.depth = 0.4 * m.depth
+	if j := judgeEclipse(synth27822(pts, half, m.mid.Add(-10*time.Minute), 0), m); j.state == LiveOff {
+		t.Errorf("state %s (%s), want no shallow dip called from subs before the middle", j.state, j.why)
+	}
+}
+
+func TestTonight27822BothSidesMeasuresTheDepth(t *testing.T) {
+	t.Parallel()
+	pts, m := tonight27822(t)
+	truth := m
+	truth.depth = 0.75 * m.depth
+	full := synth27822(pts, truth, m.mid.Add(m.half), 0)
+	v := liveView(liveRun27822(m), rawOf(full), 15, full[len(full)-1].Time)
+	e := v.Eclipse
+	if e.FitDepth == nil || e.DepthErr == nil {
+		t.Fatalf("state %s (%s), want a depth once both sides are covered", v.State, v.Why)
+	}
+	if math.Abs(*e.FitDepth-truth.depth) > math.Max(0.01, 3**e.DepthErr) {
+		t.Errorf("depth %.3f ± %.3f mag, truth %.3f", *e.FitDepth, *e.DepthErr, truth.depth)
+	}
+}
