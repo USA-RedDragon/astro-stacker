@@ -40,12 +40,12 @@ const (
 	// dipRun is the fewest subs in a row a dip watch averages, dipFloor
 	// the least fade it calls a dip and dipSigma how far beyond the
 	// scatter of that average it must fall. runSpan is the longest a run
-	// of subs may last, and runSpanMin the least.
-	dipRun     = 4
-	dipFloor   = 0.05
-	dipSigma   = 4.0
-	runSpan    = time.Hour
-	runSpanMin = 12 * time.Minute
+	// of subs may last, and runSpanFloor the least.
+	dipRun       = 4
+	dipFloor     = 0.05
+	dipSigma     = 4.0
+	runSpan      = time.Hour
+	runSpanFloor = 12 * time.Minute
 	// errFloor is the least error given one sub.
 	errFloor = 0.003
 )
@@ -299,7 +299,7 @@ type dipGoal struct {
 func goalOf(depth, durHours float64) dipGoal {
 	span := runSpan
 	if durHours > 0 {
-		span = min(span, max(runSpanMin, time.Duration(durHours/2*float64(time.Hour))))
+		span = min(span, max(runSpanFloor, time.Duration(durHours/2*float64(time.Hour))))
 	}
 	return dipGoal{depth: depth, span: span}
 }
