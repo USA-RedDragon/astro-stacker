@@ -153,7 +153,12 @@ type eclipseFit struct {
 	depthErr float64
 	scatter  float64
 	ok       bool
-	comps    compsCheck
+	// timed says the subs cover both sides of the middle, expected and
+	// fitted, by the timing rule: minFramesSide subs inside the dip on
+	// each side and minFramesDip in all. Before that the fit gives no
+	// timing worth showing.
+	timed bool
+	comps compsCheck
 }
 
 // judgeEclipse levels the subs, fits the eclipse's timing and depth and
@@ -162,6 +167,7 @@ type eclipseFit struct {
 func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 	j := eclipseFit{comps: checkComps(pts)}
 	j.fit(pts, m)
+	j.timed = j.ok && bothSides(pts, m, m.mid) && bothSides(pts, m, m.mid.Add(j.shift))
 	near := 0
 	core := max(m.half/2, m.err)
 	for _, p := range pts {
@@ -182,7 +188,7 @@ func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 		j.state = LiveFollowing
 		off := []string{}
 		band := m.err.Seconds()
-		if s := math.Abs(j.shift.Seconds()); s-shiftSigma*j.shiftErr.Seconds() > band {
+		if s := math.Abs(j.shift.Seconds()); j.timed && s-shiftSigma*j.shiftErr.Seconds() > band {
 			word := "late"
 			if j.shift < 0 {
 				word = "early"
@@ -196,13 +202,32 @@ func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 			}
 			off = append(off, fmt.Sprintf("the dip is %.2f mag %s than the expected %.2f", math.Abs(d), word, m.depth))
 		}
-		if len(off) > 0 {
+		switch {
+		case len(off) > 0:
 			j.state, j.why = LiveOff, joinAnd(off)
-		} else {
+		case !j.timed:
+			j.why = "the subs follow the expected curve so far, and the timing needs subs on both sides of the middle"
+		default:
 			j.why = fmt.Sprintf("the subs sit within the timing error of %.0f min", band/60)
 		}
 	}
 	return j
+}
+
+// bothSides says whether the subs inside the dip, by its expected length,
+// number minFramesSide before mid and as many after, and minFramesDip in
+// all.
+func bothSides(pts []LivePoint, m eclipseModel, mid time.Time) bool {
+	before, after := 0, 0
+	for _, p := range pts {
+		switch dt := p.Time.Sub(mid); {
+		case dt > -m.half && dt < 0:
+			before++
+		case dt >= 0 && dt < m.half:
+			after++
+		}
+	}
+	return before >= minFramesSide && after >= minFramesSide && before+after >= minFramesDip
 }
 
 // fit finds the timing whose curve, scaled in depth and set on a level,
