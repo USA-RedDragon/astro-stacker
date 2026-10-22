@@ -132,6 +132,9 @@ func (s *Service) nightRow(ctx context.Context, run *liveRun, night string, raw 
 	}
 	s.darkOf(ctx, run, &row)
 	v.Stored, v.Night, v.LowFrom = true, night, row.LowFrom
+	if row.DarkStart != nil && row.DarkEnd != nil {
+		v.DarkStart, v.DarkEnd = row.DarkStart, row.DarkEnd
+	}
 	if card, err := json.Marshal(v); err == nil {
 		row.Card = string(card)
 	}
@@ -208,6 +211,9 @@ func (s *Service) storedCard(ctx context.Context) (LiveCurve, bool) {
 		return LiveCurve{}, false
 	}
 	v.Stored, v.Night = true, row.Night
+	if v.DarkStart == nil && row.DarkStart != nil && row.DarkEnd != nil {
+		v.DarkStart, v.DarkEnd = row.DarkStart, row.DarkEnd
+	}
 	return v, true
 }
 

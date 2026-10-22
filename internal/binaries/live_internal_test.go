@@ -88,3 +88,18 @@ func TestDepthInPicksTheBand(t *testing.T) {
 		t.Errorf("surveys %q", s)
 	}
 }
+
+func TestBestDarkPicksTheSpanOverTheEclipse(t *testing.T) {
+	t.Parallel()
+	at := func(h int) time.Time { return liveMid().Add(time.Duration(h) * time.Hour) }
+	spans := []TimeSpan{{Start: at(-20), End: at(-12)}, {Start: at(-3), End: at(1)}, {Start: at(4), End: at(6)}}
+	if sp, ok := bestDark(spans, at(0), at(6)); !ok || !sp.Start.Equal(at(4)) {
+		t.Errorf("over 0 to 6 h: %+v %v, want the span from 4 h", sp, ok)
+	}
+	if sp, ok := bestDark(spans, at(10), at(11)); !ok || !sp.Start.Equal(at(-20)) {
+		t.Errorf("over none: %+v %v, want the longest", sp, ok)
+	}
+	if _, ok := bestDark(nil, at(0), at(1)); ok {
+		t.Error("no spans gave a span")
+	}
+}
