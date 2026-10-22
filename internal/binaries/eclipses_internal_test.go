@@ -2,6 +2,7 @@ package binaries
 
 import (
 	"math"
+	"math/rand/v2"
 	"strings"
 	"testing"
 	"time"
@@ -313,5 +314,27 @@ func TestOwnSecondTimingMovesThePhase(t *testing.T) {
 	bare.Timings = st.Timings
 	if got := secondaryNear(t, bare, e, next).Mid.Sub(before.Mid).Minutes(); math.Abs(got+38) > 0.05 {
 		t.Errorf("with no survey phase error the own timing alone moved the next middle %.2f min, want -38", got)
+	}
+}
+
+func TestFactsMeasureTheTwinAgainFromTheCaches(t *testing.T) {
+	t.Parallel()
+	_, e := star27822(0)
+	e.Eclipses[1].Depth = map[string]float64{keyZTFr: 0.12}
+	rng := rand.New(rand.NewPCG(27822, 19))
+	s := lc.Series{Survey: lc.ZTF, Band: "r", Dilution: 1}
+	for i := range 3000 {
+		b := 2458300 + float64(i)*0.61 + 0.2*rng.Float64()
+		s.Points = append(s.Points, lc.Point{BJD: b, Mag: 15.5 + e.Predict(b, keyZTFr) + 0.02*rng.NormFloat64(), Err: 0.02})
+	}
+	stale := &eclfacts.Twin{Band: keyZTFr, Phase2: 0.5, PhaseErr: 1e-7}
+	r := &vetting.Report{Ephemeris: e, Survey: &eclfacts.Summary{Period: e.Period, Twin: stale}}
+	f := Work(r, vetting.StarData{Series: []lc.Series{s}}, nil, time.Time{})
+	tw := f.Survey.Twin
+	if tw == stale || !(tw.PhaseErr > 1e-5) || math.Abs(tw.Phase2-e.Eclipses[1].Phase) > 3*tw.PhaseErr+1e-4 {
+		t.Errorf("twin %+v, want it measured again from the cached series", *tw)
+	}
+	if r.Survey.Twin != stale || f.SurveyFrom != FromReport {
+		t.Error("the report's own survey facts were changed")
 	}
 }

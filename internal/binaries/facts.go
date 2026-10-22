@@ -21,7 +21,7 @@ import (
 
 // FactsVersion is the version of the rules that work out Facts; facts
 // from an older one are worked out again.
-const FactsVersion = 2
+const FactsVersion = 3
 
 // GaiaFacts is the Gaia DR3 star at the spot, at epoch 2016.0.
 type GaiaFacts struct {
@@ -196,6 +196,7 @@ func Work(r *vetting.Report, sd vetting.StarData, vsx []starcat.VSXStar, vsxChec
 			f.Survey, f.SurveyFrom = s, FromCaches
 		}
 	}
+	f.freshTwin(sd)
 	if dbl {
 		f.refineDoubled(sd)
 	}
@@ -225,6 +226,20 @@ func Work(r *vetting.Report, sd vetting.StarData, vsx []starcat.VSXStar, vsxChec
 	f.Bands = sortedKeys(bands)
 	slices.Sort(f.Sectors)
 	return f
+}
+
+// freshTwin measures the two dips' comparison again in the cached survey
+// series, so a report vetted under older rules gets the second dip's
+// phase error as the rules now measure it.
+func (f *Facts) freshTwin(sd vetting.StarData) {
+	if f.Survey == nil || f.SurveyFrom != FromReport || len(sd.Series) == 0 {
+		return
+	}
+	if t := eclfacts.TwinOf(sd.Series, f.Ephemeris); t != nil {
+		s := *f.Survey
+		s.Twin = t
+		f.Survey = &s
+	}
 }
 
 // refineDoubled settles what a doubled star's two halves are by the
