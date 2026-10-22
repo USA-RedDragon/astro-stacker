@@ -18,9 +18,9 @@ import (
 func hours(h float64) time.Duration { return time.Duration(h * float64(time.Hour)) }
 
 // star618 is source 618, Gaia DR3 171075625506327552 at 04 06 48.14
-// +34 49 36.4, every 2.2563970 days, seen from a made-up test site
-// at 35 N, 110 W: its second eclipse of Nov 2, 2026 07:11 UTC lasts
-// 8.1 h, and its deeper one 7.2 h, timed to 1.2 min.
+// +34 49 36.4, every 2.2563970 days, seen from a made-up test site at
+// 35 N, 110 W: its second eclipse of Nov 2, 2026 07:11 UTC lasts 8.1 h,
+// and its deeper one 7.2 h, timed to 1.2 min.
 type star618 struct {
 	site           sky.Site
 	ra, dec        float64

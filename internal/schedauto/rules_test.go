@@ -20,7 +20,7 @@ const (
 	profile        = "prof"
 )
 
-func site() sky.Site { return sky.Site{Latitude: 35.0, Longitude: -110.0} }
+func site() sky.Site { return sky.Site{Latitude: 35, Longitude: -110} }
 
 func h(v float64) *float64 { return &v }
 

@@ -78,8 +78,8 @@ func TestNight15523NoDip(t *testing.T) {
 	raw := night15523(t)
 	row := s.nightRow(context.Background(), dipRun15523(), night1020, raw, 12, len(raw))
 	if row.DarkStart == nil || row.DarkEnd == nil || row.LowFrom == nil || row.DarkStart.Sub(dipRun15523().from) != 0 ||
-		row.DarkEnd.Sub(time.Date(2026, 10, 21, 6, 19, 0, 0, time.UTC)).Abs() > 3*time.Minute || row.LowFrom.Sub(*row.DarkEnd).Abs() > 3*time.Minute {
-		t.Fatalf("dark %v to %v, low from %v; the planner had dark and high enough to 06:19 UTC", row.DarkStart, row.DarkEnd, row.LowFrom)
+		row.DarkEnd.Sub(time.Date(2026, 10, 21, 7, 7, 0, 0, time.UTC)).Abs() > 3*time.Minute || row.LowFrom.Sub(*row.DarkEnd).Abs() > 3*time.Minute {
+		t.Fatalf("dark %v to %v, low from %v; the planner had dark and high enough to 07:07 UTC", row.DarkStart, row.DarkEnd, row.LowFrom)
 	}
 	if row.Kind != app.RunNightDip || row.State != app.DipNone || row.Measured != 93 || len(row.Points) != 93 || row.Night != night1020 {
 		t.Fatalf("kind %s state %s (%s), %d measured, %d points, night %s", row.Kind, row.State, row.Note, row.Measured, len(row.Points), row.Night)

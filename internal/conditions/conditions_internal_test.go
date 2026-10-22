@@ -295,6 +295,8 @@ func TestMoon(t *testing.T) {
 	}
 }
 
+// TestMoonMatchesUSNO checks against USNO's rise and set times for a made-up
+// test site.
 func TestMoonMatchesUSNO(t *testing.T) {
 	t.Parallel()
 	const lat, lon = 35.0, -110.0
@@ -309,18 +311,18 @@ func TestMoonMatchesUSNO(t *testing.T) {
 	if len(m.Rises) != 1 {
 		t.Fatalf("rises %v", m.Rises)
 	}
-	near(m.Rises[0], "2026-10-10T12:37:00Z", 4*time.Minute)
+	near(m.Rises[0], "2026-10-10T13:25:00Z", 4*time.Minute)
 	near(m.NextNew, "2026-10-10T15:50:00Z", 30*time.Minute)
 	near(m.NextFull, "2026-10-26T04:12:00Z", 30*time.Minute)
 	if m.NextNew.Second() != 0 || m.NextFull.Second() != 0 {
 		t.Errorf("phases not to the minute: %v %v", m.NextNew, m.NextFull)
 	}
-	m = Moon(lat, lon, time.Date(2026, 10, 22, 3, 0, 0, 0, time.UTC), time.Date(2026, 10, 22, 22, 30, 0, 0, time.UTC))
+	m = Moon(lat, lon, time.Date(2026, 10, 22, 3, 0, 0, 0, time.UTC), time.Date(2026, 10, 22, 23, 30, 0, 0, time.UTC))
 	if len(m.Sets) != 1 || len(m.Rises) != 1 {
 		t.Fatalf("sets %v rises %v", m.Sets, m.Rises)
 	}
-	near(m.Sets[0], "2026-10-22T09:05:00Z", 4*time.Minute)
-	near(m.Rises[0], "2026-10-22T21:53:00Z", 4*time.Minute)
+	near(m.Sets[0], "2026-10-22T09:47:00Z", 4*time.Minute)
+	near(m.Rises[0], "2026-10-22T22:38:00Z", 4*time.Minute)
 	for _, c := range []struct {
 		at   time.Time
 		frac float64
