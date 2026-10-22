@@ -156,6 +156,7 @@ type LiveBin struct {
 // measurements so far.
 type liveRun struct {
 	guid    string
+	reqID   int
 	object  string
 	from    time.Time
 	to      time.Time
@@ -310,7 +311,7 @@ func (s *Service) eclipseRun(ctx context.Context, cur *LiveTarget, req app.Eclip
 	if err != nil {
 		return nil, err
 	}
-	run := &liveRun{guid: cur.ProjectGUID, from: req.Start, to: req.End,
+	run := &liveRun{guid: cur.ProjectGUID, reqID: req.ID, from: req.Start, to: req.End,
 		view: LiveCurve{Kind: LiveEclipse, ProjectGUID: cur.ProjectGUID, ProjectName: cur.ProjectName, SourceID: req.SourceID,
 			Name: fmt.Sprint(req.SourceID), From: req.Start, To: req.End}}
 	if len(stars) == 0 {
@@ -385,6 +386,11 @@ func (s *Service) dipRun(ctx context.Context, cur *LiveTarget, w app.DipWatch) (
 			Dip: &LiveDipView{Start: w.Start, End: w.End, DepthLow: w.DepthLow, DepthHigh: w.DepthHigh, ActiveShare: w.ActiveShare}}}
 	if stars, err := s.load(ctx, []int{src.ID}); err == nil && len(stars) > 0 {
 		run.view.Star, _ = stars[0].Names()
+	}
+	var ids []int
+	if err := s.DB.WithContext(ctx).Model(&app.EclipseRequest{}).Where("project_guid = ? AND kind = ?", w.ProjectGUID, KindDip).Order("id DESC").Limit(1).
+		Pluck("id", &ids).Error; err == nil && len(ids) > 0 {
+		run.reqID = ids[0]
 	}
 	s.startTracker(ctx, run)
 	return run, nil

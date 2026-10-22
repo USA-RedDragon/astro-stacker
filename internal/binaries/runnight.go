@@ -13,7 +13,6 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const (
@@ -88,8 +87,33 @@ func (s *Service) saveNight(ctx context.Context, run *liveRun, night string, raw
 		}
 	}
 	row := s.nightRow(ctx, run, night, mine, kept, subs)
-	return s.DB.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "project_guid"}, {Name: "night"}}, UpdateAll: true}).
-		Create(&row).Error
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return storeNight(tx, row) })
+}
+
+// storeNight stores row in place of the stored nights of the same run,
+// such as one a replaced project of the run stored.
+func storeNight(tx *gorm.DB, row app.RunNight) error {
+	var stored []app.RunNight
+	if err := tx.Select("id", "project_guid", "source_id", "night", "kind", "first", "last").
+		Where("source_id = ? AND night = ? AND kind = ?", row.SourceID, row.Night, row.Kind).Order("id").Find(&stored).Error; err != nil {
+		return err
+	}
+	var drop []int
+	for _, r := range stored {
+		switch {
+		case !r.SameRun(row):
+		case row.ID == 0:
+			row.ID = r.ID
+		default:
+			drop = append(drop, r.ID)
+		}
+	}
+	if len(drop) > 0 {
+		if err := tx.Delete(&app.RunNight{}, drop).Error; err != nil {
+			return err
+		}
+	}
+	return tx.Save(&row).Error
 }
 
 // nightRow judges one night's points of a run as the live card does.
@@ -97,7 +121,7 @@ func (s *Service) nightRow(ctx context.Context, run *liveRun, night string, raw 
 	now := s.now()
 	v := liveView(run, raw, kept, now)
 	pts, _, _ := mainFilter(raw)
-	row := app.RunNight{ProjectGUID: run.guid, Night: night, SourceID: v.SourceID, ProjectName: v.ProjectName, Object: run.object,
+	row := app.RunNight{ProjectGUID: run.guid, Night: night, SourceID: v.SourceID, RequestID: run.reqID, ProjectName: v.ProjectName, Object: run.object,
 		Filter: v.Filter, Subs: subs, Measured: len(pts), Comps: kept, JudgedAt: now, UpdatedAt: now}
 	if len(pts) > 0 {
 		row.First, row.Last = pts[0].Time, pts[len(pts)-1].Time
@@ -238,6 +262,14 @@ type nightJob struct {
 	nights map[string]int
 }
 
+// kind is the run's stored night kind.
+func (j nightJob) kind() string {
+	if j.watch != nil {
+		return app.RunNightDip
+	}
+	return app.RunNightEclipse
+}
+
 // span is the run's star and imaging span.
 func (j nightJob) span() (int, time.Time, time.Time) {
 	if j.watch != nil {
@@ -288,12 +320,19 @@ func (s *Service) nightJobs(ctx context.Context) ([]nightJob, error) {
 		return nil, err
 	}
 	var reqs []app.EclipseRequest
-	if err := db.Where("kind <> ? AND project_guid <> '' AND \"end\" > ? AND start < ?", KindDip, since, now).Find(&reqs).Error; err != nil {
+	if err := db.Where("kind <> ? AND project_guid <> '' AND state IN ? AND \"end\" > ? AND start < ?", KindDip, app.LiveRequestStates(), since, now).
+		Find(&reqs).Error; err != nil {
+		return nil, err
+	}
+	stale, err := app.StaleRunGUIDs(db)
+	if err != nil {
 		return nil, err
 	}
 	var cands []nightJob
 	for i := range watches {
-		cands = append(cands, nightJob{guid: watches[i].ProjectGUID, watch: &watches[i]})
+		if !stale[watches[i].ProjectGUID] {
+			cands = append(cands, nightJob{guid: watches[i].ProjectGUID, watch: &watches[i]})
+		}
 	}
 	for i := range reqs {
 		cands = append(cands, nightJob{guid: reqs[i].ProjectGUID, req: &reqs[i]})
@@ -318,7 +357,7 @@ func (s *Service) nightJobs(ctx context.Context) ([]nightJob, error) {
 			continue
 		}
 		var stored []app.RunNight
-		if err := db.Select("night", "subs").Where("project_guid = ?", j.guid).Find(&stored).Error; err != nil {
+		if err := db.Select("night", "subs").Where("project_guid = ? OR (source_id = ? AND kind = ?)", j.guid, src, j.kind()).Find(&stored).Error; err != nil {
 			errs = append(errs, err)
 			continue
 		}
