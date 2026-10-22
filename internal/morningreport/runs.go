@@ -39,6 +39,14 @@ func (c Collector) runs(ctx context.Context, r *Report) {
 		r.RunsMissing = notMeasured
 		return
 	}
+	stale, err := app.StaleRunGUIDs(db)
+	if err != nil {
+		slog.Warn("Morning report: could not read which eclipse requests were withdrawn", "error", err)
+	}
+	rows, dropped := app.MergeRunNights(rows, stale)
+	if len(dropped) > 0 {
+		slog.Warn("Morning report: left out stored nights of runs already in the report", "rows", dropped)
+	}
 	for _, row := range rows {
 		rc := RunChart{Night: row}
 		if c.RunChart != nil && len(row.Points) > 0 {
