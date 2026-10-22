@@ -57,6 +57,10 @@ const (
 	// its eclipse out of its window; the eclipse is asked for again at its
 	// new time.
 	EclipseMoved = "moved"
+	// EclipseHeld is a request withdrawn because its second eclipse's
+	// timing error spread its dip wider than a night; it is asked for
+	// again once the error shrinks.
+	EclipseHeld = "held"
 )
 
 // EclipseRequest asks the scheduler to image one predicted eclipse of a

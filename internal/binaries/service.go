@@ -379,7 +379,8 @@ func stale(st Star) bool {
 }
 
 // Tick works out stale facts and files, makes share pictures whose colour
-// picture changed, follows the imaging requests and drafts again those
+// picture changed, follows the imaging requests, withdraws those whose
+// second eclipse is too uncertain to fit a night and drafts again those
 // whose eclipse a newer ephemeris moved out of their window.
 func (s *Service) Tick(ctx context.Context) error {
 	stars, err := s.Binaries(ctx)
@@ -426,6 +427,9 @@ func (s *Service) Tick(ctx context.Context) error {
 		errs = append(errs, err)
 	} else {
 		if err := s.prune(ctx, fresh); err != nil {
+			errs = append(errs, err)
+		}
+		if err := s.holdVague(ctx, fresh); err != nil {
 			errs = append(errs, err)
 		}
 		if err := s.redraftMoved(ctx, fresh); err != nil {
@@ -621,6 +625,9 @@ func (s *Service) requestImaging(ctx context.Context, id int, kind string, mid t
 	}
 	if hit == nil {
 		return app.EclipseRequest{}, ErrNoEclipse
+	}
+	if why := vagueOf(s.siteOf(ctx), st, *hit); why != "" {
+		return app.EclipseRequest{}, fmt.Errorf("%w: %s", ErrVague, why)
 	}
 	start, end := hit.Window()
 	r := app.EclipseRequest{SourceID: id, Kind: kind, Mid: hit.Mid, Start: start, End: end, State: app.EclipseWaiting, Auto: auto, CreatedAt: s.now(), UpdatedAt: s.now()}

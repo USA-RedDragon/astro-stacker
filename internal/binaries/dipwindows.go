@@ -163,9 +163,14 @@ func resultIn(rows map[int]app.DipResult, w dipSpan) app.DipResult {
 // sees the star dark and high, by the eclipse planner's rule: the Sun below DarkSun and the
 // star above MinAltitude.
 func DarkSpans(site sky.Site, ra, dec float64, from, to time.Time) []TimeSpan {
+	return darkSpansEvery(site, ra, dec, from, to, dipStep)
+}
+
+// darkSpansEvery is DarkSpans looked at every step.
+func darkSpansEvery(site sky.Site, ra, dec float64, from, to time.Time, step time.Duration) []TimeSpan {
 	var out []TimeSpan
 	var cur *TimeSpan
-	for t := from.Truncate(dipStep); !t.After(to); t = t.Add(dipStep) {
+	for t := from.Truncate(step); !t.After(to); t = t.Add(step) {
 		if t.Before(from) {
 			continue
 		}

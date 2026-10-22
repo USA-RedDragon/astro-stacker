@@ -423,7 +423,7 @@ func requestEclipse(c *gin.Context, svc *binaries.Service) {
 	case errors.Is(err, binaries.ErrNoEclipse):
 		c.JSON(http.StatusBadRequest, gin.H{errorKey: err.Error()})
 		return
-	case errors.Is(err, binaries.ErrNotReady), errors.Is(err, binaries.ErrOver):
+	case errors.Is(err, binaries.ErrNotReady), errors.Is(err, binaries.ErrOver), errors.Is(err, binaries.ErrVague):
 		c.JSON(http.StatusConflict, gin.H{errorKey: err.Error()})
 		return
 	case err != nil && r.ID == 0:
