@@ -156,7 +156,7 @@ type eclipseFit struct {
 	// timed says the subs cover both sides of the middle, expected and
 	// fitted, by the timing rule: minFramesSide subs inside the dip on
 	// each side and minFramesDip in all. Before that the fit gives no
-	// timing worth showing.
+	// timing or depth worth showing.
 	timed bool
 	comps compsCheck
 }
@@ -195,7 +195,7 @@ func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 			}
 			off = append(off, fmt.Sprintf("the dip comes %.0f min %s, give or take %.0f, and the timing error allows %.0f", s/60, word, j.shiftErr.Minutes(), band/60))
 		}
-		if d := j.depth - m.depth; math.Abs(d) > depthSigma*j.depthErr && math.Abs(d) > depthShare*m.depth {
+		if d := j.depth - m.depth; j.timed && math.Abs(d) > depthSigma*j.depthErr && math.Abs(d) > depthShare*m.depth {
 			word := "deeper"
 			if d < 0 {
 				word = "shallower"
@@ -206,7 +206,7 @@ func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 		case len(off) > 0:
 			j.state, j.why = LiveOff, joinAnd(off)
 		case !j.timed:
-			j.why = "the subs follow the expected curve so far, and the timing needs subs on both sides of the middle"
+			j.why = "the subs follow the expected curve so far, and the timing and depth need subs on both sides of the middle"
 		default:
 			j.why = fmt.Sprintf("the subs sit within the timing error of %.0f min", band/60)
 		}

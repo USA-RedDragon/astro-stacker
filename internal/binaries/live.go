@@ -497,13 +497,9 @@ func liveView(run *liveRun, raw []ownimage.LivePoint, kept int, now time.Time) L
 		zero := j.zero
 		if !j.ok {
 			zero = levelOutside(pts, *run.model)
-		} else {
-			d, de := j.depth, j.depthErr
-			v.Eclipse.FitDepth, v.Eclipse.DepthErr = &d, &de
-			if j.timed {
-				sh, se := j.shift.Minutes(), j.shiftErr.Minutes()
-				v.Eclipse.ShiftMin, v.Eclipse.ShiftErr = &sh, &se
-			}
+		} else if j.timed {
+			sh, se, d, de := j.shift.Minutes(), j.shiftErr.Minutes(), j.depth, j.depthErr
+			v.Eclipse.ShiftMin, v.Eclipse.ShiftErr, v.Eclipse.FitDepth, v.Eclipse.DepthErr = &sh, &se, &d, &de
 		}
 		if j.ok && j.scatter > 0 {
 			sc := j.scatter
