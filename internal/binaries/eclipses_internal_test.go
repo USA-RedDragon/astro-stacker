@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/sky"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/eclfacts"
@@ -230,5 +231,87 @@ func TestSubLength(t *testing.T) {
 		if got := SubLength(c.g, c.d, c.plan); got != c.want {
 			t.Errorf("G %.0f, %s eclipse, %gs plan: %gs, want %gs", c.g, c.d, c.plan, got, c.want)
 		}
+	}
+}
+
+// star27822 is find 27822 with the vet's ephemeris and the surveys'
+// second dip phase error of the 2026-10-19 vet, 0.00025279 of a cycle.
+func star27822(pe float64) (Star, *period.Ephemeris) {
+	e := &period.Ephemeris{Period: 8.159505837678363, PeriodErr: 6.944427764970278e-06, T0: 2458271.8100552075, T0Err: 0.001313703929629083, Kind: period.KindEclipsing,
+		Eclipses: []period.Eclipse{
+			{Phase: 0, Width: 0.014020551109073798, Shape: 1.2162970470852297, Depth: map[string]float64{keyZTFr: 0.3784689277215908}},
+			{Phase: 0.5090730285476748, Width: 0.01617862327522726, Shape: 1.5818934912252416, Depth: map[string]float64{"ATLAS c": 0.055335927516169336}},
+		}}
+	st := Star{Source: app.DiscoverySource{ID: 27822}, Facts: &Facts{Ephemeris: e, Gaia: &GaiaFacts{RA: 358.51204581824777, Dec: 62.1389340578219},
+		Survey: &eclfacts.Summary{Twin: &eclfacts.Twin{Band: "ATLAS c", Phase2: 0.5093763777340852, PhaseErr: pe}}}}
+	return st, e
+}
+
+func secondary27822(t *testing.T, st Star, e *period.Ephemeris) Predicted {
+	t.Helper()
+	return secondaryNear(t, st, e, time.Date(2026, 10, 22, 6, 35, 0, 0, time.UTC))
+}
+
+func secondaryNear(t *testing.T, st Star, e *period.Ephemeris, at time.Time) Predicted {
+	t.Helper()
+	for _, p := range Predict(e, 0, st.Facts.Gaia.RA, st.Facts.Gaia.Dec, at.Add(-time.Hour), at.Add(time.Hour)) {
+		if p.Kind == KindSecondary {
+			return st.withPhaseError(p, e)
+		}
+	}
+	t.Fatalf("no second eclipse predicted near %s", at)
+	return Predicted{}
+}
+
+func TestSecondEclipse27822TakesInItsPhaseError(t *testing.T) {
+	t.Parallel()
+	st, e := star27822(0.00025279098867542205)
+	p := secondary27822(t, st, e)
+	if want := time.Date(2026, 10, 22, 6, 35, 12, 0, time.UTC); absDur(p.Mid.Sub(want)) > 2*time.Second {
+		t.Errorf("middle %s, want the live card's %s", p.Mid, want)
+	}
+	if m := p.Err.Minutes(); math.Abs(m-5.14) > 0.02 {
+		t.Errorf("error %.2f min, want the live card's 5.14: 4.20 from the epoch and period, 2.97 from the phase", m)
+	}
+	st, _ = star27822(0.0011122803501718)
+	if m := secondary27822(t, st, e).Err.Minutes(); math.Abs(m-13.75) > 0.05 {
+		t.Errorf("error %.2f min with ZTF's phase error alone, want 13.75", m)
+	}
+}
+
+// TestOwnSecondTimingMovesThePhase times tonight's second eclipse 38 min
+// early to 12 min and predicts the next one, 8.16 days on: weighted with
+// the surveys' place, 5.14 min from the ephemeris and the phase, the
+// timing moves it by 38 x 5.14^2 / (5.14^2 + 12^2) minutes; tonight's own
+// eclipse ignores its own timing.
+func TestOwnSecondTimingMovesThePhase(t *testing.T) {
+	t.Parallel()
+	st, e := star27822(0.00025279098867542205)
+	tonight := secondary27822(t, st, e)
+	next := time.Date(2026, 10, 30, 10, 25, 0, 0, time.UTC)
+	before := secondaryNear(t, st, e, next)
+	ra, dec := st.Facts.Gaia.RA, st.Facts.Gaia.Dec
+	bjd := lc.BJD(tonight.Mid, ra, dec) - 38.0/1440
+	st.Timings = []app.EclipseTiming{
+		{SourceID: 27822, Kind: KindSecondary, Predicted: tonight.Mid, BJD: bjd, Err: 12.0 / 1440, State: app.TimingGood},
+		{SourceID: 27822, Kind: KindSecondary, Predicted: tonight.Mid, BJD: bjd + 30.0/1440, Err: 1.0 / 1440, State: app.TimingDoubtful},
+	}
+	after := secondaryNear(t, st, e, next)
+	sur := before.Err.Minutes()
+	own := math.Hypot(12, e.PeriodErr*1440)
+	w1, w2 := 1/(sur*sur), 1/(own*own)
+	if got, want := after.Mid.Sub(before.Mid).Minutes(), -38*w2/(w1+w2); math.Abs(got-want) > 0.05 || want > -5 {
+		t.Errorf("own timing 38 min early moved the next middle %.2f min, want %.2f", got, want)
+	}
+	if got, want := after.Err.Minutes(), math.Sqrt(1/(w1+w2)); math.Abs(got-want) > 0.05 {
+		t.Errorf("error %.2f min, want %.2f", got, want)
+	}
+	if same := secondary27822(t, st, e); !same.Mid.Equal(tonight.Mid) || same.Err != tonight.Err {
+		t.Errorf("tonight's own timing moved tonight's prediction by %s", same.Mid.Sub(tonight.Mid))
+	}
+	bare, _ := star27822(0)
+	bare.Timings = st.Timings
+	if got := secondaryNear(t, bare, e, next).Mid.Sub(before.Mid).Minutes(); math.Abs(got+38) > 0.05 {
+		t.Errorf("with no survey phase error the own timing alone moved the next middle %.2f min, want -38", got)
 	}
 }
