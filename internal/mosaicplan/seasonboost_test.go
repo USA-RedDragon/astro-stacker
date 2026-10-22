@@ -63,7 +63,7 @@ const (
 	longEnd    = "2027-04-28"
 )
 
-func testSite() mosaics.Site { return mosaics.Site{Lat: 31.55, Lon: -99.40} }
+func testSite() mosaics.Site { return mosaics.Site{Lat: 35, Lon: -110} }
 
 func testNow() time.Time { return time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC) }
 

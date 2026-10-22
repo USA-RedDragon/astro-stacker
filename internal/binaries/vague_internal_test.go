@@ -18,9 +18,9 @@ import (
 func hours(h float64) time.Duration { return time.Duration(h * float64(time.Hour)) }
 
 // star618 is source 618, Gaia DR3 171075625506327552 at 04 06 48.14
-// +34 49 36.4, every 2.2563970 days, seen from the observatory near
-// Rockwood, Texas: its second eclipse of Nov 2, 2026 07:11 UTC lasts
-// 8.1 h, and its deeper one 7.2 h, timed to 1.2 min.
+// +34 49 36.4, every 2.2563970 days, seen from a made-up test site at
+// 35 N, 110 W: its second eclipse of Nov 2, 2026 07:11 UTC lasts 8.1 h,
+// and its deeper one 7.2 h, timed to 1.2 min.
 type star618 struct {
 	site           sky.Site
 	ra, dec        float64
@@ -28,7 +28,7 @@ type star618 struct {
 }
 
 func newStar618() star618 {
-	return star618{site: sky.Site{Latitude: 31.53, Longitude: -99.37}, ra: 61.70058, dec: 34.82678,
+	return star618{site: sky.Site{Latitude: 35, Longitude: -110}, ra: 61.70058, dec: 34.82678,
 		second: Predicted{Dip: 1, Kind: KindSecondary, Mid: time.Date(2026, 11, 2, 7, 10, 47, 0, time.UTC), Duration: hours(8.095952819930565)},
 		deeper: Predicted{Dip: 0, Kind: KindPrimary, Mid: time.Date(2026, 11, 1, 4, 3, 8, 0, time.UTC), Err: 72 * time.Second, Duration: hours(7.238867312791258)}}
 }

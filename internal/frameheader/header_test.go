@@ -39,7 +39,7 @@ func fits(cards ...string) []byte {
 	return []byte(sb.String())
 }
 
-// A trimmed copy of a real NINA 3.1 XISF header.
+// A trimmed copy of a real NINA 3.1 XISF header, with a made-up site.
 const ninaXML = `<?xml version="1.0" encoding="UTF-8"?><xisf version="1.0"><Image geometry="6248:4176:1" sampleFormat="UInt16">
 <FITSKeyword name="IMAGETYP" value="'LIGHT'" comment="Type of exposure"/>
 <FITSKeyword name="DATE-OBS" value="'2026-09-28T05:52:17.168'" comment=""/>
@@ -51,7 +51,7 @@ const ninaXML = `<?xml version="1.0" encoding="UTF-8"?><xisf version="1.0"><Imag
 <FITSKeyword name="YBINNING" value="1" comment=""/>
 <FITSKeyword name="SET-TEMP" value="0.0" comment=""/>
 <FITSKeyword name="CCD-TEMP" value="0.1" comment=""/>
-<FITSKeyword name="SITELONG" value="-99.382222" comment=""/>
+<FITSKeyword name="SITELONG" value="-110.0" comment=""/>
 <FITSKeyword name="OBJECT" value="'Cygnis Loop Panel 1'" comment=""/>
 <FITSKeyword name="ROTATANG" value="142.399993896484" comment=""/>
 <FITSKeyword name="FILTER" value="'Red'" comment=""/>
@@ -73,7 +73,7 @@ func TestParseNINAXISF(t *testing.T) {
 	if math.Abs(f.Rotator-142.4) > 0.001 {
 		t.Errorf("rotator = %v", f.Rotator)
 	}
-	// 05:52 UTC at -99.4 degrees is about 23:14 local solar time on the 27th.
+	// 05:52 UTC at -110 degrees is about 22:32 local solar time on the 27th.
 	night, ok := f.Night()
 	if !ok || !night.Equal(time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("night = %v, %v", night, ok)

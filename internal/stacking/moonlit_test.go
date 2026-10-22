@@ -13,10 +13,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// The observatory; 2025-11-05 02:00 UTC is a night of full moon with the Moon
-// well up (about 30° high in the east), 2025-10-21 04:00 UTC the new moon,
-// below the horizon.
-const siteLat, siteLon = 31.546944, -99.382222
+// A made-up test site; 2025-11-05 02:00 UTC is a night of full moon with the
+// Moon well up (about 27° high in the east), 2025-10-21 04:00 UTC the new
+// moon, below the horizon.
+const siteLat, siteLon = 35.0, -110.0
 
 func fullMoonUp() time.Time { return time.Date(2025, 11, 5, 2, 0, 0, 0, time.UTC) }
 

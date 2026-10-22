@@ -8,8 +8,10 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/moon"
 )
 
-// Against JPL Horizons, topocentric, from the observatory (31.546944 N,
-// 99.382222 W).
+const testLat, testLon = 35.0, -110.0
+
+// Against JPL Horizons, topocentric, from a made-up test site (35 N, 110 W);
+// the Horizons answers are in testdata.
 func TestAltitudeMatchesHorizons(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -17,23 +19,23 @@ func TestAltitudeMatchesHorizons(t *testing.T) {
 		ra, dec  float64 // topocentric apparent, differs by up to the parallax
 		altitude float64
 	}{
-		{"2025-10-20T03:00:00Z", 189.42682, -6.90803, -49.126195},
-		{"2026-03-14T06:30:00Z", 298.85821, -24.83778, -44.816406},
-		{"2024-12-25T09:15:00Z", 208.35034, -14.43458, 5.089370},
+		{"2025-10-20T03:00:00Z", 189.338905, -6.966455, -39.748509},
+		{"2026-03-14T06:30:00Z", 298.726229, -24.845452, -53.591080},
+		{"2024-12-25T10:30:00Z", 208.866349, -14.762582, 9.449174},
 	} {
 		at, _ := time.Parse(time.RFC3339, c.at)
 		p := moon.At(at)
-		if alt := p.Altitude(at, 31.546944, -99.382222); math.Abs(alt-c.altitude) > 0.5 {
+		if alt := p.Altitude(at, testLat, testLon); math.Abs(alt-c.altitude) > 0.5 {
 			t.Errorf("%s: altitude %.2f, want %.2f", c.at, alt, c.altitude)
 		}
 		if s := p.Separation(c.ra, c.dec); s > 1.5 {
 			t.Errorf("%s: %.2f° from Horizons' position", c.at, s)
 		}
-		topo := p.Topocentric(at, 31.546944, -99.382222)
+		topo := p.Topocentric(at, testLat, testLon)
 		if s := topo.Separation(c.ra, c.dec); s > 0.1 {
 			t.Errorf("%s: topocentric %.2f° from Horizons' position", c.at, s)
 		}
-		if alt := topo.Altitude(at, 31.546944, -99.382222); math.Abs(alt-c.altitude) > 0.1 {
+		if alt := topo.Altitude(at, testLat, testLon); math.Abs(alt-c.altitude) > 0.1 {
 			t.Errorf("%s: topocentric altitude %.2f, want %.2f", c.at, alt, c.altitude)
 		}
 	}
