@@ -392,7 +392,7 @@ func simulateCmd(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("simulate", flag.ContinueOnError)
 	o := runFlags(fs)
 	c, cfg := o.c, o.cfg
-	at := fs.String("time", "2026-10-13T00:25:00Z", "simulated start time (RFC 3339)")
+	at := fs.String("time", "", "simulated start time (RFC 3339)")
 	solve := fs.Bool("solve", false, "give every simulated frame a plate solution")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -400,14 +400,14 @@ func simulateCmd(ctx context.Context, args []string, out io.Writer) error {
 	if err := c.finish(); err != nil {
 		return err
 	}
+	if math.IsNaN(*o.lat) || math.IsNaN(*o.lon) || *at == "" {
+		return fmt.Errorf("%w: -lat, -lon and -time are required; the simulated mount sits at that site at that time", errUsage)
+	}
 	t, err := time.Parse(time.RFC3339, *at)
 	if err != nil {
 		return err
 	}
-	site := hs.Site{Lat: 35.0, Lon: -110.0}
-	if !math.IsNaN(*o.lat) && !math.IsNaN(*o.lon) {
-		site = hs.Site{Lat: *o.lat, Lon: *o.lon}
-	}
+	site := hs.Site{Lat: *o.lat, Lon: *o.lon}
 	cfg.Site = &site
 	cam := sim.DuskCamera()
 	if cfg.Mode == hs.ModeNight {
