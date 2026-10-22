@@ -57,6 +57,9 @@ type PlannedEclipse struct {
 	Why            string       `json:"why"`
 	Window         TimeSpan     `json:"window"`
 	Request        *RequestView `json:"request"`
+	// Held says why the eclipse is not asked for, when its timing is too
+	// uncertain to fit a night.
+	Held string `json:"held"`
 }
 
 // EclipsePlan is the planner page.
@@ -145,6 +148,7 @@ func Plan(in PlanInput) EclipsePlan {
 			}
 			row.Purpose, row.Why = purpose(s, b, p)
 			row.Request = matchRequest(in.Requests, s.Source.ID, p)
+			row.Held = heldNote(vagueOf(in.Site, s, p))
 			if !row.Observable && !in.All {
 				out.Hidden++
 				continue
@@ -205,7 +209,7 @@ func (s Star) ownEclipse() bool {
 func matchRequest(reqs []app.EclipseRequest, id int, p Predicted) *RequestView {
 	var best *app.EclipseRequest
 	for i, r := range reqs {
-		if r.SourceID != id || r.State == app.EclipseMoved || !sameEclipse(r.Kind, p.Kind, r.Mid.Sub(p.Mid)) {
+		if r.SourceID != id || r.State == app.EclipseMoved || r.State == app.EclipseHeld || !sameEclipse(r.Kind, p.Kind, r.Mid.Sub(p.Mid)) {
 			continue
 		}
 		if best == nil || r.ID > best.ID {

@@ -263,7 +263,7 @@ func nextAuto(st Star, sv *SeasonView, site sky.Site, reqs []app.EclipseRequest,
 			continue
 		}
 		start, end := p.Window()
-		if !seenThrough(site, ra, dec, p) || clash(reqs, st.Source.ID, p, start, end, now) {
+		if !seenThrough(site, ra, dec, p) || clash(reqs, st.Source.ID, p, start, end, now) || vagueWhy(site, ra, dec, p) != "" {
 			continue
 		}
 		return p, true
@@ -281,11 +281,11 @@ func seenThrough(site sky.Site, ra, dec float64, p Predicted) bool {
 	return true
 }
 
-// clash says the eclipse was asked for before, in any state but moved, or its
-// window overlaps an open request of any star.
+// clash says the eclipse was asked for before, in any state but moved or
+// held, or its window overlaps an open request of any star.
 func clash(reqs []app.EclipseRequest, id int, p Predicted, start, end, now time.Time) bool {
 	for _, r := range reqs {
-		if r.SourceID == id && r.State != app.EclipseMoved && sameEclipse(r.Kind, p.Kind, r.Mid.Sub(p.Mid)) {
+		if r.SourceID == id && r.State != app.EclipseMoved && r.State != app.EclipseHeld && sameEclipse(r.Kind, p.Kind, r.Mid.Sub(p.Mid)) {
 			return true
 		}
 		if open(r) && r.End.After(now) && r.Start.Before(end) && start.Before(r.End) {

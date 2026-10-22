@@ -97,7 +97,7 @@ func (s *Service) redraftMoved(ctx context.Context, stars []Star) error {
 		if r.Auto {
 			continue
 		}
-		if _, err := s.requestImaging(ctx, r.SourceID, p.Kind, p.Mid, false); err != nil && !errors.Is(err, ErrOver) {
+		if _, err := s.requestImaging(ctx, r.SourceID, p.Kind, p.Mid, false); err != nil && !errors.Is(err, ErrOver) && !errors.Is(err, ErrVague) {
 			errs = append(errs, fmt.Errorf("source %d: %w", r.SourceID, err))
 		}
 	}
