@@ -291,6 +291,11 @@ func ztf27822(t *testing.T) ([]lc.Series, *period.Ephemeris) {
 	return out, e
 }
 
+// TestSecondPhase27822FromZTF times 27822's second dip from the 5 ZTF
+// points its VSX package keeps in it. TESS's 14 second eclipses put it
+// 1.1 +/- 1.8 min after the vet's phase (0.509163). Leaving out any one
+// of the 5 points moves the least chi-square far, so the error must not
+// claim the 13 minutes the points' own scatter gives.
 func TestSecondPhase27822FromZTF(t *testing.T) {
 	t.Parallel()
 	series, e := ztf27822(t)
@@ -298,11 +303,12 @@ func TestSecondPhase27822FromZTF(t *testing.T) {
 	if tw == nil {
 		t.Fatal("no twin test")
 	}
-	if math.Abs(tw.Phase2-0.5094) > 0.0003 {
-		t.Errorf("ZTF puts the second dip at phase %.5f, want 0.5094", tw.Phase2)
+	mins := e.Period * 1440
+	if off, sig := (tw.Phase2-0.509163)*mins, math.Hypot(tw.PhaseErr*mins, 1.8); math.Abs(off) > 2*sig {
+		t.Errorf("ZTF puts the second dip %.1f min from TESS's, error %.1f min", off, sig)
 	}
-	if mins := tw.PhaseErr * e.Period * 1440; mins < 10 || mins > 16 {
-		t.Errorf("ZTF's 5 points in the second dip time it to %.1f min, want about 13", mins)
+	if m := tw.PhaseErr * mins; m < 13 || m > 120 {
+		t.Errorf("ZTF's 5 points in the second dip time it to %.1f min, want more than their scatter's 13", m)
 	}
 }
 

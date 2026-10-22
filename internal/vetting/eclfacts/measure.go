@@ -160,13 +160,23 @@ type bandFit struct {
 // errors scaled by the scatter about the fit, after dropping points more
 // than 5 sigma off.
 func fitBands(pts []point, e *period.Ephemeris) map[string]*bandFit {
+	return fitBandsClip(pts, e, true)
+}
+
+// fitBandsClip is fitBands, dropping points more than 5 sigma off only
+// when clip is set.
+func fitBandsClip(pts []point, e *period.Ephemeris, clip bool) map[string]*bandFit {
 	byKey := map[string][]point{}
 	for _, p := range pts {
 		byKey[p.key] = append(byKey[p.key], p)
 	}
 	out := map[string]*bandFit{}
 	for key, ps := range byKey {
-		if f := fitDepths(ps, e); f != nil {
+		fit := fitDepths
+		if !clip {
+			fit = fitDepthsOnce
+		}
+		if f := fit(ps, e); f != nil {
 			f.key = key
 			out[key] = f
 		}
@@ -205,6 +215,38 @@ func fitDepths(ps []point, e *period.Ephemeris) *bandFit {
 		}
 	}
 	return res
+}
+
+// fitDepthsOnce fits the depths of one band's points ps, keeping them all.
+func fitDepthsOnce(ps []point, e *period.Ephemeris) *bandFit {
+	if len(e.Eclipses) == 0 || len(e.Eclipses) > 2 {
+		return nil
+	}
+	keep := make([]bool, len(ps))
+	for i := range keep {
+		keep[i] = true
+	}
+	return solve(ps, keep, e)
+}
+
+// steady is pts without the points more than 5 sigma off the depth fits
+// at e, so that every phase tried for the second dip is scored on the
+// same points. Dropping points phase by phase lets a phase win by
+// leaving out the points that argue against it.
+func steady(pts []point, e *period.Ephemeris) []point {
+	fits := fitBands(pts, e)
+	out := make([]point, 0, len(pts))
+	for _, p := range pts {
+		f, ok := fits[p.key]
+		if !ok {
+			continue
+		}
+		s := math.Sqrt(math.Max(f.chi2/float64(max(f.n-len(e.Eclipses), 1)), 1))
+		if math.Abs(p.y-model(e, f.depths, p.t)) <= 5*p.e*s {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func model(e *period.Ephemeris, d []Depth, t float64) float64 {
@@ -334,18 +376,99 @@ func twin(pts []point, e *period.Ephemeris) *Twin {
 }
 
 // fitPhase2 finds the second dip's phase by the least total chi-square of
-// the per band depth fits over a grid of phases. Its one sigma error is
-// the larger of two: where that chi-square, scaled by its reduced value,
-// rises by one, and the error from the second eclipses timed one by one
-// (eventSpread). Points of one eclipse share its slow drifts and eclipses
-// can disagree beyond their points' errors, as for an orbit that turns,
-// which the joint chi-square alone takes for noise.
+// the per band depth fits over a grid of phases, all scored on the same
+// points (steady) of the surveys that time eclipses (timingPoints). Its one sigma error is the largest of three: where
+// that chi-square, scaled by its reduced value, rises by one; the error
+// from the second eclipses timed one by one (eventSpread); and the spread
+// of the phase found again with each block of caught second eclipses
+// left out (blockSpread). Points of one eclipse share its slow drifts and
+// eclipses can disagree beyond their points' errors, as for an orbit that
+// turns, which the joint chi-square alone takes for noise; and with few
+// points in the dip the chi-square is ragged, so its local rise says
+// little about how far off the least can be.
 func fitPhase2(pts []point, e *period.Ephemeris) (float64, float64) {
+	pts = steady(timingPoints(pts), e)
 	best, chi, ok := bestPhase2(pts, e)
 	if !ok {
 		return e.Eclipses[1].Phase, 0
 	}
-	return best, math.Max(chiError(chi, best, e.Eclipses[1].Width), eventSpread(pts, e, best))
+	err := math.Max(chiError(chi, best, e.Eclipses[1].Width), eventSpread(pts, e, best))
+	return best, math.Max(err, blockSpread(pts, e, best))
+}
+
+// timingPoints is pts of the surveys the vet times its ephemeris with,
+// ZTF and TESS. ATLAS's and NEOWISE's sparse points in a narrow dip give
+// a ragged chi-square whose least can sit far from where TESS times the
+// eclipses.
+func timingPoints(pts []point) []point {
+	out := make([]point, 0, len(pts))
+	for _, p := range pts {
+		if p.survey == lc.ZTF || p.survey == lc.TESS {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// jackBlocks is how many blocks of second eclipses blockSpread leaves out
+// one at a time.
+const jackBlocks = 10
+
+// blockSpread is the delete-a-block jackknife error of the second dip's
+// phase: the eclipses that have points within twice the dip's width of
+// best, in cycle order, are split into up to jackBlocks blocks, and the
+// phase is found again without each block's points. It is 0 with fewer
+// than minPhaseEvents such eclipses.
+func blockSpread(pts []point, e *period.Ephemeris, best float64) float64 {
+	w := e.Eclipses[1].Width
+	const outside = math.MinInt
+	cycle := make([]int, len(pts))
+	seen := map[int]bool{}
+	for i, p := range pts {
+		x := (p.t-e.T0)/e.Period - best
+		n := math.Round(x)
+		cycle[i] = outside
+		if math.Abs(x-n) < 2*w {
+			cycle[i] = int(n)
+			seen[int(n)] = true
+		}
+	}
+	cs := slices.Sorted(maps.Keys(seen))
+	if len(cs) < minPhaseEvents {
+		return 0
+	}
+	g := min(len(cs), jackBlocks)
+	block := make(map[int]int, len(cs))
+	for i, c := range cs {
+		block[c] = i * g / len(cs)
+	}
+	var phs []float64
+	for b := range g {
+		sub := make([]point, 0, len(pts))
+		for i, p := range pts {
+			if cycle[i] != outside && block[cycle[i]] == b {
+				continue
+			}
+			sub = append(sub, p)
+		}
+		if ph, _, ok := bestPhase2(sub, e); ok {
+			phs = append(phs, ph)
+		}
+	}
+	if len(phs) < 2 {
+		return 0
+	}
+	var mean float64
+	for _, ph := range phs {
+		mean += ph
+	}
+	mean /= float64(len(phs))
+	var ss float64
+	for _, ph := range phs {
+		ss += (ph - mean) * (ph - mean)
+	}
+	n := float64(len(phs))
+	return math.Sqrt((n - 1) / n * ss)
 }
 
 // minPhaseEvents is how many second eclipses timed one by one eventSpread
@@ -361,13 +484,20 @@ const minEventSide = 3
 const phaseSteps = 40
 
 // phaseChi is the total chi-square of the depth fits with the second dip
-// at a phase, and how many points it takes in.
+// at a phase, each band's divided by its reduced chi-square at the vet's
+// phase when that is above one, so a band whose errors are too small
+// (a faint star's TESS) does not outweigh the others; and how many points
+// it takes in.
 type phaseChi func(ph float64) (float64, int)
 
 func chiOf(pts []point, e *period.Ephemeris) phaseChi {
-	base := fitBands(pts, e)
+	base := fitBandsClip(pts, e, false)
+	scale := make(map[string]float64, len(base))
+	for key, f := range base {
+		scale[key] = math.Max(f.chi2/float64(max(f.n-len(e.Eclipses), 1)), 1)
+	}
 	return func(ph float64) (float64, int) {
-		fits := fitBands(pts, withPhase2(e, ph))
+		fits := fitBandsClip(pts, withPhase2(e, ph), false)
 		var sum float64
 		n := 0
 		for key := range base {
@@ -375,7 +505,7 @@ func chiOf(pts []point, e *period.Ephemeris) phaseChi {
 			if !ok {
 				return math.Inf(1), 0
 			}
-			sum += f.chi2
+			sum += f.chi2 / scale[key]
 			n += f.n
 		}
 		return sum, n
