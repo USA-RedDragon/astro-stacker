@@ -218,17 +218,17 @@ func matchRequest(reqs []app.EclipseRequest, id int, p Predicted) *RequestView {
 	return &RequestView{ID: best.ID, State: best.State, Note: best.Note, Auto: best.Auto}
 }
 
-// withPhaseError places the second dip by its phase in the cycle, which
-// is measured, not fixed at half. The surveys' place, the ephemeris's
-// with its error grown by the phase's own error, is weighted together
-// with the place each of the user's good timings of the dip predicts
-// for this eclipse: the timing carried on by whole periods, with its
-// own error and the period's error over the cycles between. A timing of
-// this same eclipse is left out, so a prediction never leans on its own
-// outcome. A survey phase without an error leaves the timings alone to
-// place the dip.
+// withPhaseError places the dip at the ephemeris's second phase, the
+// primary or the secondary, by that phase, which is measured, not fixed
+// at half. The surveys' place, the ephemeris's with its error grown by
+// the phase's own error, is weighted together with the place each of the
+// user's good timings of the dip predicts for this eclipse: the timing
+// carried on by whole periods, with its own error and the period's error
+// over the cycles between. A timing of this same eclipse is left out, so
+// a prediction never leans on its own outcome. A survey phase without an
+// error leaves the timings alone to place the dip.
 func (s Star) withPhaseError(p Predicted, e *period.Ephemeris) Predicted {
-	if p.Kind != KindSecondary || s.Facts == nil || s.Facts.Doubled || p.Dip >= len(e.Eclipses) {
+	if p.Dip != 1 || s.Facts == nil || s.Facts.Doubled || p.Dip >= len(e.Eclipses) {
 		return p
 	}
 	var pe float64
