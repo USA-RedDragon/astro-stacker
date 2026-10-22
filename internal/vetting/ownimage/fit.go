@@ -20,11 +20,14 @@ const (
 	startSigma  = 1.3
 	shapeBright = 5
 	fitTiny     = 1e-9
-	// blendSigmas is how close, in star widths, a Gaia neighbour must be
-	// to a star for the fit to take their light as one: source 15523 has
-	// G 18.7 and G 19.5 neighbours 0.7 and 1.1 widths away at 1.9"/px,
-	// and fitting the three apart threw its flux about by 0.3 mag a sub.
-	blendSigmas = 1.5
+	// blendReach is how close, in pixels, a Gaia neighbour must be to a
+	// star for the fit to count its light as the star's, in every sub alike:
+	// source 15523 has G 18.7 and G 19.5 neighbours 0.9 and 1.4 px away at
+	// 1.9"/px, and fitting the three apart threw its flux about by 0.3 mag
+	// a sub. A reach that followed each sub's star width took source 236's
+	// G 17.2 neighbour 2.0 px away into the star in the blurrier subs only,
+	// moving it 0.07 mag between subs and its eclipse 16 min late.
+	blendReach = 2.5
 )
 
 // starModel is one star to fit and the Gaia stars around it, all at their
@@ -32,41 +35,33 @@ const (
 type starModel struct {
 	x, y float64
 	nbs  [][2]float64
+	// gs are the neighbours' Gaia G, NaN where not known.
+	gs   []float64
 	self int
 	// g is the star's Gaia G, 0 for a spot with no star.
 	g float64
 }
 
-// blended is the model with the neighbours closer than blendSigmas widths
-// to a catalogued star left out, so their light counts as the star's.
-func (m *starModel) blended(sigma float64) *starModel {
-	if !(m.g > 0) {
-		return m
+// merges says whether neighbour j is close enough to a catalogued star
+// for its light to count as the star's.
+func (m *starModel) merges(j int) bool {
+	if !(m.g > 0) || j == m.self {
+		return false
 	}
-	reach := blendSigmas * sigma
 	self := m.nbs[m.self]
-	keep := func(j int) bool {
-		return j == m.self || math.Hypot(m.nbs[j][0]-self[0], m.nbs[j][1]-self[1]) >= reach
-	}
-	n := 0
+	return math.Hypot(m.nbs[j][0]-self[0], m.nbs[j][1]-self[1]) < blendReach
+}
+
+// blendShare is the light of the neighbours the fit counts as the star's,
+// as a share of the star's own light, by their Gaia G.
+func (m *starModel) blendShare() float64 {
+	var s float64
 	for j := range m.nbs {
-		if keep(j) {
-			n++
+		if m.merges(j) && j < len(m.gs) && finite(m.gs[j]) {
+			s += math.Pow(10, -0.4*(m.gs[j]-m.g))
 		}
 	}
-	if n == len(m.nbs) {
-		return m
-	}
-	out := &starModel{x: m.x, y: m.y, g: m.g, nbs: make([][2]float64, 0, n)}
-	for j, nb := range m.nbs {
-		if keep(j) {
-			if j == m.self {
-				out.self = len(out.nbs)
-			}
-			out.nbs = append(out.nbs, nb)
-		}
-	}
-	return out
+	return s
 }
 
 type fitOut struct {
@@ -102,12 +97,11 @@ func regionOf(p *discoveries.Plane, cx, cy float64) []pix {
 // fitStar fits Gaussians of one shared width to the star and its
 // neighbours with a sloped plane for the sky, leaving out pixels more than
 // 5 times the spread from the fit when clip is set, and returns the star's
-// flux and its error. When clip is set, a catalogued star's neighbours
-// closer than blendSigmas widths are measured with it as one.
+// flux and its error. When clip is set, the flux of a catalogued star's
+// neighbours closer than blendReach is counted as the star's: the fit
+// parts close stars poorly but their sum well, and counting them in every
+// sub alike keeps the star's light the same whatever the sub's width.
 func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip bool) fitOut {
-	if clip {
-		m = m.blended(sigma)
-	}
 	cx, cy := m.x+sx, m.y+sy
 	px := regionOf(p, cx, cy)
 	if len(px) < minFitPix {
@@ -211,12 +205,25 @@ func fitStar(p *discoveries.Plane, m *starModel, sigma, sx, sy float64, clip boo
 		return fitOut{flux: coef[m.self], rss: rss, ok: true}
 	}
 	e := make([]float64, n)
-	e[m.self] = 1
+	var flux float64
+	for j := range k {
+		if j == m.self || m.merges(j) {
+			e[j] = 1
+			flux += coef[j]
+		}
+	}
 	z, ok := solveSPD(ata, e, n)
-	if !ok || !(z[m.self] > 0) {
+	if !ok {
 		return fitOut{}
 	}
-	return fitOut{flux: coef[m.self], err: s * math.Sqrt(z[m.self]), rss: rss, ok: true}
+	var v float64
+	for j := range k {
+		v += e[j] * z[j]
+	}
+	if !(v > 0) {
+		return fitOut{}
+	}
+	return fitOut{flux: flux, err: s * math.Sqrt(v), rss: rss, ok: true}
 }
 
 // reclip keeps the pixels whose residual is under fitClip times s and

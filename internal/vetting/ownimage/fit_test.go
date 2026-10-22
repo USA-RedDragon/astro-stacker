@@ -59,3 +59,46 @@ func TestCloseNeighboursAreMeasuredWithTheStar(t *testing.T) {
 		t.Errorf("blend scatters %.4f but its error says %.4f", spread, err)
 	}
 }
+
+func TestCloseNeighbourCountsAlikeInSharpAndBlurrySubs(t *testing.T) {
+	t.Parallel()
+	// Source 236 at 1.9"/px on 2026-10-22: a G 17.21 neighbour 2.01 px
+	// from the G 15.04 star, 0.136 of its light, in subs 1.21 to 1.45 px
+	// wide; a reach of 1.5 widths took it in only above 1.34 px.
+	const side, flux, sky, noise = 41, 1.0, 0.1, 0.002
+	c := float64(side / 2)
+	nb := [3]float64{c + 1.88, c + 0.71, 0.136}
+	m := &starModel{x: c, y: c, nbs: [][2]float64{{c, c}, {nb[0], nb[1]}}, gs: []float64{15.043, 17.211}, g: 15.043}
+	if b := m.blendShare(); math.Abs(b-0.136) > 0.002 {
+		t.Errorf("blend share %.4f, want 0.136", b)
+	}
+	rng := rand.New(rand.NewPCG(236, 1022))
+	at := func(sigma float64) float64 {
+		fs := make([]float64, 0, 40)
+		for range 40 {
+			p := &discoveries.Plane{W: side, H: side, Data: make([]float32, side*side)}
+			for k := range p.Data {
+				x, y := float64(k%side), float64(k/side)
+				v := sky + noise*rng.NormFloat64()
+				for _, s := range [][3]float64{{c, c, flux}, nb} {
+					r2 := (x-s[0])*(x-s[0]) + (y-s[1])*(y-s[1])
+					v += s[2] * math.Exp(-r2/(2*sigma*sigma)) / (2 * math.Pi * sigma * sigma)
+				}
+				p.Data[k] = float32(v)
+			}
+			o := fitStar(p, m, sigma, 0, 0, true)
+			if !o.ok {
+				t.Fatal("no fit")
+			}
+			fs = append(fs, o.flux)
+		}
+		return mean(fs)
+	}
+	sharp, blurry := at(1.25), at(1.42)
+	if d := 2.5 * math.Log10(sharp/blurry); math.Abs(d) > 0.01 {
+		t.Errorf("the star reads %.3f mag apart in 1.25 and 1.42 px subs, want the same", d)
+	}
+	if math.Abs(sharp-1.136) > 0.02 {
+		t.Errorf("star measured as %.3f, want it with its neighbour, 1.136", sharp)
+	}
+}
