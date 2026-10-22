@@ -92,19 +92,24 @@ type LiveCurve struct {
 
 // LiveEclipseView is the expected eclipse and how the subs time it.
 type LiveEclipseView struct {
-	Kind     string        `json:"kind"`
-	Mid      time.Time     `json:"mid"`
-	ErrMin   float64       `json:"err_min"`
-	Start    time.Time     `json:"start"`
-	End      time.Time     `json:"end"`
-	Depth    float64       `json:"depth"`
-	Band     string        `json:"band"`
-	Basis    string        `json:"basis"`
-	Curve    []CurveSample `json:"curve"`
-	ShiftMin *float64      `json:"shift_min,omitempty"`
-	ShiftErr *float64      `json:"shift_err_min,omitempty"`
-	FitDepth *float64      `json:"fit_depth,omitempty"`
-	DepthErr *float64      `json:"fit_depth_err,omitempty"`
+	Kind   string    `json:"kind"`
+	Mid    time.Time `json:"mid"`
+	ErrMin float64   `json:"err_min"`
+	Start  time.Time `json:"start"`
+	End    time.Time `json:"end"`
+	Depth  float64   `json:"depth"`
+	// SurveyDepth is the surveys' depth, set when Depth is less for the
+	// light of the Gaia neighbours, Blend times the star's, that the
+	// subs measure with the star.
+	SurveyDepth *float64      `json:"survey_depth,omitempty"`
+	Blend       *float64      `json:"blend,omitempty"`
+	Band        string        `json:"band"`
+	Basis       string        `json:"basis"`
+	Curve       []CurveSample `json:"curve"`
+	ShiftMin    *float64      `json:"shift_min,omitempty"`
+	ShiftErr    *float64      `json:"shift_err_min,omitempty"`
+	FitDepth    *float64      `json:"fit_depth,omitempty"`
+	DepthErr    *float64      `json:"fit_depth_err,omitempty"`
 }
 
 // CurveSample is the expected curve at one time, with the range the
@@ -344,7 +349,19 @@ func (s *Service) eclipseRun(ctx context.Context, cur *LiveTarget, req app.Eclip
 		Depth: depth, Band: band, Basis: surveysOf(e.Eclipses[k].Depth)}
 	run.view.DarkStart, run.view.DarkEnd = s.darkAround(ctx, ra, dec, req.Start, req.End, run.view.Eclipse.Start, run.view.Eclipse.End)
 	s.startTracker(ctx, run)
+	if run.tracker != nil {
+		if b := run.tracker.Blend(); b > 0 {
+			run.model.depth, run.model.survey = dilutedDepth(depth, b), depth
+			run.view.Eclipse.Depth, run.view.Eclipse.SurveyDepth, run.view.Eclipse.Blend = run.model.depth, &depth, &b
+		}
+	}
 	return run, nil
+}
+
+// dilutedDepth is a dip depth deep in magnitudes seen with blend times the
+// star's light from neighbours that do not dim.
+func dilutedDepth(depth, blend float64) float64 {
+	return -2.5 * math.Log10(1-(1-math.Pow(10, -0.4*depth))/(1+blend))
 }
 
 func (s *Service) dipRun(ctx context.Context, cur *LiveTarget, w app.DipWatch) (*liveRun, error) {
@@ -498,8 +515,12 @@ func liveView(run *liveRun, raw []ownimage.LivePoint, kept int, now time.Time) L
 		if !j.ok {
 			zero = levelOutside(pts, *run.model)
 		} else if j.timed {
-			sh, se, d, de := j.shift.Minutes(), j.shiftErr.Minutes(), j.depth, j.depthErr
-			v.Eclipse.ShiftMin, v.Eclipse.ShiftErr, v.Eclipse.FitDepth, v.Eclipse.DepthErr = &sh, &se, &d, &de
+			sh, se := j.shift.Minutes(), j.shiftErr.Minutes()
+			v.Eclipse.ShiftMin, v.Eclipse.ShiftErr = &sh, &se
+			if j.levelled {
+				d, de := j.depth, j.depthErr
+				v.Eclipse.FitDepth, v.Eclipse.DepthErr = &d, &de
+			}
 		}
 		if j.ok && j.scatter > 0 {
 			sc := j.scatter

@@ -542,3 +542,97 @@ func TestTonight27822AllSubs(t *testing.T) {
 		t.Errorf("timing %.1f ± %.1f min, ok %v, timed %v, state %s (%s); want about 4.5 ± 21 min early, on time", j.shift.Minutes(), j.shiftErr.Minutes(), j.ok, j.timed, j.state, j.why)
 	}
 }
+
+// tonight236 is the second eclipse of find 236 in M31 on 2026-10-22 UTC:
+// 87 Red subs from 08:22 to 11:37, measured again with its G 17.2
+// neighbour 2.0 px away counted as the star's light in every sub, and
+// the expected curve, its depth less that neighbour's light. TESS times
+// this eclipse 0.7 ± 0.9 min after the ephemeris over 2019 to 2024, and
+// the star's own Red subs on 24 nights outside the eclipses put it 0.28
+// deep tonight.
+func tonight236(t *testing.T, until time.Time) ([]LivePoint, eclipseModel) {
+	t.Helper()
+	pts, m := live27822(t, "testdata/live236-20261022.json.zst")
+	m.depth, m.survey = dilutedDepth(m.depth, 0.1359), m.depth
+	k := slices.IndexFunc(pts, func(p LivePoint) bool { return p.Time.After(until) })
+	if k >= 0 {
+		pts = pts[:k]
+	}
+	return pts, m
+}
+
+func TestDilutedDepth236(t *testing.T) {
+	t.Parallel()
+	if d := dilutedDepth(0.3219, 0.1359); math.Abs(d-0.278) > 0.001 {
+		t.Errorf("0.32 mag dip with 0.136 of the light from a neighbour reads %.4f, want 0.278", d)
+	}
+	if d := dilutedDepth(0.3219, 0); math.Abs(d-0.3219) > 1e-9 {
+		t.Errorf("no neighbour gives %.4f, want 0.3219", d)
+	}
+}
+
+// TestEclipse236IsOnTime: the card read the night as 26 min late and 0.15
+// mag shallow at 05:00 CDT, when the neighbour joined the star only in
+// the blurrier subs at both ends of the run.
+func TestEclipse236IsOnTime(t *testing.T) {
+	t.Parallel()
+	for _, until := range []time.Time{time.Date(2026, 10, 22, 9, 58, 0, 0, time.UTC), time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)} {
+		pts, m := tonight236(t, until)
+		j := judgeEclipse(pts, m)
+		if j.state == LiveOff {
+			t.Errorf("%d subs to %s: state off (%s)", len(pts), until.Format("15:04"), j.why)
+		}
+		if j.ok && absDur(j.shift) > 6*time.Minute {
+			t.Errorf("%d subs: timing %+.1f ± %.1f min, want on time", len(pts), j.shift.Minutes(), j.shiftErr.Minutes())
+		}
+	}
+}
+
+// TestEclipse236DepthNeedsTheLevel: the last sub came 142 min after the
+// middle of a dip 183 min long each side, so no sub sets the star's
+// level and a narrower curve fits the subs on a level still in the dip,
+// 0.20 deep against the 0.28 the star's own nights give.
+func TestEclipse236DepthNeedsTheLevel(t *testing.T) {
+	t.Parallel()
+	pts, m := tonight236(t, time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC))
+	j := judgeEclipse(pts, m)
+	if !j.timed || j.levelled {
+		t.Fatalf("timed %v levelled %v, want timed and not levelled", j.timed, j.levelled)
+	}
+	if !strings.Contains(j.why, "the depth needs subs outside the dip") {
+		t.Errorf("why %q, want the depth held for subs outside the dip", j.why)
+	}
+	raw := make([]ownimage.LivePoint, len(pts))
+	for i, p := range pts {
+		raw[i] = ownimage.LivePoint(p)
+	}
+	run := &liveRun{model: &m, from: pts[0].Time, to: pts[len(pts)-1].Time, view: LiveCurve{Kind: LiveEclipse, Eclipse: &LiveEclipseView{}}}
+	v := liveView(run, raw, 12, pts[len(pts)-1].Time)
+	if v.Eclipse.ShiftMin == nil || v.Eclipse.FitDepth != nil {
+		t.Errorf("card shows timing %v and depth %v, want the timing alone", v.Eclipse.ShiftMin, v.Eclipse.FitDepth)
+	}
+}
+
+// TestDepthWaitsForTheLevel draws on-time dips of the expected depth at
+// tonight's 236 sub times to 10:30, when no sub had left the dip: judged
+// on a level the fitted width put under the subs, 234 of 300 were called
+// off for their depth.
+func TestDepthWaitsForTheLevel(t *testing.T) {
+	t.Parallel()
+	pts, m := tonight236(t, time.Date(2026, 10, 22, 10, 30, 0, 0, time.UTC))
+	off := 0
+	const draws = 40
+	for seed := range uint64(draws) {
+		r := rand.New(rand.NewPCG(236, seed))
+		for i := range pts {
+			pts[i].Mag = m.depth*m.at(pts[i].Time, 0) + 1.9*pts[i].Err*r.NormFloat64()
+		}
+		j := judgeEclipse(pts, m)
+		if j.state == LiveOff {
+			off++
+		}
+	}
+	if off > draws/10 {
+		t.Errorf("%d of %d on-time dips called off", off, draws)
+	}
+}

@@ -76,14 +76,17 @@ func (p LivePoint) agrees() bool {
 }
 
 // eclipseModel is the expected eclipse: its middle and timing error, half
-// its length and its depth in the sub's band, and its shape, 1 at the
-// middle and 0 outside, by time from the middle.
+// its length and its depth in the sub's band as the subs measure the star,
+// and its shape, 1 at the middle and 0 outside, by time from the middle.
 type eclipseModel struct {
 	mid   time.Time
 	err   time.Duration
 	half  time.Duration
 	depth float64
 	shape func(dt time.Duration) float64
+	// survey is the surveys' depth when depth is less for neighbours'
+	// light the subs measure with the star, else 0.
+	survey float64
 }
 
 func (m eclipseModel) at(t time.Time, shift time.Duration) float64 {
@@ -169,7 +172,12 @@ type eclipseFit struct {
 	// each side and minFramesDip in all. Before that the fit gives no
 	// timing or depth worth showing.
 	timed bool
-	comps compsCheck
+	// levelled says minFramesSide subs lie outside the dip, at its fitted
+	// middle and the longer of its fitted and expected lengths, so its
+	// depth is measured from the star's level and not from a level a
+	// narrower curve puts under subs still in the dip.
+	levelled bool
+	comps    compsCheck
 }
 
 // judgeEclipse levels the subs, fits the eclipse's timing and depth and
@@ -179,6 +187,7 @@ func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 	j := eclipseFit{comps: checkComps(pts)}
 	j.fit(pts, m)
 	j.timed = j.ok && bothSides(pts, m, m.mid) && bothSides(pts, m, m.mid.Add(j.shift))
+	j.levelled = j.ok && outside(pts, m.mid.Add(j.shift), time.Duration(float64(m.half)*math.Max(1, j.width))) >= minFramesSide
 	near := 0
 	core := max(m.half/2, m.err)
 	for _, p := range pts {
@@ -206,23 +215,41 @@ func judgeEclipse(pts []LivePoint, m eclipseModel) eclipseFit {
 			}
 			off = append(off, fmt.Sprintf("the dip comes %.0f min %s, give or take %.0f, and the timing error allows %.0f", s/60, word, j.shiftErr.Minutes(), band/60))
 		}
-		if d := j.depth - m.depth; j.timed && math.Abs(d) > depthSigma*j.depthErr && math.Abs(d) > depthShare*m.depth {
+		if d := j.depth - m.depth; j.timed && j.levelled && math.Abs(d) > depthSigma*j.depthErr && math.Abs(d) > depthShare*m.depth {
 			word := "deeper"
 			if d < 0 {
 				word = "shallower"
 			}
-			off = append(off, fmt.Sprintf("the dip is %.2f mag %s than the expected %.2f", math.Abs(d), word, m.depth))
+			exp := fmt.Sprintf("the expected %.2f", m.depth)
+			if m.survey > m.depth {
+				exp += fmt.Sprintf(" (%.2f in the surveys, less the light of neighbours measured with the star)", m.survey)
+			}
+			off = append(off, fmt.Sprintf("the dip is %.2f mag %s than %s", math.Abs(d), word, exp))
 		}
 		switch {
 		case len(off) > 0:
 			j.state, j.why = LiveOff, joinAnd(off)
 		case !j.timed:
 			j.why = "the subs follow the expected curve so far, and the timing and depth need subs on both sides of the middle"
+		case !j.levelled:
+			j.why = fmt.Sprintf("the subs sit within the timing error of %.0f min, and the depth needs subs outside the dip", band/60)
 		default:
 			j.why = fmt.Sprintf("the subs sit within the timing error of %.0f min", band/60)
 		}
 	}
 	return j
+}
+
+// outside is how many subs lie half or more from mid, outside a dip that
+// long.
+func outside(pts []LivePoint, mid time.Time, half time.Duration) int {
+	n := 0
+	for _, p := range pts {
+		if absDur(p.Time.Sub(mid)) >= half {
+			n++
+		}
+	}
+	return n
 }
 
 // bothSides says whether the subs inside the dip, by its expected length,
