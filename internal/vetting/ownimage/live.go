@@ -49,6 +49,11 @@ func NewLive(ctx context.Context, d Data, object string, spot Spot) (*Live, erro
 	return &Live{sp: sp, seen: map[int]bool{}, comps: len(sp.comps)}, nil
 }
 
+// Blend is the light of the Gaia neighbours measured with the star, as a
+// share of the star's own light, by their Gaia G: an eclipse of the star
+// reads that much shallower here than in a survey that parts them.
+func (l *Live) Blend() float64 { return l.sp.target.blendShare() }
+
 // Has says whether the sub with frame id was added.
 func (l *Live) Has(frameID int) bool { return l.seen[frameID] }
 

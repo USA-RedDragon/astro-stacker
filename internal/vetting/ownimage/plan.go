@@ -271,12 +271,14 @@ func (f *field) modelAt(x, y, faintest float64) *starModel {
 			continue
 		}
 		m.nbs = append(m.nbs, [2]float64{f.pl[i].x, f.pl[i].y})
+		m.gs = append(m.gs, f.pl[i].G)
 		if d := math.Hypot(f.pl[i].x-x, f.pl[i].y-y); d < best {
 			best, m.self = d, len(m.nbs)-1
 		}
 	}
 	if m.self < 0 || best > 0.5 {
 		m.nbs = append(m.nbs, [2]float64{x, y})
+		m.gs = append(m.gs, math.NaN())
 		m.self = len(m.nbs) - 1
 	}
 	return m
