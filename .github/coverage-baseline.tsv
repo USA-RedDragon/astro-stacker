@@ -151,7 +151,7 @@ internal/discoveries/null.go	106	91
 internal/discoveries/offsetguard.go	44	41
 internal/discoveries/progress.go	77	72
 internal/discoveries/refnights.go	195	182
-internal/discoveries/runner.go	765	590
+internal/discoveries/runner.go	765	591
 internal/discoveries/sensor.go	212	205
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -167,7 +167,7 @@ internal/discoveryreport/ades.go	42	40
 internal/discoveryreport/bulk.go	24	22
 internal/discoveryreport/known.go	143	133
 internal/discoveryreport/report.go	335	299
-internal/discoveryreport/service.go	310	226
+internal/discoveryreport/service.go	310	225
 internal/discoveryreport/tns.go	97	81
 internal/discoverysource/list.go	255	233
 internal/discoverysource/match.go	27	24
@@ -235,7 +235,7 @@ internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/memlimit/memlimit.go	15	7
-internal/memwatch/memwatch.go	58	49
+internal/memwatch/memwatch.go	58	44
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -244,12 +244,13 @@ internal/moonkeep/night.go	34	33
 internal/moonkeep/replay.go	82	81
 internal/moonkeep/samples.go	42	42
 internal/moonkeep/service.go	289	239
-internal/morningreport/analyze.go	209	197
+internal/morningreport/analyze.go	242	222
 internal/morningreport/claims.go	41	27
-internal/morningreport/collect.go	257	141
+internal/morningreport/collect.go	267	145
 internal/morningreport/dark.go	46	44
+internal/morningreport/drops.go	38	38
 internal/morningreport/dust.go	79	63
-internal/morningreport/format.go	342	307
+internal/morningreport/format.go	388	348
 internal/morningreport/images.go	146	121
 internal/morningreport/known.go	27	25
 internal/morningreport/night.go	15	15
@@ -279,7 +280,7 @@ internal/ninapath/ninapath.go	9	9
 internal/observatory/client.go	91	76
 internal/observatory/grader.go	112	98
 internal/observatory/horizon.go	58	44
-internal/observatory/loops.go	59	45
+internal/observatory/loops.go	59	44
 internal/observatory/monitor.go	207	178
 internal/observatory/transport.go	51	46
 internal/planning/completion.go	64	56
@@ -304,7 +305,8 @@ internal/publicframe/renderer.go	166	95
 internal/publicframe/watermark.go	61	61
 internal/quality/pedestal.go	23	18
 internal/quality/quality.go	49	45
-internal/quality/scores.go	171	157
+internal/quality/scores.go	176	162
+internal/quality/skycut.go	76	74
 internal/quality/transparency.go	82	80
 internal/rigsource/rigsource.go	214	202
 internal/ruleweights/ruleweights.go	73	67
@@ -332,7 +334,7 @@ internal/schedcmd/queue.go	2	2
 internal/schedcmd/record.go	8	6
 internal/schedcmd/registry.go	27	25
 internal/schedcmd/schedglobal.go	53	48
-internal/schedcmd/service.go	234	205
+internal/schedcmd/service.go	234	203
 internal/schedcmd/settings.go	84	78
 internal/schedcmd/templates.go	30	28
 internal/schedcmd/window.go	58	53
@@ -369,7 +371,7 @@ internal/server/server.go	109	48
 internal/server/skycutout.go	24	20
 internal/server/skyevents.go	65	51
 internal/server/sublength.go	11	9
-internal/server/subs.go	55	39
+internal/server/subs.go	60	43
 internal/server/vetting.go	24	18
 internal/server/webui.go	25	25
 internal/siril/siril.go	52	31
@@ -429,14 +431,14 @@ internal/stacking/nth.go	27	27
 internal/stacking/offtemp.go	45	42
 internal/stacking/outputs.go	167	60
 internal/stacking/photometry.go	55	47
-internal/stacking/pipeline.go	482	248
+internal/stacking/pipeline.go	490	252
 internal/stacking/pointing.go	93	64
 internal/stacking/process.go	278	52
 internal/stacking/rebuild.go	329	306
 internal/stacking/recalflat.go	129	106
 internal/stacking/recalibrate.go	120	107
 internal/stacking/registered.go	378	274
-internal/stacking/rescore.go	79	53
+internal/stacking/rescore.go	83	56
 internal/stacking/shadow.go	223	220
 internal/stacking/status.go	71	23
 internal/stacking/telescopes.go	61	56
