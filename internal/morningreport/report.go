@@ -133,6 +133,9 @@ type UnsafeEvent struct {
 	// CloseFailed is why a close step after it failed while the flap was
 	// still open, in plain words.
 	CloseFailed string
+	// SequenceEnd is set for a restart where NINA quit because its
+	// sequence finished.
+	SequenceEnd bool
 }
 
 // SlowClose is how long the flap may take to close after an unsafe reading

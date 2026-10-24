@@ -365,7 +365,7 @@ func (c Collector) flap(ctx context.Context, r *Report, nina error) {
 	}
 	open := Overlap(f.OpenSpans, r.DarkSpans)
 	r.FlapOpen = &open
-	r.Unsafe, r.Restarts = f.Unsafe, MergeRestarts(f.Restarts)
+	r.Unsafe, r.Restarts = f.Unsafe, MergeRestarts(DropEndOfNight(f.Restarts, r.DarkSpans))
 	r.FailedCloses = f.FailedCloses
 }
 

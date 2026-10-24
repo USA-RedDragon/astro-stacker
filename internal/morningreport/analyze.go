@@ -17,11 +17,12 @@ const (
 	msgShutdown     = "Application shutting down"
 	msgSMConnect    = "Successfully connected Safety Monitor"
 	msgSMDisconnect = "Disconnected Safety Monitor"
+	msgQuit         = "Quitting application after sequence is finished"
 	msgCloseFailed  = "Item: CloseCover - "
 )
 
 // FlapQuery selects the NINA lines the flap timeline is read from.
-const FlapQuery = `{job="observatory", app="nina"} |~ "SafetyMonitorInfo state changed to Unsafe|Finishing Category: Flat Device, Item: (Open|Close)Cover|Application shutting down|Successfully connected Safety Monitor|Disconnected Safety Monitor|Item: CloseCover - "`
+const FlapQuery = `{job="observatory", app="nina"} |~ "SafetyMonitorInfo state changed to Unsafe|Finishing Category: Flat Device, Item: (Open|Close)Cover|Application shutting down|Successfully connected Safety Monitor|Disconnected Safety Monitor|Quitting application after sequence is finished|Item: CloseCover - "`
 
 // CoverQuery selects only the flap's open and close steps, for the flap's
 // state when the window starts.
@@ -37,6 +38,7 @@ const (
 	shutdownGrace   = 30 * time.Second
 	disconnectGrace = 3 * time.Second
 	connectGrace    = 10 * time.Second
+	quitGrace       = 5 * time.Second
 )
 
 // SeedOpen reads whether the flap was open from the last cover step before
@@ -89,6 +91,7 @@ func FlapTimeline(open bool, lines []Line, start, end time.Time) Flap {
 	openedAt := start
 	var pendingUnsafe, pendingRestart []int
 	var failed []CloseFailure
+	var quitAt time.Time
 	for i, l := range lines {
 		if l.T.Before(start) || !l.T.Before(end) {
 			continue
@@ -126,9 +129,12 @@ func FlapTimeline(open bool, lines []Line, start, end time.Time) Flap {
 			for _, j := range pendingRestart {
 				out.Restarts[j].CloseFailed = why
 			}
+		case strings.Contains(l.Text, msgQuit):
+			quitAt = l.T
 		case strings.Contains(l.Text, msgShutdown):
 			if open {
-				out.Restarts = append(out.Restarts, UnsafeEvent{At: l.T})
+				quit := !quitAt.IsZero() && l.T.Sub(quitAt) <= quitGrace
+				out.Restarts = append(out.Restarts, UnsafeEvent{At: l.T, SequenceEnd: quit})
 				pendingRestart = append(pendingRestart, len(out.Restarts)-1)
 			}
 		case strings.Contains(l.Text, msgUnsafe):
@@ -142,6 +148,25 @@ func FlapTimeline(open bool, lines []Line, start, end time.Time) Flap {
 		out.Open += end.Sub(openedAt)
 		out.OpenSpans = append(out.OpenSpans, Span{From: openedAt, To: end})
 		out.FailedCloses = failed
+	}
+	return out
+}
+
+// DropEndOfNight leaves out the restarts that were the night's normal end:
+// NINA quitting after its sequence finished, at or after the end of the
+// last dark span, for the watchdog to start it again.
+func DropEndOfNight(events []UnsafeEvent, dark []Span) []UnsafeEvent {
+	if len(dark) == 0 {
+		return events
+	}
+	spans := sortSpans(dark)
+	last := spans[len(spans)-1].To
+	out := events[:0:0]
+	for _, e := range events {
+		if e.SequenceEnd && !e.At.Before(last) {
+			continue
+		}
+		out = append(out, e)
 	}
 	return out
 }
