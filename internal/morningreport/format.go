@@ -271,7 +271,7 @@ func (f Formatter) idle(r Report) string {
 		why += ", but no subs were taken"
 	}
 	out := f.title(r) + ": " + why + "."
-	if len(r.Unsafe)+len(r.Restarts) > 0 {
+	if len(r.Unsafe)+len(r.Restarts)+len(r.FailedCloses) > 0 {
 		out += "\n" + f.unsafe(r)
 	}
 	if d := f.dust(r); d != "" {
@@ -341,9 +341,17 @@ func (f Formatter) subs(r Report) []string {
 	return out
 }
 
+// stuck says the flap stayed open because closing it failed.
+func stuck(why string) string {
+	return "<b>flap open, could not be closed</b> (" + esc(why) + ")"
+}
+
 func (f Formatter) closeTextAt(e UnsafeEvent, end time.Time) string {
 	d, ok := e.Latency()
 	if !ok {
+		if e.CloseFailed != "" {
+			return stuck(e.CloseFailed)
+		}
 		return "<b>flap still open</b> at " + f.clock(end)
 	}
 	s := "flap closed after " + ms(d)
@@ -361,7 +369,7 @@ func (f Formatter) unsafe(r Report) string {
 	if r.UnsafeMissing != "" {
 		return "<b>Unsafe</b> " + notMeasured
 	}
-	if len(r.Unsafe) == 0 && len(r.Restarts) == 0 {
+	if len(r.Unsafe) == 0 && len(r.Restarts) == 0 && len(r.FailedCloses) == 0 {
 		return "<b>Unsafe</b> none while the flap was open"
 	}
 	lines := []string{"<b>Unsafe</b>"}
@@ -383,6 +391,9 @@ func (f Formatter) unsafe(r Report) string {
 	restarts := r.Restarts[:min(len(r.Restarts), maxUnsafe)]
 	for _, e := range restarts {
 		closed := "<b>flap still open</b> at " + f.clock(r.End)
+		if e.CloseFailed != "" {
+			closed = stuck(e.CloseFailed)
+		}
 		if d, ok := e.Latency(); ok {
 			closed = "flap closed after " + ms(d)
 		}
@@ -391,10 +402,26 @@ func (f Formatter) unsafe(r Report) string {
 	if n := len(r.Restarts) - len(restarts); n > 0 {
 		lines = append(lines, fmt.Sprintf("• and %s with the flap open", plural(n, "more NINA restart", "more NINA restarts")))
 	}
+	if len(r.FailedCloses) > 0 {
+		times := make([]string, 0, len(r.FailedCloses))
+		for _, c := range r.FailedCloses {
+			times = append(times, c.At.In(f.Loc).Format("15:04"))
+		}
+		last := r.FailedCloses[len(r.FailedCloses)-1]
+		lines = append(lines, "• closing the flap failed at "+and(times)+" "+f.Zone+" ("+esc(last.Reason)+"); <b>flap still open</b> at "+f.clock(r.End))
+	}
 	if len(r.Unsafe) == 0 {
 		lines = append(lines, "• no unsafe readings while the flap was open")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// and joins items as "a, b and c".
+func and(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
 func (f Formatter) dew(r Report) string {

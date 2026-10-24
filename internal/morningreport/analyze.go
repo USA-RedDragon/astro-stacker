@@ -17,10 +17,11 @@ const (
 	msgShutdown     = "Application shutting down"
 	msgSMConnect    = "Successfully connected Safety Monitor"
 	msgSMDisconnect = "Disconnected Safety Monitor"
+	msgCloseFailed  = "Item: CloseCover - "
 )
 
 // FlapQuery selects the NINA lines the flap timeline is read from.
-const FlapQuery = `{job="observatory", app="nina"} |~ "SafetyMonitorInfo state changed to Unsafe|Finishing Category: Flat Device, Item: (Open|Close)Cover|Application shutting down|Successfully connected Safety Monitor|Disconnected Safety Monitor"`
+const FlapQuery = `{job="observatory", app="nina"} |~ "SafetyMonitorInfo state changed to Unsafe|Finishing Category: Flat Device, Item: (Open|Close)Cover|Application shutting down|Successfully connected Safety Monitor|Disconnected Safety Monitor|Item: CloseCover - "`
 
 // CoverQuery selects only the flap's open and close steps, for the flap's
 // state when the window starts.
@@ -53,6 +54,32 @@ type Flap struct {
 	Restarts  []UnsafeEvent
 	// Moves counts the open and close steps in the window.
 	Moves int
+	// FailedCloses are the close steps that failed since the flap last
+	// closed, when it was still open at the window's end.
+	FailedCloses []CloseFailure
+}
+
+// CloseFailure is a close step that failed, and why in plain words.
+type CloseFailure struct {
+	At     time.Time
+	Reason string
+}
+
+// closeFailReason is why a close step failed, in plain words.
+func closeFailReason(text string) string {
+	first, _, _ := strings.Cut(text, "\n")
+	_, msg, _ := strings.Cut(first, msgCloseFailed)
+	msg = strings.TrimSpace(msg)
+	if strings.Contains(strings.ToLower(msg), "not connected") {
+		return "flat panel unreachable"
+	}
+	if r := []rune(msg); len(r) > 60 {
+		msg = string(r[:60]) + "…"
+	}
+	if msg == "" {
+		return "close step failed"
+	}
+	return strings.ToLower(msg)
 }
 
 // FlapTimeline reads how long the flap was open in [start, end), and the
@@ -61,6 +88,7 @@ func FlapTimeline(open bool, lines []Line, start, end time.Time) Flap {
 	var out Flap
 	openedAt := start
 	var pendingUnsafe, pendingRestart []int
+	var failed []CloseFailure
 	for i, l := range lines {
 		if l.T.Before(start) || !l.T.Before(end) {
 			continue
@@ -85,7 +113,19 @@ func FlapTimeline(open bool, lines []Line, start, end time.Time) Flap {
 			for _, j := range pendingRestart {
 				out.Restarts[j].Closed = &t
 			}
-			pendingUnsafe, pendingRestart = nil, nil
+			pendingUnsafe, pendingRestart, failed = nil, nil, failed[:0]
+		case strings.Contains(l.Text, msgCloseFailed):
+			if !open {
+				continue
+			}
+			why := closeFailReason(l.Text)
+			failed = append(failed, CloseFailure{At: l.T, Reason: why})
+			for _, j := range pendingUnsafe {
+				out.Unsafe[j].CloseFailed = why
+			}
+			for _, j := range pendingRestart {
+				out.Restarts[j].CloseFailed = why
+			}
 		case strings.Contains(l.Text, msgShutdown):
 			if open {
 				out.Restarts = append(out.Restarts, UnsafeEvent{At: l.T})
@@ -101,6 +141,7 @@ func FlapTimeline(open bool, lines []Line, start, end time.Time) Flap {
 	if open {
 		out.Open += end.Sub(openedAt)
 		out.OpenSpans = append(out.OpenSpans, Span{From: openedAt, To: end})
+		out.FailedCloses = failed
 	}
 	return out
 }

@@ -41,6 +41,9 @@ type Report struct {
 	Unsafe        []UnsafeEvent
 	Restarts      []UnsafeEvent
 	UnsafeMissing string
+	// FailedCloses are the close steps that failed while the flap stayed
+	// open to the window's end.
+	FailedCloses []CloseFailure
 
 	Dew        *Dew
 	DewMissing string
@@ -127,6 +130,9 @@ type Count struct {
 type UnsafeEvent struct {
 	At     time.Time
 	Closed *time.Time
+	// CloseFailed is why a close step after it failed while the flap was
+	// still open, in plain words.
+	CloseFailed string
 }
 
 // SlowClose is how long the flap may take to close after an unsafe reading

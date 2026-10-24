@@ -1,0 +1,35 @@
+{"t":"2026-10-23T19:59:41.7937-05:00","line":"2026-10-23T19:59:41.7937|INFO|Sequence2VM.cs|StartSequence|554|Quitting application after sequence is finished"}
+{"t":"2026-10-23T19:59:41.8161-05:00","line":"2026-10-23T19:59:41.8161|INFO|ApplicationVM.cs|Closing|289|Application shutting down"}
+{"t":"2026-10-23T19:59:41.8528-05:00","line":"2026-10-23T19:59:41.8528|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-23T19:59:54.7223-05:00","line":"2026-10-23T19:59:54.7223|INFO|Sequence2VM.cs|StartSequence|554|Quitting application after sequence is finished"}
+{"t":"2026-10-23T19:59:54.747-05:00","line":"2026-10-23T19:59:54.7470|INFO|ApplicationVM.cs|Closing|289|Application shutting down"}
+{"t":"2026-10-23T19:59:54.778-05:00","line":"2026-10-23T19:59:54.7780|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-23T20:00:39.2113-05:00","line":"2026-10-23T20:00:39.2113|INFO|Sequence2VM.cs|StartSequence|554|Quitting application after sequence is finished"}
+{"t":"2026-10-23T20:00:39.2434-05:00","line":"2026-10-23T20:00:39.2434|INFO|ApplicationVM.cs|Closing|289|Application shutting down"}
+{"t":"2026-10-23T20:00:39.2965-05:00","line":"2026-10-23T20:00:39.2965|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-23T20:01:08.4449-05:00","line":"2026-10-23T20:01:08.4449|INFO|SequenceItem.cs|Run|254|Finishing Category: Flat Device, Item: CloseCover"}
+{"t":"2026-10-23T20:25:00.0064-05:00","line":"2026-10-23T20:25:00.0064|INFO|SequenceItem.cs|Run|254|Finishing Category: Flat Device, Item: OpenCover"}
+{"t":"2026-10-24T00:53:00.2687-05:00","line":"2026-10-24T00:53:00.2687|ERROR|SequenceItem.cs|Run|281|Failed validation: Category: Flat Device, Item: CloseCover - Flat device not connected"}
+{"t":"2026-10-24T00:53:07.4683-05:00","line":"2026-10-24T00:53:07.4683|INFO|Sequence2VM.cs|StartSequence|554|Quitting application after sequence is finished"}
+{"t":"2026-10-24T00:53:07.5534-05:00","line":"2026-10-24T00:53:07.5534|INFO|ApplicationVM.cs|Closing|289|Application shutting down"}
+{"t":"2026-10-24T00:53:07.6229-05:00","line":"2026-10-24T00:53:07.6229|INFO|SafetyMonitorVM.cs|UpdateMonitorValues|95|SafetyMonitorInfo state changed to Unsafe"}
+{"t":"2026-10-24T00:53:07.7466-05:00","line":"2026-10-24T00:53:07.7466|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-24T00:53:40.9168-05:00","line":"2026-10-24T00:53:40.9168|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-24T00:53:42.1891-05:00","line":"2026-10-24T00:53:42.1891|INFO|SafetyMonitorVM.cs|Connect|175|Successfully connected Safety Monitor. Id: ASCOM.Hub.SafetyMonitor Name: Short driver name - please customise DisplayName: Short driver name - please customise (ASCOM) Driver Version: 6.4"}
+{"t":"2026-10-24T00:53:56.8692-05:00","line":"2026-10-24T00:53:56.8692|INFO|Sequence2VM.cs|StartSequence|554|Quitting application after sequence is finished"}
+{"t":"2026-10-24T00:53:56.8977-05:00","line":"2026-10-24T00:53:56.8977|INFO|ApplicationVM.cs|Closing|289|Application shutting down"}
+{"t":"2026-10-24T00:53:56.9425-05:00","line":"2026-10-24T00:53:56.9425|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-24T00:54:10.1611-05:00","line":"2026-10-24T00:54:10.1611|INFO|Sequence2VM.cs|StartSequence|554|Quitting application after sequence is finished"}
+{"t":"2026-10-24T00:54:10.1859-05:00","line":"2026-10-24T00:54:10.1859|INFO|ApplicationVM.cs|Closing|289|Application shutting down"}
+{"t":"2026-10-24T00:54:10.2374-05:00","line":"2026-10-24T00:54:10.2374|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-24T00:55:07.5476-05:00","line":"2026-10-24T00:55:07.5476|INFO|SequenceItem.cs|Run|254|Finishing Category: Flat Device, Item: CloseCover"}
+{"t":"2026-10-24T01:24:30.4376-05:00","line":"2026-10-24T01:24:30.4376|INFO|SequenceItem.cs|Run|254|Finishing Category: Flat Device, Item: OpenCover"}
+{"t":"2026-10-24T05:28:20.1883-05:00","line":"2026-10-24T05:28:20.1883|INFO|SafetyMonitorVM.cs|UpdateMonitorValues|95|SafetyMonitorInfo state changed to Unsafe"}
+{"t":"2026-10-24T05:28:40.6011-05:00","line":"2026-10-24T05:28:40.6011|ERROR|SequenceItem.cs|Run|281|Failed validation: Category: Flat Device, Item: CloseCover - Flat device not connected"}
+{"t":"2026-10-24T06:54:51.635100001-05:00","line":"2026-10-24T06:54:51.6351|ERROR|SequenceItem.cs|Run|281|Failed validation: Category: Flat Device, Item: CloseCover - Flat device not connected"}
+{"t":"2026-10-24T07:57:32.724-05:00","line":"2026-10-24T07:57:32.7240|INFO|Sequence2VM.cs|StartSequence|554|Quitting application after sequence is finished"}
+{"t":"2026-10-24T07:57:32.7456-05:00","line":"2026-10-24T07:57:32.7456|INFO|ApplicationVM.cs|Closing|289|Application shutting down"}
+{"t":"2026-10-24T07:57:32.778-05:00","line":"2026-10-24T07:57:32.7780|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-24T07:57:52.8658-05:00","line":"2026-10-24T07:57:52.8658|INFO|SafetyMonitorVM.cs|Disconnect|221|Disconnected Safety Monitor"}
+{"t":"2026-10-24T07:57:53.0226-05:00","line":"2026-10-24T07:57:53.0226|INFO|SafetyMonitorVM.cs|Connect|175|Successfully connected Safety Monitor. Id: ASCOM.Hub.SafetyMonitor Name: Short driver name - please customise DisplayName: Short driver name - please customise (ASCOM) Driver Version: 6.4"}
+{"t":"2026-10-24T07:57:55.0242-05:00","line":"2026-10-24T07:57:55.0242|INFO|SafetyMonitorVM.cs|UpdateMonitorValues|95|SafetyMonitorInfo state changed to Unsafe"}

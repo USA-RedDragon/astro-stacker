@@ -366,6 +366,7 @@ func (c Collector) flap(ctx context.Context, r *Report, nina error) {
 	open := Overlap(f.OpenSpans, r.DarkSpans)
 	r.FlapOpen = &open
 	r.Unsafe, r.Restarts = f.Unsafe, MergeRestarts(f.Restarts)
+	r.FailedCloses = f.FailedCloses
 }
 
 func (c Collector) dew(ctx context.Context, r *Report, spans []Span) {
