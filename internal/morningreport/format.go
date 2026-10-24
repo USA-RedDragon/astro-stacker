@@ -113,7 +113,7 @@ func (f Formatter) Text(r Report) string {
 		return f.idle(r)
 	}
 	head := []string{f.title(r), f.summary(r), f.dust(r), f.discoveries(r), f.known(r), f.claims(r), f.runs(r)}
-	tail := []string{f.unsafe(r), f.dew(r), f.autofocus(r), f.guiding(r), f.guiderErrors(r), f.camera(r)}
+	tail := []string{f.unsafe(r), f.drops(r), f.dew(r), f.autofocus(r), f.guiding(r), f.guiderErrors(r), f.camera(r)}
 	subs := f.subs(r)
 	for drop := 0; ; drop++ {
 		lines := append(append(append([]string{}, head...), f.limitTargets(subs, drop)...), tail...)
@@ -274,6 +274,9 @@ func (f Formatter) idle(r Report) string {
 	if len(r.Unsafe)+len(r.Restarts)+len(r.FailedCloses) > 0 {
 		out += "\n" + f.unsafe(r)
 	}
+	if len(r.Drops) > 0 {
+		out += "\n" + f.drops(r)
+	}
 	if d := f.dust(r); d != "" {
 		out += "\n" + d
 	}
@@ -422,6 +425,54 @@ func and(items []string) string {
 		return strings.Join(items, "")
 	}
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}
+
+// maxDrops is how many equipment drops the message lists.
+const maxDrops = 5
+
+func (f Formatter) drops(r Report) string {
+	if r.DropsMissing != "" {
+		return "<b>Equipment</b> drops " + notMeasured
+	}
+	if len(r.Drops) == 0 {
+		return "<b>Equipment</b> nothing dropped"
+	}
+	times := make([]string, 0, len(r.Drops))
+	for _, d := range r.Drops {
+		times = append(times, d.At.In(f.Loc).Format("15:04"))
+	}
+	lines := []string{"<b>Equipment</b> dropped at " + and(times) + " " + f.Zone}
+	shown := r.Drops[:min(len(r.Drops), maxDrops)]
+	for _, d := range shown {
+		names := make([]string, 0, len(d.Devices))
+		for _, n := range d.Devices {
+			names = append(names, esc(n))
+		}
+		parts := []string{"NINA lost " + and(names)}
+		if d.Refused > 0 {
+			parts = append(parts, fmt.Sprintf("camera not connected, %s %s", plural(d.Refused, "exposure refused", "exposures refused"), f.span(d.RefusedFrom, d.RefusedTo)))
+		}
+		if n := len(d.Hung); n > 0 {
+			lo, hi := d.Hung[0].Took(), d.Hung[0].Took()
+			for _, h := range d.Hung {
+				lo, hi = min(lo, h.Took()), max(hi, h.Took())
+			}
+			took := "for " + hm(lo)
+			if hm(lo) != hm(hi) {
+				took = "for " + hm(lo) + " to " + hm(hi)
+			}
+			if n == 1 {
+				parts = append(parts, "NINA hung on an exposure "+took+" at "+f.clock(d.Hung[0].From))
+			} else {
+				parts = append(parts, fmt.Sprintf("NINA hung on %d exposures %s each, %s", n, took, f.span(d.Hung[0].From, d.Hung[n-1].To)))
+			}
+		}
+		lines = append(lines, "• "+f.clock(d.At)+": "+strings.Join(parts, "; "))
+	}
+	if n := len(r.Drops) - len(shown); n > 0 {
+		lines = append(lines, fmt.Sprintf("• and %s", plural(n, "more drop", "more drops")))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (f Formatter) dew(r Report) string {

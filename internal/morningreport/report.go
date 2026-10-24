@@ -45,6 +45,10 @@ type Report struct {
 	// open to the window's end.
 	FailedCloses []CloseFailure
 
+	// Drops are the times NINA lost equipment it held.
+	Drops        []Drop
+	DropsMissing string
+
 	Dew        *Dew
 	DewMissing string
 

@@ -105,6 +105,7 @@ func (c Collector) Collect(ctx context.Context, night time.Time) (Report, error)
 	c.safety(ctx, &r)
 	nina := c.ninaLogs(ctx, r.Start, r.End)
 	c.flap(ctx, &r, nina)
+	c.drops(ctx, &r, nina)
 	c.dew(ctx, &r, spans)
 	c.autofocus(ctx, &r, nina)
 	c.guiding(ctx, &r, spans)
@@ -367,6 +368,19 @@ func (c Collector) flap(ctx context.Context, r *Report, nina error) {
 	r.FlapOpen = &open
 	r.Unsafe, r.Restarts = f.Unsafe, MergeRestarts(DropEndOfNight(f.Restarts, r.DarkSpans))
 	r.FailedCloses = f.FailedCloses
+}
+
+func (c Collector) drops(ctx context.Context, r *Report, nina error) {
+	if nina != nil {
+		r.DropsMissing = missing("drops", nina)
+		return
+	}
+	lines, err := c.Logs.Range(ctx, DropQuery, r.Start, r.End)
+	if err != nil {
+		r.DropsMissing = missing("drops", err)
+		return
+	}
+	r.Drops = Drops(lines)
 }
 
 func (c Collector) dew(ctx context.Context, r *Report, spans []Span) {
