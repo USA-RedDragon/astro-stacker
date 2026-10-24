@@ -63,6 +63,18 @@ type SubScore struct {
 	ReferenceSubs       int
 	TransparencySource  string
 	TransparencyMissing string
+	// SkyRate is Sky per second of exposure, NaN when either is unknown.
+	SkyRate float64
+	// SkyBin is the subs of its target and filter in a similar sky that the
+	// cut judges its score against (BelowCut).
+	SkyBin SkyBin
+	// Clarity is its weight apart from the sky (see Clarity), PlainClarity
+	// without transparency, and TargetClarity and PlainTargetClarity their
+	// ReferencePercentile among its target's subs in the filter.
+	Clarity            float64
+	PlainClarity       float64
+	TargetClarity      float64
+	PlainTargetClarity float64
 	// Measured is set when Target Scheduler has no record of the sub: it
 	// is scored from the stacker's measurement of its pixels (Measured),
 	// its filter, exposure and gain from its header.
@@ -466,10 +478,16 @@ func score(rows []row, pedestal Pedestals, measured []Measured, perSecond bool) 
 			plainBest[k] = math.Max(plainBest[k], it.s.PlainScore)
 		}
 	}
-	out := make(map[string]SubScore, len(items))
-	for _, it := range items {
+	binned := make([]binnedSub, len(items))
+	for i := range items {
+		it := &items[i]
 		k := targetFilter{it.target, it.s.Filter}
 		it.s.TargetBest, it.s.PlainTargetBest = best[k], plainBest[k]
+		binned[i] = binnedSub{target: it.target, s: &it.s}
+	}
+	applySkyBins(binned)
+	out := make(map[string]SubScore, len(items))
+	for _, it := range items {
 		out[it.s.File] = it.s
 	}
 	return out

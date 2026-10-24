@@ -153,7 +153,7 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 			// Only transparency moves a sub out. One that scores under the
 			// cut without it too has drifted there as the references moved
 			// since it was stacked; it was judged then and stays.
-			if p.lowScore(s.Score, s.TargetBest) && !p.lowScore(s.PlainScore, s.PlainTargetBest) {
+			if p.lowScore(s) && !s.PlainBelowCut(p.opts.MinScore) {
 				if err := tx.Model(&app.StackFrame{}).Where("id = ?", r.ID).UpdateColumns(map[string]any{
 					columnStatus: app.StackStatusLowScore, "score": s.Score, "processed_at": now, columnNextAttemptAt: next,
 					columnError: p.lowScoreReason(s, stack.Filter),
@@ -190,13 +190,16 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 	return true, marked, left, reweighted, nil
 }
 
-// lowScore is classify's cut: no score, or under MinScore of the target's
-// best.
-func (p *Pipeline) lowScore(score, targetBest float64) bool {
-	return !(score > 0) || score < p.opts.MinScore*targetBest
+// lowScore is classify's cut (quality.SubScore.BelowCut at MinScore).
+func (p *Pipeline) lowScore(s quality.SubScore) bool {
+	low, _ := s.BelowCut(p.opts.MinScore)
+	return low
 }
 
 func (p *Pipeline) lowScoreReason(s quality.SubScore, filter string) string {
-	return fmt.Sprintf("score %.2f is under the cut %.2f: %g × the target's best %s score, %.2f",
-		s.Score, p.opts.MinScore*s.TargetBest, p.opts.MinScore, filter, s.TargetBest)
+	s.Filter = filter
+	if low, why := s.BelowCut(p.opts.MinScore); low {
+		return why
+	}
+	return fmt.Sprintf("score %.2f", s.Score)
 }

@@ -360,6 +360,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		p.requeueWeightless(ctx)
 		p.requeueLeakFailures(ctx)
 		p.requeueOffTarget(ctx)
+		p.requeueUnbinnedLowScore(ctx)
 		// Recropping re-renders covers of the masters it touches.
 		p.recropMasters(ctx)
 		p.backfillCovers(ctx)
@@ -846,10 +847,10 @@ func (p *Pipeline) classify(f app.Frame, scores map[string]quality.SubScore, set
 		return c, app.StackStatusUnmeasured
 	case !(s.Score > 0):
 		return c, app.StackStatusLowScore
-	case s.Score < p.opts.MinScore*s.TargetBest:
-		// Against the target's best rather than MinScore alone: a panel
-		// imaged only under the moon is better stacked, weighted low as its
-		// score says, than a hole in the mosaic.
+	case p.lowScore(s):
+		// Against the best of the target's subs in a similar sky rather
+		// than MinScore alone: a clear sub under the Moon is stacked,
+		// weighted low as its score says (quality.SubScore.BelowCut).
 		c.belowCut = true
 		return c, app.StackStatusLowScore
 	case f.Exposure == nil || *f.Exposure <= 0 || f.Night == nil:
@@ -989,6 +990,30 @@ func (p *Pipeline) requeueOffTarget(ctx context.Context) {
 	}
 	if res.RowsAffected > 0 {
 		slog.Info("Trying again subs left out on their mount pointing alone", "subs", res.RowsAffected)
+	}
+}
+
+// unbinnedLowScoreError is in the error of subs left out for a low score
+// against the target's best alone, before sky bins (quality.SkyBin).
+const unbinnedLowScoreError = "× the target's best"
+
+// requeueUnbinnedLowScore classifies again, now rather than after
+// RetryAfter, the subs left out for a low score against the target's best
+// alone: judged against subs in a similar sky, a clear sub under the Moon
+// comes back. Their error changes when they are classified again, so this
+// runs once.
+func (p *Pipeline) requeueUnbinnedLowScore(ctx context.Context) {
+	res := p.db.WithContext(ctx).Model(&app.StackFrame{}).
+		Where("status = ? AND error LIKE ?", app.StackStatusLowScore, "%"+unbinnedLowScoreError+"%").
+		UpdateColumn(columnNextAttemptAt, time.Now())
+	if res.Error != nil {
+		if ctx.Err() == nil {
+			slog.Error("Requeueing low-score subs for sky bins failed", "error", res.Error)
+		}
+		return
+	}
+	if res.RowsAffected > 0 {
+		slog.Info("Scoring again low-score subs against subs in a similar sky", "subs", res.RowsAffected)
 	}
 }
 

@@ -87,7 +87,7 @@ func (p *Pipeline) publish(ctx context.Context, stack *app.Stack, acc *Accumulat
 		imagedata.FloatCard("EXPTIME", stack.ScaleExposure, "[s] scaled to one sub of this length"),
 		imagedata.FloatCard("TOTALEXP", stack.ExposureSeconds, "[s] total exposure stacked"),
 		imagedata.FloatCard("EFFEXP", stack.EffectiveSeconds, "[s] exposure weighted by sub score"),
-		imagedata.FloatCard("MINSCORE", p.opts.MinScore, "cut: this x the target best sub score"),
+		imagedata.FloatCard("MINSCORE", p.opts.MinScore, "cut: this x the best sub score in a similar sky"),
 		imagedata.StringCard("DATE", time.Now().UTC().Format("2006-01-02T15:04:05"), "file written"),
 		imagedata.StringCard("SWCREATE", "astro-stacker (Siril 1.4 calibration)", ""),
 	}, localNormCards(acc.LocalNorm))

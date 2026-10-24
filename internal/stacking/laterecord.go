@@ -154,7 +154,7 @@ func (p *Pipeline) lateColumns(r lateRow, s quality.SubScore, now time.Time) (ma
 	case s.GradingStatus == quality.GradingRejected && !s.StackerRejected:
 		cols[columnStatus], cols["score"], cols["processed_at"], cols[columnNextAttemptAt] = app.StackStatusRejected, s.Score, now, nil
 		return cols, true
-	case p.lowScore(s.Score, s.TargetBest):
+	case p.lowScore(s):
 		cols[columnStatus], cols["score"], cols["processed_at"] = app.StackStatusLowScore, s.Score, now
 		cols[columnNextAttemptAt], cols[columnError] = now.Add(p.opts.RetryAfter), p.lowScoreReason(s, r.Filter)
 		return cols, true

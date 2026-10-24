@@ -163,3 +163,33 @@ func TestOffTargetSubsAreRequeuedOnce(t *testing.T) {
 		t.Errorf("pending %v, want [1]", pending)
 	}
 }
+
+// Subs left out against the target's best alone are classified again at
+// once; those already judged against a sky bin wait RetryAfter.
+func TestUnbinnedLowScoreSubsAreRequeued(t *testing.T) {
+	t.Parallel()
+	db := offTargetDB(t)
+	p := NewPipeline(nil, "", "", db, nil, siril.Runner{}, "", DefaultPipelineOptions())
+	now := time.Now()
+	later := now.Add(3 * time.Hour)
+	old := "score 0.08 is under the cut 0.12: 0.3 × the target's best Luminance score, 0.39"
+	binned := "score 0.01 is under the cut 0.02: 0.3 × the best Luminance score, 0.08, among the target's 15 subs in a similar sky (8.77 to 35.1 ADU/s)"
+	for _, sf := range []app.StackFrame{
+		{FrameID: 1, Status: app.StackStatusLowScore, ProcessedAt: now, NextAttemptAt: &later, Error: &old},
+		{FrameID: 2, Status: app.StackStatusLowScore, ProcessedAt: now, NextAttemptAt: &later, Error: &binned},
+		{FrameID: 3, Status: app.StackStatusMoon, ProcessedAt: now, NextAttemptAt: &later, Error: &old},
+	} {
+		if err := db.Create(&sf).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	p.requeueUnbinnedLowScore(context.Background())
+	var rows []app.StackFrame
+	db.Order("frame_id").Find(&rows)
+	for _, sf := range rows {
+		due := sf.NextAttemptAt != nil && !sf.NextAttemptAt.After(time.Now())
+		if due != (sf.FrameID == 1) {
+			t.Errorf("frame %d (%s): due now %v", sf.FrameID, sf.Status, due)
+		}
+	}
+}

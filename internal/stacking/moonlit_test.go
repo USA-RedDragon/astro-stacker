@@ -176,9 +176,9 @@ func TestLowScoreReasonNamesTheCut(t *testing.T) {
 	if status != app.StackStatusLowScore {
 		t.Fatalf("status %q, want low_score", status)
 	}
-	want := "score 0.19 is under the cut 0.24: 0.3 × the target's best O-III score, 0.79"
+	want := "score 0.19 is under the cut 0.24: 0.3 × the best O-III score, 0.79, among the target's subs"
 	if sf := p.leftOut(c, status); sf.Error == nil || *sf.Error != want {
-		t.Errorf("error %v, want %q", sf.Error, want)
+		t.Errorf("error %q, want %q", *sf.Error, want)
 	}
 }
 

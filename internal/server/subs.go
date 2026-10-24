@@ -40,9 +40,20 @@ type Sub struct {
 }
 
 type Scoring struct {
-	MinScore            float64  `json:"min_score"`
-	TargetBest          *float64 `json:"target_best"`
-	Cut                 *float64 `json:"cut"`
+	MinScore   float64  `json:"min_score"`
+	TargetBest *float64 `json:"target_best"`
+	Cut        *float64 `json:"cut"`
+	// CutBest is the best score in the sub's sky bin, CutSubs how many subs
+	// the bin holds, and CutSkyLow and CutSkyHigh its sky per second, nil
+	// when the bin is all of the target's subs in the filter.
+	CutBest    *float64 `json:"cut_best"`
+	CutSubs    int      `json:"cut_subs"`
+	CutSkyLow  *float64 `json:"cut_sky_low"`
+	CutSkyHigh *float64 `json:"cut_sky_high"`
+	SkyRate    *float64 `json:"sky_per_second"`
+	// Clarity is the sub's clarity (transparency² / HFR⁴) over its target's
+	// typical in the filter; under MinScore it is cut whatever the sky.
+	Clarity             *float64 `json:"clarity"`
 	ReferenceWeight     *float64 `json:"reference_weight"`
 	ReferenceSubs       int      `json:"reference_subs"`
 	ReferencePercentile float64  `json:"reference_percentile"`
@@ -84,8 +95,14 @@ func scoringOf(s quality.SubScore, minScore float64) *Scoring {
 	}
 	if s.GradingStatus != quality.GradingRejected || s.StackerRejected {
 		out.TargetBest = finitePtr(s.TargetBest)
-		out.Cut = finitePtr(minScore * s.TargetBest)
+		out.Cut = finitePtr(minScore * s.CutBest())
+		out.CutBest, out.CutSubs = finitePtr(s.CutBest()), s.SkyBin.Subs
+		if s.SkyBin.High > 0 {
+			out.CutSkyLow, out.CutSkyHigh = finitePtr(s.SkyBin.Low), finitePtr(s.SkyBin.High)
+		}
+		out.Clarity = finitePtr(s.Clarity / s.TargetClarity)
 	}
+	out.SkyRate = finitePtr(s.SkyRate)
 	return out
 }
 
