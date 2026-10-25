@@ -79,6 +79,9 @@ type Report struct {
 	// don't hold.
 	Dust       []DustChange
 	DustLights *DustLights
+	// Rims are the night's targets whose lights carried a dust rim streak
+	// that cost them weight.
+	Rims []RimTarget
 
 	// Claims are the mentions of the user's confirmed stars elsewhere that
 	// the claims watch first found in the window; ClaimStars is how many

@@ -39,6 +39,50 @@ type DustLights struct {
 	Preview []byte
 }
 
+// RimTarget is one target's lights of the night that carried a dust rim
+// streak (dustcheck.RimStreak) deep enough to cost weight.
+type RimTarget struct {
+	Object  string
+	Filters []string
+	Lowered int
+	LeftOut int
+	// Shallowest and Deepest are the streaks' depths, in percent of the
+	// sky.
+	Shallowest, Deepest float64
+}
+
+// rims collects the night's lights whose dust rim streak cost them weight,
+// by target.
+func (c Collector) rims(ctx context.Context, r *Report) {
+	var rows []app.RimStreak
+	if err := c.App.WithContext(ctx).Where("night = ? AND factor < 1", r.Night.Format(time.DateOnly)).Order("object, filter").Find(&rows).Error; err != nil {
+		slog.Warn("Morning report: dust rim streaks unreadable", "error", err)
+		return
+	}
+	by := map[string]*RimTarget{}
+	for _, s := range rows {
+		t := by[s.Object]
+		if t == nil {
+			t = &RimTarget{Object: s.Object, Shallowest: math.Inf(1)}
+			by[s.Object] = t
+		}
+		if len(t.Filters) == 0 || t.Filters[len(t.Filters)-1] != s.Filter {
+			t.Filters = append(t.Filters, s.Filter)
+		}
+		if s.Factor <= 0 {
+			t.LeftOut++
+		} else {
+			t.Lowered++
+		}
+		d := math.Abs(s.Depth)
+		t.Shallowest, t.Deepest = math.Min(t.Shallowest, d), math.Max(t.Deepest, d)
+	}
+	for _, t := range by {
+		r.Rims = append(r.Rims, *t)
+	}
+	sort.Slice(r.Rims, func(i, j int) bool { return r.Rims[i].Deepest > r.Rims[j].Deepest })
+}
+
 // dust collects the flat dust changes detected in the report's window from
 // flats of the last day or so, and the night's lights check.
 func (c Collector) dust(ctx context.Context, r *Report) {
@@ -138,7 +182,7 @@ func dustWhere(d DustChange) string {
 // dust is the report's dust lines: one per flat change, and the lights
 // check's leftover shadows.
 func (f Formatter) dust(r Report) string {
-	if len(r.Dust) == 0 && r.DustLights == nil {
+	if len(r.Dust) == 0 && r.DustLights == nil && len(r.Rims) == 0 {
 		return ""
 	}
 	lines := []string{"<b>Dust</b>"}
@@ -159,7 +203,27 @@ func (f Formatter) dust(r Report) string {
 			lines = append(lines, fmt.Sprintf("lights: %s at x %d, y %d · %s%% · %d px", what, b.X, b.Y, num(math.Abs(b.Peak), 2), b.Diameter))
 		}
 	}
+	for _, t := range r.Rims {
+		lines = append(lines, rimLine(t))
+	}
 	return strings.Join(lines, "\n")
+}
+
+// rimLine tells one target's moonlit dust rim streak.
+func rimLine(t RimTarget) string {
+	depth := num(t.Deepest, 2) + "%"
+	if t.Shallowest < t.Deepest {
+		depth = num(t.Shallowest, 2) + "–" + depth
+	}
+	var did []string
+	if t.Lowered > 0 {
+		did = append(did, plural(t.Lowered, "sub", "subs")+" weighted down")
+	}
+	if t.LeftOut > 0 {
+		did = append(did, fmt.Sprintf("%d left out", t.LeftOut))
+	}
+	return fmt.Sprintf("moonlight streaked the dust rims in %s (%s) · %s of the sky · %s",
+		esc(t.Object), esc(strings.Join(t.Filters, ", ")), depth, strings.Join(did, ", "))
 }
 
 // dustPhotos are the crops of the night's dust changes.

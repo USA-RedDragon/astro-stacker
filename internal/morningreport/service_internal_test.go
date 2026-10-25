@@ -64,7 +64,7 @@ func appDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}, &app.Stack{}, &app.Cover{}, &app.MorningReport{}, &app.BodyNight{}, &app.NightReference{},
-		&app.DustFlat{}, &app.DustEvent{}, &app.DustLightCheck{}); err != nil {
+		&app.DustFlat{}, &app.DustEvent{}, &app.DustLightCheck{}, &app.RimStreak{}); err != nil {
 		t.Fatal(err)
 	}
 	exp := 600.0

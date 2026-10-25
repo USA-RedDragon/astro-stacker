@@ -120,6 +120,7 @@ func (c Collector) Collect(ctx context.Context, night time.Time) (Report, error)
 	}
 	if c.App != nil {
 		c.dust(ctx, &r)
+		c.rims(ctx, &r)
 	}
 	return r, nil
 }

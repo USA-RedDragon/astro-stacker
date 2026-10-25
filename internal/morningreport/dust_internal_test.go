@@ -90,3 +90,12 @@ func TestReportShowsTheNightsDustChanges(t *testing.T) {
 		t.Errorf("a night with nothing imaged leaves out its dust:\n%s", idle)
 	}
 }
+
+func TestRimLine(t *testing.T) {
+	t.Parallel()
+	got := rimLine(RimTarget{Object: "Triangulum Galaxy", Filters: []string{filterG, "Luminance"}, Lowered: 5, LeftOut: 1, Shallowest: 0.47, Deepest: 1.02})
+	want := "moonlight streaked the dust rims in Triangulum Galaxy (Green, Luminance) · 0.47–1.02% of the sky · 5 subs weighted down, 1 left out"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
