@@ -33,8 +33,8 @@ type BackgroundModel struct {
 	Dir string
 }
 
-// CoverBackground is the background model covers use, as the image
-// installs it.
+// CoverBackground is the background model covers use, as the pod
+// mounts it.
 func CoverBackground() BackgroundModel {
 	return BackgroundModel{Python: "python3", Model: "/usr/share/astro-stacker/graxpert-bge-1.0.1.onnx"}
 }
