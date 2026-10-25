@@ -723,9 +723,16 @@ func (s *Service) identify(ctx context.Context, ra, dec, refMag float64) (star, 
 	if best < 0 {
 		return out, nil
 	}
-	g := stars[best]
-	out.found = true
+	out = starOf(stars, best)
 	out.skipped, out.sep = skippedOf(stars, best, ra, dec, epochYear(s.now()))
+	return out, nil
+}
+
+// starOf is stars[best] as the star to vet, with the others as its
+// neighbours.
+func starOf(stars []starcat.GaiaStar, best int) star {
+	g := stars[best]
+	out := star{found: true}
 	out.bp, out.rp = float64(g.BP), float64(g.RP)
 	out.plx, out.plxE = finite(g.Parallax), finite(float64(g.ParallaxError))
 	out.target = surveys.Target{GaiaID: g.SourceID, RA: g.RA, Dec: g.Dec, PMRA: finite(g.PMRA), PMDec: finite(g.PMDec), G: float64(g.G)}
@@ -736,7 +743,7 @@ func (s *Service) identify(ctx context.Context, ra, dec, refMag float64) (star, 
 		out.neighbours = append(out.neighbours, surveys.Neighbour{GaiaID: n.SourceID, RA: n.RA, Dec: n.Dec, G: float64(n.G), Sep: arcsec(g.RA, g.Dec, n.RA, n.Dec)})
 	}
 	out.target.Neighbours = out.neighbours
-	return out, nil
+	return out
 }
 
 // skippedOf is the star nearest the spot when pickStar took stars[best]
