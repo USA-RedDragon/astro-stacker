@@ -68,6 +68,11 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 	if flags.NotStar {
 		return Suggestion{State: app.VetArtifact, Say: sayNotStar, Confidence: Medium, Why: evidence(groups, check.PSF)}
 	}
+	if ps == nil || ps.State == app.VetUnsure {
+		if sg, ok := irregularSuggestion(pr, known, groups); ok {
+			return sg
+		}
+	}
 	if varies := surveyVaries(pr); varies != "" {
 		if ps == nil {
 			return variesSuggestion(varies, known, groups)

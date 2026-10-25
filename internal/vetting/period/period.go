@@ -103,6 +103,10 @@ type Result struct {
 	// Irregular is set when the star changes beyond its errors with no
 	// period: the ZTF row then says it varies.
 	Irregular bool `json:"irregular,omitempty"`
+	// Excess is how the star scatters in ZTF beyond nearby stars of the
+	// same brightness and its ZTF level around the flagged nights, when
+	// it scatters beyond them.
+	Excess *Excess `json:"excess,omitempty"`
 }
 
 // Options bound the search. MinPeriod and MaxPeriod are in days, 0.2
@@ -110,7 +114,8 @@ type Result struct {
 // magnitudes, positive for a fade; a flat survey light curve is checked
 // against it. Comparisons, when set, gives the ZTF light curves of nearby
 // steady stars of the same brightness, asked for only once a period is
-// found. Neighbours, when set, gives the ZTF light curves of the stars
+// found or the star changes beyond its errors. Flagged are the BJDs of
+// the nights the user's frames flagged the change. Neighbours, when set, gives the ZTF light curves of the stars
 // around it to test a flat star's fades against, asked for only when
 // fading ZTF points back each other up on two or more nights. G is the
 // star's Gaia G magnitude and Parallax and ParallaxErr its Gaia parallax
@@ -120,6 +125,7 @@ type Options struct {
 	MinPeriod   float64
 	MaxPeriod   float64
 	ChangeMag   float64
+	Flagged     []float64
 	Comparisons func() [][]lc.Series
 	Neighbours  func() [][]lc.Series
 	// TESSComparisons, when set, gives other stars' TESS light curves

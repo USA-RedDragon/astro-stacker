@@ -31,12 +31,14 @@ type Suggestion struct {
 
 // Kinds of a real verdict: an eclipsing binary whose period passed the
 // tests for false periods, a star with any other period that passed
-// them, and a star that fades or brightens now and then with no period.
+// them, a star that fades or brightens now and then with no period, and
+// a star that changes irregularly beyond nearby stars.
 const (
 	KindEclipsingBinary = "eclipsing_binary"
 	KindPeriodic        = "periodic"
 	KindFades           = "fades"
 	KindBrightens       = "brightens"
+	KindIrregular       = "irregular"
 )
 
 // Confidence levels.

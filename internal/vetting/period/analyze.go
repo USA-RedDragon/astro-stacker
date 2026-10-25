@@ -90,6 +90,7 @@ func analyzeSeries(d *data, own, ztf []lc.Series, opts Options, at *Ephemeris) (
 		res.Robust = a.rob
 	}
 	res.Trend = a.trend()
+	res.Excess = a.excess()
 	res.Checks = a.checks(res.Fits)
 	res.Fades = a.fades
 	res.SteadyFadeNights = a.steadyAt

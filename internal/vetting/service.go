@@ -861,6 +861,7 @@ func (s *Service) analyzeAll(ctx context.Context, f surveys.Field, sum discovery
 	if !change.Fainter {
 		opts.ChangeMag = -change.Mag
 	}
+	opts.Flagged = flaggedBJDs(sum.Members, st.target.RA, st.target.Dec)
 	opts.Comparisons = func() [][]lc.Series { return s.comparisons(ctx, f, st) }
 	opts.Neighbours = func() [][]lc.Series { return s.fadeNeighbours(ctx, f, st) }
 	opts.TESSComparisons = func() []period.TESSComp { return s.tessComparisons(ctx, f, st, fx.tess.Sectors) }
@@ -869,6 +870,22 @@ func (s *Service) analyzeAll(ctx context.Context, f surveys.Field, sum discovery
 		slog.Warn("Period search failed", "source", sum.Source.ID, "error", err)
 	}
 	return pr, series
+}
+
+// flaggedBJDs are the BJDs one day after the dates of the nights the
+// candidates were found on, one per night.
+func flaggedBJDs(ms []app.DiscoveryCandidate, ra, dec float64) []float64 {
+	var out []float64
+	seen := map[string]bool{}
+	for _, m := range ms {
+		k := m.Night.UTC().Format(time.DateOnly)
+		if m.Night.IsZero() || seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, lc.BJD(m.Night.UTC().Add(24*time.Hour), ra, dec))
+	}
+	return out
 }
 
 func ownTimingOf(pr *period.Result, curve *ownimage.Curve, sum discoverysource.Summary) *period.Timing {

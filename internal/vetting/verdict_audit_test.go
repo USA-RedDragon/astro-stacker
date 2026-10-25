@@ -50,7 +50,15 @@ func readAuditCases(t *testing.T) []auditCase {
 // survey band, and each comparison star's.
 func readAuditSeries(t *testing.T, key string) ([]lc.Series, [][]lc.Series) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(auditDir, key+".csv.zst"))
+	return readSeriesAs(t, filepath.Join(auditDir, key+".csv.zst"), "t")
+}
+
+// readSeriesAs reads the light curves of a fixture in the audit's form
+// with the star named target as the star and the rest as its comparison
+// stars.
+func readSeriesAs(t *testing.T, path, target string) ([]lc.Series, [][]lc.Series) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,12 +98,12 @@ func readAuditSeries(t *testing.T, key string) ([]lc.Series, [][]lc.Series) {
 		}
 		s.Points = append(s.Points, lc.Point{BJD: bjd + 2450000, Mag: mag, Err: e, Src: src})
 	}
-	var target []lc.Series
+	var star []lc.Series
 	comps := map[string][]lc.Series{}
 	var names []string
 	for _, k := range order {
-		if k.who == "t" {
-			target = append(target, *by[k])
+		if k.who == target {
+			star = append(star, *by[k])
 			continue
 		}
 		if _, ok := comps[k.who]; !ok {
@@ -108,7 +116,7 @@ func readAuditSeries(t *testing.T, key string) ([]lc.Series, [][]lc.Series) {
 	for _, n := range names {
 		out = append(out, comps[n])
 	}
-	return target, out
+	return star, out
 }
 
 // auditVerdict is the vet's suggestion for a case from its survey data
