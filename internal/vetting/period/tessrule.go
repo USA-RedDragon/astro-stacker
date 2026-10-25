@@ -6,6 +6,19 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 )
 
+// tessFlatMaxPeriod is the longest cycle, in days, that TESS light curves
+// keep half of. The TESS job ships TGLC's calibrated fluxes, which TGLC
+// flattens with a one-day biweight filter (wotan, window_length=1); run on
+// a sinusoid sampled like a sector it keeps 97 to 100% of a 1-day cycle,
+// 50% at 1.5 days, 23 to 26% at 2 days and 5 to 6% at 3.83 days. 28305's
+// 3.833-day spot cycle of 0.04 to 0.11 mag in ZTF r came back at 0.004 to
+// 0.012 mag in its TESS sectors, and the vet called it 0.00 mag.
+const tessFlatMaxPeriod = 1.5
+
+// tessFlatWords says why TESS cannot measure a cycle longer than
+// tessFlatMaxPeriod.
+const tessFlatWords = "TESS's light curves have changes slower than a day taken out"
+
 // Thresholds of the test that refutes a smooth cycle ZTF and ATLAS show
 // where TESS would see it and does not; set on 28741 (Crab, 2026-02-05),
 // whose 0.996882-day cycle of 0.025 mag in ZTF r TESS held to 3 to 6
@@ -58,7 +71,7 @@ type TESSRule struct {
 // more; and no TESS series shows the cycle at that share. 28741's TESS
 // sectors 43 to 45 and 71 held it to 3 to 6 mmag against 25 mmag in ZTF r.
 func (a *analysis) tessRules() *TESSRule {
-	if a.kind != KindSinusoidal || a.sine == nil {
+	if a.kind != KindSinusoidal || a.sine == nil || a.eph.Period > tessFlatMaxPeriod {
 		return nil
 	}
 	for g, gr := range a.d.groups {
