@@ -277,7 +277,7 @@ func TestStackRefutesLightLostInAStarsWing(t *testing.T) {
 	}
 	st := ownOnly()
 	st[check.TransStack], st[check.TransWing] = check.Fail, check.Fail
-	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetArtifact || s.Say != "Artifact: a bright star's wing" {
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: ownimage.StackRefuted}); s.State != app.VetArtifact || s.Say != sayWing {
 		t.Errorf("wing and refuted stack: %+v", s)
 	}
 }
@@ -346,7 +346,7 @@ func TestStackWingFitIgnoresPlainUnusedFrames(t *testing.T) {
 	}
 	st := ownOnly()
 	st[check.TransStack], st[check.TransWing] = check.Fail, check.Fail
-	if s := transientSuggest(transientGroups(st), transientFacts{stackV: v}); s.Say != "Artifact: a bright star's wing" {
+	if s := transientSuggest(transientGroups(st), transientFacts{stackV: v}); s.Say != sayWing {
 		t.Errorf("56176: %+v", s)
 	}
 	// 54896 (Crab Nebula, 2026-02-05): 1.2 sigma in the wing fit where a

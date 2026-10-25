@@ -163,12 +163,18 @@ func transientStack(fc *ownimage.FluxCurve, reps map[string]reported) (check.Che
 	if c, ok := refutedWeak(v, f, p, fc.Wing, wing, wingLight, rep.subs, ev); ok {
 		return c, ownimage.StackRefuted
 	}
-	return stackCheck(v, why, f, ev), v
+	return stackCheck(v, why, f, wing, ev), v
 }
 
 // wingFacts replaces the stack's facts and lead with the fit beside a
 // bright neighbour when the spot sits in its wing and the detection
-// reported light for that night.
+// reported light for that night. The wing fit's controls are the spot's
+// own far nights, which its sigma is already measured against, so it must
+// stand ownimage.WingSigma above them, the wing check's own bar, to stand
+// above its controls: the empty places of the plain stack hold no star's
+// wing, and 76482 (Orion, 2026-10-05), 1.0 sigma in the wing fit beside a
+// G 16.0 star 3.3 px away where a fake shows at 5.3, stood above their
+// 0.7 and was left doubtful.
 func wingFacts(fc *ownimage.FluxCurve, reps map[string]reported, f *ownimage.StackFacts, lead string) (bool, float64, string) {
 	w := fc.Wing
 	if w == nil || !w.Measured || !(w.Err > 0) {
@@ -181,6 +187,7 @@ func wingFacts(fc *ownimage.FluxCurve, reps map[string]reported, f *ownimage.Sta
 	}
 	wingLight := wl * fc.RespOf(w.Filter)
 	f.Obs, f.Peak, f.Inj = w.Sigma, w.Sigma, wingLight/w.Err
+	f.HasControl, f.Control99 = true, ownimage.WingSigma
 	lead = fmt.Sprintf("Fitted beside a star of magnitude %.1f %.1f px away with each frame's own star shape, its frames of %s in %s show it %.1f times its error above its level on far nights; a fake of the light the detection reported (magnitude %.1f) shows at %.1f.",
 		w.G, w.SepPx, w.Night, w.Filter, w.Sigma, wrep.mag, f.Inj)
 	return true, wingLight, lead
@@ -190,7 +197,10 @@ func wingFacts(fc *ownimage.FluxCurve, reps map[string]reported, f *ownimage.Sta
 // following nights to f and says what each shows.
 func stackWords(fc *ownimage.FluxCurve, p ownimage.FluxNight, fake float64, wing bool, f *ownimage.StackFacts) []string {
 	var words []string
-	if f.HasControl {
+	switch {
+	case wing:
+		words = append(words, fmt.Sprintf("The wing fit's controls are its own far nights: it must stand %.1f times its error above them to show more than the star's wing.", f.Control99))
+	case f.HasControl:
 		words = append(words, fmt.Sprintf("At empty places around it the same frames give under %.1f in 99 of 100.", f.Control99))
 	}
 	if p.FreshErr > 0 && p.Judgeable() {
@@ -235,11 +245,14 @@ func refutedWeak(v ownimage.StackVerdict, f ownimage.StackFacts, p ownimage.Flux
 }
 
 // stackCheck words the stack's verdict.
-func stackCheck(v ownimage.StackVerdict, why string, f ownimage.StackFacts, ev string) check.Check {
+func stackCheck(v ownimage.StackVerdict, why string, f ownimage.StackFacts, wing bool, ev string) check.Check {
 	switch v {
 	case ownimage.StackUntested:
 		return check.Skipped(check.TransStack, fmt.Sprintf("Not clear. The fake shows at only %.1f, too faint for your frames to tell. ", f.Inj)+ev)
 	case ownimage.StackRefuted:
+		if why == ownimage.StackNoAboveControls && wing {
+			return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the spot stands no higher above its far nights than the star's wing allows.")
+		}
 		if why == ownimage.StackNoAboveControls {
 			return check.New(check.TransStack, check.Fail, ev+" It is not there: new light of the brightness reported would show far more strongly, and the spot stands no higher than the empty places around it.")
 		}
@@ -247,6 +260,9 @@ func stackCheck(v ownimage.StackVerdict, why string, f ownimage.StackFacts, ev s
 	case ownimage.StackDoubtful:
 		return check.New(check.TransStack, check.Fail, ev+" Not confirmed: "+why+".")
 	case ownimage.StackConfirmed:
+	}
+	if wing {
+		return check.New(check.TransStack, check.Pass, ev+" It shows as new light of the brightness reported would, clear of the star's wing.")
 	}
 	return check.New(check.TransStack, check.Pass, ev+" It shows as new light of the brightness reported would, above 99 of 100 empty places.")
 }
