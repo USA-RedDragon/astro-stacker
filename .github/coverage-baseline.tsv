@@ -50,7 +50,7 @@ internal/binaries/minima/oc.go	327	312
 internal/binaries/minima/scan.go	17	14
 internal/binaries/minima/stats.go	159	139
 internal/binaries/minima/text.go	27	13
-internal/binaries/pictures.go	238	153
+internal/binaries/pictures.go	240	154
 internal/binaries/planner.go	96	82
 internal/binaries/plot.go	135	0
 internal/binaries/prune.go	32	23
@@ -151,7 +151,7 @@ internal/discoveries/null.go	106	91
 internal/discoveries/offsetguard.go	44	41
 internal/discoveries/progress.go	77	72
 internal/discoveries/refnights.go	195	182
-internal/discoveries/runner.go	765	591
+internal/discoveries/runner.go	765	590
 internal/discoveries/sensor.go	212	205
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -221,7 +221,7 @@ internal/horizonsurvey/nina.go	101	81
 internal/horizonsurvey/phd2.go	152	113
 internal/horizonsurvey/plan.go	375	357
 internal/horizonsurvey/plot.go	107	12
-internal/horizonsurvey/runner.go	451	347
+internal/horizonsurvey/runner.go	451	346
 internal/horizonsurvey/segment.go	96	94
 internal/horizonsurvey/sim/sim.go	267	240
 internal/horizonsurvey/skyline.go	119	113
@@ -235,7 +235,7 @@ internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/memlimit/memlimit.go	15	7
-internal/memwatch/memwatch.go	58	49
+internal/memwatch/memwatch.go	58	44
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -251,7 +251,7 @@ internal/morningreport/dark.go	46	44
 internal/morningreport/drops.go	38	38
 internal/morningreport/dust.go	79	63
 internal/morningreport/format.go	388	348
-internal/morningreport/images.go	146	121
+internal/morningreport/images.go	148	122
 internal/morningreport/known.go	27	25
 internal/morningreport/night.go	15	15
 internal/morningreport/report.go	3	3
@@ -362,7 +362,7 @@ internal/server/moonkeep.go	30	28
 internal/server/mosaicplan.go	58	2
 internal/server/planning.go	163	121
 internal/server/public.go	12	12
-internal/server/routes.go	370	107
+internal/server/routes.go	374	107
 internal/server/scheddata.go	295	256
 internal/server/schedpreview.go	225	210
 internal/server/scheduler.go	92	55
@@ -398,8 +398,11 @@ internal/stacking/comet.go	587	384
 internal/stacking/cometcomposite.go	105	98
 internal/stacking/cometnights.go	285	98
 internal/stacking/cosmetic.go	61	50
-internal/stacking/cover.go	305	196
-internal/stacking/coverframe.go	62	52
+internal/stacking/cover.go	308	195
+internal/stacking/coverbg.go	237	203
+internal/stacking/coverbuild.go	120	96
+internal/stacking/coverflat.go	133	131
+internal/stacking/coverframe.go	64	54
 internal/stacking/coverline.go	458	426
 internal/stacking/coverlrgb.go	91	80
 internal/stacking/coverstretch.go	120	116
