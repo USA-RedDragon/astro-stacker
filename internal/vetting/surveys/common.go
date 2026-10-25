@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/lc"
 )
 
 const (
@@ -273,4 +275,33 @@ func isNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
 
 func failed(survey, format string, args ...any) Fetch {
 	return Fetch{Survey: survey, State: Failed, Note: fmt.Sprintf(format, args...)}
+}
+
+// Rediluted is s with the share of the light that is t's own, and the
+// note that says so, worked out again for t in place of from, as a fetch
+// for t gives them. TESS fits each star on its own and is left alone.
+func Rediluted(s lc.Series, from, t Target) lc.Series {
+	var radius float64
+	var name string
+	switch s.Survey {
+	case lc.ZTF:
+		radius, name = ZTFDilutionRadius, "ZTF"
+	case lc.ATLAS:
+		radius, name = ATLASDilutionRadius, "ATLAS"
+	case lc.NEOWISE:
+		radius, name = WISEDilutionRadius, "WISE"
+	default:
+		return s
+	}
+	od, on := dilution(from, radius)
+	d, n := dilution(t, radius)
+	old, now := blendNote(od, on, radius, name), blendNote(d, n, radius, name)
+	switch {
+	case old != "" && strings.Contains(s.Note, old):
+		s.Note = strings.Replace(s.Note, old, now, 1)
+	default:
+		s.Note = joinNotes(s.Note, now)
+	}
+	s.Dilution = d
+	return s
 }
