@@ -118,11 +118,32 @@ func ownTimingOf(pr *period.Result, curve *ownimage.Curve, sum discoverysource.S
 	flagged := sum.Best.Night.UTC().Format(time.DateOnly)
 	var best *period.Timing
 	for _, t := range ownTimings(pr.Ephemeris, ownSets(curve, sum)) {
+		if !timeable(t, flagged) {
+			continue
+		}
 		if best == nil || betterTiming(t, *best, flagged) {
 			best = &t
 		}
 	}
 	return best
+}
+
+// otherNightMinScale and otherNightMaxScale bound the depth, as a share of the surveys' depth,
+// that a night other than the flagged one must show to be timed: its
+// frames are fitted against a level of zero, so a night whose whole level
+// sits off by some other cause must not pass for a dip. The bounds are
+// wide since the user's frames dilute the star differently from the
+// surveys: 1161's S-II difference images show its primary 2.7 times as
+// deep as ZTF does.
+const (
+	otherNightMinScale = 1.0 / 3
+	otherNightMaxScale = 3
+)
+
+// timeable says whether a timing may stand: the flagged night's always,
+// another night's only when its depth fits the surveys'.
+func timeable(t period.Timing, flagged string) bool {
+	return t.Night == flagged || t.Scale >= otherNightMinScale && t.Scale <= otherNightMaxScale
 }
 
 func betterTiming(a, b period.Timing, flagged string) bool {

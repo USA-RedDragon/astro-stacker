@@ -67,7 +67,7 @@ func TestOwnTiming76400(t *testing.T) {
 	if tm == nil {
 		t.Fatal("no night timed")
 	}
-	if tm.Night != "2026-02-19" || tm.Dip != 1 {
+	if tm.Night != feb19 || tm.Dip != 1 {
 		t.Fatalf("timed %s dip %d, want the 2026-02-19 primary", tm.Night, tm.Dip)
 	}
 	if math.Abs(tm.Offset) > 3*tm.OffsetErr {
@@ -237,5 +237,29 @@ func TestOwnTiming70878(t *testing.T) {
 	}
 	if got := dipCaught(e, sum, tm, curve); got != "Your night caught the shallower of its two dips." {
 		t.Errorf("dip caught: %q", got)
+	}
+}
+
+// feb19 is the night of 76400's whole primary in its own frames.
+const feb19 = "2026-02-19"
+
+// TestOwnTimingOtherNightDepth keeps another night's timing only when its
+// depth fits the surveys': a night whose whole level sits off fits the
+// dip's profile against a level of zero at any depth.
+func TestOwnTimingOtherNightDepth(t *testing.T) {
+	t.Parallel()
+	const flagged = "2026-10-07"
+	for _, c := range []struct {
+		t    period.Timing
+		want bool
+	}{
+		{period.Timing{Night: flagged, Scale: 0.2}, true},
+		{period.Timing{Night: feb19, Scale: 0.9}, true},
+		{period.Timing{Night: feb19, Scale: 0.25}, false},
+		{period.Timing{Night: feb19, Scale: 4}, false},
+	} {
+		if got := timeable(c.t, flagged); got != c.want {
+			t.Errorf("%+v: %v, want %v", c.t, got, c.want)
+		}
 	}
 }

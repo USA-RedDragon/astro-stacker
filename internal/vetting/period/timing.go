@@ -176,5 +176,6 @@ func timeMinimum(e *Ephemeris, points []lc.Point, band string) (Timing, bool) {
 		Depth:     sf.scale * depth,
 		Dip:       bestK + 1,
 		Points:    sf.n,
+		Scale:     sf.scale,
 	}, true
 }

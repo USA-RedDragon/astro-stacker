@@ -179,6 +179,9 @@ type Timing struct {
 	Night  string `json:"night,omitempty"`
 	Filter string `json:"filter,omitempty"`
 	Diff   bool   `json:"diff,omitempty"`
+	// Scale is the fitted depth as a share of the depth the surveys
+	// predict for that band.
+	Scale float64 `json:"scale,omitempty"`
 }
 
 // TimeMinimum fits the dip the points of one night cover. ok is false
