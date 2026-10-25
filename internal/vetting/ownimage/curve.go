@@ -333,7 +333,9 @@ func summarize(c *Curve, sp *spotPlan) {
 	if !finite(nightSD) {
 		nightSD = 0
 	}
-	best := math.Inf(-1)
+	best, bestFilter := math.Inf(-1), ""
+	type half struct{ agree, e2 float64 }
+	halves := map[Mirror][]half{}
 	var sw, swx float64
 	for _, n := range c.Nights {
 		if !sp.flagged[n.Night] || !sp.inGroup(n.Night, n.Filter) {
@@ -347,25 +349,40 @@ func summarize(c *Curve, sp *spotPlan) {
 			score = -float64(s) * sig
 			agree = float64(s*sp.fadeSign) * n.DMag
 		}
-		sw, swx = sw+1/e2, swx+agree/e2
+		if m, ok := sp.mirrored(n.Night, n.Filter); ok {
+			halves[m] = append(halves[m], half{agree, e2})
+		} else {
+			sw, swx = sw+1/e2, swx+agree/e2
+			c.ChangeLevels++
+		}
 		if score > best {
 			best = score
-			c.ChangeNight, c.Change, c.ChangeSigma = n.Night, n.DMag, sig
+			c.ChangeNight, c.Change, c.ChangeSigma, bestFilter = n.Night, n.DMag, sig, n.Filter
 		}
 	}
-	if c.ChangeLevels = flaggedLevels(c, sp); c.ChangeLevels > 1 && sw > 0 {
+	for _, m := range sp.mirrors {
+		h := halves[m]
+		if len(h) == 0 {
+			continue
+		}
+		var agree, e2 float64
+		for _, x := range h {
+			agree += x.agree / float64(len(h))
+			e2 += x.e2
+		}
+		if len(h) == 1 {
+			e2 *= 2
+		}
+		sw, swx = sw+1/e2, swx+agree/e2
+		c.ChangeLevels++
+		if cm, ok := sp.mirrored(c.ChangeNight, bestFilter); ok && cm == m {
+			c.ChangeSigma = c.Change / math.Sqrt(e2)
+		}
+	}
+	if c.ChangeLevels > 1 && sw > 0 {
 		c.Change, c.ChangeSigma = swx/sw, swx/math.Sqrt(sw)
 	}
-}
-
-func flaggedLevels(c *Curve, sp *spotPlan) int {
-	k := 0
-	for _, n := range c.Nights {
-		if sp.flagged[n.Night] && sp.inGroup(n.Night, n.Filter) {
-			k++
-		}
-	}
-	return k
+	c.Mirrors, c.FlaggedNights, c.Detections = sp.mirrors, len(sp.flagged), independentDetections(sp)
 }
 
 // groupFilter says whether a filter is in any group the spot was flagged

@@ -799,7 +799,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	}
 	if !st.found && isTransient(sum) {
 		rep.FadesRead, rep.FadeNightsRead = true, true
-		s.vetTransient(ctx, f, sum, rep, own, ownChecks, known, s.movingCheck(ctx, sum, runs, surveys.Fetch{}), flags)
+		s.vetTransient(ctx, f, sum, rep, own, ownChecks, known, s.movingCheck(ctx, sum, runs, surveys.Fetch{}, curve), flags)
 		return rep, nil
 	}
 	artifact := flags.HotPixel || flags.RefContaminated || flags.Trail || flags.Edge
@@ -838,7 +838,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	}
 	pairVaries(pr, st.target, fx.ztf.Series)
 	timing := ownTimingOf(pr, curve, sum)
-	moving := s.movingCheck(ctx, sum, runs, fx.ztf)
+	moving := s.movingCheck(ctx, sum, runs, fx.ztf, curve)
 	rep.Groups = groupsOf(sum, ownChecks, fx, pr, timing, known, moving)
 	rep.Charts = chartsOf(sum, curve, fx, pr, change, timing)
 	rep.FadesRead = fx.ztf.State == surveys.Done || fx.ztf.State == surveys.Uncovered
@@ -1010,7 +1010,10 @@ func bandOf(e *period.Ephemeris, filter string) string {
 	return ""
 }
 
-func (s *Service) movingCheck(ctx context.Context, sum discoverysource.Summary, runs map[int]app.DiscoveryRun, ztf surveys.Fetch) check.Check {
+// movingCheck says whether a known asteroid or comet was near the spot and
+// whether the change stayed put across nights, counting two nights that
+// were each other's only reference in a filter once, as curve says.
+func (s *Service) movingCheck(ctx context.Context, sum discoverysource.Summary, runs map[int]app.DiscoveryRun, ztf surveys.Fetch, curve *ownimage.Curve) check.Check {
 	nights := map[string]time.Time{}
 	for _, m := range sum.Members {
 		at := m.Night.UTC().Add(28 * time.Hour)
@@ -1046,11 +1049,14 @@ func (s *Service) movingCheck(ctx context.Context, sum discoverysource.Summary, 
 	if s.Bodies != nil {
 		parts = append(parts, "No known asteroid or comet was near it")
 	}
-	if len(keys) > 1 {
+	if len(keys) > 1 && (curve == nil || curve.Detections != 1) {
 		parts = append(parts, fmt.Sprintf("the change sat at the same spot on all %d nights", len(keys)))
 	}
 	if yrs := ztfYears(ztf); yrs >= 2 {
 		parts = append(parts, fmt.Sprintf("the same star sits at this spot in %s years of ZTF images", numberWord(yrs)))
+	}
+	if len(parts) == 0 && len(keys) > 1 {
+		return check.Skipped(check.Stays, "Not run: the nights are one measurement, each the other's only reference in a filter, and no asteroid list was available.")
 	}
 	if len(parts) == 0 {
 		return check.Skipped(check.Stays, "Not run: seen on one night only and no asteroid list was available.")

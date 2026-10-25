@@ -130,9 +130,16 @@ type Curve struct {
 	ChangeNight string  `json:"change_night"`
 	Change      float64 `json:"change"`
 	ChangeSigma float64 `json:"change_sigma"`
-	// ChangeLevels is how many flagged night and filter levels Change
-	// averages; with one, it is ChangeNight's own level.
+	// ChangeLevels is how many independent flagged night and filter
+	// levels Change averages, the two halves of a mirror counting once;
+	// with one, it is ChangeNight's own level.
 	ChangeLevels int `json:"change_levels"`
+	// Mirrors are the filters in which two flagged nights are each
+	// other's only reference; FlaggedNights of the flagged nights are
+	// Detections independent detections.
+	Mirrors       []Mirror `json:"mirrors,omitempty"`
+	FlaggedNights int      `json:"flagged_nights,omitempty"`
+	Detections    int      `json:"detections,omitempty"`
 	// Quiet is the largest departure of any other night.
 	Quiet float64 `json:"quiet"`
 }

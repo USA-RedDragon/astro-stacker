@@ -69,12 +69,12 @@ func mixedChange(sp *spotPlan, c *Curve, rep float64, hasRep bool) check.Check {
 	if moved < 0 {
 		way = "against the reported way"
 	}
-	ev := fmt.Sprintf("Over the %d flagged nights and filters, some reported fainter and some brighter, the star moved %.2f mag %s on average, give or take %.2f",
-		c.ChangeLevels, math.Abs(moved), way, changeErr(c))
+	ev := fmt.Sprintf("Over the %s, some reported fainter and some brighter, the star moved %.2f mag %s on average, give or take %.2f",
+		levelsWords(c), math.Abs(moved), way, changeErr(c))
 	if hasRep {
 		ev += fmt.Sprintf(", against %.2f mag reported", rep)
 	}
-	ev += fmt.Sprintf(". Single frames scatter by %.3f mag on normal nights.", c.Scatter)
+	ev += fmt.Sprintf(". Single frames scatter by %.3f mag on normal nights.", c.Scatter) + mirrorNote(c)
 	if sig >= changeSigma && moved >= changeShare*rep {
 		return check.New(check.OwnChange, check.Pass, ev)
 	}
@@ -152,13 +152,13 @@ func ownChange(sp *spotPlan, c *Curve) check.Check {
 	}
 	rep, hasRep := sp.reported(c.ChangeNight, filter)
 	if c.ChangeLevels > 1 {
-		lead = fmt.Sprintf("Over the %d flagged nights and filters the star was", c.ChangeLevels)
+		lead = fmt.Sprintf("Over the %s the star was", levelsWords(c))
 		rep, hasRep = sp.meanReported()
 		if sp.mixedSigns() {
 			return mixedChange(sp, c, rep, hasRep)
 		}
 	}
-	scatter := fmt.Sprintf(" Single frames scatter by %.3f mag on normal nights.", c.Scatter)
+	scatter := fmt.Sprintf(" Single frames scatter by %.3f mag on normal nights.", c.Scatter) + mirrorNote(c)
 	ok := c.ChangeSigma >= changeSigma
 	if sp.fadeSign != 0 {
 		ok = -float64(sp.fadeSign)*c.ChangeSigma >= changeSigma
@@ -170,6 +170,15 @@ func ownChange(sp *spotPlan, c *Curve) check.Check {
 		return check.New(check.OwnChange, check.Pass, fmt.Sprintf("%s %.2f mag %s on average.%s", lead, math.Abs(c.Change), fainter(c.Change), scatter))
 	}
 	return check.New(check.OwnChange, check.Fail, changeFail(sp, c, lead, rep, hasRep)+scatter)
+}
+
+// levelsWords names the flagged night and filter levels the change
+// averages, as independent ones when a mirror joined two of them.
+func levelsWords(c *Curve) string {
+	if len(c.Mirrors) > 0 {
+		return fmt.Sprintf("%d independent flagged night and filter levels", c.ChangeLevels)
+	}
+	return fmt.Sprintf("%d flagged nights and filters", c.ChangeLevels)
 }
 
 // changeFail says why the flagged nights fail the change check: their

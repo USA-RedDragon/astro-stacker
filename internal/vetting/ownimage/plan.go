@@ -62,6 +62,9 @@ type spotPlan struct {
 	recs     []*rec
 	stamps   *stamps
 	fadeSign int
+	// mirrors are the filters in which two flagged nights are each
+	// other's only reference.
+	mirrors []Mirror
 	// masters are each filter's master around a spot with no star, and
 	// mSigma their star widths.
 	masters map[string][]float32
@@ -182,6 +185,7 @@ func refSets(subs []Sub, sp *spotPlan, refSubs int) {
 			sp.sets = append(sp.sets, set)
 		}
 	}
+	sp.mirrors = mirrorsOf(subs, sp.sets)
 }
 
 // field is a target's Gaia stars, read once, placed on its frame, with
