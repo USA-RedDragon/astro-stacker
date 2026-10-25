@@ -1,6 +1,7 @@
 package period
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -654,57 +655,134 @@ func (a *analysis) halfSine() check.Check {
 	return check.New(check.Half, check.Fail, fmt.Sprintf("A cycle of %s days fits as well, so the period may be %s days.", half, half))
 }
 
+// Thresholds of the double check on a smooth cycle. Each season of each
+// band is tested on its own, since a spotted star's cycle drifts in phase
+// from season to season and odd and even cycles pooled over all seasons
+// then differ: 28305 (Gaia DR3 171049722563343232, P = 3.833 days) drifted
+// 0.78 to 1.07 in phase over eight ZTF seasons and its pooled r cycles
+// differed while no single season's did. Odd and even cycles differ when
+// they do in more than half the seasons compared.
+const (
+	parityMinPoints = 10
+	parityChi2      = 13.8
+	parityAmpShare  = 0.2
+	parityGapDays   = 60
+)
+
+// parityFit is the weighted fit of a level and a cycle at period P to
+// pts: the cycle's cosine and sine terms and their covariance (var a,
+// var b, cov ab).
+func parityFit(pts []obs, period, t0 float64) ([2]float64, [3]float64, bool) {
+	var n [3][3]float64
+	var r [3]float64
+	for _, p := range pts {
+		th := 2 * math.Pi * (p.t - t0) / period
+		v := [3]float64{1, math.Cos(th), math.Sin(th)}
+		w := 1 / (p.e * p.e)
+		for i := range 3 {
+			r[i] += w * v[i] * p.y
+			for j := range 3 {
+				n[i][j] += w * v[i] * v[j]
+			}
+		}
+	}
+	inv, ok := invert3(n)
+	if !ok {
+		return [2]float64{}, [3]float64{}, false
+	}
+	var x [3]float64
+	for i := range 3 {
+		for j := range 3 {
+			x[i] += inv[i][j] * r[j]
+		}
+	}
+	return [2]float64{x[1], x[2]}, [3]float64{inv[1][1], inv[2][2], inv[1][2]}, true
+}
+
+func invert3(m [3][3]float64) ([3][3]float64, bool) {
+	var c [3][3]float64
+	for i := range 3 {
+		for j := range 3 {
+			i1, i2 := (i+1)%3, (i+2)%3
+			j1, j2 := (j+1)%3, (j+2)%3
+			c[j][i] = m[i1][j1]*m[i2][j2] - m[i1][j2]*m[i2][j1]
+		}
+	}
+	det := m[0][0]*c[0][0] + m[0][1]*c[1][0] + m[0][2]*c[2][0]
+	if !(math.Abs(det) > 0) || math.IsInf(det, 0) || math.IsNaN(det) {
+		return c, false
+	}
+	for i := range 3 {
+		for j := range 3 {
+			c[i][j] /= det
+		}
+	}
+	return c, true
+}
+
+// parityDiffers tests one season of one band: whether its odd and even
+// cycles' fits differ at parityChi2 and by more than parityAmpShare of the
+// band's amplitude; ok is false when either parity has too few points.
+func parityDiffers(pts []obs, period, t0, amp float64) (differs, ok bool) {
+	var by [2][]obs
+	for _, p := range pts {
+		x := (p.t - t0) / period
+		par := ((int(math.Floor(x)) % 2) + 2) % 2
+		by[par] = append(by[par], p)
+	}
+	if len(by[0]) < parityMinPoints || len(by[1]) < parityMinPoints {
+		return false, false
+	}
+	ab0, cv0, ok0 := parityFit(by[0], period, t0)
+	ab1, cv1, ok1 := parityFit(by[1], period, t0)
+	if !ok0 || !ok1 {
+		return false, false
+	}
+	da, db := ab0[0]-ab1[0], ab0[1]-ab1[1]
+	va, vb, vab := cv0[0]+cv1[0], cv0[1]+cv1[1], cv0[2]+cv1[2]
+	det := va*vb - vab*vab
+	if !(det > 0) {
+		return false, false
+	}
+	chi := (vb*da*da - 2*vab*da*db + va*db*db) / det
+	return chi > parityChi2 && math.Hypot(da, db) > parityAmpShare*amp, true
+}
+
 func (a *analysis) doubleSine() check.Check {
 	s := a.sine
 	dbl := fmtPeriod(2*s.P, 2*s.res.sigma(0))
-	type acc struct{ cc, ss, cs, yc, ys float64 }
-	sums := make([][2]acc, len(a.d.groups))
-	counts := make([][2]int, len(a.d.groups))
+	byGroup := make([][]obs, len(a.d.groups))
 	a.rawPoints(func(_ *series, p obs) {
-		x := (p.t - s.T0) / s.P
-		par := ((int(math.Floor(x)) % 2) + 2) % 2
-		th := 2 * math.Pi * x
-		c, sn := math.Cos(th), math.Sin(th)
-		w := 1 / (p.e * p.e)
-		q := &sums[p.g][par]
-		q.cc += w * c * c
-		q.ss += w * sn * sn
-		q.cs += w * c * sn
-		q.yc += w * p.y * c
-		q.ys += w * p.y * sn
-		counts[p.g][par]++
+		byGroup[p.g] = append(byGroup[p.g], p)
 	})
 	compared := 0
-	for g := range sums {
-		if counts[g][0] < 10 || counts[g][1] < 10 {
+	for g, pts := range byGroup {
+		if a.d.groups[g].survey == lc.TESS && s.P > tessFlatMaxPeriod {
 			continue
 		}
-		var ab [2][2]float64
-		var cov [2][3]float64
-		ok := true
-		for p := range 2 {
-			q := sums[g][p]
-			det := q.cc*q.ss - q.cs*q.cs
-			if det <= 0 {
-				ok = false
-				break
+		slices.SortStableFunc(pts, func(x, y obs) int { return cmp.Compare(x.t, y.t) })
+		seasons, differ := 0, 0
+		lo := 0
+		for i := 1; i <= len(pts); i++ {
+			if i < len(pts) && pts[i].t-pts[i-1].t <= parityGapDays {
+				continue
 			}
-			ab[p] = [2]float64{(q.ss*q.yc - q.cs*q.ys) / det, (q.cc*q.ys - q.cs*q.yc) / det}
-			cov[p] = [3]float64{q.ss / det, q.cc / det, -q.cs / det}
+			d, ok := parityDiffers(pts[lo:i], s.P, s.T0, s.amp[g])
+			lo = i
+			if !ok {
+				continue
+			}
+			seasons++
+			if d {
+				differ++
+			}
 		}
-		if !ok {
+		if seasons == 0 {
 			continue
 		}
 		compared++
-		da, db := ab[0][0]-ab[1][0], ab[0][1]-ab[1][1]
-		va, vb, vab := cov[0][0]+cov[1][0], cov[0][1]+cov[1][1], cov[0][2]+cov[1][2]
-		det := va*vb - vab*vab
-		if det <= 0 {
-			continue
-		}
-		chi := (vb*da*da - 2*vab*da*db + va*db*db) / det
-		if chi > 25 && math.Hypot(da, db) > 0.2*s.amp[g] {
-			return check.New(check.Double, check.Fail, fmt.Sprintf("Odd and even cycles differ in %s, so the true period may be %s days.", bandLabel(a.d.groups[g]), dbl))
+		if 2*differ > seasons {
+			return check.New(check.Double, check.Fail, fmt.Sprintf("Odd and even cycles differ in %s in %d of %d seasons, so the true period may be %s days.", bandLabel(a.d.groups[g]), differ, seasons, dbl))
 		}
 	}
 	if compared == 0 {
