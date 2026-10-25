@@ -66,7 +66,7 @@ func TestATLASFailedSubtraction41445(t *testing.T) {
 			feb26 = &n
 		}
 	}
-	if feb26 == nil || feb26.cut != 2 || feb26.count != 2 || !feb26.failed(1) {
+	if feb26 == nil || feb26.cut != 2 || feb26.count != 2 || !feb26.failed(1) || !feb26.failed(0) {
 		t.Fatalf("2025-02-26 o is not a failed night: %+v", feb26)
 	}
 	fx.rows = nil
@@ -94,5 +94,55 @@ func TestATLASOutburst23991(t *testing.T) {
 	t.Logf("%s: %s", c.Status, c.Evidence)
 	if c.Status != check.Pass {
 		t.Errorf("ATLAS did not confirm a real outburst: %s %s", c.Status, c.Evidence)
+	}
+}
+
+// quietATLAS is a hundred quiet nights of one camera a year before the
+// flagged one, to set the spot's level.
+func quietATLAS(cam string, from float64) []surveys.ATLASRow {
+	rows := make([]surveys.ATLASRow, 0, 400)
+	for d := range 100 {
+		for k := range 4 {
+			f := float64((d*4+k)%5-2) * 4
+			rows = append(rows, surveys.ATLASRow{MJD: from + float64(d)*2 + 0.3 + float64(k)*0.01, UJy: f, DUJy: 8, Filter: "o", Obs: cam + "60000o0001o", ChiN: 1})
+		}
+	}
+	return rows
+}
+
+// TestATLASNightAcrossMidnight is a night of ATLAS's unit in Chile that
+// crosses 0h UTC: its first two frames failed their fit at 3000
+// microjansky and its last two, after midnight, measured 90. It is one
+// failed night, not a good one.
+func TestATLASNightAcrossMidnight(t *testing.T) {
+	t.Parallel()
+	rows := quietATLAS("03a", 60400)
+	for _, r := range [][3]float64{{60800.98, 3000, 800}, {60800.99, 3100, 900}, {60801.01, 90, 2}, {60801.02, 92, 2}} {
+		rows = append(rows, surveys.ATLASRow{MJD: r[0], UJy: r[1], DUJy: 6, Filter: "o", Obs: "03a60801o0001o", ChiN: r[2]})
+	}
+	fx := transientFacts{flagged: []time.Time{nightDate("2025-05-06")}, atlas: surveys.Fetch{State: surveys.Done}, rows: rows,
+		reps: map[string]reported{discoveries.GroupBroadband + "\x00" + "2025-05-06": {mag: 17.26, ok: true}}}
+	c := atlasCheckTransient(fx)
+	t.Logf("%s: %s", c.Status, c.Evidence)
+	if c.Status == check.Pass {
+		t.Errorf("ATLAS confirmed light from the half of a failed night after midnight: %s", c.Evidence)
+	}
+}
+
+// TestATLASBrightCutFrames is a bright real source whose fit failed the
+// chi/N cut in 2 of its night's 5 frames while they measured its light as
+// the others did: the night still confirms it.
+func TestATLASBrightCutFrames(t *testing.T) {
+	t.Parallel()
+	rows := quietATLAS("02a", 60400)
+	for i, r := range [][2]float64{{500, 2}, {505, 3}, {498, 2}, {510, 15}, {495, 14}} {
+		rows = append(rows, surveys.ATLASRow{MJD: 60801.3 + float64(i)*0.01, UJy: r[0], DUJy: 10, Filter: "o", Obs: "02a60801o0001o", ChiN: r[1]})
+	}
+	fx := transientFacts{flagged: []time.Time{nightDate("2025-05-06")}, atlas: surveys.Fetch{State: surveys.Done}, rows: rows,
+		reps: map[string]reported{discoveries.GroupBroadband + "\x00" + "2025-05-06": {mag: 17.15, ok: true}}}
+	c := atlasCheckTransient(fx)
+	t.Logf("%s: %s", c.Status, c.Evidence)
+	if c.Status != check.Pass {
+		t.Errorf("ATLAS did not confirm a bright source whose cut frames agree: %s %s", c.Status, c.Evidence)
 	}
 }

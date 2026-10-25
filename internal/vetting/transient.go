@@ -898,6 +898,32 @@ type atlasNight struct {
 	count   int
 	cut     int
 	cutFlux float64
+	cuts    [][2]float64
+}
+
+// atlasCamLon is each ATLAS unit's longitude east, in degrees, from the
+// ATLAS sites' published positions: the units in Chile and South Africa
+// observe across 0h UTC, so a night is told by its local date.
+func atlasCamLon(obs string) float64 {
+	switch {
+	case strings.HasPrefix(obs, "01a"):
+		return -156.3
+	case strings.HasPrefix(obs, "02a"):
+		return -155.6
+	case strings.HasPrefix(obs, "03a"):
+		return -70.8
+	case strings.HasPrefix(obs, "04a"):
+		return 20.8
+	case strings.HasPrefix(obs, "05r"):
+		return -16.5
+	}
+	return 0
+}
+
+// atlasNightOf is the local date, as a day number, of the night an ATLAS
+// frame was taken in, split at local noon.
+func atlasNightOf(r surveys.ATLASRow) int {
+	return int(math.Floor(r.MJD + atlasCamLon(r.Obs)/360 - 0.5))
 }
 
 // atlasCutShare and atlasCutSlack judge a date's frames cut for chi/N:
@@ -913,13 +939,29 @@ const (
 	atlasCutSlack = 1.0
 )
 
-// failed says the date's subtraction failed at the spot, for reported
-// light of repFlux microjansky, 0 when none was reported.
+// atlasCutApart is how far, in its own errors, a frame cut for chi/N must
+// stand from the night's frames that passed to count against the night:
+// a bright real source can fail the fit and still measure its light.
+const atlasCutApart = 5.0
+
+// failed says the night's subtraction failed at the spot, for reported
+// light of repFlux microjansky, 0 when none was reported: a night with no
+// frame that passed always did.
 func (n atlasNight) failed(repFlux float64) bool {
-	if float64(n.cut) > atlasCutShare*float64(n.count+n.cut) {
+	if n.count == 0 {
+		return n.cut > 0
+	}
+	if n.cut > 0 && repFlux > 0 && n.cutFlux >= repFlux*math.Pow(10, 0.4*atlasCutSlack) {
 		return true
 	}
-	return n.cut > 0 && repFlux > 0 && n.cutFlux >= repFlux*math.Pow(10, 0.4*atlasCutSlack)
+	apart := 0
+	for _, c := range n.cuts {
+		d := math.Abs(c[0] - n.flux)
+		if d > atlasCutApart*math.Hypot(c[1], n.err) && d > 0.5*math.Abs(n.flux) {
+			apart++
+		}
+	}
+	return float64(apart) > atlasCutShare*float64(n.count+n.cut)
 }
 
 // atlasBandDays and atlasBandSNR judge the other ATLAS band against a
@@ -972,8 +1014,8 @@ func atlasNights(rows []surveys.ATLASRow, flagged []time.Time, keep func(near fu
 		}
 	}
 	type key struct {
-		day  int
-		band string
+		night int
+		band  string
 	}
 	groups := map[key]*atlasNight{}
 	var keys []key
@@ -982,35 +1024,35 @@ func atlasNights(rows []surveys.ATLASRow, flagged []time.Time, keep func(near fu
 			continue
 		}
 		b := median(base[levelOf(r)])
-		k := key{int(math.Floor(r.MJD)), r.Filter}
+		k := key{atlasNightOf(r), r.Filter}
 		g, ok := groups[k]
 		if !ok {
 			g = &atlasNight{band: r.Filter}
 			groups[k] = g
 			keys = append(keys, k)
 		}
+		g.mjd += r.MJD
 		if r.ChiCut() {
 			if g.cut == 0 || r.UJy-b > g.cutFlux {
 				g.cutFlux = r.UJy - b
 			}
 			g.cut++
+			g.cuts = append(g.cuts, [2]float64{r.UJy - b, r.DUJy})
 			continue
 		}
 		w := 1 / (r.DUJy * r.DUJy)
 		g.flux += (r.UJy - b) * w
 		g.err += w
-		g.mjd += r.MJD
 		g.count++
 	}
 	out := make([]atlasNight, 0, len(keys))
 	for _, k := range keys {
 		g := groups[k]
-		if g.count == 0 {
-			continue
+		g.mjd /= float64(g.count + g.cut)
+		if g.count > 0 {
+			g.flux /= g.err
+			g.err = 1 / math.Sqrt(g.err)
 		}
-		g.flux /= g.err
-		g.err = 1 / math.Sqrt(g.err)
-		g.mjd /= float64(g.count)
 		out = append(out, *g)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].mjd < out[j].mjd })
@@ -1024,6 +1066,11 @@ func atlasNights(rows []surveys.ATLASRow, flagged []time.Time, keep func(near fu
 // "saw" new light that the user's own frames did not show.
 const atlasCommonShare = 0.02
 
+// atlasCommonMin is the fewest nights with frames cut for chi/N that may
+// set the level a night like them must stand out from: with fewer, one
+// stray night already makes more than atlasCommonShare.
+const atlasCommonMin = 50
+
 // atlasCommon is how many of ATLAS's nights away from the flagged ones
 // reach snr in the same direction, and of how many, when more than
 // atlasCommonShare of them do; 0 otherwise. With cut set it counts only
@@ -1033,7 +1080,7 @@ const atlasCommonShare = 0.02
 func atlasCommon(rows []surveys.ATLASRow, flagged []time.Time, snr float64, cut bool) (int, int) {
 	var away []atlasNight
 	for _, a := range atlasAway(rows, flagged) {
-		if !cut || a.cut > 0 {
+		if a.count > 0 && (!cut || a.cut > 0) {
 			away = append(away, a)
 		}
 	}
@@ -1043,7 +1090,7 @@ func atlasCommon(rows []surveys.ATLASRow, flagged []time.Time, snr float64, cut 
 			n++
 		}
 	}
-	if len(away) == 0 || float64(n) <= atlasCommonShare*float64(len(away)) {
+	if len(away) == 0 || (cut && len(away) < atlasCommonMin) || float64(n) <= atlasCommonShare*float64(len(away)) {
 		return 0, len(away)
 	}
 	return n, len(away)
@@ -1160,7 +1207,7 @@ func atlasSeen(fx transientFacts, ns []atlasNight, best atlasNight) check.Check 
 		}
 	}
 	for _, o := range ns {
-		if o.band == best.band || math.Abs(o.mjd-best.mjd) > atlasBandDays || !(o.err > 0) {
+		if o.band == best.band || o.mjd < best.mjd || o.mjd-best.mjd > atlasBandDays || !(o.err > 0) {
 			continue
 		}
 		if best.flux/o.err >= 2*seenSNR && o.flux/o.err < atlasBandSNR {
