@@ -127,8 +127,8 @@ const RefreshEvery = refreshEvery
 // whose pipeline changes gets a new input hash and is vetted again.
 const (
 	moverPipeline     = "mover:9"
-	transientPipeline = "transient:12"
-	starPipeline      = "star:23"
+	transientPipeline = "transient:13"
+	starPipeline      = "star:24"
 )
 
 func pipelineOf(s discoverysource.Summary) string {
