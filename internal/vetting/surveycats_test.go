@@ -103,8 +103,13 @@ func TestLAMOSTPeriodicListsSource28305(t *testing.T) {
 		!strings.Contains(s.Why, "repeat every 3.8339 days instead of 11.31957") {
 		t.Errorf("3.833 days: %+v", s)
 	}
-	if s := verdict(11.32); s.State != app.VetKnown || s.Say != sayAlreadyKnown {
-		t.Errorf("11.32 days: %+v", s)
+	if strings.Contains(s.Why, "no catalog lists") {
+		t.Errorf("3.833 days says no catalog lists the star: %q", s.Why)
+	}
+	for _, p := range []float64{11.32, 2 * 11.319572, 11.319572 / 2, 1 / (1 + 1/11.319572)} {
+		if s := verdict(p); s.State != app.VetKnown || s.Say != sayAlreadyKnown {
+			t.Errorf("%v days: %+v", p, s)
+		}
 	}
 }
 

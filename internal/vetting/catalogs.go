@@ -85,6 +85,9 @@ func (k *Known) list(what string, period float64) {
 // must sit from the listed one to call the listed period wrong.
 const periodRevisedFraction = 0.02
 
+// noCatalog is the clause a new periodic star's verdict ends with.
+const noCatalog = ", and no catalog lists the star as variable"
+
 // periodRevised is the verdict on a listed star whose own survey data
 // stand up as periodic (ps real) at a period other than the one listed.
 func periodRevised(known Known, ps *Suggestion, pr *period.Result) (Suggestion, bool) {
@@ -92,11 +95,25 @@ func periodRevised(known Known, ps *Suggestion, pr *period.Result) (Suggestion, 
 		return Suggestion{}, false
 	}
 	p := pr.Ephemeris.Period
-	if !(p > 0) || math.Abs(p/known.ListedPeriod-1) <= periodRevisedFraction {
+	if !(p > 0) || samePeriod(p, known.ListedPeriod) {
 		return Suggestion{}, false
 	}
 	return Suggestion{State: app.VetKnown, Say: fmt.Sprintf("Known variable, period revised to %s days", shortPeriod(p)), Confidence: ps.Confidence, Kind: ps.Kind,
-		Why: joinSentences(sentence(known.Listed), fmt.Sprintf("The survey data here repeat every %s days instead of %s.", periodText(p), periodText(known.ListedPeriod)), ps.Why)}, true
+		Why: joinSentences(sentence(known.Listed), fmt.Sprintf("The survey data here repeat every %s days instead of %s.", periodText(p), periodText(known.ListedPeriod)), strings.ReplaceAll(ps.Why, noCatalog+".", "."))}, true
+}
+
+// samePeriod says whether the vet's period p and a listed period agree
+// within periodRevisedFraction, counting twice or half the listed period
+// and a one-day alias of it as agreeing: catalogs list eclipsing binaries
+// at half their period, and nightly sampling makes one-day aliases, so
+// neither shows the listing wrong.
+func samePeriod(p, listed float64) bool {
+	for _, k := range []float64{1, 2, 0.5} {
+		if math.Abs(p/(k*listed)-1) <= periodRevisedFraction {
+			return true
+		}
+	}
+	return math.Abs(math.Abs(1/p-1/listed)-1) <= periodRevisedFraction
 }
 
 func arcsec(ra1, dec1, ra2, dec2 float64) float64 {

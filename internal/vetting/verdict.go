@@ -312,7 +312,7 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 			drift = joinSentences(evidence(groups, check.Fold), fmt.Sprintf("Its timing drifts, as a spotted or semi-regular star's does, but %d of %d seasons fitted band by band on their own find the %s-day cycle.", pr.Robust.SeasonHits, pr.Robust.SeasonFits, ps))
 		}
 		return Suggestion{State: app.VetReal, Say: say, Confidence: conf, Kind: KindPeriodic,
-			Why: joinSentences(fmt.Sprintf("%s show it varying every %s days, and no catalog lists the star as variable.", surveysSeen, p),
+			Why: joinSentences(fmt.Sprintf("%s show it varying every %s days"+noCatalog+".", surveysSeen, p),
 				drift, alias, trend, evidence(groups, check.Echo), evidence(groups, check.Compare))}
 	}
 	conf := Medium
@@ -331,7 +331,7 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 	if (curve != nil || timing != nil) && len(e.Eclipses) > 1 {
 		which = dipCaught(e, sum, timing, curve)
 	}
-	why := joinSentences(which, fmt.Sprintf("%s show the same dips every %s days, and no catalog lists the star as variable.", surveysSeen, p))
+	why := joinSentences(which, fmt.Sprintf("%s show the same dips every %s days"+noCatalog+".", surveysSeen, p))
 	return Suggestion{State: app.VetReal, Say: fmt.Sprintf("Looks like a new eclipsing binary, repeats every %s days", shortPeriod(e.Period)), Confidence: conf, Kind: KindEclipsingBinary, Why: why}
 }
 
