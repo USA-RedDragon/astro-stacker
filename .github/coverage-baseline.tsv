@@ -151,7 +151,7 @@ internal/discoveries/null.go	106	91
 internal/discoveries/offsetguard.go	44	41
 internal/discoveries/progress.go	77	72
 internal/discoveries/refnights.go	195	182
-internal/discoveries/runner.go	765	590
+internal/discoveries/runner.go	765	591
 internal/discoveries/sensor.go	212	205
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
@@ -167,7 +167,7 @@ internal/discoveryreport/ades.go	42	40
 internal/discoveryreport/bulk.go	24	22
 internal/discoveryreport/known.go	143	133
 internal/discoveryreport/report.go	335	299
-internal/discoveryreport/service.go	310	225
+internal/discoveryreport/service.go	310	226
 internal/discoveryreport/tns.go	97	81
 internal/discoverysource/list.go	255	233
 internal/discoverysource/match.go	27	24
@@ -183,6 +183,8 @@ internal/dustcheck/dustmap.go	80	80
 internal/dustcheck/encode.go	103	93
 internal/dustcheck/filters.go	224	222
 internal/dustcheck/lights.go	132	126
+internal/dustcheck/rim.go	158	151
+internal/dustcheck/rimtemplate.go	22	19
 internal/ephem/ephem.go	86	74
 internal/ephem/gen/main.go	91	0
 internal/ephem/observe.go	96	90
@@ -235,7 +237,7 @@ internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/memlimit/memlimit.go	15	7
-internal/memwatch/memwatch.go	58	44
+internal/memwatch/memwatch.go	58	49
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -246,10 +248,10 @@ internal/moonkeep/samples.go	42	42
 internal/moonkeep/service.go	289	239
 internal/morningreport/analyze.go	242	222
 internal/morningreport/claims.go	41	27
-internal/morningreport/collect.go	267	145
+internal/morningreport/collect.go	268	146
 internal/morningreport/dark.go	46	44
 internal/morningreport/drops.go	38	38
-internal/morningreport/dust.go	79	63
+internal/morningreport/dust.go	111	79
 internal/morningreport/format.go	388	348
 internal/morningreport/images.go	148	122
 internal/morningreport/known.go	27	25
@@ -417,7 +419,7 @@ internal/stacking/filecache.go	33	28
 internal/stacking/freespace_unix.go	7	5
 internal/stacking/gain.go	118	108
 internal/stacking/header.go	308	161
-internal/stacking/laterecord.go	81	54
+internal/stacking/laterecord.go	92	61
 internal/stacking/lightleak.go	33	25
 internal/stacking/linearfit.go	247	117
 internal/stacking/localnorm.go	211	202
@@ -434,14 +436,15 @@ internal/stacking/nth.go	27	27
 internal/stacking/offtemp.go	45	42
 internal/stacking/outputs.go	167	60
 internal/stacking/photometry.go	55	47
-internal/stacking/pipeline.go	490	252
+internal/stacking/pipeline.go	491	252
 internal/stacking/pointing.go	93	64
-internal/stacking/process.go	278	52
+internal/stacking/process.go	292	52
 internal/stacking/rebuild.go	329	306
 internal/stacking/recalflat.go	129	106
 internal/stacking/recalibrate.go	120	107
 internal/stacking/registered.go	378	274
-internal/stacking/rescore.go	83	56
+internal/stacking/rescore.go	96	63
+internal/stacking/rimstreak.go	175	72
 internal/stacking/shadow.go	223	220
 internal/stacking/status.go	71	23
 internal/stacking/telescopes.go	61	56
