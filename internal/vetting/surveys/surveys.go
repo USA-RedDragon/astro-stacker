@@ -176,8 +176,9 @@ func (f *Fetcher) ATLAS(ctx context.Context, field Field, t Target) Fetch {
 }
 
 // ATLASRows is ATLAS forced photometry at a position, queued on first use
-// like ATLAS, as the rows passing the quality cuts: for a spot with no
-// star to scale the fluxes by.
+// like ATLAS, as the rows passing the quality cuts but chi/N, which the
+// caller applies: for a spot with no star to scale the fluxes by, where a
+// night's rows cut for chi/N say its subtraction failed there.
 func (f *Fetcher) ATLASRows(ctx context.Context, field Field, t Target) (Fetch, []ATLASRow) {
 	var rows []ATLASRow
 	fe := f.atlas(ctx, field, t, func(text []byte) Fetch {
@@ -186,7 +187,7 @@ func (f *Fetcher) ATLASRows(ctx context.Context, field Field, t Target) (Fetch, 
 			return failed(lc.ATLAS, "could not read the ATLAS result: %v", err)
 		}
 		for _, r := range all {
-			if r.Good() && !math.IsNaN(r.UJy) && !math.IsNaN(r.DUJy) {
+			if r.Fair() && !math.IsNaN(r.UJy) && !math.IsNaN(r.DUJy) {
 				rows = append(rows, r)
 			}
 		}

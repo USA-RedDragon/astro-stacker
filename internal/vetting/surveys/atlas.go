@@ -417,7 +417,16 @@ const atlasMaxChiN = 10
 // Good says whether a row passes the cuts the ATLAS FAQ suggests and the
 // chi/N cut. A result without a chi/N column passes that cut.
 func (r ATLASRow) Good() bool {
-	return r.DUJy < 10000 && r.Err == 0 && !(r.ChiN >= atlasMaxChiN) &&
+	return r.Fair() && !r.ChiCut()
+}
+
+// ChiCut says whether the row's PSF fit is worse than the chi/N cut.
+func (r ATLASRow) ChiCut() bool { return r.ChiN >= atlasMaxChiN }
+
+// Fair says whether a row passes the cuts the ATLAS FAQ suggests, chi/N
+// aside: a frame of a night whose subtraction failed at the spot.
+func (r ATLASRow) Fair() bool {
+	return r.DUJy < 10000 && r.Err == 0 &&
 		r.X > 100 && r.X < 10460 && r.Y > 100 && r.Y < 10460 &&
 		r.Maj > 1.6 && r.Maj < 5 && r.Min > 1.6 && r.Min < 5 &&
 		r.APFit > -1 && r.APFit < -0.1 && r.Mag5 > 17 && r.Sky > 17 &&

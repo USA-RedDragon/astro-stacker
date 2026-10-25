@@ -867,14 +867,50 @@ func beforeCheck(fx transientFacts) check.Check {
 }
 
 // atlasNight is ATLAS's difference light on one date near a flagged
-// night, against its own level away from them.
+// night, against its own level away from them, from the frames that pass
+// the chi/N cut. cut counts the date's frames that do not, and cutFlux is
+// the most light any of them measured.
 type atlasNight struct {
-	mjd   float64
-	band  string
-	flux  float64
-	err   float64
-	count int
+	mjd     float64
+	band    string
+	flux    float64
+	err     float64
+	count   int
+	cut     int
+	cutFlux float64
 }
+
+// atlasCutShare and atlasCutSlack judge a date's frames cut for chi/N:
+// with more than a quarter of them cut, or any measuring light
+// atlasCutSlack magnitudes or more above the light the detection
+// reported, the subtraction failed at the spot that date and its other
+// frames confirm nothing. 41445 in the Rosette Nebula, 14 arcsec from a G
+// 14.3 star, was "seen" on 2025-02-26 at 87 microjansky in the 2 of 4 o
+// frames that passed; the other 2 measured 1420 and 3193 at chi/N 814 and
+// 2720, against 452 reported.
+const (
+	atlasCutShare = 0.25
+	atlasCutSlack = 1.0
+)
+
+// failed says the date's subtraction failed at the spot, for reported
+// light of repFlux microjansky, 0 when none was reported.
+func (n atlasNight) failed(repFlux float64) bool {
+	if float64(n.cut) > atlasCutShare*float64(n.count+n.cut) {
+		return true
+	}
+	return n.cut > 0 && repFlux > 0 && n.cutFlux >= repFlux*math.Pow(10, 0.4*atlasCutSlack)
+}
+
+// atlasBandDays and atlasBandSNR judge the other ATLAS band against a
+// detection in one: a date of it within atlasBandDays, deep enough that
+// the light would show at twice seenSNR, must show it at atlasBandSNR or
+// more. ATLAS's c frames 12 hours after 41445's o "detection" measured 3.9
+// ± 6.3 microjansky where 87 would show at 14.
+const (
+	atlasBandDays = 1.0
+	atlasBandSNR  = 2.0
+)
 
 func atlasLevels(rows []surveys.ATLASRow, flagged []time.Time) []atlasNight {
 	return atlasNights(rows, flagged, func(near func(float64, float64) bool, mjd float64) bool { return near(mjd, confirmDays) })
@@ -911,7 +947,7 @@ func atlasNights(rows []surveys.ATLASRow, flagged []time.Time, keep func(near fu
 		return fmt.Sprintf("%s %s %d", r.Filter, cam, span)
 	}
 	for _, r := range rows {
-		if !near(r.MJD, atlasBaseDays) {
+		if !r.ChiCut() && !near(r.MJD, atlasBaseDays) {
 			base[levelOf(r)] = append(base[levelOf(r)], r.UJy)
 		}
 	}
@@ -933,6 +969,13 @@ func atlasNights(rows []surveys.ATLASRow, flagged []time.Time, keep func(near fu
 			groups[k] = g
 			keys = append(keys, k)
 		}
+		if r.ChiCut() {
+			if g.cut == 0 || r.UJy-b > g.cutFlux {
+				g.cutFlux = r.UJy - b
+			}
+			g.cut++
+			continue
+		}
 		w := 1 / (r.DUJy * r.DUJy)
 		g.flux += (r.UJy - b) * w
 		g.err += w
@@ -942,6 +985,9 @@ func atlasNights(rows []surveys.ATLASRow, flagged []time.Time, keep func(near fu
 	out := make([]atlasNight, 0, len(keys))
 	for _, k := range keys {
 		g := groups[k]
+		if g.count == 0 {
+			continue
+		}
 		g.flux /= g.err
 		g.err = 1 / math.Sqrt(g.err)
 		g.mjd /= float64(g.count)
@@ -960,9 +1006,17 @@ const atlasCommonShare = 0.02
 
 // atlasCommon is how many of ATLAS's nights away from the flagged ones
 // reach snr in the same direction, and of how many, when more than
-// atlasCommonShare of them do; 0 otherwise.
-func atlasCommon(rows []surveys.ATLASRow, flagged []time.Time, snr float64) (int, int) {
-	away := atlasAway(rows, flagged)
+// atlasCommonShare of them do; 0 otherwise. With cut set it counts only
+// the nights with frames cut for chi/N: the frames that pass on such
+// nights lean bright, at 41445 at a median signal to noise of 1.7 with
+// 12.6% reaching 5, against 5% of all nights.
+func atlasCommon(rows []surveys.ATLASRow, flagged []time.Time, snr float64, cut bool) (int, int) {
+	var away []atlasNight
+	for _, a := range atlasAway(rows, flagged) {
+		if !cut || a.cut > 0 {
+			away = append(away, a)
+		}
+	}
 	n := 0
 	for _, a := range away {
 		if a.flux/a.err >= snr {
@@ -1012,8 +1066,23 @@ func atlasCheckTransient(fx transientFacts) check.Check {
 		return check.Skipped(check.TransATLAS, "ATLAS never looked at this spot.")
 	case surveys.Done:
 	}
-	ns := atlasLevels(fx.rows, fx.flagged)
+	repFlux := 0.0
+	if rep, ok := brightestReported(fx.reps); ok {
+		repFlux = math.Pow(10, -0.4*(rep-atlasZero))
+	}
+	var ns []atlasNight
+	var failed []string
+	for _, n := range atlasLevels(fx.rows, fx.flagged) {
+		if n.failed(repFlux) {
+			failed = append(failed, mjdDate(n.mjd)+" "+atlasBand(n.band))
+			continue
+		}
+		ns = append(ns, n)
+	}
 	if len(ns) == 0 {
+		if len(failed) > 0 {
+			return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS's image subtraction failed at the spot on every night it looked within %.0f days (%s), so its light there says nothing.", confirmDays, joinWords(failed)))
+		}
 		return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS has no good frames within %.0f days of the flagged nights.", confirmDays))
 	}
 	best := ns[0]
@@ -1023,17 +1092,7 @@ func atlasCheckTransient(fx transientFacts) check.Check {
 		}
 	}
 	if best.flux/best.err >= seenSNR && best.flux > 0 {
-		mag := atlasZero - 2.5*math.Log10(best.flux)
-		if rep, ok := brightestReported(fx.reps); ok && mag < rep-atlasMagSlack {
-			return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s, far brighter than the %.1f your frames reported; that is a nearby star's light, not the new light.",
-				mag, mjdDate(best.mjd), rep))
-		}
-		if n, of := atlasCommon(fx.rows, fx.flagged, best.flux/best.err); n > 0 {
-			return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s (signal to noise %.0f), but %d of %d other ATLAS nights at this spot reach that too, so it does not stand out from what ATLAS always measures here.",
-				mag, mjdDate(best.mjd), best.flux/best.err, n, of))
-		}
-		return check.New(check.TransATLAS, check.Pass, fmt.Sprintf("ATLAS saw it on %s at magnitude %.1f in its %s band (signal to noise %.0f, from %d frames).",
-			mjdDate(best.mjd), mag, atlasBand(best.band), best.flux/best.err, best.count))
+		return atlasSeen(fx, ns, best)
 	}
 	peakFlux := 0.0
 	peakNight := ""
@@ -1059,6 +1118,38 @@ func atlasCheckTransient(fx transientFacts) check.Check {
 		}
 	}
 	return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS has %d nights of frames within %.0f days, but none shows it clearly; the best is signal to noise %.1f on %s.", len(ns), confirmDays, best.flux/best.err, mjdDate(best.mjd)))
+}
+
+// atlasSeen judges ATLAS's best night near the flagged ones, best, which
+// stood at seenSNR or more, against the light reported, the spot's other
+// ATLAS nights and its other band within atlasBandDays.
+func atlasSeen(fx transientFacts, ns []atlasNight, best atlasNight) check.Check {
+	mag := atlasZero - 2.5*math.Log10(best.flux)
+	if rep, ok := brightestReported(fx.reps); ok && mag < rep-atlasMagSlack {
+		return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s, far brighter than the %.1f your frames reported; that is a nearby star's light, not the new light.",
+			mag, mjdDate(best.mjd), rep))
+	}
+	if n, of := atlasCommon(fx.rows, fx.flagged, best.flux/best.err, false); n > 0 {
+		return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s (signal to noise %.0f), but %d of %d other ATLAS nights at this spot reach that too, so it does not stand out from what ATLAS always measures here.",
+			mag, mjdDate(best.mjd), best.flux/best.err, n, of))
+	}
+	if best.cut > 0 {
+		if n, of := atlasCommon(fx.rows, fx.flagged, best.flux/best.err, true); n > 0 {
+			return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s (signal to noise %.0f), but some frames that night failed their fit at the spot, and %d of %d other ATLAS nights like that reach this too.",
+				mag, mjdDate(best.mjd), best.flux/best.err, n, of))
+		}
+	}
+	for _, o := range ns {
+		if o.band == best.band || math.Abs(o.mjd-best.mjd) > atlasBandDays || !(o.err > 0) {
+			continue
+		}
+		if best.flux/o.err >= 2*seenSNR && o.flux/o.err < atlasBandSNR {
+			return check.Skipped(check.TransATLAS, fmt.Sprintf("ATLAS measured magnitude %.1f on %s in its %s band, but its %s band on %s, deep enough to show that at signal to noise %.0f, measured %.0f ± %.0f microjansky, so the two do not agree.",
+				mag, mjdDate(best.mjd), atlasBand(best.band), atlasBand(o.band), mjdDate(o.mjd), best.flux/o.err, o.flux, o.err))
+		}
+	}
+	return check.New(check.TransATLAS, check.Pass, fmt.Sprintf("ATLAS saw it on %s at magnitude %.1f in its %s band (signal to noise %.0f, from %d frames).",
+		mjdDate(best.mjd), mag, atlasBand(best.band), best.flux/best.err, best.count))
 }
 
 // atlasMissedReported fails new light too faint in the user's own frames
