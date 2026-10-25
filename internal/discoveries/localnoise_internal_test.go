@@ -123,24 +123,71 @@ func TestLocallyFaintBrighteningIsHeld(t *testing.T) {
 }
 
 // TestPerSubErrorsTakeTheLocalNoise: a change in every sub at twice each
-// sub's picture-wide noise is in none of them at 3.4 times that noise.
+// sub's picture-wide noise is in none of them at 3.4 times that noise, and
+// the errors the light curve keeps are the local ones.
 func TestPerSubErrorsTakeTheLocalNoise(t *testing.T) {
 	t.Parallel()
-	c := &cand{}
-	c.Sign = 1
+	for _, tc := range []struct {
+		scale   float64
+		present int
+	}{{0, 8}, {0.8, 8}, {3.4, 0}} {
+		c := &cand{noiseScale: tc.scale}
+		c.Sign = 1
+		for range 8 {
+			c.fluxes, c.errs = append(c.fluxes, 1), append(c.errs, 0.5*c.localScale())
+			c.Light = append(c.Light, LightPoint{Filter: broadbandClear, FluxErr: 0.5 * c.localScale()})
+		}
+		if _, st := c.subTest(); st.present != tc.present {
+			t.Errorf("noise %.1f times the picture's: %+v", tc.scale, st)
+		}
+	}
+}
+
+// TestSubErrorsMatchTheNebula is 41445 (Rosette Nebula, H-a, 2025-02-28)
+// in miniature: subs of unit noise but for a nebula 1.6 times as noisy,
+// as the subs there measured 1.51 to 1.66 times their picture-wide
+// noise. A change at the nebula's spot must carry errors that match the
+// scatter of empty apertures around it within 10%, where the picture-wide
+// errors were about 1.6 times too small.
+func TestSubErrorsMatchTheNebula(t *testing.T) {
+	t.Parallel()
+	const n, s = 512, 1.6
+	rng := rand.New(rand.NewPCG(41, 445))
+	field := func() *Plane {
+		p := NewPlane(n, n)
+		for y := range n {
+			for x := range n {
+				v := rng.NormFloat64()
+				if x >= 192 && x < 320 && y >= 192 && y < 320 {
+					v *= s
+				}
+				p.Data[y*n+x] = float32(v)
+			}
+		}
+		return p
+	}
+	ref, edge := NewPlane(n, n), make([]bool, n*n)
+	diff := field()
+	global := emptyApertureSigma(diff, edge, apertureR, emptyApertures)
+	m := newNoiseMap(diff, ref, edge, global)
+	c := &cand{noiseScale: m.at(256, 256) / global}
+	old, now, empty := make([]float64, 0, 8), make([]float64, 0, 8), make([]float64, 0, 8)
 	for range 8 {
-		c.fluxes, c.errs = append(c.fluxes, 1), append(c.errs, 0.5)
-		c.Light = append(c.Light, LightPoint{Filter: broadbandClear})
+		sub := field()
+		sig := emptyApertureSigma(sub, edge, apertureR, 4000)
+		var v []float64
+		for i := 1; i <= 300; i++ {
+			v = append(v, Aperture(sub, 200+halton(i, 2)*112, 200+halton(i, 3)*112, apertureR))
+		}
+		old, now, empty = append(old, sig), append(now, sig*c.localScale()), append(empty, robustStd(v))
 	}
-	if _, st := c.subTest(); st.reason != "" || st.present != 8 {
-		t.Fatalf("in calm sky: %+v", st)
+	o, w, e := median64(old), median64(now), median64(empty)
+	t.Logf("empty apertures at the spot %.3f, picture-wide error %.3f (%.2f times too small), local error %.3f", e, o, e/o, w)
+	if e/o < 1.4 {
+		t.Fatalf("the field does not show the nebula's noise: %.2f", e/o)
 	}
-	c.noiseScale = 3.4
-	if _, st := c.subTest(); st.present != 0 || st.reason == "" {
-		t.Errorf("on the bulge: %+v", st)
-	}
-	if c.errs[0] != 0.5 {
-		t.Error("the subs' own errors are kept")
+	if math.Abs(w/e-1) > 0.1 {
+		t.Errorf("sub errors %.3f against %.3f measured at the spot", w, e)
 	}
 }
 

@@ -879,9 +879,9 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 		for ci := range cands {
 			c := &cands[ci]
 			if c.wide {
-				lightPoint(c, p, ns, residualR, sigWide, ns.fs.zpWide)
+				lightPoint(c, p, ns, residualR, sigWide*c.localScale(), ns.fs.zpWide)
 			} else {
-				lightPoint(c, p, ns, apertureR, sig, ns.fs.zp)
+				lightPoint(c, p, ns, apertureR, sig*c.localScale(), ns.fs.zp)
 			}
 			c.sharp = append(c.sharp, signedSharpness(p, c.X, c.Y, c.Sign))
 			sx, sy := math.NaN(), math.NaN()
@@ -1481,9 +1481,9 @@ func apertureMags(ref, diff, sigma float64, zp *float64) (deltaMag, refMag, nigh
 func (c *cand) subTest() (*cand, perSubStats) {
 	if c.Filter != "" {
 		m := c.only(c.Filter)
-		return m, perSub(m.fluxes, c.scaled(m.errs))
+		return m, perSub(m.fluxes, m.errs)
 	}
-	st := perSub(c.fluxes, c.scaled(c.errs))
+	st := perSub(c.fluxes, c.errs)
 	if st.reason == "" {
 		return c, st
 	}
@@ -1498,7 +1498,7 @@ func (c *cand) subTest() (*cand, perSubStats) {
 			}
 		}
 		if len(fl) >= minFilterSubs {
-			if fs := perSub(fl, c.scaled(er)); fs.reason == "" {
+			if fs := perSub(fl, er); fs.reason == "" {
 				return c, fs
 			}
 		}
@@ -1506,18 +1506,17 @@ func (c *cand) subTest() (*cand, perSubStats) {
 	return c, st
 }
 
-// scaled is the subs' errors errs scaled by the change's noiseScale: each
-// sub's empty-aperture noise is the whole sub's, and on M 31's bulge a sub
-// is as much noisier there as the night's difference is.
-func (c *cand) scaled(errs []float64) []float64 {
-	if !(c.noiseScale > 1) {
-		return errs
-	}
-	out := make([]float64, len(errs))
-	for i, e := range errs {
-		out[i] = e * c.noiseScale
-	}
-	return out
+// localScale is how many times each sub's picture-wide empty-aperture
+// noise the noise at the change is, never under 1. Each sub's error was
+// that picture-wide noise, and only the per-sub test took the local noise:
+// in bright nebulae the noise at the spot is higher with the nebula's own
+// light. At 41445 (Rosette Nebula, H-a, 2025-02-28) the subs' errors were
+// 1.5 to 1.7 times too small against 300 empty apertures around the spot,
+// and the night read signal to noise 9.3 where the frames measured 4.5 to
+// 5; the stored errors, which the vet, TNS and follow-up reports read,
+// kept it.
+func (c *cand) localScale() float64 {
+	return math.Max(c.noiseScale, 1)
 }
 
 // locallyFaint says whether a brightening where no star was is weaker than
