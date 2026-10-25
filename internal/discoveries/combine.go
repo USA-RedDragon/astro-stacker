@@ -29,8 +29,9 @@ type Loader func(ctx context.Context, i int) (*Plane, float64, error)
 // a background of 0.0006, widened a plain clip's spread enough to stay in
 // (candidates 15111, 15045, 14520 and 14082, a "fading star" ZTF shows
 // flat), and two in the Garlic Nebula's O-III reference (candidate 13956).
-// It reads every sub twice and holds a few planes, so it works on any number
-// of subs. Pixels covered by fewer than half the subs used (and at least 2)
+// With two subs at a pixel the higher is left out where the two disagree
+// by more than their noise allows. It reads every sub twice and holds a
+// few planes, so it works on any number of subs. Pixels covered by fewer than half the subs used (and at least 2)
 // are NaN.
 func ClippedMean(ctx context.Context, w, h, n int, load Loader, threads int) (*Plane, error) {
 	return clippedMean(ctx, w, h, n, load, threads, nil)
@@ -84,6 +85,7 @@ func clippedMean(ctx context.Context, w, h, n int, load Loader, threads int, sha
 	}
 	used := len(noise)
 	sky := median64(noise)
+	pair := pairOutliers(w, h, cnt, hi[0], lo[0], sky)
 	sum := make([]float32, size)
 	wkept := make([]float32, size)
 	cov := make([]uint16, size)
@@ -104,6 +106,9 @@ func clippedMean(ctx context.Context, w, h, n int, load Loader, threads int, sha
 					if math.Abs(float64(v)-m) > clipSigma*sd {
 						continue
 					}
+				} else if c == 2 && pair[j] && v == hi[0][j] {
+					cov[j]++
+					continue
 				}
 				sum[j] += wi * v
 				wkept[j] += wi
@@ -127,6 +132,48 @@ func clippedMean(ctx context.Context, w, h, n int, load Loader, threads int, sha
 	})
 	return out, nil
 }
+
+// pairOutliers marks the pixels of two subs whose higher value is left
+// out: where it stands above the lower by more than clipSigma times the
+// spread two subs of sky noise sky and clipSignal of their light would show,
+// and around those, within 2 px, by more than pairGrowSigma times it. Two
+// subs give no center to clip about, so the higher is dropped: cosmic rays,
+// satellites and hot pixels add light, and registration spreads them over
+// a few pixels. M 22's Blue reference for 2021-06-29 held two subs, and a
+// cosmic ray in the one of 2021-05-23 09:09 went into a plain mean at half
+// weight: 2.2 times a G 19.2 star's light, read as a fade of 0.97 mag
+// (candidate 230822).
+func pairOutliers(w, h int, cnt []uint16, hi, lo []float32, sky float64) []bool {
+	excess := func(j int, k float64) bool {
+		if cnt[j] != 2 || hi[j] == lo[j] {
+			return false
+		}
+		m := 0.5 * (float64(hi[j]) + float64(lo[j]))
+		return float64(hi[j])-float64(lo[j]) > k*math.Sqrt2*math.Hypot(sky, clipSignal*math.Abs(m))
+	}
+	out := make([]bool, w*h)
+	for y := range h {
+		for x := range w {
+			if !excess(y*w+x, clipSigma) {
+				continue
+			}
+			for yy := max(0, y-pairGrow); yy <= min(h-1, y+pairGrow); yy++ {
+				for xx := max(0, x-pairGrow); xx <= min(w-1, x+pairGrow); xx++ {
+					if j := yy*w + xx; !out[j] && excess(j, pairGrowSigma) {
+						out[j] = true
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// pairGrow and pairGrowSigma bound the edge of a two-sub outlier.
+const (
+	pairGrow      = 2
+	pairGrowSigma = 1.0
+)
 
 // insertExtreme keeps ext[0..] at pixel j the most extreme values seen,
 // most extreme first, by before.
