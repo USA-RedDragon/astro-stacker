@@ -137,7 +137,7 @@ internal/discoveries/catalogs.go	293	258
 internal/discoveries/classify.go	254	238
 internal/discoveries/combine.go	122	115
 internal/discoveries/cutouts.go	76	67
-internal/discoveries/detect.go	909	863
+internal/discoveries/detect.go	904	858
 internal/discoveries/extract.go	110	108
 internal/discoveries/filters.go	83	78
 internal/discoveries/image.go	230	210
@@ -167,7 +167,7 @@ internal/discoveryreport/ades.go	42	40
 internal/discoveryreport/bulk.go	24	22
 internal/discoveryreport/known.go	143	133
 internal/discoveryreport/report.go	335	299
-internal/discoveryreport/service.go	310	226
+internal/discoveryreport/service.go	310	225
 internal/discoveryreport/tns.go	97	81
 internal/discoverysource/list.go	255	233
 internal/discoverysource/match.go	27	24
@@ -237,7 +237,7 @@ internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/memlimit/memlimit.go	15	7
-internal/memwatch/memwatch.go	58	49
+internal/memwatch/memwatch.go	58	44
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -511,7 +511,7 @@ internal/vetting/ownimage/clear.go	29	29
 internal/vetting/ownimage/curve.go	242	227
 internal/vetting/ownimage/data.go	62	43
 internal/vetting/ownimage/fit.go	276	262
-internal/vetting/ownimage/flux.go	293	243
+internal/vetting/ownimage/flux.go	301	251
 internal/vetting/ownimage/imgcheck.go	273	241
 internal/vetting/ownimage/live.go	112	96
 internal/vetting/ownimage/local.go	168	157
@@ -560,10 +560,10 @@ internal/vetting/remote.go	161	52
 internal/vetting/report.go	7	7
 internal/vetting/service.go	580	120
 internal/vetting/simbad.go	60	0
-internal/vetting/stack.go	167	117
+internal/vetting/stack.go	167	118
 internal/vetting/stardata.go	47	0
 internal/vetting/store.go	182	162
-internal/vetting/surveys/atlas.go	297	238
+internal/vetting/surveys/atlas.go	299	240
 internal/vetting/surveys/atlasorder.go	74	63
 internal/vetting/surveys/common.go	125	95
 internal/vetting/surveys/fresh.go	4	4
@@ -579,7 +579,8 @@ internal/vetting/surveys/ztfimages.go	40	35
 internal/vetting/surveys/ztfspill.go	64	49
 internal/vetting/surveys/ztftile.go	176	159
 internal/vetting/tesscomps.go	40	0
-internal/vetting/transient.go	781	570
+internal/vetting/transient.go	848	688
+internal/vetting/transient_line.go	52	44
 internal/vetting/verdict.go	225	180
 internal/vetting/zstd.go	10	4
 internal/wake/wake.go	14	14
