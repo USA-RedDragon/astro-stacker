@@ -61,8 +61,8 @@ func EclipsingBinary(r *vetting.Report) bool {
 }
 
 // vetKind is what the vet's latest report makes a confirmed star that is
-// not an eclipsing binary: periodic, fades, brightens, or empty when the
-// report cannot tell.
+// not an eclipsing binary: periodic, fades, brightens, irregular, or
+// empty when the report cannot tell.
 func vetKind(r *vetting.Report) string {
 	if r == nil || r.Suggestion.State != app.VetReal {
 		return ""
@@ -73,7 +73,7 @@ func vetKind(r *vetting.Report) string {
 			return k
 		}
 		return ""
-	case vetting.KindFades, vetting.KindBrightens:
+	case vetting.KindFades, vetting.KindBrightens, vetting.KindIrregular:
 		return k
 	case "":
 	default:
@@ -170,6 +170,8 @@ func (s Star) OtherView(shareURL func(id, version int) string) Other {
 		o.VetLine = "Fades now and then"
 	case vetting.KindBrightens:
 		o.VetLine = "Brightens now and then"
+	case vetting.KindIrregular:
+		o.VetLine = "Changes irregularly"
 	}
 	switch {
 	case r == nil:
