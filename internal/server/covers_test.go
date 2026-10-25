@@ -11,7 +11,6 @@ const (
 	objectOrion = "Orion"
 	objectVeil  = "Veil"
 	filterBlue  = "Blue"
-	filterGreen = "Green"
 	filterHa    = "H-a"
 	filterRed   = "Red"
 	projectRho  = "Rho"
@@ -36,38 +35,6 @@ func TestMonoCoversPreferNebulaFilters(t *testing.T) {
 		if got[o] != f {
 			t.Errorf("%s: got %s, want %s", o, got[o], f)
 		}
-	}
-}
-
-// Masters as stored on 2026-10-24. Sculptor Galaxy's red, green and blue
-// subs scored 0.03 to 0.05 under a 90% Moon; its H-a scored 0.61. Heart and
-// Soul Nebula Panel 1's broadband scored under 0.01; its one S-II sub, at
-// 0.03, is narrowband and still shows the field.
-func TestMonoCoversSkipPoorScores(t *testing.T) {
-	t.Parallel()
-	const sculptor, heart = "Sculptor Galaxy", "Heart and Soul Nebula Panel 1"
-	got := map[string]string{}
-	for _, s := range monoCovers([]app.Stack{
-		{Object: sculptor, Filter: filterRed, EffectiveSeconds: 49.183679186718514, ExposureSeconds: 1200},
-		{Object: sculptor, Filter: filterGreen, EffectiveSeconds: 36.91992301516527, ExposureSeconds: 900},
-		{Object: sculptor, Filter: filterBlue, EffectiveSeconds: 38.61770420550303, ExposureSeconds: 1200},
-		{Object: sculptor, Filter: filterHa, EffectiveSeconds: 367.57951664299975, ExposureSeconds: 600},
-		{Object: sculptor, Filter: filterLuminance, EffectiveSeconds: 1169.5408129126656, ExposureSeconds: 1800},
-		{Object: heart, Filter: filterRed, EffectiveSeconds: 2.704236222461313, ExposureSeconds: 300},
-		{Object: heart, Filter: filterBlue, EffectiveSeconds: 1.2900559651188337, ExposureSeconds: 300},
-		{Object: heart, Filter: filterSII, EffectiveSeconds: 17.18353930702075, ExposureSeconds: 600},
-		{Object: "Broadband only", Filter: filterRed, EffectiveSeconds: 2.704236222461313, ExposureSeconds: 300},
-	}) {
-		got[s.Object] = s.Filter
-	}
-	if f, ok := got["Broadband only"]; ok {
-		t.Errorf("broadband only: got a %s cover from subs scoring 0.009", f)
-	}
-	if got[sculptor] != filterHa {
-		t.Errorf("%s: got %q, want H-a", sculptor, got[sculptor])
-	}
-	if got[heart] != filterSII {
-		t.Errorf("%s: got %q, want S-II", heart, got[heart])
 	}
 }
 

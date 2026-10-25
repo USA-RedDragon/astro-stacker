@@ -114,13 +114,8 @@ func monoFilterOrder() []string {
 
 // monoCovers picks each object's single-filter cover: the highest-ranked
 // filter with at least a quarter of its best filter's effective exposure,
-// so a thin H-a master doesn't beat a deep one in another filter. A
-// broadband master whose subs score under stacking.MinCoverScore on average
-// is no cover: its sky, not its target, fills the picture.
+// so a thin H-a master doesn't beat a deep one in another filter.
 func monoCovers(stacks []app.Stack) []app.Stack {
-	stacks = slices.DeleteFunc(slices.Clone(stacks), func(s app.Stack) bool {
-		return stacking.PoorScore(s.Filter, s.EffectiveSeconds, s.ExposureSeconds)
-	})
 	best := map[string]float64{}
 	for _, s := range stacks {
 		best[s.Object] = max(best[s.Object], s.EffectiveSeconds)
