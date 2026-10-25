@@ -215,7 +215,7 @@ func (p pairShift) words() string {
 // fail when the move is a changing share of the neighbour's light and
 // not the star changing, and says so when it is the star's own.
 func pairVaries(pr *period.Result, t surveys.Target, ss []lc.Series) {
-	if pr == nil || !pr.Irregular {
+	if pr == nil || !pr.Irregular && !pr.Excess.Holds() {
 		return
 	}
 	i := slices.IndexFunc(pr.Checks, func(c check.Check) bool { return c.ID == check.ZTF && c.Status == check.Pass })

@@ -145,6 +145,35 @@ func TestPairVaries299(t *testing.T) {
 	}
 }
 
+// TestPairVariesExcess299 is 299 again with its period left unsure but
+// the excess scatter test holding: the shift toward the neighbour must
+// still fail the ZTF row, so the irregular verdict does not call a blend
+// whose share of light changes a new variable.
+func TestPairVariesExcess299(t *testing.T) {
+	t.Parallel()
+	ss := []lc.Series{ztf299(t, "g"), ztf299(t, "r")}
+	tg := star299()
+	for i := range ss {
+		ss[i].Dilution = 1 / (1 + math.Pow(10, -0.4*(tg.Neighbours[0].G-tg.G)))
+	}
+	band := period.ExcessBand{Flagged: -0.1, FlaggedPoints: 5, FlaggedZ: 5}
+	pr := &period.Result{
+		Checks: []check.Check{check.New(check.ZTF, check.Pass, "Varies.")},
+		Excess: &period.Excess{Bands: []period.ExcessBand{band, band}, Toward: -1},
+	}
+	if !pr.Excess.Holds() {
+		t.Fatal("excess does not hold")
+	}
+	pairVaries(pr, tg, ss)
+	if pr.Checks[0].Status != check.Fail {
+		t.Fatalf("ZTF row %+v", pr.Checks[0])
+	}
+	groups := []Group{{ID: check.GroupSurveys, Checks: pr.Checks}}
+	if s, ok := irregularSuggestion(pr, Known{}, groups); ok {
+		t.Errorf("irregular verdict on a blend: %+v", s)
+	}
+}
+
 // pairCurve makes ZTF points of a star and its neighbour measured as one
 // object: the star's light changes by own magnitudes and the neighbour's
 // by share, and the object sits at their light-weighted centre with
