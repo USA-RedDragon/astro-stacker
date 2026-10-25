@@ -81,8 +81,9 @@ type refNight struct {
 }
 
 // measureRefNights measures each candidate in every reference sub minus
-// its filter's reference, night by night.
-func (in *Input) measureRefNights(ctx context.Context, stacks []*filterStacks, cands []cand) error {
+// its filter's reference, night by night, and each reference sub's star
+// shape within shapeR.
+func (in *Input) measureRefNights(ctx context.Context, stacks []*filterStacks, cands []cand, shapeR float64) error {
 	if len(cands) == 0 {
 		return nil
 	}
@@ -102,6 +103,8 @@ func (in *Input) measureRefNights(ctx context.Context, stacks []*filterStacks, c
 			if err != nil {
 				return err
 			}
+			ratio, _ := starShape(p, fs.f.Anchors, shapeR)
+			fs.refShapes = append(fs.refShapes, ratio)
 			for ci := range cands {
 				c := &cands[ci]
 				r := apertureR
@@ -150,6 +153,25 @@ func (in *Input) measureRefNights(ctx context.Context, stacks []*filterStacks, c
 		}
 	}
 	return nil
+}
+
+// shapeLimits gives each candidate's night subs their filter's elongLimit.
+func shapeLimits(stacks []*filterStacks, cands []cand) {
+	lim := map[string]float64{}
+	for _, fs := range stacks {
+		lim[fs.f.Filter] = elongLimit(fs.refShapes)
+	}
+	for ci := range cands {
+		c := &cands[ci]
+		c.shapeLim = c.shapeLim[:0]
+		for _, pt := range c.Light {
+			v, ok := lim[pt.Filter]
+			if !ok {
+				v = math.NaN()
+			}
+			c.shapeLim = append(c.shapeLim, v)
+		}
+	}
 }
 
 // localFlux is the light of p minus ref in an aperture of radius r at

@@ -686,7 +686,9 @@ type filterStacks struct {
 	// refRMS is the reference's pixel noise, as each sub's prep.rms is the
 	// sub's.
 	refRMS float64
-	zp     *float64
+	// refShapes are the star axis ratios of the reference's subs.
+	refShapes []float64
+	zp        *float64
 	// zpWide is the zero point for the wider aperture used on bright
 	// sources.
 	zpWide *float64
@@ -704,6 +706,9 @@ type cand struct {
 	// every sub of a filter is measured minus the same reference, so that
 	// part is the same noise in all of them.
 	shared []float64
+	// shape and angle are the axis ratio and long axis angle of the stars
+	// of each night sub, and shapeLim its filter's elongLimit.
+	shape, angle, shapeLim []float64
 	// sharp is the candidate's sharpness in each night sub, and sensor the
 	// sensor pixel under it there (NaN where the sub's footprint was not
 	// measured), in the order of fluxes.
@@ -793,9 +798,10 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := in.measureRefNights(ctx, stacks, cands); err != nil {
+	if err := in.measureRefNights(ctx, stacks, cands, shapeRadius(res)); err != nil {
 		return nil, err
 	}
+	shapeLimits(stacks, cands)
 	combined, per := splitByFilter(cands, fds)
 	local := in.localResiduals(ref, D, edge, res)
 	res.Candidates = in.cut(combined, ref, D, local, res)
@@ -899,6 +905,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 			return nil, nil, nil, err
 		}
 		share := refShare(ns.fs.refRMS, pp.rms)
+		ratio, angle := starShape(p, ns.fs.f.Anchors, shapeRadius(res))
 		sm := SensorMapOf(p)
 		for i, v := range p.Data {
 			r := ns.fs.ref.Data[i]
@@ -920,6 +927,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 				lightPoint(c, p, ns, apertureR, sig*c.localScale(), ns.fs.zp)
 			}
 			c.shared = append(c.shared, share*c.errs[len(c.errs)-1])
+			c.shape, c.angle = append(c.shape, ratio), append(c.angle, angle)
 			c.sharp = append(c.sharp, signedSharpness(p, c.X, c.Y, c.Sign))
 			sx, sy := math.NaN(), math.NaN()
 			if sm.Measured {
@@ -1488,6 +1496,11 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 				reject(why)
 				continue
 			}
+			elong := m.elongated()
+			if elong != "" && c.GaiaG == nil {
+				reject(elong)
+				continue
+			}
 			if c.Filter != "" {
 				if why := c.against(); why != "" {
 					reject(why)
@@ -1496,7 +1509,7 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			}
 			cc := c.Candidate
 			cc.SubSharp, cc.SkyFixed = m.inSubs(star)
-			cc.LowConf = cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && cc.SubSharp > maxSubSharpness) || cc.locallyFaint()
+			cc.LowConf = elong != "" || cc.SNR < PromoteSigma || c.SubsTested < minPromoteSubs || (c.GaiaG == nil && c.Sign > 0 && cc.SubSharp > maxSubSharpness) || cc.locallyFaint()
 			if cc.LowConf {
 				fn.LowConfident++
 			} else {

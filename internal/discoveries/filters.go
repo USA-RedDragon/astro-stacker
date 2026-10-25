@@ -81,27 +81,13 @@ func (in *Input) filterChanges(stacks []*filterStacks, have []cand, valid, edge,
 
 // only is the candidate measured in its filter's subs alone.
 func (c *cand) only(filter string) *cand {
-	o := &cand{Candidate: c.Candidate, wide: c.wide, refNights: c.refNights, refLight: c.refLight}
+	var idx []int
 	for k, pt := range c.Light {
-		if pt.Filter != filter || k >= len(c.fluxes) {
-			continue
-		}
-		o.fluxes, o.errs = append(o.fluxes, c.fluxes[k]), append(o.errs, c.errs[k])
-		if k < len(c.shared) {
-			o.shared = append(o.shared, c.shared[k])
-		}
-		o.Light = append(o.Light, pt)
-		if k < len(c.sharp) {
-			o.sharp = append(o.sharp, c.sharp[k])
-		}
-		if k < len(c.sensor) {
-			o.sensor = append(o.sensor, c.sensor[k])
-		}
-		if k < len(c.off) {
-			o.off = append(o.off, c.off[k])
+		if pt.Filter == filter {
+			idx = append(idx, k)
 		}
 	}
-	return o
+	return c.pick(idx)
 }
 
 // against says which other filter measured a filter's change with the
