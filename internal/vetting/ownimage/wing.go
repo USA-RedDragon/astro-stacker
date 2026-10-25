@@ -353,7 +353,11 @@ type Wing struct {
 }
 
 // wingNights compares the spot's fitted light on each flagged night with
-// its level on the far nights, per filter.
+// its level on the far nights, per filter, in the filter groups the
+// detection flagged it in only: 27673 (Cygnus Loop, 2026-09-02), found in
+// Red, Green and Blue, was judged by its O-III frames of that night,
+// which stood highest at 1.0 sigma. Too few subs in those groups leave it
+// not measured.
 func wingNights(subs []Sub, sp *spotPlan, e *ensemble) *Wing {
 	w := sp.bare.wing
 	out := &Wing{G: w.g, SepPx: w.sep}
@@ -362,7 +366,7 @@ func wingNights(subs []Sub, sp *spotPlan, e *ensemble) *Wing {
 	errs := map[key][]float64{}
 	for i, r := range sp.recs {
 		t, ok := e.transp[i]
-		if r == nil || !r.wingOK || !ok || !(t > 0) {
+		if r == nil || !r.wingOK || !ok || !(t > 0) || !sp.groupFilter(subs[i].Filter) {
 			continue
 		}
 		k := key{nightKey(subs[i].Night), subs[i].Filter}
@@ -410,7 +414,7 @@ func wingNights(subs []Sub, sp *spotPlan, e *ensemble) *Wing {
 	best := math.Inf(-1)
 	for k, lv := range nights {
 		fl := farLv[k.filter]
-		if !sp.flagged[k.night] || len(fl) < wingFarMin {
+		if !sp.flagged[k.night] || !sp.inGroup(k.night, k.filter) || len(fl) < wingFarMin {
 			continue
 		}
 		base, spread := median(fl), robustStd(fl)
