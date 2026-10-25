@@ -65,3 +65,30 @@ func TestDoubleUnequalCycles(t *testing.T) {
 		t.Errorf("found %.5f days and the double check %s: %s", e.Period, d.Status, d.Evidence)
 	}
 }
+
+// TestParityOneSeasonBar is one season whose odd and even cycles differ
+// between the per-season bar and the single-season bar: a band with only
+// that season compared must not fail on it alone.
+func TestParityOneSeasonBar(t *testing.T) {
+	t.Parallel()
+	const P, amp = 1.9171, 0.05
+	found := false
+	for k := 1; k <= 60 && !found; k++ {
+		share := 0.01 * float64(k)
+		rng := lcg(2828)
+		pts := make([]obs, 0, 90)
+		for i := range 90 {
+			tt := 2458400 + float64(i)*1.1 + 0.3*rng.next()
+			m := amp*math.Cos(2*math.Pi*(tt-2459000.25)/P) + share*amp*math.Cos(math.Pi*(tt-2459000.25)/P)
+			pts = append(pts, obs{t: tt, y: m + 0.01*rng.gauss(), e: 0.01})
+		}
+		many, ok := parityDiffers(pts, P, 2459000.25, amp, parityChi2)
+		one, _ := parityDiffers(pts, P, 2459000.25, amp, parityOneChi2)
+		if ok && many && !one {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("no season differs at the per-season bar but not at the single-season bar")
+	}
+}

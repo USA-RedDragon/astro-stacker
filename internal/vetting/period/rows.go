@@ -661,10 +661,13 @@ func (a *analysis) halfSine() check.Check {
 // then differ: 28305 (Gaia DR3 171049722563343232, P = 3.833 days) drifted
 // 0.78 to 1.07 in phase over eight ZTF seasons and its pooled r cycles
 // differed while no single season's did. Odd and even cycles differ when
-// they do in more than half the seasons compared.
+// they do in more than half the seasons compared. A band with only one
+// season compared needs parityOneChi2, the bar the pooled test used, since
+// a single season then decides it alone.
 const (
 	parityMinPoints = 10
 	parityChi2      = 13.8
+	parityOneChi2   = 25
 	parityAmpShare  = 0.2
 	parityGapDays   = 60
 )
@@ -723,7 +726,7 @@ func invert3(m [3][3]float64) ([3][3]float64, bool) {
 // parityDiffers tests one season of one band: whether its odd and even
 // cycles' fits differ at parityChi2 and by more than parityAmpShare of the
 // band's amplitude; ok is false when either parity has too few points.
-func parityDiffers(pts []obs, period, t0, amp float64) (differs, ok bool) {
+func parityDiffers(pts []obs, period, t0, amp, limit float64) (differs, ok bool) {
 	var by [2][]obs
 	for _, p := range pts {
 		x := (p.t - t0) / period
@@ -745,7 +748,7 @@ func parityDiffers(pts []obs, period, t0, amp float64) (differs, ok bool) {
 		return false, false
 	}
 	chi := (vb*da*da - 2*vab*da*db + va*db*db) / det
-	return chi > parityChi2 && math.Hypot(da, db) > parityAmpShare*amp, true
+	return chi > limit && math.Hypot(da, db) > parityAmpShare*amp, true
 }
 
 func (a *analysis) doubleSine() check.Check {
@@ -762,16 +765,19 @@ func (a *analysis) doubleSine() check.Check {
 		}
 		slices.SortStableFunc(pts, func(x, y obs) int { return cmp.Compare(x.t, y.t) })
 		seasons, differ := 0, 0
+		var last []obs
 		lo := 0
 		for i := 1; i <= len(pts); i++ {
 			if i < len(pts) && pts[i].t-pts[i-1].t <= parityGapDays {
 				continue
 			}
-			d, ok := parityDiffers(pts[lo:i], s.P, s.T0, s.amp[g])
+			d, ok := parityDiffers(pts[lo:i], s.P, s.T0, s.amp[g], parityChi2)
+			seg := pts[lo:i]
 			lo = i
 			if !ok {
 				continue
 			}
+			last = seg
 			seasons++
 			if d {
 				differ++
@@ -779,6 +785,13 @@ func (a *analysis) doubleSine() check.Check {
 		}
 		if seasons == 0 {
 			continue
+		}
+		if seasons == 1 {
+			d, _ := parityDiffers(last, s.P, s.T0, s.amp[g], parityOneChi2)
+			differ = 0
+			if d {
+				differ = 1
+			}
 		}
 		compared++
 		if 2*differ > seasons {
