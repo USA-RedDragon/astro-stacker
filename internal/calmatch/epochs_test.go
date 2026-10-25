@@ -133,3 +133,21 @@ func TestFlatPrefersSameAngleThenNearestAngleWithinEpoch(t *testing.T) {
 		t.Fatalf("1° off on the same night should be exact, got %+v", exact)
 	}
 }
+
+func TestSculptorOctober22RedGetsItsOwnNightsFlatAtSevenDegrees(t *testing.T) {
+	t.Parallel()
+	g := redLights("2026-10-22", 7)
+	g.SetTemp = -14
+	sets := append(realRedFlats(),
+		redFlat("2026-10-16", 141.4), redFlat("2026-10-17", 142), redFlat("2026-10-18", 142), redFlat("2026-10-19", 142),
+		redFlat("2026-10-19", 136.2), redFlat("2026-10-20", 141.6), redFlat("2026-10-21", 141.6), redFlat("2026-10-21", 82.1),
+		redFlat("2026-10-22", 141.9), redFlat("2026-10-22", 7))
+	m := calmatch.Choose(g, sets).Flat
+	if m.Set.Night != night("2026-10-22") || m.Set.Rotator != 7 || m.Quality != calmatch.Exact || m.FlatNote() != "exact" {
+		t.Fatalf("got %+v (%s), want the 2026-10-22 7° flat, exact", m.Set, m.FlatNote())
+	}
+	m = calmatch.Choose(g, sets[:len(sets)-1]).Flat
+	if m.Set.Rotator != 2 || !m.RotationMismatch || m.Quality != calmatch.Fallback {
+		t.Fatalf("without it got %+v, want the nearest angle (2°) flagged", m.Set)
+	}
+}
