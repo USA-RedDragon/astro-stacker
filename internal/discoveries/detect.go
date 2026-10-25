@@ -275,6 +275,14 @@ const (
 // subs of twilight, five times as noisy, held 0.078 and 0.060 of its flux
 // against 0.002 to 0.009 in the others.
 func perSub(fluxes, errs []float64) perSubStats {
+	return perSubShared(fluxes, errs, nil, nil)
+}
+
+// perSubShared is perSub with each sub's error holding a part shared, from
+// its filter's reference, that is the same noise in every sub of its
+// group: the subs' mean is that much less certain than independent errors
+// say. Each sub's own presence is judged on its whole error.
+func perSubShared(fluxes, errs, shared []float64, groups []string) perSubStats {
 	st := perSubStats{n: len(fluxes)}
 	var pos, sum, varSum, sigSum float64
 	sigs := make([]float64, len(fluxes))
@@ -292,7 +300,7 @@ func perSub(fluxes, errs []float64) perSubStats {
 		}
 	}
 	st.top /= math.Max(pos, 1e-12)
-	st.meanSigma = sum / math.Max(math.Sqrt(varSum), 1e-12)
+	st.meanSigma = sum / math.Max(math.Sqrt(varSum+sharedVar(shared, groups)), 1e-12)
 	mean := sigSum / math.Max(float64(len(fluxes)), 1)
 	med := median64(sigs)
 	if mean > 0 {
@@ -309,6 +317,25 @@ func perSub(fluxes, errs []float64) perSubStats {
 		st.reason = "subs' median disagrees"
 	}
 	return st
+}
+
+// sharedVar is what the noise shared within each group adds to the
+// variance of a sum of subs whose own errors each hold their part of it:
+// the cross terms between subs of one group.
+func sharedVar(shared []float64, groups []string) float64 {
+	if len(shared) == 0 || len(shared) != len(groups) {
+		return 0
+	}
+	sum, sq := map[string]float64{}, map[string]float64{}
+	for k, v := range shared {
+		sum[groups[k]] += v
+		sq[groups[k]] += v * v
+	}
+	var out float64
+	for g, s := range sum {
+		out += s*s - sq[g]
+	}
+	return out
 }
 
 // filtersOf lists the filters of a candidate's light curve points.
@@ -656,7 +683,10 @@ type filterStacks struct {
 	night *Plane
 	ref   *Plane
 	noise float64
-	zp    *float64
+	// refRMS is the reference's pixel noise, as each sub's prep.rms is the
+	// sub's.
+	refRMS float64
+	zp     *float64
 	// zpWide is the zero point for the wider aperture used on bright
 	// sources.
 	zpWide *float64
@@ -670,6 +700,10 @@ type nightSub struct {
 type cand struct {
 	Candidate
 	fluxes, errs []float64
+	// shared is the part of each sub's error its filter's reference adds:
+	// every sub of a filter is measured minus the same reference, so that
+	// part is the same noise in all of them.
+	shared []float64
 	// sharp is the candidate's sharpness in each night sub, and sensor the
 	// sensor pixel under it there (NaN where the sub's footprint was not
 	// measured), in the order of fluxes.
@@ -718,6 +752,7 @@ func Run(ctx context.Context, in Input) (*Result, error) {
 		if fs.ref, err = clippedMean(ctx, W, H, len(fs.f.Ref), stackLoader(fs.load, fs.f.Ref), threads, nightShares(fs.f.Ref)); err != nil {
 			return nil, err
 		}
+		fs.refRMS = fs.refNoise()
 		fs.noise = emptyApertureSigma(fs.night, nil, apertureR, 4000)
 	}
 	in.stage("combining filters")
@@ -859,10 +894,11 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 	times := make([]time.Time, len(subs))
 	var midSum float64
 	for j, ns := range subs {
-		p, _, err := ns.fs.load(ctx, ns.sub)
+		p, pp, err := ns.fs.load(ctx, ns.sub)
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		share := refShare(ns.fs.refRMS, pp.rms)
 		sm := SensorMapOf(p)
 		for i, v := range p.Data {
 			r := ns.fs.ref.Data[i]
@@ -883,6 +919,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 			} else {
 				lightPoint(c, p, ns, apertureR, sig*c.localScale(), ns.fs.zp)
 			}
+			c.shared = append(c.shared, share*c.errs[len(c.errs)-1])
 			c.sharp = append(c.sharp, signedSharpness(p, c.X, c.Y, c.Sign))
 			sx, sy := math.NaN(), math.NaN()
 			if sm.Measured {
@@ -945,6 +982,40 @@ func (in *Input) usable(res *Result) []*filterStacks {
 	}
 	res.NightNights, res.RefNights = len(nightNights), len(refNights)
 	return stacks
+}
+
+// refNoise is the pixel noise of fs's reference: the noise of the
+// weighted mean of its subs, each weighted as the stack weights it.
+func (fs *filterStacks) refNoise() float64 {
+	shares := nightShares(fs.f.Ref)
+	var sw, sv float64
+	for j, s := range fs.f.Ref {
+		pp, ok := fs.cache.m[s.FrameID]
+		if !ok || pp.bad || !(pp.rms > 0) {
+			continue
+		}
+		w := 1 / (pp.rms * pp.rms)
+		if shares != nil {
+			w *= shares[j]
+		}
+		sw += w
+		sv += w * w * pp.rms * pp.rms
+	}
+	if !(sw > 0) {
+		return 0
+	}
+	return math.Sqrt(sv) / sw
+}
+
+// refShare is the share of a sub's error, measured in the sub minus its
+// filter's reference, that the reference's noise refRMS makes up against
+// the sub's own pixel noise subRMS.
+func refShare(refRMS, subRMS float64) float64 {
+	if !(refRMS > 0) || !(subRMS > 0) {
+		return 0
+	}
+	rho := refRMS / subRMS
+	return rho / math.Sqrt(1+rho*rho)
 }
 
 // combine weights each filter by its night stack's noise, the same weights
@@ -1481,9 +1552,9 @@ func apertureMags(ref, diff, sigma float64, zp *float64) (deltaMag, refMag, nigh
 func (c *cand) subTest() (*cand, perSubStats) {
 	if c.Filter != "" {
 		m := c.only(c.Filter)
-		return m, perSub(m.fluxes, m.errs)
+		return m, m.perSub()
 	}
-	st := perSub(c.fluxes, c.errs)
+	st := c.perSub()
 	if st.reason == "" {
 		return c, st
 	}
@@ -1491,19 +1562,42 @@ func (c *cand) subTest() (*cand, perSubStats) {
 		if f != broadbandClear && c.GaiaG == nil {
 			continue
 		}
-		var fl, er []float64
-		for k, pt := range c.Light {
-			if pt.Filter == f {
-				fl, er = append(fl, c.fluxes[k]), append(er, c.errs[k])
-			}
-		}
-		if len(fl) >= minFilterSubs {
-			if fs := perSub(fl, er); fs.reason == "" {
+		if m := c.only(f); len(m.fluxes) >= minFilterSubs {
+			if fs := m.perSub(); fs.reason == "" {
 				return c, fs
 			}
 		}
 	}
 	return c, st
+}
+
+// perSub is perSubShared over the candidate's subs, the reference's noise
+// shared by the subs of each filter. At 41445 (Rosette Nebula, H-a,
+// 2025-02-28), eight subs measured minus one reference of 22 read 6.4 to
+// 7.0 sigma with independent errors and 5.5 to 6.1 with the reference
+// counted once, where the frames measured 4.5 to 5.3.
+func (c *cand) perSub() perSubStats {
+	groups := make([]string, len(c.fluxes))
+	for k := range groups {
+		if k < len(c.Light) {
+			groups[k] = c.Light[k].Filter
+		}
+	}
+	var shared []float64
+	if len(c.shared) == len(c.fluxes) {
+		shared = c.shared
+	}
+	return perSubShared(c.fluxes, c.errs, shared, groups)
+}
+
+// ownErr is a sub's error without the part its reference shares with the
+// other subs of its filter: what is left when two measures minus the same
+// reference are compared.
+func (c *cand) ownErr(k int) float64 {
+	if k >= len(c.shared) {
+		return c.errs[k]
+	}
+	return math.Sqrt(math.Max(c.errs[k]*c.errs[k]-c.shared[k]*c.shared[k], 0))
 }
 
 // localScale is how many times each sub's picture-wide empty-aperture

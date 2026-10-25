@@ -87,6 +87,9 @@ func (c *cand) only(filter string) *cand {
 			continue
 		}
 		o.fluxes, o.errs = append(o.fluxes, c.fluxes[k]), append(o.errs, c.errs[k])
+		if k < len(c.shared) {
+			o.shared = append(o.shared, c.shared[k])
+		}
 		o.Light = append(o.Light, pt)
 		if k < len(c.sharp) {
 			o.sharp = append(o.sharp, c.sharp[k])
@@ -104,7 +107,7 @@ func (c *cand) only(filter string) *cand {
 // against says which other filter measured a filter's change with the
 // opposite sign, or "".
 func (c *cand) against() string {
-	type acc struct{ sum, varSum float64 }
+	type acc struct{ sum, varSum, shared float64 }
 	per := map[string]*acc{}
 	var order []string
 	for k, pt := range c.Light {
@@ -119,13 +122,17 @@ func (c *cand) against() string {
 		}
 		a.sum += c.fluxes[k]
 		a.varSum += c.errs[k] * c.errs[k]
+		if k < len(c.shared) {
+			a.varSum -= c.shared[k] * c.shared[k]
+			a.shared += c.shared[k]
+		}
 	}
 	for _, f := range order {
 		a := per[f]
 		if !(a.varSum > 0) {
 			continue
 		}
-		if z := a.sum / math.Sqrt(a.varSum); z < -signAgreeSigma {
+		if z := a.sum / math.Sqrt(a.varSum+a.shared*a.shared); z < -signAgreeSigma {
 			return fmt.Sprintf("%s in %s: %.1f sigma", signName(-c.Sign), f, -z)
 		}
 	}

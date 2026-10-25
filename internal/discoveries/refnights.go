@@ -212,7 +212,8 @@ const minEnvelopeSubs = 2
 // 0.02 mag from the median. A transient on a reference night too changed
 // from the median: AT 2026aeob, as bright on 2026-10-09 as on 2026-10-08,
 // by 0.3 mag of the light there. Each sub's error is the larger of its
-// noise and the night's scatter of subs, which on a bright star is its
+// noise, less the reference's part that the night and the reference nights
+// share, and the night's scatter of subs, which on a bright star is its
 // seeing and scintillation: three times the noise there. Where the
 // reference nights' median, by consensusNight, itself stands envelopeSigma
 // or more the change's way, the reference held light of other nights at the
@@ -235,7 +236,7 @@ func (c *cand) refNightShift() string {
 			a = &acc{}
 			per[pt.Filter] = a
 		}
-		a.fl, a.er = append(a.fl, c.fluxes[k]), append(a.er, c.errs[k])
+		a.fl, a.er = append(a.fl, c.fluxes[k]), append(a.er, c.ownErr(k))
 	}
 	filters := make([]string, 0, len(per))
 	for f := range per {
