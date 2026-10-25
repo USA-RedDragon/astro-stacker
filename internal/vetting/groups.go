@@ -181,7 +181,11 @@ func timingCheck(e *period.Ephemeris, t *period.Timing) check.Check {
 		if t.Dip != 1 {
 			which = "shallower"
 		}
-		ev = fmt.Sprintf("Your %s frames of %s cover the %s dip, %.2f mag deep. %s", t.Filter, dateWords(d), which, t.Depth, ev)
+		what := "frames"
+		if t.Diff {
+			what = "difference images"
+		}
+		ev = fmt.Sprintf("Your %s %s of %s cover the %s dip, %.2f mag deep. %s", t.Filter, what, dateWords(d), which, t.Depth, ev)
 	}
 	limit := math.Max(3*t.OffsetErr, 0.01*e.Period*24*60)
 	if off > limit {

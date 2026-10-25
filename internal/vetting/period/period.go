@@ -174,9 +174,11 @@ type Timing struct {
 	Dip    int `json:"dip"`
 	Points int `json:"points"`
 	// Night is the evening date of the frames timed and Filter their
-	// filter.
+	// filter; Diff is set when they were measured on the detection's
+	// difference images rather than against comparison stars.
 	Night  string `json:"night,omitempty"`
 	Filter string `json:"filter,omitempty"`
+	Diff   bool   `json:"diff,omitempty"`
 }
 
 // TimeMinimum fits the dip the points of one night cover. ok is false

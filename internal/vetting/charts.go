@@ -135,15 +135,22 @@ func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ep
 	}
 	ch := Chart{ID: chartNight, Title: "Your night, " + dateWords(night), XUnit: unitHours, YUnit: unitDMag, YLabel: magFainter,
 		Sub: "Your own brightness for this star against steady nearby stars."}
-	if curve == nil {
+	diff := diffPoints(sum, timing)
+	if curve == nil && diff == nil {
 		ch.Title, ch.Empty = "Your night", "Not measured yet"
 		return ch
 	}
 	key := night.Format(time.DateOnly)
 	byFilter := map[string][]ownimage.Point{}
-	for _, p := range curve.Points {
-		if p.Night == key && (want == "" || p.Filter == want) {
-			byFilter[p.Filter] = append(byFilter[p.Filter], p)
+	scatter := 0.0
+	if diff != nil {
+		byFilter[want] = diff
+	} else {
+		scatter = curve.Scatter
+		for _, p := range curve.Points {
+			if p.Night == key && (want == "" || p.Filter == want) {
+				byFilter[p.Filter] = append(byFilter[p.Filter], p)
+			}
 		}
 	}
 	filter, pts := "", []ownimage.Point(nil)
@@ -171,7 +178,7 @@ func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ep
 	lo, hi := math.Inf(1), math.Inf(-1)
 	for _, p := range pts {
 		x := (p.BJD - zero) * 24
-		er := frameErr(p.Err, curve.Scatter)
+		er := frameErr(p.Err, scatter)
 		ch.Points = append(ch.Points, ChartPoint{X: round(x, 4), Y: round(p.DMag, 4), Err: round(er, 4)})
 		lo, hi = math.Min(lo, p.DMag-er), math.Max(hi, p.DMag+er)
 	}
@@ -189,12 +196,32 @@ func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ep
 	lo, hi = math.Min(lo, 0), math.Max(hi, 0)
 	ch.Y0, ch.Y1 = padRange(lo, hi)
 	ch.XTicks, ch.YTicks = ticks(ch.X0, ch.X1, 5), ticks(ch.Y0, ch.Y1, 5)
-	ch.Sub = fmt.Sprintf("%d %s frames against %d steady nearby stars. Lower is fainter.", len(pts), filter, curve.Comps-curve.Dropped)
+	if diff != nil {
+		ch.Sub = fmt.Sprintf("%d %s frames measured on the difference images against your reference. Lower is fainter.", len(pts), filter)
+	} else {
+		ch.Sub = fmt.Sprintf("%d %s frames against %d steady nearby stars. Lower is fainter.", len(pts), filter, curve.Comps-curve.Dropped)
+	}
 	ch.Legend = []LegendItem{{Style: styleDot, Label: "Your frames"}}
 	if len(ch.Line) > 0 {
 		ch.Legend = append(ch.Legend, LegendItem{Style: "line", Label: "Predicted dip"})
 	}
 	return ch
+}
+
+// diffPoints is the difference image photometry a timing from it used.
+func diffPoints(sum discoverysource.Summary, timing *period.Timing) []ownimage.Point {
+	if timing == nil || !timing.Diff {
+		return nil
+	}
+	var out []ownimage.Point
+	for _, s := range ownSets(nil, sum) {
+		if s.diff && s.night == timing.Night && s.filter == timing.Filter {
+			for _, p := range s.points {
+				out = append(out, ownimage.Point{BJD: p.BJD, Night: s.night, Filter: s.filter, DMag: p.Mag, Err: p.Err})
+			}
+		}
+	}
+	return out
 }
 
 // frameErr is a frame's error no smaller than the scatter of single
