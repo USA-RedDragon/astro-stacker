@@ -106,10 +106,30 @@ func palettes() []palette {
 // only adds noise to the cover.
 const minShare = 0.25
 
+// MinCoverScore is the least mean score a broadband cover channel's subs may
+// have: its effective exposure over its exposure. A score is a sub's weight
+// against a good-conditions sub of the rig in that filter, so under this the
+// channel's sky, not its target, fills the picture. Sculptor Galaxy's red,
+// green and blue (2026-10-22, a 90% Moon 32° away, airmass 2.2 to 3.2)
+// scored 0.03 to 0.05 and drew moonlit cloud bands across its cover.
+// Narrowband filters shut out most moonlight: Carina's and the Eagle's H-a
+// and O-III scored 0.01 to 0.03 and still made clean covers.
+const MinCoverScore = 0.05
+
+// PoorScore reports whether a broadband master of exposure seconds,
+// effective seconds score-weighted, is under MinCoverScore. Narrowband and
+// an unknown exposure are not poor.
+func PoorScore(filter string, effective, exposure float64) bool {
+	broadband := filter == filterRed || filter == filterGreen || filter == filterBlue || filter == filterLuminance
+	return broadband && exposure > 0 && effective < MinCoverScore*exposure
+}
+
 // layer is one filter's linear preview and how much data backs it.
 type layer struct {
 	Key       string
 	Effective float64 // seconds, score-weighted
+	// Exposure is the subs' total exposure in seconds; 0 when unknown.
+	Exposure float64
 	// Panels is how many of a mosaic's panels the layer has; 0 for a
 	// target's master.
 	Panels int
@@ -199,18 +219,7 @@ func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 	}
 	for _, p := range order {
 		channels := []string{p.R, p.G, p.B}
-		ok := true
-		best, sum := 0.0, 0.0
-		for _, f := range channels {
-			l, found := have[f]
-			if !found || l.Key == "" {
-				ok = false
-				break
-			}
-			best = max(best, l.Effective)
-			sum += l.Effective
-			ok = ok && l.Panels >= most
-		}
+		best, sum, ok := channelData(have, channels, most)
 		if !ok {
 			continue
 		}
@@ -230,12 +239,27 @@ func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 					p.Name += "+OIII"
 				}
 				l, found := have[filterLuminance]
-				p.Lum = found && l.Key != "" && l.Panels >= most
+				p.Lum = found && l.Key != "" && l.Panels >= most && !PoorScore(filterLuminance, l.Effective, l.Exposure)
 			}
 			return p, true
 		}
 	}
 	return palette{}, false
+}
+
+// channelData is the most and the total effective exposure of a palette's
+// channels; ok is false when one has no linear preview, fewer panels than
+// most, or subs under MinCoverScore.
+func channelData(have map[string]layer, channels []string, most int) (best, sum float64, ok bool) {
+	for _, f := range channels {
+		l, found := have[f]
+		if !found || l.Key == "" || l.Panels < most || PoorScore(f, l.Effective, l.Exposure) {
+			return 0, 0, false
+		}
+		best = max(best, l.Effective)
+		sum += l.Effective
+	}
+	return best, sum, true
 }
 
 // renderCover renders a colour preview for subject (a target, or a mosaic
@@ -533,10 +557,10 @@ func (p *Pipeline) refreshCover(ctx context.Context, object string) {
 	}
 	linear := map[string]layer{}
 	for _, s := range stacks {
-		linear[s.Filter] = fracCrop(layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds},
+		linear[s.Filter] = fracCrop(layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds, Exposure: s.ExposureSeconds},
 			s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height)
 		if comet {
-			linear[s.Filter] = fracCrop(layer{Key: *s.CometLinearKey, Effective: s.EffectiveSeconds},
+			linear[s.Filter] = fracCrop(layer{Key: *s.CometLinearKey, Effective: s.EffectiveSeconds, Exposure: s.ExposureSeconds},
 				s.CometCropX, s.CometCropY, s.CometCropW, s.CometCropH, s.Width, s.Height)
 		}
 	}
@@ -612,8 +636,9 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // no channel covers is sky grey, not black, and a mosaic's palette needs
 // as many panels as its best filter. 8: a luminance master goes into the
 // lightness of a red, green and blue cover where it lines up with them and
-// lowers the noise (LRGB).
-const CoverVersion = 8
+// lowers the noise (LRGB). 9: no red, green, blue or luminance channel
+// whose subs score under MinCoverScore on average.
+const CoverVersion = 9
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or

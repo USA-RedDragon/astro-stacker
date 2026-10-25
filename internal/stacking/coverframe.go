@@ -44,7 +44,7 @@ func planCover(object string, stacks []app.Stack) (coverPlan, bool) {
 	linear := map[string]layer{}
 	size := map[string][2]int{}
 	for _, s := range with {
-		linear[s.Filter] = fracCrop(layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds}, s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height)
+		linear[s.Filter] = fracCrop(layer{Key: *s.LinearKey, Effective: s.EffectiveSeconds, Exposure: s.ExposureSeconds}, s.CropX, s.CropY, s.CropW, s.CropH, s.Width, s.Height)
 		size[s.Filter] = [2]int{s.Width, s.Height}
 	}
 	pal, ok := choosePalette(linear, shoSubject.MatchString(object))
