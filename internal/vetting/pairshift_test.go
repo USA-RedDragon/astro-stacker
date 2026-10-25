@@ -29,7 +29,15 @@ func star299() surveys.Target {
 // catflags 0 epochs with the position ZTF measured on each.
 func ztf299(t *testing.T, band string) lc.Series {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/ztf_api_299_" + band + ".csv.zst")
+	return ztfAPI(t, "299", band)
+}
+
+// ztfAPI reads a light curve service answer kept in testdata for one
+// source and band, its catflags 0 epochs with the position ZTF measured
+// on each.
+func ztfAPI(t *testing.T, source, band string) lc.Series {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/ztf_api_" + source + "_" + band + ".csv.zst")
 	if err != nil {
 		t.Fatal(err)
 	}

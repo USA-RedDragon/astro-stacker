@@ -835,6 +835,15 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 		s.fetchMore(ctx, f, st.target, &fx)
 		pr, series = s.analyzeAll(ctx, f, sum, st, &fx, ownSeries, change, colour)
 	}
+	pick, nst, moved := s.pairPick(ctx, f, ra, dec, st, pr, &fx)
+	if moved {
+		st = nst
+		cra, cdec = starcat.Propagate(st.target.RA, st.target.Dec, st.target.PMRA, st.target.PMDec, epochYear(s.now())-starcat.GaiaEpoch)
+		known = catalogChecks(ctx, s.Mirrors, s.Simbad, cra, cdec, st.target.GaiaID)
+		rep.Star = starLine(known.Name, st)
+		colour = s.colourOf(ctx, st)
+		pr, series = s.analyzeAll(ctx, f, sum, st, &fx, ownSeries, change, colour)
+	}
 	for _, x := range fx.all() {
 		if x.State == surveys.Pending {
 			rep.Pending = append(rep.Pending, x.Survey)
@@ -864,7 +873,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	sug = s.withAlerts(ctx, sug, sum, cra, cdec, rep.Groups)
 	sug = onBadNights(sug, badNights(sum.Members, skews, runs), rep.Groups)
 	rep.Suggestion = blendOf(st, change, refMagOf(sum.Members)).notSure(sug)
-	rep.Suggestion.Why = joinSentences(rep.Suggestion.Why, st.matchNote(refMagOf(sum.Members)))
+	rep.Suggestion.Why = joinSentences(rep.Suggestion.Why, st.matchNote(refMagOf(sum.Members)), pick)
 	return rep, nil
 }
 
