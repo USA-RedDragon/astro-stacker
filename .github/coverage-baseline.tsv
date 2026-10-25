@@ -135,11 +135,12 @@ internal/discover/service.go	214	202
 internal/discover/subjects.go	251	222
 internal/discoveries/catalogs.go	293	258
 internal/discoveries/classify.go	254	238
-internal/discoveries/combine.go	122	115
+internal/discoveries/combine.go	141	134
 internal/discoveries/cutouts.go	76	67
-internal/discoveries/detect.go	904	858
+internal/discoveries/detect.go	954	901
+internal/discoveries/exposure.go	49	45
 internal/discoveries/extract.go	110	108
-internal/discoveries/filters.go	83	78
+internal/discoveries/filters.go	78	73
 internal/discoveries/image.go	230	210
 internal/discoveries/kernel.go	197	186
 internal/discoveries/localnoise.go	65	62
@@ -150,9 +151,10 @@ internal/discoveries/newlight.go	12	11
 internal/discoveries/null.go	106	91
 internal/discoveries/offsetguard.go	44	41
 internal/discoveries/progress.go	77	72
-internal/discoveries/refnights.go	195	182
+internal/discoveries/refnights.go	208	193
 internal/discoveries/runner.go	765	591
 internal/discoveries/sensor.go	212	205
+internal/discoveries/shape.go	108	97
 internal/discoveries/smallbodies.go	175	161
 internal/discoveries/spot.go	181	157
 internal/discoveries/surveyvariables.go	99	95
@@ -167,7 +169,7 @@ internal/discoveryreport/ades.go	42	40
 internal/discoveryreport/bulk.go	24	22
 internal/discoveryreport/known.go	143	133
 internal/discoveryreport/report.go	335	299
-internal/discoveryreport/service.go	310	225
+internal/discoveryreport/service.go	310	226
 internal/discoveryreport/tns.go	97	81
 internal/discoverysource/list.go	255	233
 internal/discoverysource/match.go	27	24
@@ -237,7 +239,7 @@ internal/indexer/recent.go	91	77
 internal/measure/measure.go	91	85
 internal/measure/photometry.go	84	82
 internal/memlimit/memlimit.go	15	7
-internal/memwatch/memwatch.go	58	44
+internal/memwatch/memwatch.go	58	49
 internal/moon/moon.go	44	43
 internal/moonkeep/altitude.go	155	148
 internal/moonkeep/beta.go	51	44
@@ -512,7 +514,7 @@ internal/vetting/ownimage/curve.go	242	227
 internal/vetting/ownimage/data.go	62	43
 internal/vetting/ownimage/fit.go	276	262
 internal/vetting/ownimage/flux.go	301	251
-internal/vetting/ownimage/imgcheck.go	273	241
+internal/vetting/ownimage/imgcheck.go	273	242
 internal/vetting/ownimage/live.go	112	96
 internal/vetting/ownimage/local.go	168	157
 internal/vetting/ownimage/measure.go	165	135
@@ -520,7 +522,7 @@ internal/vetting/ownimage/owncheck.go	130	107
 internal/vetting/ownimage/ownimage.go	2	2
 internal/vetting/ownimage/plan.go	227	214
 internal/vetting/ownimage/psfcheck.go	126	102
-internal/vetting/ownimage/refcheck.go	166	155
+internal/vetting/ownimage/refcheck.go	181	172
 internal/vetting/ownimage/run.go	154	139
 internal/vetting/ownimage/stack.go	618	554
 internal/vetting/ownimage/stackcheck.go	112	107
