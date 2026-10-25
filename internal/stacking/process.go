@@ -153,12 +153,30 @@ func (p *Pipeline) stackBatch(ctx context.Context, object, filter string, batch 
 func (p *Pipeline) addSubs(ctx context.Context, object, filter string, stack *app.Stack, added []addedSub, gains []*float64,
 	scales gainTable, acc *Accumulator, rebuild bool,
 ) error {
+	ids := make([]int, len(added))
+	for i, a := range added {
+		ids[i] = a.c.c.frame.ID
+	}
+	rims, err := p.rimStreaks(ctx, ids)
+	if err != nil {
+		return err
+	}
 	for i, a := range added {
 		p.progress(object, filter, StageAdding, i, len(added))
 		exp := *a.c.c.frame.Exposure
+		rim, has := rims[a.c.c.frame.ID]
+		weight, out, why := rimWeight(a.c.c.score.Score, exp, rim, has)
+		if out {
+			sf := p.leftOut(a.c.c, app.StackStatusLowScore)
+			sf.Error = &why
+			if err := p.record(ctx, sf); err != nil {
+				return err
+			}
+			continue
+		}
 		sf := app.StackFrame{
 			FrameID: a.c.c.frame.ID, StackID: &stack.ID, Status: app.StackStatusAdded,
-			Score: a.c.c.score.Score, Weight: a.c.c.score.Score * exp, Exposure: exp,
+			Score: a.c.c.score.Score, Weight: weight, Exposure: exp, Error: optional(why),
 			RegisteredKey: &a.key, DarkScale: a.c.darkScale, NoDark: a.c.c.cal.Dark.Set == nil && !precalibrated(a.c.c.frame),
 			BiasMaster: optional(a.c.bias), DarkMaster: optional(a.c.dark), FlatMaster: optional(a.c.flat),
 			FlatMatch: a.c.flatMatch(), MetadataSource: optional(a.c.c.source),

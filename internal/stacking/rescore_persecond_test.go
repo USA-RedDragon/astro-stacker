@@ -18,7 +18,7 @@ func TestScorePerSecondScoresEveryMasterAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}, &app.Stack{}); err != nil {
+	if err := db.AutoMigrate(&app.Frame{}, &app.StackFrame{}, &app.Stack{}, &app.RimStreak{}); err != nil {
 		t.Fatal(err)
 	}
 	old := app.Stack{Object: objectOrion, Filter: filterRed, ScoreMethod: scoreMethod}

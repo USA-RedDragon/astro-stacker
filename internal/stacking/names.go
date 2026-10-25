@@ -21,6 +21,8 @@ const (
 const (
 	columnStatus         = "status"
 	columnError          = "error"
+	columnScore          = "score"
+	columnProcessedAt    = "processed_at"
 	columnNextAttemptAt  = "next_attempt_at"
 	columnAttempt        = "attempt"
 	columnUpdatedAt      = "updated_at"

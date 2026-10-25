@@ -376,6 +376,7 @@ func (p *Pipeline) Run(ctx context.Context, interval time.Duration) {
 		// Masters are scored again as their lights' photometry comes in,
 		// before the sweep, which restacks what that marks.
 		for !p.stopping(ctx) {
+			p.measureRims(ctx)
 			p.rescoreAdded(ctx)
 			p.reconcileLateRecords(ctx)
 			if err := p.dropDuplicates(ctx); err != nil && ctx.Err() == nil {

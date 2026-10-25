@@ -15,7 +15,8 @@ import (
 )
 
 // scoreMethod is how subs are scored (package quality). 1: the weight takes
-// the square of the sub's transparency, so hazy subs score low.
+// the square of the sub's transparency, so hazy subs score low. The
+// weight also takes the dust rim streak's factor (rimWeight).
 //
 // A sub is scored once, when it is classified; one in a master is not looked
 // at again. Masters stacked under an older method have their subs scored
@@ -143,6 +144,14 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 		Scan(&rows).Error; err != nil {
 		return false, false, 0, 0, err
 	}
+	ids := make([]int, len(rows))
+	for i, r := range rows {
+		ids[i] = r.FrameID
+	}
+	rims, err := p.rimStreaks(ctx, ids)
+	if err != nil {
+		return false, false, 0, 0, err
+	}
 	next := now.Add(p.opts.RetryAfter)
 	err = p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, r := range rows {
@@ -155,7 +164,7 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 			// since it was stacked; it was judged then and stays.
 			if p.lowScore(s) && !s.PlainBelowCut(p.opts.MinScore) {
 				if err := tx.Model(&app.StackFrame{}).Where("id = ?", r.ID).UpdateColumns(map[string]any{
-					columnStatus: app.StackStatusLowScore, "score": s.Score, "processed_at": now, columnNextAttemptAt: next,
+					columnStatus: app.StackStatusLowScore, columnScore: s.Score, columnProcessedAt: now, columnNextAttemptAt: next,
 					columnError: p.lowScoreReason(s, stack.Filter),
 				}).Error; err != nil {
 					return err
@@ -164,12 +173,24 @@ func (p *Pipeline) rescoreStack(ctx context.Context, stack app.Stack, scores map
 				marked = marked || r.Status == app.StackStatusAdded
 				continue
 			}
-			weight := s.Score * r.Exposure
-			if weight == r.Weight && s.Score == r.Score {
+			rim, has := rims[r.FrameID]
+			weight, out, why := rimWeight(s.Score, r.Exposure, rim, has)
+			if out {
+				if err := tx.Model(&app.StackFrame{}).Where("id = ?", r.ID).UpdateColumns(map[string]any{
+					columnStatus: app.StackStatusLowScore, columnScore: s.Score, columnProcessedAt: now, columnNextAttemptAt: next,
+					columnError: why,
+				}).Error; err != nil {
+					return err
+				}
+				left++
+				marked = marked || r.Status == app.StackStatusAdded
+				continue
+			}
+			if weight == r.Weight && s.Score == r.Score && (why == "") == (r.Error == nil) {
 				continue
 			}
 			if err := tx.Model(&app.StackFrame{}).Where("id = ?", r.ID).
-				UpdateColumns(map[string]any{"score": s.Score, "weight": weight}).Error; err != nil {
+				UpdateColumns(map[string]any{columnScore: s.Score, "weight": weight, columnError: optional(why)}).Error; err != nil {
 				return err
 			}
 			if !(r.Weight > 0) || math.Abs(weight/r.Weight-1) > rescoreWeightTolerance {

@@ -110,9 +110,18 @@ func (p *Pipeline) reconcileObject(ctx context.Context, object string, rows []la
 	}
 	defer p.release(object)
 	marked := map[int]bool{}
-	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	ids := make([]int, len(rows))
+	for i, r := range rows {
+		ids[i] = r.FrameID
+	}
+	rims, err := p.rimStreaks(ctx, ids)
+	if err != nil {
+		return 0, err
+	}
+	err = p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, r := range rows {
-			cols, restack := p.lateColumns(r, scores[path.Base(r.Key)], now)
+			rim, has := rims[r.FrameID]
+			cols, restack := p.lateColumns(r, scores[path.Base(r.Key)], rim, has, now)
 			if err := tx.Model(&app.StackFrame{}).Where("id = ?", r.ID).UpdateColumns(cols).Error; err != nil {
 				return err
 			}
@@ -137,10 +146,10 @@ func (p *Pipeline) reconcileObject(ctx context.Context, object string, rows []la
 
 // lateColumns is the update reconcileLate makes to one light given its
 // record's score s, and whether its master needs restacking for it.
-func (p *Pipeline) lateColumns(r lateRow, s quality.SubScore, now time.Time) (map[string]any, bool) {
+func (p *Pipeline) lateColumns(r lateRow, s quality.SubScore, rim app.RimStreak, hasRim bool, now time.Time) (map[string]any, bool) {
 	if r.Status == app.StackStatusNight {
 		r.Status = app.StackStatusAdded
-		cols, _ := p.lateColumns(r, s, now)
+		cols, _ := p.lateColumns(r, s, rim, hasRim, now)
 		return cols, false
 	}
 	cols := map[string]any{"metadata_source": app.MetadataSourceTS}
@@ -152,14 +161,19 @@ func (p *Pipeline) lateColumns(r lateRow, s quality.SubScore, now time.Time) (ma
 	}
 	switch {
 	case s.GradingStatus == quality.GradingRejected && !s.StackerRejected:
-		cols[columnStatus], cols["score"], cols["processed_at"], cols[columnNextAttemptAt] = app.StackStatusRejected, s.Score, now, nil
+		cols[columnStatus], cols[columnScore], cols[columnProcessedAt], cols[columnNextAttemptAt] = app.StackStatusRejected, s.Score, now, nil
 		return cols, true
 	case p.lowScore(s):
-		cols[columnStatus], cols["score"], cols["processed_at"] = app.StackStatusLowScore, s.Score, now
+		cols[columnStatus], cols[columnScore], cols[columnProcessedAt] = app.StackStatusLowScore, s.Score, now
 		cols[columnNextAttemptAt], cols[columnError] = now.Add(p.opts.RetryAfter), p.lowScoreReason(s, r.Filter)
 		return cols, true
 	}
-	weight := s.Score * r.Exposure
-	cols["score"], cols["weight"] = s.Score, weight
+	weight, out, why := rimWeight(s.Score, r.Exposure, rim, hasRim)
+	if out {
+		cols[columnStatus], cols[columnScore], cols[columnProcessedAt] = app.StackStatusLowScore, s.Score, now
+		cols[columnNextAttemptAt], cols[columnError] = now.Add(p.opts.RetryAfter), why
+		return cols, true
+	}
+	cols[columnScore], cols["weight"], cols[columnError] = s.Score, weight, optional(why)
 	return cols, !(r.Weight > 0) || math.Abs(weight/r.Weight-1) > rescoreWeightTolerance
 }
