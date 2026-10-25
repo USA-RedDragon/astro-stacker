@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
@@ -324,7 +325,7 @@ func periodic(sum discoverysource.Summary, pr *period.Result, timing *period.Tim
 		conf = Low
 	}
 	which := ""
-	if curve != nil && len(e.Eclipses) > 1 {
+	if (curve != nil || timing != nil) && len(e.Eclipses) > 1 {
 		which = dipCaught(e, sum, timing, curve)
 	}
 	why := joinSentences(which, fmt.Sprintf("%s show the same dips every %s days, and no catalog lists the star as variable.", surveysSeen, p))
@@ -413,14 +414,23 @@ func shortPeriod(p float64) string {
 	return trimZeros(fmt.Sprintf("%.3f", p))
 }
 
+const yourNight = "Your night"
+
 func dipCaught(e *period.Ephemeris, sum discoverysource.Summary, timing *period.Timing, curve *ownimage.Curve) string {
-	if timing != nil {
-		if timing.Dip == 1 {
-			return "Your night caught the deeper of its two dips."
-		}
-		return "Your night caught the shallower of its two dips."
-	}
 	night := sum.Best.Night.UTC().Format("2006-01-02")
+	if timing != nil {
+		who := yourNight
+		if d, err := time.Parse(time.DateOnly, timing.Night); err == nil && timing.Night != night {
+			who = "Your frames of " + dateWords(d)
+		}
+		if timing.Dip == 1 {
+			return who + " caught the deeper of its two dips."
+		}
+		return who + " caught the shallower of its two dips."
+	}
+	if curve == nil {
+		return ""
+	}
 	var sum0 float64
 	n := 0
 	for _, p := range curve.Points {

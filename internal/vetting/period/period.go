@@ -173,6 +173,10 @@ type Timing struct {
 	// Dip is 1 for the deeper dip and 2 for the shallower.
 	Dip    int `json:"dip"`
 	Points int `json:"points"`
+	// Night is the evening date of the frames timed and Filter their
+	// filter.
+	Night  string `json:"night,omitempty"`
+	Filter string `json:"filter,omitempty"`
 }
 
 // TimeMinimum fits the dip the points of one night cover. ok is false

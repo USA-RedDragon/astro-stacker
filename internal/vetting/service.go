@@ -822,7 +822,7 @@ func (s *Service) vetSource(ctx context.Context, f surveys.Field, sum discoverys
 	timing := ownTimingOf(pr, curve, sum)
 	moving := s.movingCheck(ctx, sum, runs, fx.ztf)
 	rep.Groups = groupsOf(sum, ownChecks, fx, pr, timing, known, moving)
-	rep.Charts = chartsOf(sum, curve, fx, pr, change)
+	rep.Charts = chartsOf(sum, curve, fx, pr, change, timing)
 	rep.FadesRead = fx.ztf.State == surveys.Done || fx.ztf.State == surveys.Uncovered
 	rep.FadeNightsRead = rep.FadesRead
 	if pr != nil {
@@ -886,15 +886,6 @@ func flaggedBJDs(ms []app.DiscoveryCandidate, ra, dec float64) []float64 {
 		out = append(out, lc.BJD(m.Night.UTC().Add(24*time.Hour), ra, dec))
 	}
 	return out
-}
-
-func ownTimingOf(pr *period.Result, curve *ownimage.Curve, sum discoverysource.Summary) *period.Timing {
-	if pr != nil && pr.Ephemeris != nil && curve != nil {
-		if t, ok := ownTiming(pr.Ephemeris, curve, sum); ok {
-			return &t
-		}
-	}
-	return nil
 }
 
 func (s *Service) withAlerts(ctx context.Context, sug Suggestion, sum discoverysource.Summary, cra, cdec float64, groups []Group) Suggestion {
@@ -986,26 +977,6 @@ func ztfVaries(ss []lc.Series) bool {
 		}
 	}
 	return false
-}
-
-func ownTiming(e *period.Ephemeris, curve *ownimage.Curve, sum discoverysource.Summary) (period.Timing, bool) {
-	night := sum.Best.Night.UTC().Format(time.DateOnly)
-	byFilter := map[string][]lc.Point{}
-	for _, p := range curve.Points {
-		if p.Night == night {
-			byFilter[p.Filter] = append(byFilter[p.Filter], lc.Point{BJD: p.BJD, Mag: p.DMag, Err: p.Err})
-		}
-	}
-	best, bestN := "", 0
-	for f, pts := range byFilter {
-		if len(pts) > bestN {
-			best, bestN = f, len(pts)
-		}
-	}
-	if bestN < 5 {
-		return period.Timing{}, false
-	}
-	return period.TimeMinimum(e, byFilter[best], bandOf(e, best))
 }
 
 func bandOf(e *period.Ephemeris, filter string) string {

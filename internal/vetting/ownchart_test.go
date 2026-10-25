@@ -38,7 +38,7 @@ func TestNightChart3635(t *testing.T) {
 		{Phase: 0, Width: 0.01585, Shape: 1.394, Depth: dep}, {Phase: 0.5, Width: 0.01585, Shape: 1.394, Depth: dep}}}
 	var sum discoverysource.Summary
 	sum.Best.Night = time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
-	ch := nightChart(sum, &c, e)
+	ch := nightChart(sum, &c, e, nil)
 	if len(ch.Points) != 5 {
 		t.Fatalf("charted %d frames (%s), want the 5 Luminance frames", len(ch.Points), ch.Sub)
 	}

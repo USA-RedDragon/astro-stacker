@@ -176,6 +176,13 @@ func timingCheck(e *period.Ephemeris, t *period.Timing) check.Check {
 	if off < 0.05 {
 		ev = fmt.Sprintf("Your minimum came right on time, plus or minus %.1f min.", t.OffsetErr)
 	}
+	if d, err := time.Parse(time.DateOnly, t.Night); err == nil {
+		which := "deeper"
+		if t.Dip != 1 {
+			which = "shallower"
+		}
+		ev = fmt.Sprintf("Your %s frames of %s cover the %s dip, %.2f mag deep. %s", t.Filter, dateWords(d), which, t.Depth, ev)
+	}
 	limit := math.Max(3*t.OffsetErr, 0.01*e.Period*24*60)
 	if off > limit {
 		return check.New(check.OwnTiming, check.Fail, ev+" That is more than the timing allows.")

@@ -14,12 +14,12 @@ import (
 
 const maxChartPoints = 600
 
-func chartsOf(sum discoverysource.Summary, curve *ownimage.Curve, fx fetches, pr *period.Result, c change) []Chart {
+func chartsOf(sum discoverysource.Summary, curve *ownimage.Curve, fx fetches, pr *period.Result, c change, timing *period.Timing) []Chart {
 	var e *period.Ephemeris
 	if pr != nil {
 		e = pr.Ephemeris
 	}
-	out := []Chart{nightChart(sum, curve, e)}
+	out := []Chart{nightChart(sum, curve, e, timing)}
 	if sum.Source.Kind == kindMover {
 		return out
 	}
@@ -123,8 +123,16 @@ func thin(n int) []int {
 
 func yearOf(bjd float64) float64 { return 2000 + (bjd-2451545.0)/365.25 }
 
-func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ephemeris) Chart {
+// nightChart charts the flagged night's frames, or with a timing the
+// night and filter it timed.
+func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ephemeris, timing *period.Timing) Chart {
 	night := sum.Best.Night.UTC()
+	want := ""
+	if timing != nil {
+		if d, err := time.Parse(time.DateOnly, timing.Night); err == nil {
+			night, want = d, timing.Filter
+		}
+	}
 	ch := Chart{ID: chartNight, Title: "Your night, " + dateWords(night), XUnit: unitHours, YUnit: unitDMag, YLabel: magFainter,
 		Sub: "Your own brightness for this star against steady nearby stars."}
 	if curve == nil {
@@ -134,7 +142,7 @@ func nightChart(sum discoverysource.Summary, curve *ownimage.Curve, e *period.Ep
 	key := night.Format(time.DateOnly)
 	byFilter := map[string][]ownimage.Point{}
 	for _, p := range curve.Points {
-		if p.Night == key {
+		if p.Night == key && (want == "" || p.Filter == want) {
 			byFilter[p.Filter] = append(byFilter[p.Filter], p)
 		}
 	}
