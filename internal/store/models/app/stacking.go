@@ -54,12 +54,15 @@ type TargetReference struct {
 }
 
 // Stack is the running master for one target and filter.
-// Cover is a colour preview of a target, or of a project's mosaics
+// Cover is the cover preview of a target, or of a project's mosaics
 // (Subject "mosaic:" + project), from its filters' masters.
 type Cover struct {
-	ID         int    `gorm:"primaryKey;autoIncrement"`
-	Subject    string `gorm:"not null;uniqueIndex"`
-	Palette    string // RGB+Ha, RGB, SHO or HOO; +OIII when O-III is added to RGB
+	ID      int    `gorm:"primaryKey;autoIncrement"`
+	Subject string `gorm:"not null;uniqueIndex"`
+	Palette string // RGB+Ha, RGB, SHO or HOO; +OIII when O-III is added to RGB
+	// Filter is set for a single-filter cover. With neither it nor
+	// Palette, and no PreviewKey, no channel was fit to show yet.
+	Filter     string `gorm:"not null;default:''"`
 	PreviewKey string
 	Version    int // stacking.CoverVersion it was composed by
 	UpdatedAt  time.Time

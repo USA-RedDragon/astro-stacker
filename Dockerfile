@@ -30,13 +30,30 @@ RUN make -j"$(nproc)" ARCH_FLAGS= SYSTEM_GSL=yes GSL_INC= GSL_LIB="-lgsl -lgslcb
     && scanelf --needed --nobanner --format '%n#p' /out/usr/bin/* \
         | tr ',' '\n' | sort -u | sed 's/^/so:/' > /out/runtime-deps
 
+# GraXpert's AI background extraction model (CC BY-NC-SA 4.0), which the
+# covers run with onnxruntime to take the sky's gradients off. Set
+# GRAXPERT_BGE_URL to where model.onnx of version 1.0.1 can be fetched;
+# without it the image has no model and covers wait for one.
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS bgemodel
+
+ARG GRAXPERT_BGE_URL=
+ARG GRAXPERT_BGE_SHA256=4ed3ef68c9f44e821ea4e47572770bb9d4d5df447feae3e758d4c0480fca1f03
+
+RUN mkdir -p /out \
+    && if [ -n "${GRAXPERT_BGE_URL}" ]; then \
+        apk add --no-cache curl \
+        && curl -fsSLo /out/graxpert-bge-1.0.1.onnx "${GRAXPERT_BGE_URL}" \
+        && echo "${GRAXPERT_BGE_SHA256}  /out/graxpert-bge-1.0.1.onnx" | sha256sum -c -; \
+    fi
+
 # Siril does the calibration and registration: 1.4 built from source on
 # Alpine (github.com/USA-RedDragon/dockers, images/siril). It's x86_64 only,
 # so this image is amd64 only. The base sets HOME and the XDG dirs to /tmp,
 # which the pod mounts writable over a read-only root filesystem.
 FROM ghcr.io/usa-reddragon/siril:1.4.4@sha256:7863b17b64d8c0e300d9ee3bf6cd9160efbccfca8495bff3d585372ce3e9dbe4
 COPY --from=astrometry /out/runtime-deps /tmp/runtime-deps
-RUN apk add --no-cache $(cat /tmp/runtime-deps) && rm /tmp/runtime-deps
+RUN apk add --no-cache $(cat /tmp/runtime-deps) python3 py3-numpy py3-onnxruntime && rm /tmp/runtime-deps
+COPY --from=bgemodel /out/ /usr/share/astro-stacker/
 COPY --from=astrometry /out/usr/bin /usr/bin
 RUN solve-field --help > /dev/null
 COPY astro-stacker /astro-stacker

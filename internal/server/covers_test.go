@@ -69,3 +69,15 @@ func TestFewestPanelsOnlyInTheCoverPalette(t *testing.T) {
 		}
 	}
 }
+
+// Rho's single-filter H-a cover counts the H-a mosaic's panels only.
+func TestFewestPanelsOfASingleFilterCover(t *testing.T) {
+	t.Parallel()
+	mosaics := []app.Mosaic{
+		{Project: projectRho, Filter: filterRed, Panels: 1, PanelsTotal: 12},
+		{Project: projectRho, Filter: filterHa, Panels: 4, PanelsTotal: 12},
+	}
+	if got := fewestPanels(mosaics, map[string]string{projectRho: filterHa})[projectRho]; got.Filter != filterHa || got.Panels != 4 {
+		t.Errorf("got %+v, want the H-a mosaic's 4 panels", got)
+	}
+}

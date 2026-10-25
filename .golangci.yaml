@@ -97,6 +97,10 @@ linters:
         linters:
           - gosec
         text: G204|G703
+      - path: internal/stacking/coverbg\.go$
+        linters:
+          - gosec
+        text: G204|G115
       - path: internal/stacking/(header|outputs|process)\.go$
         linters:
           - gosec

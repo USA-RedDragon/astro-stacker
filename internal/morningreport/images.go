@@ -71,8 +71,11 @@ func (c Collector) image(ctx context.Context, t TargetSubs, night time.Time) (Im
 	}
 	if len(covers) == 1 && covers[0].PreviewKey != "" {
 		cv := covers[0]
-		filters := stacking.PaletteFilters(cv.Palette)
-		im := preview(t, stacks, filters, cv.PreviewKey, cv.Palette+" color", cv.UpdatedAt)
+		filters, label := stacking.PaletteFilters(cv.Palette), cv.Palette+" color"
+		if cv.Filter != "" {
+			filters, label = []string{cv.Filter}, cv.Filter
+		}
+		im := preview(t, stacks, filters, cv.PreviewKey, label, cv.UpdatedAt)
 		if im.NewSubs > 0 {
 			if stacking.CometCover(withLinear(stacks)) {
 				if err := c.comet(ctx, &im, stacks, filters, night); err != nil {

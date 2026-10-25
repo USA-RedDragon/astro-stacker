@@ -102,7 +102,7 @@ func TestFind23991IsJustAboveTheCover(t *testing.T) {
 		t.Fatalf("find #23991 lands at master %.1f, %.1f; the detections put it at 2590.1 to 2590.9, 47.3 to 47.9", x, y)
 	}
 	frame, ok := stacking.CoverFrameOf(ic4604Panel6, ic4604Panel6Stacks())
-	if want := (stacking.CoverFrame{Bin: 4, X: 8, Y: 12, W: 1546, H: 1008}); !ok || frame != want {
+	if want := (stacking.CoverFrame{Bin: 4, X: 8, Y: 12, W: 1546, H: 1008, Filters: "Blue,Green,Red"}); !ok || frame != want {
 		t.Fatalf("cover frame %+v, want %+v", frame, want)
 	}
 	if cx, cy := frame.Pixel(x, y); math.Abs(cx-639.3) > 0.3 || math.Abs(cy+0.5) > 0.3 {
@@ -159,7 +159,7 @@ func TestStarOnTheMastersEdgeGetsAWholeFramePicture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (stacking.CoverFrame{Bin: 4, W: previewW, H: previewH}); whole != want || img.Bounds().Dx() != previewW || img.Bounds().Dy() != previewH {
+	if want := (stacking.CoverFrame{Bin: 4, W: previewW, H: previewH, Filters: "Blue,Green,Red"}); whole != want || img.Bounds().Dx() != previewW || img.Bounds().Dy() != previewH {
 		t.Fatalf("whole frame %+v, picture %v", whole, img.Bounds())
 	}
 	if math.Abs(mark.X-647.3) > 0.3 || math.Abs(mark.Y-11.5) > 0.3 {

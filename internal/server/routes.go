@@ -106,12 +106,6 @@ type Mosaic struct {
 	XISFURL string `json:"xisf_url,omitempty"`
 }
 
-// monoFilterOrder ranks filters by how well one shows a target on its own:
-// nebulae are faint in blue and green but bright in H-a.
-func monoFilterOrder() []string {
-	return []string{"H-a", "O-III", "S-II", "Luminance", "Red", "Green", "Blue"}
-}
-
 // monoCovers picks each object's single-filter cover: the highest-ranked
 // filter with at least a quarter of its best filter's effective exposure,
 // so a thin H-a master doesn't beat a deep one in another filter.
@@ -120,7 +114,7 @@ func monoCovers(stacks []app.Stack) []app.Stack {
 	for _, s := range stacks {
 		best[s.Object] = max(best[s.Object], s.EffectiveSeconds)
 	}
-	order := monoFilterOrder()
+	order := stacking.MonoFilterOrder()
 	rank := func(f string) int {
 		if i := slices.Index(order, f); i >= 0 {
 			return i
@@ -149,9 +143,12 @@ type Cover struct {
 	// Palette is set for a colour composite (RGB+Ha, RGB, SHO, HOO, with
 	// +OIII when O-III is added to RGB);
 	// Filter for a single filter's preview.
-	Palette          string    `json:"palette,omitempty"`
-	Filter           string    `json:"filter,omitempty"`
-	PreviewURL       string    `json:"preview_url"`
+	Palette    string `json:"palette,omitempty"`
+	Filter     string `json:"filter,omitempty"`
+	PreviewURL string `json:"preview_url"`
+	// Waiting is set when no channel's sky came out flat enough to show:
+	// the cover waits for more data, and PreviewURL is empty.
+	Waiting          bool      `json:"waiting,omitempty"`
 	EffectiveSeconds float64   `json:"effective_seconds,omitempty"`
 	UpdatedAt        time.Time `json:"updated_at"`
 	Panels           *int      `json:"panels,omitempty"`
@@ -393,11 +390,16 @@ func publicLightRoute(signer *previewer.Signer) gin.HandlerFunc {
 }
 
 // fewestPanels is each project's mosaic with the fewest panels among the
-// filters its colour cover is composed from, given by project in palettes.
+// filters its cover is composed from, given by project in palettes as a
+// palette's name or a single filter's.
 func fewestPanels(mosaics []app.Mosaic, palettes map[string]string) map[string]app.Mosaic {
 	out := map[string]app.Mosaic{}
 	for _, m := range mosaics {
-		if fs := stacking.PaletteFilters(palettes[m.Project]); fs != nil && !slices.Contains(fs, m.Filter) {
+		fs := stacking.PaletteFilters(palettes[m.Project])
+		if fs == nil && palettes[m.Project] != "" {
+			fs = []string{palettes[m.Project]}
+		}
+		if fs != nil && !slices.Contains(fs, m.Filter) {
 			continue
 		}
 		if f, ok := out[m.Project]; !ok || m.Panels < f.Panels {
@@ -432,12 +434,15 @@ func coversRoute(signer *previewer.Signer) gin.HandlerFunc {
 			return
 		}
 		for _, cv := range covers {
-			u, err := signer.URL(ctx, cv.PreviewKey)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
-				return
+			cover := Cover{Palette: cv.Palette, Filter: cv.Filter, UpdatedAt: cv.UpdatedAt, Waiting: cv.PreviewKey == ""}
+			if !cover.Waiting {
+				u, err := signer.URL(ctx, cv.PreviewKey)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{errorKey: err.Error()})
+					return
+				}
+				cover.PreviewURL = u
 			}
-			cover := Cover{Palette: cv.Palette, PreviewURL: u, UpdatedAt: cv.UpdatedAt}
 			if project, ok := strings.CutPrefix(cv.Subject, app.MosaicSubject("")); ok {
 				out.Mosaics[project] = cover
 			} else {
@@ -463,6 +468,9 @@ func coversRoute(signer *previewer.Signer) gin.HandlerFunc {
 		palettes := map[string]string{}
 		for project, cv := range out.Mosaics {
 			palettes[project] = cv.Palette
+			if cv.Filter != "" {
+				palettes[project] = cv.Filter
+			}
 		}
 		fewest := fewestPanels(mosaics, palettes)
 		for project, cv := range out.Mosaics {

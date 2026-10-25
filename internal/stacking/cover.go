@@ -238,42 +238,39 @@ func choosePalette(have map[string]layer, sho bool) (palette, bool) {
 	return palette{}, false
 }
 
-// renderCover renders a colour preview for subject (a target, or a mosaic
-// project) from the linear previews of its filters, keyed by filter, and
-// stores it at prefix/color.jpg. Without a full palette it clears the cover,
-// and the mono preview is used.
+// renderCover renders the cover of subject (a target, or a mosaic project)
+// from the linear previews of its filters, keyed by filter
+// (composeSubject): a colour one at prefix/color.jpg, or a single filter's
+// at prefix/mono.jpg, or none while no channel is fit to show.
 func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, linear map[string]layer) error {
-	pal, ok := choosePalette(linear, shoSubject.MatchString(subject))
-	if !ok {
-		metrics.Covers.WithLabelValues("mono").Inc()
-		return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
+	if err := CoverBackground().Ready(); err != nil {
+		return err
 	}
-	planes := map[string]*linearImage{}
-	for _, f := range pal.filters() {
-		img, err := p.readLinear(ctx, linear[f].Key)
-		if err != nil {
-			return fmt.Errorf("%s %s: %w", subject, f, err)
-		}
-		planes[f] = img
-	}
-	pal, planes, w, h, ok := framePlanes(subject, pal, linear, planes)
-	if !ok {
-		return p.db.WithContext(ctx).Where("subject = ?", subject).Delete(&app.Cover{}).Error
-	}
-	jpg, lrgb, err := composeCover(pal, planes, w, h)
+	res, err := composeSubject(ctx, CoverBackground().Fit, subject, linear, func(key string) (*linearImage, error) { return p.readLinear(ctx, key) }, false)
 	if err != nil {
 		return err
 	}
-	if pal.Lum {
+	for f, r := range res.Flat {
+		slog.Debug("Cover background", "subject", subject, "filter", f, "before", r.Before, "after", r.After, "object", r.Object, "fine", r.Fine, "fine_change", r.FineChange)
+	}
+	if res.Lum {
+		lrgb := res.LRGB
 		slog.Info("Cover luminance", "subject", subject, "used", lrgb.Used, "why", lrgb.Why, "weight", lrgb.Weight,
 			"noise_rgb", lrgb.NoiseRGB, "noise_l", lrgb.NoiseL, "noise_out", lrgb.NoiseOut, "shift", lrgb.Shift, "stars", lrgb.Stars)
 	}
-	if lrgb.Used {
-		pal.Name = lrgbPrefix + pal.Name
+	name, kind := "color.jpg", "colour"
+	switch {
+	case res.Filter != "":
+		name, kind = "mono.jpg", "mono"
+	case res.Palette == "":
+		name, kind = "", "waiting"
 	}
-	key := path.Join(prefix, "color.jpg")
-	if err := p.putBytes(ctx, key, jpg, minio.PutObjectOptions{ContentType: contentTypeJPEG}); err != nil {
-		return err
+	key := ""
+	if name != "" {
+		key = path.Join(prefix, name)
+		if err := p.putBytes(ctx, key, res.JPEG, minio.PutObjectOptions{ContentType: contentTypeJPEG}); err != nil {
+			return err
+		}
 	}
 	var c app.Cover
 	err = p.db.WithContext(ctx).Where("subject = ?", subject).First(&c).Error
@@ -281,12 +278,17 @@ func (p *Pipeline) renderCover(ctx context.Context, subject, prefix string, line
 		return err
 	}
 	moved := c.PreviewKey
-	c.Subject, c.Palette, c.PreviewKey, c.UpdatedAt, c.Version = subject, pal.Name, key, time.Now(), CoverVersion
-	metrics.Covers.WithLabelValues("colour").Inc()
+	c.Subject, c.Palette, c.Filter, c.PreviewKey, c.UpdatedAt, c.Version = subject, res.Palette, res.Filter, key, time.Now(), CoverVersion
+	metrics.Covers.WithLabelValues(kind).Inc()
 	if err := p.db.WithContext(ctx).Save(&c).Error; err != nil {
 		return err
 	}
-	p.removeMoved(ctx, &moved, prefix, "color.jpg")
+	p.removeMoved(ctx, &moved, prefix, "color.jpg", "mono.jpg")
+	if moved != "" && moved != key && path.Dir(moved) == prefix && p.s3 != nil {
+		if err := p.s3.RemoveObject(ctx, p.dest, moved, minio.RemoveObjectOptions{}); err != nil {
+			slog.Warn("Could not remove the old cover", "key", moved, "error", err)
+		}
+	}
 	return nil
 }
 
@@ -612,13 +614,20 @@ func (p *Pipeline) refreshMosaicCover(ctx context.Context, project string) {
 // no channel covers is sky grey, not black, and a mosaic's palette needs
 // as many panels as its best filter. 8: a luminance master goes into the
 // lightness of a red, green and blue cover where it lines up with them and
-// lowers the noise (LRGB).
-const CoverVersion = 8
+// lowers the noise (LRGB). 10: GraXpert's background model takes each
+// channel's sky gradients off first (flattenPlanes), a channel whose sky
+// still shows structure is left out, and a subject without a colour
+// palette gets a single-filter cover, or none until more data comes.
+const CoverVersion = 10
 
 // backfillCovers renders covers for targets and projects whose masters are
 // newer than their cover, such as those stacked before covers existed, or
 // whose cover was composed by an older CoverVersion.
 func (p *Pipeline) backfillCovers(ctx context.Context) {
+	if err := CoverBackground().Ready(); err != nil {
+		slog.Warn("Covers wait for the background model", "error", err)
+		return
+	}
 	covers := map[string]time.Time{}
 	var cs []app.Cover
 	if err := p.db.WithContext(ctx).Find(&cs).Error; err != nil {

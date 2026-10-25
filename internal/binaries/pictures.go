@@ -115,7 +115,7 @@ func (s *Service) shareWork(ctx context.Context, stars []Star) ([]pictureWork, e
 				return nil, err
 			}
 			covers[src.Object], refs[src.Object] = nil, nil
-			if len(c) == 1 && c[0].PreviewKey != "" {
+			if len(c) == 1 && c[0].PreviewKey != "" && c[0].Filter == "" {
 				covers[src.Object] = &c[0]
 			}
 			if len(tr) == 1 {
@@ -286,6 +286,9 @@ func (s *Service) coverOf(ctx context.Context, w pictureWork) (image.Image, stac
 	frame, ok := stacking.CoverFrameOf(w.src.Object, stacks)
 	if !ok {
 		return nil, stacking.CoverFrame{}, nil, lasting{errors.New("the colour picture's frame could not be worked out from the masters")}
+	}
+	if !frame.Shows(w.cover.Palette) {
+		return nil, stacking.CoverFrame{}, nil, lasting{fmt.Errorf("the %s colour picture leaves out a channel of the masters' palette, so its frame can't be worked out", w.cover.Palette)}
 	}
 	b, err := s.Objects.Get(ctx, w.cover.PreviewKey)
 	if err != nil {

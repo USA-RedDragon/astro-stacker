@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 )
@@ -19,6 +20,24 @@ import (
 type CoverFrame struct {
 	Bin        int
 	X, Y, W, H int
+	// Filters are the colour filters the frame was worked out from, sorted
+	// and joined with commas.
+	Filters string
+}
+
+// colourFilters are a palette's filters without the luminance, sorted and
+// joined with commas; the luminance doesn't change a cover's frame.
+func colourFilters(fs []string) string {
+	out := slices.DeleteFunc(slices.Clone(fs), func(f string) bool { return f == filterLuminance })
+	slices.Sort(out)
+	return strings.Join(out, ",")
+}
+
+// Shows reports whether a cover of the named palette was composed from the
+// filters f was worked out from, so f places points on it.
+func (f CoverFrame) Shows(palette string) bool {
+	fs := PaletteFilters(palette)
+	return fs != nil && colourFilters(fs) == f.Filters
 }
 
 // coverPlan is a target's cover palette, its filters' linear previews and
@@ -80,49 +99,46 @@ func CoverFrameOf(object string, stacks []app.Stack) (CoverFrame, bool) {
 		return CoverFrame{}, false
 	}
 	r := commonCrop(p.layers, p.w, p.h)
-	return CoverFrame{Bin: p.bin, X: r.X, Y: r.Y, W: r.W, H: r.H}, true
+	return CoverFrame{Bin: p.bin, X: r.X, Y: r.Y, W: r.W, H: r.H, Filters: colourFilters(p.pal.filters())}, true
 }
 
 // WholeCover renders a target's colour picture as its cover is rendered,
 // but over the whole of its masters. The cover keeps only the part that
 // every colour filter covered well, so a star at the masters' edge can be
-// cut off it. get reads an object of the processed bucket.
+// cut off it. Its sky's background is taken off as the cover's is where
+// the model is installed. get reads an object of the processed bucket.
 func WholeCover(ctx context.Context, get func(context.Context, string) ([]byte, error), object string, stacks []app.Stack) (image.Image, CoverFrame, error) {
 	p, ok := planCover(object, stacks)
 	if !ok {
 		return nil, CoverFrame{}, errors.New("no colour palette from the masters")
 	}
-	planes := map[string]*linearImage{}
-	whole := map[string]layer{}
-	for _, f := range p.pal.filters() {
-		raw, err := get(ctx, p.linear[f].Key)
-		if err != nil {
-			return nil, CoverFrame{}, fmt.Errorf("read the %s preview: %w", f, err)
-		}
-		img, err := linearOf(raw)
-		if err != nil {
-			return nil, CoverFrame{}, fmt.Errorf("the %s preview: %w", f, err)
-		}
-		planes[f] = img
-		l := p.linear[f]
-		if f != filterLuminance {
-			l.CropX, l.CropY, l.CropW, l.CropH = 0, 0, 0, 0
-		}
-		whole[f] = l
+	fit := CoverBackground().Fit
+	if err := CoverBackground().Ready(); err != nil {
+		fit = flatBackground
 	}
-	pal, planes, w, h, ok := framePlanes(object, p.pal, whole, planes)
-	if !ok {
-		return nil, CoverFrame{}, errors.New("the colour masters don't line up")
-	}
-	b, _, err := composeCover(pal, planes, w, h)
+	res, err := composeSubject(ctx, fit, object, p.linear, func(key string) (*linearImage, error) {
+		raw, err := get(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return linearOf(raw)
+	}, true)
 	if err != nil {
 		return nil, CoverFrame{}, err
 	}
+	if res.Palette == "" {
+		return nil, CoverFrame{}, errors.New("no colour channel came out flat enough")
+	}
+	frame := CoverFrame{Bin: p.bin, W: res.W, H: res.H, Filters: colourFilters(p.pal.filters())}
+	if !frame.Shows(res.Palette) {
+		return nil, CoverFrame{}, fmt.Errorf("a channel was left out of the %s picture, so its frame differs from the masters'", res.Palette)
+	}
+	b := res.JPEG
 	img, err := jpeg.Decode(bytes.NewReader(b))
 	if err != nil {
 		return nil, CoverFrame{}, err
 	}
-	return img, CoverFrame{Bin: p.bin, W: w, H: h}, nil
+	return img, frame, nil
 }
 
 // Pixel is where master pixel x, y falls on the cover, both counted from
