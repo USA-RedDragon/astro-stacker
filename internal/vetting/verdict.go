@@ -61,6 +61,9 @@ func suggest(sum discoverysource.Summary, flags ownimage.Flags, curve *ownimage.
 		return Suggestion{State: app.VetKnown, Say: "Known asteroid or comet", Confidence: High, Why: moving.Evidence}
 	}
 	if known.Listed != "" {
+		if r, ok := periodRevised(known, ps, pr); ok {
+			return r
+		}
 		return Suggestion{State: app.VetKnown, Say: sayAlreadyKnown, Confidence: High, Why: sentence(known.Listed)}
 	}
 	if ps != nil && (ps.State == app.VetArtifact || ps.State == app.VetKnown) {

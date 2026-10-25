@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
+	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/tnsmirror"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/period"
 )
 
 // listedArcsec is how close a catalog entry must be to name the spot's
@@ -51,6 +53,9 @@ type Known struct {
 	// Listed names the catalog entry that already knows the star as
 	// variable or transient, empty when none does.
 	Listed string
+	// ListedPeriod is the period in days the entry in Listed gives, 0
+	// when it gives none.
+	ListedPeriod float64
 	// Reported is the TNS report at the spot, empty when none: a transient
 	// TNS knows outranks the image checks, since its own light can sit in
 	// the reference.
@@ -62,6 +67,36 @@ type Known struct {
 	// a fixed period, with its SIMBAD name in ExpectedName.
 	Expected     string
 	ExpectedName string
+}
+
+// list records the first catalog entry that knows the star as variable,
+// with its period in days or 0.
+func (k *Known) list(what string, period float64) {
+	if k.Listed != "" {
+		return
+	}
+	k.Listed = what
+	if period > 0 {
+		k.ListedPeriod = period
+	}
+}
+
+// periodRevisedFraction is how far, as a fraction, the vet's own period
+// must sit from the listed one to call the listed period wrong.
+const periodRevisedFraction = 0.02
+
+// periodRevised is the verdict on a listed star whose own survey data
+// stand up as periodic (ps real) at a period other than the one listed.
+func periodRevised(known Known, ps *Suggestion, pr *period.Result) (Suggestion, bool) {
+	if ps == nil || ps.State != app.VetReal || pr == nil || pr.Ephemeris == nil || known.ListedPeriod <= 0 {
+		return Suggestion{}, false
+	}
+	p := pr.Ephemeris.Period
+	if !(p > 0) || math.Abs(p/known.ListedPeriod-1) <= periodRevisedFraction {
+		return Suggestion{}, false
+	}
+	return Suggestion{State: app.VetKnown, Say: fmt.Sprintf("Known variable, period revised to %s days", shortPeriod(p)), Confidence: ps.Confidence, Kind: ps.Kind,
+		Why: joinSentences(sentence(known.Listed), fmt.Sprintf("The survey data here repeat every %s days instead of %s.", periodText(p), periodText(known.ListedPeriod)), ps.Why)}, true
 }
 
 func arcsec(ra1, dec1, ra2, dec2 float64) float64 {
@@ -95,7 +130,7 @@ func vsxCheck(ctx context.Context, m Mirrors, ra, dec float64, k *Known) check.C
 	s := stars[0]
 	sep := arcsec(ra, dec, s.RA, s.Dec)
 	if sep <= listedArcsec {
-		k.Listed = cmpOr(k.Listed, "VSX lists it as "+s.Name)
+		k.list("VSX lists it as "+s.Name, s.Period)
 		ev := fmt.Sprintf("Listed as %s, %s, %.1f arcsec away.", s.Name, typeWords(s.Type), sep)
 		if s.Period > 0 {
 			ev = fmt.Sprintf("Listed as %s, %s repeating every %s days, %.1f arcsec away.", s.Name, typeWords(s.Type), periodText(s.Period), sep)
@@ -149,7 +184,59 @@ func surveyLists() []surveyList {
 		{"tess-rot", "the TESS rotation periods of young stars (Kounkel 2022)", "TESS rotation", nil, false},
 		{"gcvs-evs", "the GCVS list of variables in other galaxies", "GCVS other galaxies", nil, false},
 		{"maiz-var", "Maiz Apellaniz 2023", "Gaia brightness spread", maizListed, true},
+		{"lamost-per", "Qiao 2024's LAMOST periodic variables", "LAMOST periodic", nil, false},
+		{"lamost-var", "Xu 2022", "LAMOST variable candidates", lamostVarListed, true},
+		{"gaia-lav", "Mowlavi 2021", "Gaia DR2 large amplitude", gaiaLAVListed, true},
+		{"tess-eb-cand", "Kostov 2025", "TESS binary candidates", tessEBCandListed, true},
 	}
+}
+
+// nearestListed is the entry within listedArcsec nearest the spot, nil
+// when none is.
+func nearestListed(stars []starcat.VarStar, ra, dec float64) *starcat.VarStar {
+	var star *starcat.VarStar
+	for i := range stars {
+		s := &stars[i]
+		if d := arcsec(ra, dec, s.RA, s.Dec); d <= listedArcsec && (star == nil || d < arcsec(ra, dec, star.RA, star.Dec)) {
+			star = s
+		}
+	}
+	return star
+}
+
+// lamostVarListed reads Xu 2022's LAMOST variable candidates, picked by
+// the scatter of their ZTF light curves without a class or period.
+func lamostVarListed(stars []starcat.VarStar, ra, dec float64, _ int64) string {
+	if nearestListed(stars, ra, dec) == nil {
+		return ""
+	}
+	return "Xu 2022 lists it as a likely LAMOST variable from the scatter of its ZTF light curve, without a type or period"
+}
+
+// gaiaLAVListed reads Mowlavi 2021's large-amplitude variables of Gaia
+// DR2, picked by their spread in G alone: the star is the entry with its
+// source_id, which Gaia DR3 mostly kept from DR2, else the nearest.
+func gaiaLAVListed(stars []starcat.VarStar, ra, dec float64, gaiaID int64) string {
+	star := nearestListed(stars, ra, dec)
+	for i := range stars {
+		if gaiaID != 0 && stars[i].ID == gaiaID {
+			star = &stars[i]
+		}
+	}
+	if star == nil {
+		return ""
+	}
+	return fmt.Sprintf("Mowlavi 2021 lists it among Gaia DR2's large amplitude variables from its spread in G alone, without a type or period (amplitude measure %.3f)", star.Amp)
+}
+
+// tessEBCandListed reads Kostov 2025's list of TESS stars a neural
+// network found eclipse-like dips in, which no one has checked.
+func tessEBCandListed(stars []starcat.VarStar, ra, dec float64, _ int64) string {
+	star := nearestListed(stars, ra, dec)
+	if star == nil {
+		return ""
+	}
+	return fmt.Sprintf("Listed as an unvetted TESS eclipsing binary candidate (%s in Kostov 2025), found by a neural network and not checked, without a period", star.Name)
 }
 
 // maizListed reads the Maiz Apellaniz 2023 list, which holds every Gaia
@@ -179,6 +266,7 @@ func maizListed(stars []starcat.VarStar, ra, dec float64, gaiaID int64) string {
 func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int64, k *Known) check.Check {
 	names := surveyLists()
 	var listed, notes, failed []string
+	period := 0.0
 	for _, n := range names {
 		v := m.Variables[n.key]
 		if v == nil {
@@ -207,6 +295,9 @@ func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int6
 			l := fmt.Sprintf("%s lists it as %s", n.who, typeWords(s.Type))
 			if s.Period > 0 {
 				l += fmt.Sprintf(" repeating every %s days", periodText(s.Period))
+				if len(listed) == 0 {
+					period = s.Period
+				}
 			}
 			listed = append(listed, l)
 			break
@@ -218,7 +309,7 @@ func surveyVarCheck(ctx context.Context, m Mirrors, ra, dec float64, gaiaID int6
 	}
 	switch {
 	case len(listed) > 0:
-		k.Listed = cmpOr(k.Listed, listed[0])
+		k.list(listed[0], period)
 		return check.New(check.SurveyVar, check.Fail, sentence(strings.Join(listed, "; "))+note)
 	case len(failed) == len(names):
 		return check.Skipped(check.SurveyVar, "Not run: the local copies could not be read.")
