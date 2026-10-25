@@ -137,6 +137,8 @@ type FluxCurve struct {
 	EdgeOK bool    `json:"edge_ok,omitempty"`
 	// Scale is the frame's pixel scale, in arcsec.
 	Scale float64 `json:"scale,omitempty"`
+	// Sigma is the masters' median star width, a Gaussian sigma in px.
+	Sigma float64 `json:"sigma,omitempty"`
 	// HotSubs counts the subs left out for a master dark pixel under the
 	// spot hotDarkZ times its spread or more.
 	HotSubs int `json:"hot_subs,omitempty"`
@@ -202,6 +204,7 @@ func buildFluxCurve(subs []Sub, sp *spotPlan, e *ensemble, skip map[int]bool) *F
 	for f, v := range zps {
 		c.Zero[f] = median(v)
 	}
+	c.Sigma = medianWidth(sp.mSigma)
 	cx, cy := stampHalf+sp.x-math.Round(sp.x), stampHalf+sp.y-math.Round(sp.y)
 	for i, r := range sp.recs {
 		t, ok := e.transp[i]
@@ -263,6 +266,20 @@ func buildFluxCurve(subs []Sub, sp *spotPlan, e *ensemble, skip map[int]bool) *F
 	c.Shared, c.MasterSubs = masterShares(subs, sp.flagged, c.Base)
 	nightsOf(c, subs, sp, e, skip, scatter)
 	return c
+}
+
+// medianWidth is the median of the masters' star widths, 0 with none.
+func medianWidth(widths map[string]float64) float64 {
+	v := make([]float64, 0, len(widths))
+	for _, w := range widths {
+		if w > 0 {
+			v = append(v, w)
+		}
+	}
+	if len(v) == 0 {
+		return 0
+	}
+	return median(v)
 }
 
 // masterShares is, per filter with no level on unflagged nights in base,

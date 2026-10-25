@@ -801,13 +801,29 @@ func broadLight(fc *ownimage.FluxCurve) float64 {
 	return best
 }
 
+// fwhmSigma turns a Gaussian sigma into its full width at half maximum.
+const fwhmSigma = 2.3548
+
+// beforeArcsec is how near a catalogued source must be to count as what
+// was at the spot before: counterpartArcsec, or the frames' star full
+// width at half maximum when that is wider, as a source inside it blends
+// with the spot. 41445 in the Rosette Nebula, at 1.92 arcsec per px and a
+// width of 2.9 px, had Pan-STARRS sources at 2.8 and 4.3 arcsec and a
+// UKIDSS one at 3.4 that the 1.5 arcsec look did not list.
+func beforeArcsec(fc *ownimage.FluxCurve) float64 {
+	if fc == nil || !(fc.Scale > 0) || !(fc.Sigma > 0) {
+		return counterpartArcsec
+	}
+	return math.Max(counterpartArcsec, fwhmSigma*fc.Sigma*fc.Scale)
+}
+
 func beforeCheck(fx transientFacts) check.Check {
 	if fx.gaiaErr != nil && fx.ps1Err != nil {
 		return check.Skipped(check.TransBefore, "Not run: neither Gaia nor Pan-STARRS could be read.")
 	}
 	if fx.refMag != nil {
 		for _, c := range fx.near {
-			if c.sep > counterpartArcsec && math.Abs(c.g-*fx.refMag) < starNearMag {
+			if c.sep > beforeArcsec(fx.flux) && math.Abs(c.g-*fx.refMag) < starNearMag {
 				return check.New(check.TransBefore, check.Fail, fmt.Sprintf("Gaia lists a star of G %.1f %.1f arcsec away, and the reference already held light of %.1f at the spot, so the change is most likely that star's.",
 					c.g, c.sep, *fx.refMag))
 			}
@@ -845,7 +861,7 @@ func beforeCheck(fx transientFacts) check.Check {
 		looked = append(looked, fmt.Sprintf("Pan-STARRS (to about magnitude %.0f)", ps1Depth))
 	}
 	if len(found) == 0 {
-		ev := fmt.Sprintf("Nothing within %.1f arcsec in %s.", counterpartArcsec, joinWords(looked))
+		ev := fmt.Sprintf("Nothing within %.1f arcsec in %s.", beforeArcsec(fx.flux), joinWords(looked))
 		if peakMag > 0 {
 			depth := gaiaDepth
 			if fx.ps1Err == nil {
@@ -1333,8 +1349,9 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 			fx.groups = append(fx.groups, m.Group)
 		}
 	}
+	before := beforeArcsec(fx.flux)
 	if s.Gaia != nil {
-		stars, err := s.Gaia.Cone(ctx, ra, dec, starNearArcsec/3600, nil)
+		stars, err := s.Gaia.Cone(ctx, ra, dec, math.Max(starNearArcsec, before)/3600, nil)
 		fx.gaiaErr = err
 		for _, g := range stars {
 			gra, gdec := g.At(epochYear(s.now()))
@@ -1342,7 +1359,7 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 				continue
 			}
 			sep := arcsec(ra, dec, gra, gdec)
-			if sep <= counterpartArcsec {
+			if sep <= before {
 				fx.gaia = append(fx.gaia, counterpart{g: float64(g.G), sep: sep})
 			}
 			if sep <= starNearArcsec && float64(g.G) < starNearG {
@@ -1357,10 +1374,10 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 		return fx
 	}
 	if s.PS1 != nil {
-		objs, err := s.PS1(ctx, ra, dec, counterpartArcsec)
+		objs, err := s.PS1(ctx, ra, dec, before)
 		fx.ps1Err = err
 		for _, o := range objs {
-			if o.SepArcsec <= counterpartArcsec {
+			if o.SepArcsec <= before {
 				fx.ps1Objs = append(fx.ps1Objs, o)
 			}
 		}
