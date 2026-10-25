@@ -1507,7 +1507,7 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: no new light in your own frames", Confidence: Medium, Why: ev(check.TransFlux)}
 	case fx.stackV == ownimage.StackRefuted && st(check.TransATLAS) != check.Pass && st(check.TransZTF) != check.Pass:
 		return ownFramesSuggest(groups, what, pendingNote, fx.stackV, fx.flux != nil && fx.flux.Halo != nil)
-	case st(check.TransLine) == check.Fail && st(check.TransField) != check.Pass:
+	case st(check.TransLine) == check.Fail && st(check.TransField) != check.Pass && st(check.TransATLAS) != check.Pass && st(check.TransZTF) != check.Pass:
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: line emission only, no brighter than the field's other changes", Confidence: Low,
 			Why: joinSentences(ev(check.TransLine), ev(check.TransField))}
 	case st(check.TransNights) == check.Fail:
@@ -1676,11 +1676,11 @@ func transientGroup(fx transientFacts) []check.Check {
 		line = emissionCheck(fx.flux, fx.groups).check
 	}
 	cs = append(cs, line)
+	zc := ztfCheckTransient(fx)
 	if fx.line.only {
-		cs = append(cs, fieldCheck(fx.field), clearCheck(fx.flux), beforeCheck(fx), lineSkipped(check.TransATLAS), lineSkipped(check.TransZTF), lineSkipped(check.TransZTFImages), hostCheck(fx))
+		cs = append(cs, fieldCheck(fx.field), clearCheck(fx.flux), beforeCheck(fx), lineSurvey(atlasCheckTransient(fx)), lineSurvey(zc), lineSurvey(ztfImagesCheck(fx, zc.Status == check.Pass)), hostCheck(fx))
 		return cs
 	}
-	zc := ztfCheckTransient(fx)
 	cs = append(cs, clearCheck(fx.flux), beforeCheck(fx), atlasCheckTransient(fx), zc, ztfImagesCheck(fx, zc.Status == check.Pass), hostCheck(fx))
 	return cs
 }

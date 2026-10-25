@@ -145,3 +145,15 @@ func TestLineContinuum(t *testing.T) {
 		t.Errorf("a broadband find was judged: %s %s", l.check.Status, l.check.Evidence)
 	}
 }
+
+// TestLineSurvey is a survey check of line emission: a survey that saw
+// it still confirms it, and one that saw nothing does not count.
+func TestLineSurvey(t *testing.T) {
+	t.Parallel()
+	if c := lineSurvey(check.New(check.TransATLAS, check.Pass, "seen")); c.Status != check.Pass {
+		t.Errorf("a survey that saw it no longer confirms: %s", c.Status)
+	}
+	if c := lineSurvey(check.New(check.TransATLAS, check.Fail, "nothing")); c.Status != check.NotRun || !strings.Contains(c.Evidence, "line emission only") {
+		t.Errorf("a survey that saw nothing still counts: %s %s", c.Status, c.Evidence)
+	}
+}

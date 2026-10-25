@@ -74,7 +74,7 @@ func emissionCheck(fc *ownimage.FluxCurve, groups []string) lineLight {
 	}
 	if len(refuted) == len(deep) {
 		return lineLight{only: true, night: p, check: check.New(check.TransLine, check.Fail, fmt.Sprintf(
-			"Line emission only: on %s the light was in %s alone. Light of every colour as bright as its %s light, magnitude %.1f, would show in the night's other frames, but they show nothing at the spot: %s. Broadband surveys such as ATLAS and ZTF cannot confirm light like this.",
+			"Line emission only: on %s the light was in %s alone. Light of every colour as bright as its %s light, magnitude %.1f, would show in the night's other frames, but they show nothing at the spot: %s. A broadband survey seeing nothing does not count against light like this.",
 			p.Night, p.Filter, p.Filter, p.Mag, joinWords(refuted)))}
 	}
 	return lineLight{check: check.Skipped(check.TransLine, fmt.Sprintf("Not clear: the night's other filters neither show it nor rule it out: %s.", joinWords(deep)))}
@@ -146,7 +146,13 @@ func fieldCheck(r fieldRivals) check.Check {
 	return check.New(check.TransField, check.Pass, fmt.Sprintf("Found at signal to noise %.1f; no other spot of the same %s frames of %s with no star changed by %.1f or more.", r.snr, r.group, r.night, fieldShare*r.snr))
 }
 
-// lineSkipped is the survey checks of light that is line emission only.
-func lineSkipped(id string) check.Check {
-	return check.Skipped(id, "Not used: the light is line emission only, which a broadband survey does not show as new light.")
+// lineSurvey is a survey check of light that is line emission only: a
+// survey that saw it still confirms it, as a nova's H-alpha comes with
+// light of every colour too faint for the night's narrowband frames, but
+// one that saw nothing says nothing of light in one line.
+func lineSurvey(c check.Check) check.Check {
+	if c.Status != check.Fail {
+		return c
+	}
+	return check.Skipped(c.ID, "Not used: the light is line emission only, which a broadband survey need not show. "+c.Evidence)
 }
