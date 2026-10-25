@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -92,6 +93,13 @@ func stackAt(ctx context.Context, sp *spotPlan, e *ensemble, idx []int, clip boo
 	return discoveries.Aperture(st, cx, cy, apR), true
 }
 
+// evalRef rebuilds one set's reference at the spot and finds its subs that
+// stand out the way that would make the change. A reference of two subs
+// has no median to stand out from: each is judged against the other, the
+// one that holds more light in the direction of a fade being the outlier.
+// M 22's Blue reference for 2021-06-29 held two subs, a cosmic ray on the
+// spot in the one of 2021-05-23 09:09 (candidate 230822), and the check
+// passed on the three Green subs alone.
 func evalRef(ctx context.Context, sp *spotPlan, e *ensemble, set refSet) refEval {
 	ev := refEval{set: set}
 	var lv, noise, peaks []float64
@@ -108,27 +116,36 @@ func evalRef(ctx context.Context, sp *spotPlan, e *ensemble, set refSet) refEval
 		}
 	}
 	ev.refs = len(lv)
-	if len(lv) < minRefSubs || len(nv) == 0 {
+	if len(lv) < 2 || len(nv) == 0 {
 		return ev
 	}
-	med := median(lv)
-	spread := math.Max(robustStd(lv), median(noise))
 	dir := -float64(sp.signOf(set.night, set.filter))
-	medPeak := median(peaks)
+	spread := math.Max(robustStd(lv), median(noise))
+	lim := outlierSpread * spread
+	base := func(int) (float64, float64) { return median(lv), median(peaks) }
+	if len(lv) < minRefSubs {
+		spread = median(noise)
+		lim = outlierSpread * math.Sqrt2 * spread
+		base = func(k int) (float64, float64) { return lv[1-k], peaks[1-k] }
+		if dir == 0 {
+			dir = 1
+		}
+	}
 	var clean []int
 	var cleanLv []float64
 	for k, v := range lv {
-		d := v - med
-		out := dir*d > outlierSpread*spread
+		b, bPeak := base(k)
+		d := v - b
+		out := dir*d > lim
 		if dir == 0 {
-			out = math.Abs(d) > outlierSpread*spread
+			out = math.Abs(d) > lim
 		}
 		if !out {
 			clean, cleanLv = append(clean, idx[k]), append(cleanLv, v)
 			continue
 		}
 		ev.outliers = append(ev.outliers, idx[k])
-		ev.hot = append(ev.hot, d != 0 && (peaks[k]-medPeak)/d >= hotPeakShare)
+		ev.hot = append(ev.hot, d != 0 && (peaks[k]-bPeak)/d >= hotPeakShare)
 	}
 	if len(clean) == 0 {
 		return ev
@@ -181,6 +198,7 @@ func apFrac(sp *spotPlan, idx []int) []float64 {
 // own light curve shows no change.
 func refClean(ctx context.Context, subs []Sub, sp *spotPlan, e *ensemble, ownFlat bool) (check.Check, []refEval) {
 	var evals []refEval
+	var skipped []string
 	refs := map[int]bool{}
 	for _, set := range sp.sets {
 		ev := evalRef(ctx, sp, e, set)
@@ -189,6 +207,8 @@ func refClean(ctx context.Context, subs []Sub, sp *spotPlan, e *ensemble, ownFla
 			for _, i := range set.refs {
 				refs[i] = true
 			}
+		} else if !slices.Contains(skipped, set.filter) {
+			skipped = append(skipped, set.filter)
 		}
 	}
 	if len(evals) == 0 {
@@ -223,6 +243,10 @@ func refClean(ctx context.Context, subs []Sub, sp *spotPlan, e *ensemble, ownFla
 		}
 		return check.New(check.RefClean, check.Fail, fmt.Sprintf("%s at this spot in %s subs from %s went into the reference image. Leaving those %d subs out takes away %.0f%% of the change.",
 			what, filterList(subs, bad), nightList(subs, bad), len(bad), 100*mean(shares))), evals
+	}
+	if len(skipped) > 0 {
+		slices.Sort(skipped)
+		return check.Skipped(check.RefClean, fmt.Sprintf("Not measured yet. Too few of the %s reference subs could be measured at this spot.", joinAnd(skipped))), evals
 	}
 	var stray []int
 	var maxShare float64
