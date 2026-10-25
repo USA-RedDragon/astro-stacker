@@ -201,7 +201,7 @@ func (c *cand) pick(idx []int) *cand {
 		for _, s := range []struct {
 			from []float64
 			to   *[]float64
-		}{{c.shared, &o.shared}, {c.shape, &o.shape}, {c.angle, &o.angle}, {c.shapeLim, &o.shapeLim}, {c.sharp, &o.sharp}} {
+		}{{c.shared, &o.shared}, {c.expo, &o.expo}, {c.shape, &o.shape}, {c.angle, &o.angle}, {c.shapeLim, &o.shapeLim}, {c.sharp, &o.sharp}} {
 			if k < len(s.from) {
 				*s.to = append(*s.to, s.from[k])
 			}

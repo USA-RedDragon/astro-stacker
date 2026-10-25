@@ -709,6 +709,8 @@ type cand struct {
 	// shape and angle are the axis ratio and long axis angle of the stars
 	// of each night sub, and shapeLim its filter's elongLimit.
 	shape, angle, shapeLim []float64
+	// expo is each night sub's exposure time in seconds.
+	expo []float64
 	// sharp is the candidate's sharpness in each night sub, and sensor the
 	// sensor pixel under it there (NaN where the sub's footprint was not
 	// measured), in the order of fluxes.
@@ -928,6 +930,7 @@ func (in *Input) measureSubs(ctx context.Context, stacks []*filterStacks, cands 
 			}
 			c.shared = append(c.shared, share*c.errs[len(c.errs)-1])
 			c.shape, c.angle = append(c.shape, ratio), append(c.angle, angle)
+			c.expo = append(c.expo, ns.sub.Exposure)
 			c.sharp = append(c.sharp, signedSharpness(p, c.X, c.Y, c.Sign))
 			sx, sy := math.NaN(), math.NaN()
 			if sm.Measured {
@@ -1493,6 +1496,10 @@ func (in *Input) cut(cands []cand, ref, diff *Plane, local localFrac, res *Resul
 			}
 			fn.NotResidual++
 			if why := m.refNightShift(); why != "" {
+				reject(why)
+				continue
+			}
+			if why := m.exposureGroups(); why != "" {
 				reject(why)
 				continue
 			}
