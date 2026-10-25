@@ -15,7 +15,7 @@ env:
 
 jobs:
   backend-benchmark-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       checks: write
@@ -33,7 +33,7 @@ jobs:
 
   backend-race-tests:
     name: backend-race-tests (${{ matrix.part }}${{ matrix.shard }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       checks: write
@@ -92,7 +92,7 @@ jobs:
             sort -rn | head -5 | while IFS=$'\t' read -r s a p; do echo "::notice title=race ${a}::${p} ${s}s"; done
 
   backend-unit-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       checks: write
@@ -144,7 +144,7 @@ jobs:
           retention-days: 30
 
   backend-unit-tests-coverage:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       checks: write
