@@ -34,7 +34,7 @@ import (
 )
 
 // Method is the revision of the method; runs by an older one are redone.
-const Method = 17
+const Method = 18
 
 const (
 	// GroupBroadband stacks a night's L, R, G and B subs together; each
