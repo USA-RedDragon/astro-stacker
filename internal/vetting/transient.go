@@ -266,6 +266,10 @@ type transientFacts struct {
 	// stack is the stack to confirm, and stackV its verdict.
 	stack  check.Check
 	stackV ownimage.StackVerdict
+	// line is the light against the night's other filters, and field the
+	// field's other changes when it is line emission only.
+	line  lineLight
+	field fieldRivals
 }
 
 type counterpart struct {
@@ -1349,6 +1353,10 @@ func (s *Service) transientFacts(ctx context.Context, f surveys.Field, sum disco
 			fx.groups = append(fx.groups, m.Group)
 		}
 	}
+	fx.line = emissionCheck(fx.flux, fx.groups)
+	if fx.line.only {
+		fx.field = s.lineRivals(ctx, sum.Members, fx.line)
+	}
 	before := beforeArcsec(fx.flux)
 	if s.Gaia != nil {
 		stars, err := s.Gaia.Cone(ctx, ra, dec, math.Max(starNearArcsec, before)/3600, nil)
@@ -1443,6 +1451,9 @@ func transientSuggest(groups []Group, fx transientFacts) Suggestion {
 		return Suggestion{State: app.VetArtifact, Say: "Artifact: no new light in your own frames", Confidence: Medium, Why: ev(check.TransFlux)}
 	case fx.stackV == ownimage.StackRefuted && st(check.TransATLAS) != check.Pass && st(check.TransZTF) != check.Pass:
 		return ownFramesSuggest(groups, what, pendingNote, fx.stackV, fx.flux != nil && fx.flux.Halo != nil)
+	case st(check.TransLine) == check.Fail && st(check.TransField) != check.Pass:
+		return Suggestion{State: app.VetUnsure, Say: "Not sure: line emission only, no brighter than the field's other changes", Confidence: Low,
+			Why: joinSentences(ev(check.TransLine), ev(check.TransField))}
 	case st(check.TransNights) == check.Fail:
 		return Suggestion{State: app.VetUnsure, Say: "Not sure: the light was there before", Confidence: Low, Why: ev(check.TransNights)}
 	case st(check.TransBefore) == check.Fail:
@@ -1603,6 +1614,15 @@ func transientGroup(fx transientFacts) []check.Check {
 	cs = append(cs, wingCheck(fx.flux))
 	if fx.class == discoveries.ClassSupernova {
 		cs = append(cs, nucleusCheck(fx.flux, fx.matches))
+	}
+	line := fx.line.check
+	if line.ID == "" {
+		line = emissionCheck(fx.flux, fx.groups).check
+	}
+	cs = append(cs, line)
+	if fx.line.only {
+		cs = append(cs, fieldCheck(fx.field), clearCheck(fx.flux), beforeCheck(fx), lineSkipped(check.TransATLAS), lineSkipped(check.TransZTF), lineSkipped(check.TransZTFImages), hostCheck(fx))
+		return cs
 	}
 	zc := ztfCheckTransient(fx)
 	cs = append(cs, clearCheck(fx.flux), beforeCheck(fx), atlasCheckTransient(fx), zc, ztfImagesCheck(fx, zc.Status == check.Pass), hostCheck(fx))

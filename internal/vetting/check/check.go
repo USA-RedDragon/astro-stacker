@@ -92,6 +92,11 @@ const (
 	TransNucleus   = "trans_nucleus"
 	TransClear     = "trans_clear"
 	TransZTFImages = "trans_ztf_images"
+	// TransLine and TransField weigh light found in one narrowband filter:
+	// whether the night's other filters show light of every colour, and
+	// whether it stands out from the field's other changes.
+	TransLine  = "trans_line"
+	TransField = "trans_field"
 )
 
 // Names are the row titles the panel shows for each check ID.
@@ -148,6 +153,8 @@ func Names() map[string]string {
 		TransNucleus:   "Not a galaxy nucleus residual",
 		TransClear:     "Clear of bright stars and the edge",
 		TransZTFImages: "ZTF images on the same night",
+		TransLine:      "Seen in the night's other filters",
+		TransField:     "Stands out from the field's other changes",
 	}
 }
 
