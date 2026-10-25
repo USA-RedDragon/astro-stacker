@@ -37,6 +37,10 @@ func addVariableMirrors(add func(use, short, prefix, base string, run func(conte
 		{"tess-rot", "Mirror the TESS rotation periods of young stars (J/AJ/164/137)", starcat.TESSRotation()},
 		{"gcvs-evs", "Mirror the GCVS catalog of variable stars in other galaxies (B/gcvs/evs_cat)", starcat.GCVSExtragalactic()},
 		{"maiz-var", "Mirror the Gaia DR3 photometric dispersions of Maiz Apellaniz et al. 2023 (J/A+A/677/A137)", starcat.MaizVariability()},
+		{"tess-eb-cand", "Mirror the TESS Ten Thousand Catalog's unvetted eclipsing binary candidates (J/ApJS/279/50 table2)", starcat.TESSEBCandidates()},
+		{"lamost-per", "Mirror the LAMOST DR9 periodic variable stars of Qiao et al. 2024 (J/ApJS/272/1 table6)", starcat.LAMOSTPeriodic()},
+		{"lamost-var", "Mirror the LAMOST variable source candidates of Xu et al. 2022 (J/ApJS/259/11 table4)", starcat.LAMOSTVariable()},
+		{"gaia-lav", "Mirror the Gaia DR2 large-amplitude variables of Mowlavi et al. 2021 (J/A+A/648/A44)", starcat.GaiaLargeAmplitude()},
 	} {
 		add(c.use, c.short, c.cat.Prefix, c.cat.BaseURL, c.cat.Mirror)
 	}

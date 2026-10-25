@@ -54,19 +54,26 @@ type VarCatalog struct {
 	flushRows int64
 }
 
+const (
+	kostov2025URL = "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/279/50/"
+	table4File    = "table4.dat"
+	// typeVariable is the class of a star listed as variable without one.
+	typeVariable = "VAR"
+)
+
 // TESSEBNew is the TESS Ten Thousand Catalog's 7,936 new eclipsing binaries
 // (Kostov+ 2025, J/ApJS/279/50 table3): TIC number, period and TESS
 // magnitude.
 func TESSEBNew() *VarCatalog {
-	return &VarCatalog{Name: "tess-eb-new", Prefix: "catalogs/tess-eb-new", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/279/50/",
+	return &VarCatalog{Name: "tess-eb-new", Prefix: "catalogs/tess-eb-new", BaseURL: kostov2025URL,
 		File: "table3.dat", Order: 3, VizieR: "J/ApJS/279/50/table3", lrecl: 250, row: tessEBNewRow}
 }
 
 // TESSEBKnown is the TESS Ten Thousand Catalog's 2,065 known eclipsing
 // binaries with their TESS periods (Kostov+ 2025, J/ApJS/279/50 table4).
 func TESSEBKnown() *VarCatalog {
-	return &VarCatalog{Name: "tess-eb-known", Prefix: "catalogs/tess-eb-known", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/279/50/",
-		File: "table4.dat", Order: 3, VizieR: "J/ApJS/279/50/table4", lrecl: 147, row: tessEBKnownRow, plain: true}
+	return &VarCatalog{Name: "tess-eb-known", Prefix: "catalogs/tess-eb-known", BaseURL: kostov2025URL,
+		File: table4File, Order: 3, VizieR: "J/ApJS/279/50/table4", lrecl: 147, row: tessEBKnownRow, plain: true}
 }
 
 // TESSEBPrsa is the TESS eclipsing binaries of sectors 1 to 26 (Prsa+ 2022,
@@ -119,7 +126,7 @@ func GaiaVariability() *VarCatalog {
 // the median o-band magnitude.
 func ATLASVariables() *VarCatalog {
 	return &VarCatalog{Name: "atlas-var", Prefix: "catalogs/atlas-var", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/AJ/156/241/",
-		File: "table4.dat", Order: 4, VizieR: "J/AJ/156/241/table4", lrecl: 1911, row: atlasRow}
+		File: table4File, Order: 4, VizieR: "J/AJ/156/241/table4", lrecl: 1911, row: atlasRow}
 }
 
 // ZTFVariables is the ZTF catalogue of periodic variables (Chen+ 2020,
@@ -139,10 +146,52 @@ func ASASSNVariables() *VarCatalog {
 		File: "catv2021.dat", Order: 3, VizieR: "II/366/catv2021", lrecl: 799, row: asassnRow}
 }
 
+// TESSEBCandidates is the TESS Ten Thousand Catalog's 872,720 unvetted
+// eclipsing binary candidates, found by a neural network without a period
+// (Kostov+ 2025, J/ApJS/279/50 table2): TIC number, position and TESS
+// magnitude.
+func TESSEBCandidates() *VarCatalog {
+	return &VarCatalog{Name: "tess-eb-cand", Prefix: "catalogs/tess-eb-cand", BaseURL: kostov2025URL,
+		File: "table2.dat", Order: 4, VizieR: "J/ApJS/279/50/table2", lrecl: 38, row: tessEBCandRow}
+}
+
+// LAMOSTPeriodic is the LAMOST DR9 periodic variables classified from
+// their ZTF light curves (Qiao+ 2024, J/ApJS/272/1 table6): LAMOST ID, ZTF
+// oid as the name, period, class and amplitude. A period of 1000 days, the
+// search's limit, is left blank.
+func LAMOSTPeriodic() *VarCatalog {
+	return &VarCatalog{Name: "lamost-per", Prefix: "catalogs/lamost-per", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/272/1/",
+		File: "table6.dat", Order: 3, VizieR: "J/ApJS/272/1/table6", lrecl: 327, row: lamostPeriodicRow}
+}
+
+// LAMOSTVariable is the LAMOST variable source candidates found from their
+// ZTF DR2 light curves (Xu+ 2022, J/ApJS/259/11 table4), without a class
+// or period: Amp is the r (else g) amplitude, half the range between the
+// faintest and brightest 5%; ID is the record number.
+func LAMOSTVariable() *VarCatalog {
+	return &VarCatalog{Name: "lamost-var", Prefix: "catalogs/lamost-var", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/ApJS/259/11/",
+		File: table4File, Order: 3, VizieR: "J/ApJS/259/11/table4", lrecl: 536, row: lamostVariableRow}
+}
+
+// gaiaLAVFlushRows is how many rows the Gaia DR2 large-amplitude variable
+// mirror holds before it stores them.
+const gaiaLAVFlushRows = 8_000_000
+
+// GaiaLargeAmplitude is the 23,315,874 large-amplitude variables of Gaia
+// DR2 (Mowlavi+ 2021, J/A+A/648/A44 tabled1), picked by their spread in G
+// alone, without a class or period: ID is the Gaia DR2 source_id, the
+// position is the catalogue's galactic one moved to ICRS (epoch 2015.5),
+// Mag is G and Amp the amplitude proxy in G.
+func GaiaLargeAmplitude() *VarCatalog {
+	return &VarCatalog{Name: "gaia-lav", Prefix: "catalogs/gaia-lav", BaseURL: "https://cdsarc.cds.unistra.fr/ftp/J/A+A/648/A44/",
+		File: "tabled1.dat", Order: 5, VizieR: "J/A+A/648/A44/tabled1", lrecl: 268, row: gaiaLAVRow, flushRows: gaiaLAVFlushRows}
+}
+
 // VarCatalogs returns the survey catalogues of variable stars.
 func VarCatalogs() []*VarCatalog {
 	return []*VarCatalog{GaiaVariability(), ATLASVariables(), ZTFVariables(), ASASSNVariables(),
-		TESSEBNew(), TESSEBKnown(), TESSEBPrsa(), ZTFSuspected(), TESSRotation(), GCVSExtragalactic(), MaizVariability()}
+		TESSEBNew(), TESSEBKnown(), TESSEBPrsa(), ZTFSuspected(), TESSRotation(), GCVSExtragalactic(), MaizVariability(),
+		TESSEBCandidates(), LAMOSTPeriodic(), LAMOSTVariable(), GaiaLargeAmplitude()}
 }
 
 // fixedLine reads the fields of a fixed-width record by their 1-based
@@ -239,6 +288,57 @@ func tessEBPrsaRow(f *fixedLine, n int64) VarStar {
 		Period: f.num(212, 232, false), Type: "EB", Amp: nan32(), Score: nan32()}
 }
 
+func tessEBCandRow(f *fixedLine, _ int64) VarStar {
+	return VarStar{ID: f.i64(1, 10), Name: ticName(f, 1, 10), RA: f.num(12, 21, true), Dec: f.num(23, 32, true), Mag: f32(f.num(34, 38, false)),
+		Type: "EB:", Period: math.NaN(), Amp: nan32(), Score: nan32()}
+}
+
+func lamostPeriodicRow(f *fixedLine, _ int64) VarStar {
+	name := ""
+	if oid := f.str(11, 26); oid != "" {
+		name = "ZTF " + oid
+	}
+	return VarStar{ID: f.i64(1, 9), Name: name, RA: f.num(28, 37, true), Dec: f.num(39, 47, true), Period: orNaN(f.num(57, 67, false), 1000),
+		Type: f.str(69, 72), Amp: f32(f.num(119, 126, false)), Mag: nan32(), Score: nan32()}
+}
+
+func lamostVariableRow(f *fixedLine, n int64) VarStar {
+	amp := f32(f.num(506, 512, false))
+	if math.IsNaN(float64(amp)) {
+		amp = f32(f.num(498, 504, false))
+	}
+	return VarStar{ID: n, RA: f.num(1, 12, true), Dec: f.num(14, 25, true), Amp: amp, Type: typeVariable, Period: math.NaN(), Mag: nan32(), Score: nan32()}
+}
+
+func gaiaLAVRow(f *fixedLine, _ int64) VarStar {
+	ra, dec := galacticToICRS(f.num(25, 38, true), f.num(40, 53, true))
+	return VarStar{ID: f.i64(1, 19), RA: onGrid(ra), Dec: onGrid(dec), Mag: coarse32(f.num(102, 110, true), 14), Amp: coarse32(f.num(218, 225, true), 10),
+		Type: "LAV", Period: math.NaN(), Score: nan32()}
+}
+
+// galacticToICRS moves a galactic position to ICRS by the Hipparcos
+// rotation Gaia uses (ESA 1997, vol. 1, sect. 1.5.3).
+func galacticToICRS(l, b float64) (float64, float64) {
+	m := [3][3]float64{
+		{-0.0548755604162154, 0.4941094278755837, -0.8676661490190047},
+		{-0.8734370902348850, -0.4448296299600112, -0.1980763734312015},
+		{-0.4838350155487132, 0.7469822444972189, 0.4559837761750669},
+	}
+	lr, br := l*math.Pi/180, b*math.Pi/180
+	v := [3]float64{math.Cos(br) * math.Cos(lr), math.Cos(br) * math.Sin(lr), math.Sin(br)}
+	var w [3]float64
+	for i := range 3 {
+		for j := range 3 {
+			w[i] += m[i][j] * v[j]
+		}
+	}
+	ra := math.Atan2(w[1], w[0]) * 180 / math.Pi
+	if ra < 0 {
+		ra += 360
+	}
+	return ra, math.Asin(math.Max(-1, math.Min(1, w[2]))) * 180 / math.Pi
+}
+
 // orNaN reads null (a catalogue's stand-in for blank) as NaN.
 func orNaN(v, null float64) float64 {
 	if v == null {
@@ -253,7 +353,7 @@ func ztfSuspectedRow(f *fixedLine, n int64) VarStar {
 		per, amp = orNaN(f.num(58, 68, false), 0), f32(f.num(82, 86, false), 0)
 	}
 	return VarStar{ID: n, Name: f.str(1, 22), RA: f.num(24, 32, true), Dec: f.num(34, 42, true), Mag: f32(f.num(51, 56, false), 0),
-		Period: per, Amp: amp, Type: "VAR", Score: nan32()}
+		Period: per, Amp: amp, Type: typeVariable, Score: nan32()}
 }
 
 func tessRotRow(f *fixedLine, n int64) VarStar {

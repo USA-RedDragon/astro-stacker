@@ -53,6 +53,10 @@ func catalogMirrorJobs() []catalogMirror {
 		{"tess-rot", "tess-rot-mirror", "TESS rotation periods mirror"},
 		{"gcvs-evs", "gcvs-evs-mirror", "GCVS extragalactic variables mirror"},
 		{"maiz-var", "maiz-var-mirror", "Gaia photometric scatter mirror"},
+		{"tess-eb-cand", "tess-eb-cand-mirror", "TESS eclipsing binary candidates mirror"},
+		{"lamost-per", "lamost-per-mirror", "LAMOST periodic variables mirror"},
+		{"lamost-var", "lamost-var-mirror", "LAMOST variable candidates mirror"},
+		{"gaia-lav", "gaia-lav-mirror", "Gaia DR2 large-amplitude variables mirror"},
 	}
 }
 
