@@ -808,10 +808,11 @@ func broadLight(fc *ownimage.FluxCurve) float64 {
 // fwhmSigma turns a Gaussian sigma into its full width at half maximum.
 const fwhmSigma = 2.3548
 
-// beforeArcsec is how near a catalogued source must be to count as what
-// was at the spot before: counterpartArcsec, or the frames' star full
-// width at half maximum when that is wider, as a source inside it blends
-// with the spot. 41445 in the Rosette Nebula, at 1.92 arcsec per px and a
+// beforeArcsec is how near a catalogued source must be to be listed as
+// near the spot: counterpartArcsec, or the frames' star full width at
+// half maximum when that is wider, as a source inside it blends with the
+// spot. Only those within counterpartArcsec are taken as the spot itself:
+// a supernova a few arcsec from its host's core is new light. 41445 in the Rosette Nebula, at 1.92 arcsec per px and a
 // width of 2.9 px, had Pan-STARRS sources at 2.8 and 4.3 arcsec and a
 // UKIDSS one at 3.4 that the 1.5 arcsec look did not list.
 func beforeArcsec(fc *ownimage.FluxCurve) float64 {
@@ -827,7 +828,7 @@ func beforeCheck(fx transientFacts) check.Check {
 	}
 	if fx.refMag != nil {
 		for _, c := range fx.near {
-			if c.sep > beforeArcsec(fx.flux) && math.Abs(c.g-*fx.refMag) < starNearMag {
+			if c.sep > counterpartArcsec && math.Abs(c.g-*fx.refMag) < starNearMag {
 				return check.New(check.TransBefore, check.Fail, fmt.Sprintf("Gaia lists a star of G %.1f %.1f arcsec away, and the reference already held light of %.1f at the spot, so the change is most likely that star's.",
 					c.g, c.sep, *fx.refMag))
 			}
@@ -843,7 +844,9 @@ func beforeCheck(fx transientFacts) check.Check {
 	brightest := math.Inf(1)
 	for _, c := range fx.gaia {
 		found = append(found, fmt.Sprintf("Gaia lists a star of G %.1f %.1f arcsec away", c.g, c.sep))
-		brightest = math.Min(brightest, c.g)
+		if c.sep <= counterpartArcsec {
+			brightest = math.Min(brightest, c.g)
+		}
 	}
 	for _, o := range fx.ps1Objs {
 		m := o.R
@@ -855,7 +858,9 @@ func beforeCheck(fx transientFacts) check.Check {
 			continue
 		}
 		found = append(found, fmt.Sprintf("Pan-STARRS lists a source of %s %.1f %.1f arcsec away", band, m, o.SepArcsec))
-		brightest = math.Min(brightest, m)
+		if o.SepArcsec <= counterpartArcsec {
+			brightest = math.Min(brightest, m)
+		}
 	}
 	var looked []string
 	if fx.gaiaErr == nil {
@@ -879,6 +884,9 @@ func beforeCheck(fx transientFacts) check.Check {
 	if peakMag == 0 {
 		return check.New(check.TransBefore, check.Pass, ev)
 	}
+	if math.IsInf(brightest, 1) {
+		return check.New(check.TransBefore, check.Pass, ev+fmt.Sprintf(" Nothing is within %.1f arcsec, where a source would be the spot itself.", counterpartArcsec))
+	}
 	amp := brightest - peakMag
 	if amp < quietAmp {
 		return check.New(check.TransBefore, check.Fail, ev+fmt.Sprintf(" That is about as bright as the new light (%.1f), so the change may be that source, not something new.", peakMag))
@@ -886,10 +894,11 @@ func beforeCheck(fx transientFacts) check.Check {
 	return check.New(check.TransBefore, check.Pass, ev+fmt.Sprintf(" The new light, %.1f, is %.1f mag brighter than that.", peakMag, amp))
 }
 
-// atlasNight is ATLAS's difference light on one date near a flagged
-// night, against its own level away from them, from the frames that pass
-// the chi/N cut. cut counts the date's frames that do not, and cutFlux is
-// the most light any of them measured.
+// atlasNight is ATLAS's difference light on one night near a flagged
+// one, against its own level away from them, from the frames that pass
+// the chi/N cut. cut counts the night's frames that do not, cutFlux is
+// the most light any of them measured, and cuts are their light and
+// errors.
 type atlasNight struct {
 	mjd     float64
 	band    string

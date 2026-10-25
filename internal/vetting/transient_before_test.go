@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/discoverysource"
+	"github.com/USA-RedDragon/astro-stacker/internal/vetting/check"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/ownimage"
 	"github.com/USA-RedDragon/astro-stacker/internal/vetting/surveys"
 )
@@ -40,5 +41,19 @@ func TestBeforeRadius41445(t *testing.T) {
 	}
 	if got := beforeArcsec(nil); got != counterpartArcsec {
 		t.Errorf("no flux curve gave %.1f arcsec, want %.1f", got, counterpartArcsec)
+	}
+}
+
+// TestBeforeHostCore is a supernova of 16.0 3.5 arcsec from its host's
+// core, which Pan-STARRS lists at r 15.8: the core is listed but is not
+// the spot.
+func TestBeforeHostCore(t *testing.T) {
+	t.Parallel()
+	fc := &ownimage.FluxCurve{Scale: 1.92, Sigma: 2.9 / fwhmSigma, Nights: []ownimage.FluxNight{{Night: "2026-01-10", Filter: "Red", N: 10, Flux: 1, Err: 0.05, Mag: 16.0, Flagged: true}}}
+	fx := transientFacts{flux: fc, ps1Objs: []PS1Object{{R: 15.8, SepArcsec: 3.5}}, gaiaErr: errNoCatalog}
+	c := beforeCheck(fx)
+	t.Logf("%s: %s", c.Status, c.Evidence)
+	if c.Status != check.Pass || !strings.Contains(c.Evidence, "3.5 arcsec away") {
+		t.Errorf("a host core 3.5 arcsec away refused the new light: %s %s", c.Status, c.Evidence)
 	}
 }
