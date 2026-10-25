@@ -1,7 +1,10 @@
 package vetting
 
 import (
+	"encoding/json"
 	"math"
+	"os"
+	"sort"
 	"testing"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/starcat"
@@ -36,6 +39,9 @@ func TestPickStar(t *testing.T) {
 		{"beyond 4 arcsec", []starcat.GaiaStar{at(4.5, 15.0, 1)}, 15.0, 0},
 		{"no reference magnitude keeps 2 arcsec", []starcat.GaiaStar{at(1.1, 20.4, 2), at(2.52, 14.73, 1)}, math.NaN(), 2},
 		{"close star, magnitude off", []starcat.GaiaStar{at(0.5, 19.0, 2)}, 15.0, 2},
+		{"fitting star under 0.5 arcsec farther", []starcat.GaiaStar{at(1.0, 20.5, 2), at(1.3, 19.8, 1)}, 18.6, 1},
+		{"fitting star under a magnitude brighter", []starcat.GaiaStar{at(0.8, 19.2, 1), at(2.1, 18.5, 2)}, 17.2, 1},
+		{"fitting star over a magnitude brighter", []starcat.GaiaStar{at(0.8, 19.6, 2), at(2.1, 18.5, 1)}, 18.0, 1},
 	} {
 		got := int64(0)
 		if i := pickStar(c.stars, ra, dec, starcat.GaiaEpoch, c.refMag); i >= 0 {
@@ -80,5 +86,55 @@ func TestMatchNote(t *testing.T) {
 		if got := st.matchNote(c.refMag); got != c.want {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
+	}
+}
+
+// TestPickStarCrowdedFade is 45467 (M 22, candidate 230822): the spot's
+// reference magnitude 17.21 is the summed light of the crowd around it,
+// which fit the G 18.53 star 2.08" away, so the vet read that star
+// instead of the G 19.18 star 0.79" from the difference centroid. The
+// stars are the real Gaia DR3 stars within 10" of the spot.
+func TestPickStarCrowdedFade(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("testdata/gaia_45467.json.zst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := unzstd(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct {
+		SourceID int64    `json:"source_id"`
+		RA       float64  `json:"ra"`
+		Dec      float64  `json:"dec"`
+		PMRA     *float64 `json:"pmra"`
+		PMDec    *float64 `json:"pmdec"`
+		G        float64  `json:"g"`
+	}
+	if err := json.Unmarshal(text, &rows); err != nil {
+		t.Fatal(err)
+	}
+	const ra, dec, refMag, year = 279.18183009021584, -23.994196110659015, 17.208926827491325, 2026.8
+	stars := make([]starcat.GaiaStar, 0, len(rows))
+	for _, r := range rows {
+		s := starcat.GaiaStar{SourceID: r.SourceID, RA: r.RA, Dec: r.Dec, PMRA: math.NaN(), PMDec: math.NaN(), G: float32(r.G)}
+		if r.PMRA != nil && r.PMDec != nil {
+			s.PMRA, s.PMDec = *r.PMRA, *r.PMDec
+		}
+		stars = append(stars, s)
+	}
+	sort.Slice(stars, func(i, j int) bool {
+		return arcsec(ra, dec, stars[i].RA, stars[i].Dec) < arcsec(ra, dec, stars[j].RA, stars[j].Dec)
+	})
+	best := pickStar(stars, ra, dec, year, refMag)
+	if best < 0 {
+		t.Fatal("no star")
+	}
+	if got, want := stars[best].SourceID, int64(4076836288050831232); got != want {
+		t.Errorf("picked Gaia DR3 %d (G %.2f), want %d (G 19.18)", got, stars[best].G, want)
+	}
+	if sk, _ := skippedOf(stars, best, ra, dec, year); sk != nil {
+		t.Errorf("skipped the nearer G %.2f star", sk.G)
 	}
 }

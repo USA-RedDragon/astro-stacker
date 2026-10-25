@@ -632,18 +632,32 @@ type star struct {
 // Star matching: a spot takes the nearest Gaia star within starArcsec
 // whose G is within starMagMatch of the spot's reference magnitude, and
 // without a reference magnitude the nearest star within closeArcsec
-// unless one there is over a magnitude brighter. Difference image
-// centroids of blended stars sit a pixel or more off the star.
+// unless one there is over brighterMag brighter. Difference image
+// centroids of blended stars sit a pixel or more off the star. The
+// nearest star within closeArcsec still beats a farther star whose G
+// fits the reference magnitude unless that star is over brighterMag
+// brighter or under tieArcsec farther: in a crowded field the reference
+// light is the sum of the blend, which fits a brighter neighbour better
+// than the star at the spot, as in 45467 (M 22).
 const (
 	starArcsec      = 4.0
 	closeArcsec     = 2.0
 	starMagMatch    = 1.5
+	brighterMag     = 1.0
+	tieArcsec       = 0.5
 	neighbourArcsec = 10.0
 )
 
 // pickStar is the index in stars, nearest first, of the star the vet
 // takes for the spot at ra, dec in year, or -1.
 func pickStar(stars []starcat.GaiaStar, ra, dec, year, refMag float64) int {
+	near, nearSep := -1, math.Inf(1)
+	for i, g := range stars {
+		gra, gdec := g.At(year)
+		if sep := arcsec(ra, dec, gra, gdec); sep <= closeArcsec && sep < nearSep {
+			near, nearSep = i, sep
+		}
+	}
 	best := -1
 	if !math.IsNaN(refMag) {
 		bestSep := math.Inf(1)
@@ -658,12 +672,16 @@ func pickStar(stars []starcat.GaiaStar, ra, dec, year, refMag float64) int {
 			}
 		}
 		if best >= 0 {
+			if near >= 0 && nearSep < bestSep-tieArcsec && stars[best].G >= stars[near].G-brighterMag {
+				return near
+			}
 			return best
 		}
 	}
+	best = near
 	for i, g := range stars {
 		gra, gdec := g.At(year)
-		if arcsec(ra, dec, gra, gdec) <= closeArcsec && (best < 0 || g.G < stars[best].G-1) {
+		if arcsec(ra, dec, gra, gdec) <= closeArcsec && best >= 0 && g.G < stars[best].G-brighterMag {
 			best = i
 		}
 	}
