@@ -34,7 +34,7 @@ RUN make -j"$(nproc)" ARCH_FLAGS= SYSTEM_GSL=yes GSL_INC= GSL_LIB="-lgsl -lgslcb
 # Alpine (github.com/USA-RedDragon/dockers, images/siril). It's x86_64 only,
 # so this image is amd64 only. The base sets HOME and the XDG dirs to /tmp,
 # which the pod mounts writable over a read-only root filesystem.
-FROM ghcr.io/usa-reddragon/siril:1.4.4@sha256:7863b17b64d8c0e300d9ee3bf6cd9160efbccfca8495bff3d585372ce3e9dbe4
+FROM ghcr.io/usa-reddragon/siril:1.4.5@sha256:b0ccbab799fad07be1336bf1a390987f294e6154021ef9bf7b71400b27cdf1e5
 COPY --from=astrometry /out/runtime-deps /tmp/runtime-deps
 RUN apk add --no-cache $(cat /tmp/runtime-deps) python3 py3-numpy py3-onnxruntime && rm /tmp/runtime-deps
 COPY --from=astrometry /out/usr/bin /usr/bin
