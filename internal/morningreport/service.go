@@ -108,59 +108,100 @@ func (s *Service) Tick(ctx context.Context) time.Duration {
 // send that stopped while rendering is tried again after it.
 const ClaimLease = 10 * time.Minute
 
-const colError = "error"
+const (
+	colError          = "error"
+	colPhotosFailedAt = "photos_failed_at"
+)
+
+// PhotoRetryAfter is the wait before photos that failed, or that Telegram
+// may have taken without answering, are sent once more.
+const PhotoRetryAfter = 5 * time.Minute
+
+// MaxPhotoAttempts is the most sends of a night's photos. A second send can
+// double them when Telegram took the first without answering; that beats
+// a report with no pictures.
+const MaxPhotoAttempts = 2
+
+type claimKind int
+
+const (
+	claimNone claimKind = iota
+	claimReport
+	claimPhotos
+)
 
 var errClaimed = errors.New("another send claimed this night")
 
 // claim records that the night's report is being sent, or says why not and
 // when to look again.
-func (s *Service) claim(ctx context.Context, key string, now time.Time) (bool, time.Duration, error) {
+func (s *Service) claim(ctx context.Context, key string, now time.Time) (claimKind, time.Duration, error) {
 	db := s.DB.WithContext(ctx)
 	var recs []app.MorningReport
 	if err := db.Where("night = ?", key).Limit(1).Find(&recs).Error; err != nil {
-		return false, s.RetryAfter, err
+		return claimNone, s.RetryAfter, err
 	}
 	if len(recs) == 0 {
 		res := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&app.MorningReport{Night: key, ClaimedAt: now, Attempts: 1})
 		if res.Error != nil {
-			return false, s.RetryAfter, res.Error
+			return claimNone, s.RetryAfter, res.Error
 		}
 		if res.RowsAffected == 0 {
-			return false, 0, errClaimed
+			return claimNone, 0, errClaimed
 		}
-		return true, 0, nil
+		return claimReport, 0, nil
 	}
 	rec := recs[0]
 	wait := s.RetryAfter
 	switch {
 	case rec.SentAt != nil:
-		return false, 0, nil
+		return s.claimPhotos(ctx, rec, now)
 	case rec.SendingAt != nil:
 		slog.Warn("Morning report may have gone out; not sending it again", "night", key, "sending_at", rec.SendingAt.Format(time.RFC3339))
-		return false, 0, nil
+		return claimNone, 0, nil
 	case rec.Attempts >= s.MaxAttempts:
-		return false, 0, nil
+		return claimNone, 0, nil
 	case rec.Error == nil:
 		wait = ClaimLease
 	}
 	if at := rec.ClaimedAt.Add(wait); now.Before(at) {
-		return false, at.Sub(now), nil
+		return claimNone, at.Sub(now), nil
 	}
 	res := db.Model(&app.MorningReport{}).Where("night = ? AND attempts = ? AND sent_at IS NULL AND sending_at IS NULL", key, rec.Attempts).
 		Updates(map[string]any{"claimed_at": now, "attempts": rec.Attempts + 1, colError: nil})
 	if res.Error != nil {
-		return false, s.RetryAfter, res.Error
+		return claimNone, s.RetryAfter, res.Error
 	}
 	if res.RowsAffected == 0 {
-		return false, 0, errClaimed
+		return claimNone, 0, errClaimed
 	}
-	return true, 0, nil
+	return claimReport, 0, nil
+}
+
+// claimPhotos claims another send of a sent report's photos when the last
+// one failed and sends remain.
+func (s *Service) claimPhotos(ctx context.Context, rec app.MorningReport, now time.Time) (claimKind, time.Duration, error) {
+	if rec.PhotosSentAt != nil || rec.PhotosFailedAt == nil || rec.PhotoAttempts >= MaxPhotoAttempts {
+		return claimNone, 0, nil
+	}
+	if at := rec.PhotosFailedAt.Add(PhotoRetryAfter); now.Before(at) {
+		return claimNone, at.Sub(now), nil
+	}
+	res := s.DB.WithContext(ctx).Model(&app.MorningReport{}).
+		Where("night = ? AND photo_attempts = ? AND photos_sent_at IS NULL AND photos_failed_at IS NOT NULL", rec.Night, rec.PhotoAttempts).
+		Updates(map[string]any{"photo_attempts": rec.PhotoAttempts + 1, colPhotosFailedAt: nil})
+	if res.Error != nil {
+		return claimNone, s.RetryAfter, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return claimNone, 0, errClaimed
+	}
+	return claimPhotos, 0, nil
 }
 
 func (s *Service) send(ctx context.Context, night, now time.Time) (retry time.Duration, err error) {
 	key := NightKey(night)
-	ok, retry, err := s.claim(ctx, key, now)
-	if err != nil || !ok {
+	kind, retry, err := s.claim(ctx, key, now)
+	if err != nil || kind == claimNone {
 		if errors.Is(err, errClaimed) {
 			return 0, nil
 		}
@@ -174,6 +215,13 @@ func (s *Service) send(ctx context.Context, night, now time.Time) (retry time.Du
 		}
 	}
 	text, photos, _, err := s.Render(ctx, night)
+	if kind == claimPhotos {
+		if err != nil {
+			record(map[string]any{colError: "photos: " + err.Error(), colPhotosFailedAt: s.now()})
+			return PhotoRetryAfter, err
+		}
+		return s.sendPhotos(ctx, key, photos, record)
+	}
 	if err != nil {
 		record(map[string]any{colError: err.Error()})
 		return s.RetryAfter, err
@@ -192,16 +240,24 @@ func (s *Service) send(ctx context.Context, night, now time.Time) (retry time.Du
 		record(map[string]any{colError: err.Error(), "sending_at": nil})
 		return s.RetryAfter, err
 	}
-	record(map[string]any{"sent_at": s.now(), "text": text})
+	record(map[string]any{"sent_at": s.now(), "text": text, "photo_attempts": 1})
 	slog.Info("Morning report sent", "night", key, "chars", utf8.RuneCountInString(text), "photos", len(photos))
+	return s.sendPhotos(ctx, key, photos, record)
+}
+
+// sendPhotos sends the report's photos and records the outcome; a failed
+// send is tried again after PhotoRetryAfter while sends remain.
+func (s *Service) sendPhotos(ctx context.Context, key string, photos []Photo, record func(map[string]any)) (time.Duration, error) {
 	if len(photos) == 0 {
 		return 0, nil
 	}
 	s.Task.SetProgress(2, 3)
 	s.Task.SetCurrent("sending the photos")
 	if err := s.Sender.Photos(ctx, photos); err != nil {
-		record(map[string]any{colError: "photos: " + err.Error()})
-		return 0, err
+		record(map[string]any{colError: "photos: " + err.Error(), colPhotosFailedAt: s.now()})
+		return PhotoRetryAfter, err
 	}
+	record(map[string]any{"photos_sent_at": s.now(), colError: nil})
+	slog.Info("Morning report photos sent", "night", key, "photos", len(photos))
 	return 0, nil
 }

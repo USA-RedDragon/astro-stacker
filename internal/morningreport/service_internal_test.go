@@ -19,6 +19,9 @@ type fakeSender struct {
 	messages []string
 	photos   [][]Photo
 	fail     error
+	// photoFail fails the next photo sends, one per entry.
+	photoFail  []error
+	photoTries int
 }
 
 func (f *fakeSender) Message(_ context.Context, html string) error {
@@ -34,6 +37,12 @@ func (f *fakeSender) Message(_ context.Context, html string) error {
 func (f *fakeSender) Photos(_ context.Context, p []Photo) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.photoTries++
+	if len(f.photoFail) > 0 {
+		err := f.photoFail[0]
+		f.photoFail = f.photoFail[1:]
+		return err
+	}
 	f.photos = append(f.photos, p)
 	return nil
 }
@@ -282,5 +291,70 @@ func TestRenderLeavesUnreachableSourcesNotMeasured(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in\n%s", want, text)
 		}
+	}
+}
+
+func photoService(t *testing.T, sender *fakeSender, now *time.Time) (*Service, *gorm.DB) {
+	t.Helper()
+	db := appDB(t)
+	preview := "dust/nights/2026-10-13/residual.png"
+	if err := db.Create(&app.DustLightCheck{Night: day(night1013), Subs: 60, Fields: 2, Status: "checked", PreviewKey: &preview,
+		Discs: `[{"X":2648,"Y":1848,"Diameter":600,"Peak":-0.52}]`, Deepest: 0.52, CheckedAt: *now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := testService(t, db, sender, now)
+	svc.Collector.Previews = mapPreviews{preview: testPNG(t)}
+	return svc, db
+}
+
+func TestServiceSendsPhotosOnceMoreAfterTelegramTimesOut(t *testing.T) {
+	t.Parallel()
+	timeout := fmt.Errorf("telegram sendMediaGroup: %w: timeout", ErrOutcomeUnknown)
+	sender := &fakeSender{photoFail: []error{timeout}}
+	now := clock("2026-10-14T11:00:00-05:00")
+	svc, db := photoService(t, sender, &now)
+	ctx := context.Background()
+
+	if wait := svc.Tick(ctx); wait != PhotoRetryAfter || len(sender.messages) != 1 || len(sender.photos) != 0 {
+		t.Fatalf("after the timeout: waited %s, %d messages, %d photo sends", wait, len(sender.messages), len(sender.photos))
+	}
+	now = now.Add(time.Minute)
+	svc.Tick(ctx)
+	if sender.photoTries != 1 {
+		t.Fatalf("photos tried again inside the wait: %d tries", sender.photoTries)
+	}
+	now = clock("2026-10-14T11:05:00-05:00")
+	svc.Tick(ctx)
+	if len(sender.messages) != 1 || len(sender.photos) != 1 || sender.photoTries != 2 {
+		t.Fatalf("the retry sent %d messages and %d photo sets in %d tries, want the photos alone once", len(sender.messages), len(sender.photos), sender.photoTries)
+	}
+	var rec app.MorningReport
+	if err := db.First(&rec, "night = ?", night1013).Error; err != nil || rec.PhotosSentAt == nil || rec.PhotoAttempts != 2 || rec.Error != nil {
+		t.Fatalf("record %+v %v", rec, err)
+	}
+	now = now.Add(time.Hour)
+	svc.Tick(ctx)
+	if sender.photoTries != 2 {
+		t.Fatalf("sent photos went again: %d tries", sender.photoTries)
+	}
+}
+
+func TestServiceStopsSendingPhotosAfterTwoTries(t *testing.T) {
+	t.Parallel()
+	gateway := errors.New("telegram sendMediaGroup answered 502 Bad Gateway")
+	sender := &fakeSender{photoFail: []error{gateway, gateway}}
+	now := clock("2026-10-14T11:00:00-05:00")
+	svc, db := photoService(t, sender, &now)
+	ctx := context.Background()
+	for _, at := range []string{"11:00", "11:05", "11:10", "13:00"} {
+		now = clock("2026-10-14T" + at + ":00-05:00")
+		svc.Tick(ctx)
+	}
+	if sender.photoTries != MaxPhotoAttempts || len(sender.messages) != 1 {
+		t.Fatalf("%d photo tries and %d messages, want %d tries and the message once", sender.photoTries, len(sender.messages), MaxPhotoAttempts)
+	}
+	var rec app.MorningReport
+	if err := db.First(&rec, "night = ?", night1013).Error; err != nil || rec.PhotosSentAt != nil || rec.Error == nil || rec.PhotoAttempts != MaxPhotoAttempts {
+		t.Fatalf("record %+v %v", rec, err)
 	}
 }
