@@ -215,9 +215,10 @@ func (f *field) catalogs(t *testing.T) *discoveries.Catalogs {
 	})
 	mux.HandleFunc("/alerce/", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{"items":[]}`) })
 	mux.HandleFunc("/fink", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `[]`) })
+	mux.HandleFunc("/simbad", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "main_id\tra\tdec\totype\n") })
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &discoveries.Catalogs{VizierURL: srv.URL + "/vizier", SkyBoTURL: srv.URL + "/skybot", AlerceURL: srv.URL + "/alerce/", FinkURL: srv.URL + "/fink"}
+	return &discoveries.Catalogs{VizierURL: srv.URL + "/vizier", SkyBoTURL: srv.URL + "/skybot", AlerceURL: srv.URL + "/alerce/", FinkURL: srv.URL + "/fink", SIMBADURL: srv.URL + "/simbad"}
 }
 
 type world struct {
