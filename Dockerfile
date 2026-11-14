@@ -1,4 +1,4 @@
-FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS astrometry
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS astrometry
 
 ARG ASTROMETRY_VERSION=0.97
 ARG ASTROMETRY_SHA256=e4eef1b658ba5ad462282b661c0ca3a5c538ba1716e853f7970b7b9fa4a33459
@@ -34,7 +34,7 @@ RUN make -j"$(nproc)" ARCH_FLAGS= SYSTEM_GSL=yes GSL_INC= GSL_LIB="-lgsl -lgslcb
 # Alpine (github.com/USA-RedDragon/dockers, images/siril). It's x86_64 only,
 # so this image is amd64 only. The base sets HOME and the XDG dirs to /tmp,
 # which the pod mounts writable over a read-only root filesystem.
-FROM ghcr.io/usa-reddragon/siril:1.4.4@sha256:7863b17b64d8c0e300d9ee3bf6cd9160efbccfca8495bff3d585372ce3e9dbe4
+FROM ghcr.io/usa-reddragon/siril:1.4.5@sha256:a08e9de2cc59b9caf19236fed4641859f8b05dc8f3a7508f4cc7f01b052d0c18
 COPY --from=astrometry /out/runtime-deps /tmp/runtime-deps
 RUN apk add --no-cache $(cat /tmp/runtime-deps) python3 py3-numpy py3-onnxruntime && rm /tmp/runtime-deps
 COPY --from=astrometry /out/usr/bin /usr/bin
