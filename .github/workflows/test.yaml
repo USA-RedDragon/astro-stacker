@@ -117,7 +117,7 @@ jobs:
 
       - name: Publish Test Report
         if: always()
-        uses: mikepenz/action-junit-report@6ef3fdcfcd5f0b5d14df3e659ef19b8c6820f93d # v6.6.1
+        uses: mikepenz/action-junit-report@a16be3a69023e9bd7e748ede768b3282ea7b30ce # v6.7.1
         with:
           report_paths: "report.xml"
           require_tests: true
@@ -179,7 +179,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: USA-RedDragon/reusable-actions/.github/workflows/coverage.yaml@c5ee15922a0ff4229b0f06a8d0551541b5cabfdc # v2.0.34
+    uses: USA-RedDragon/reusable-actions/.github/workflows/coverage.yaml@1e6b74c455cbbe8892acc7974fac5a1ac228ad47 # v2.0.38
     with:
       artifact: backend-coverage
       file: coverage.out
