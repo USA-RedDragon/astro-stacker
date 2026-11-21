@@ -336,7 +336,7 @@ func decompressBlock(codec string, src []byte, usize int) ([]byte, error) {
 		}
 		return buf.Bytes(), nil
 	case "zstd":
-		d, err := zstd.NewReader(nil)
+		d, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true))
 		if err != nil {
 			return nil, err
 		}

@@ -58,7 +58,7 @@ func WriteXISF16(out io.Writer, w, h int, codes []uint16, keywords []Card, props
 		binary.LittleEndian.PutUint16(two[:], q)
 		raw[i], raw[n+i] = two[0], two[1]
 	}
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBetterCompression))
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBetterCompression), zstd.WithEncoderConcurrency(1), zstd.WithLowerEncoderMem(true))
 	if err != nil {
 		return err
 	}
