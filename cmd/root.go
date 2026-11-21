@@ -41,6 +41,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/schedwatch"
 	"github.com/USA-RedDragon/astro-stacker/internal/server"
 	"github.com/USA-RedDragon/astro-stacker/internal/server/middleware"
+	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skycutout"
 	"github.com/USA-RedDragon/astro-stacker/internal/skyevents"
 	"github.com/USA-RedDragon/astro-stacker/internal/store"
@@ -355,7 +356,7 @@ func afterScan(db *gorm.DB, broker *events.Broker, publish ...func(context.Conte
 
 func startGoals(cfg *config.Config, s3 *minio.Client, appStore, schedStore store.Store, boosts goals.SeasonBoostSource, busy func() bool,
 	measured func(object, filter string)) (func(), func() goals.BackfillLive, func(object, filter string), func()) {
-	opts := withLongitude(goalOptions(cfg, boosts, busy), siteFunc(cfg, appStore))
+	opts := withSite(goalOptions(cfg, boosts, busy), siteFunc(cfg, appStore))
 	opts.OnMeasured = measured
 	fetch := goalmeasure.VizierFetcher(nil, "")
 	if g, _ := catalogMirrors(cfg, s3); g != nil {
@@ -402,11 +403,12 @@ func goalOptions(cfg *config.Config, boosts goals.SeasonBoostSource, busy func()
 	}
 }
 
-func withLongitude(o goalmeasure.Options, site discover.SiteFunc) goalmeasure.Options {
+func withSite(o goalmeasure.Options, site discover.SiteFunc) goalmeasure.Options {
 	o.Longitude = func(ctx context.Context) (float64, error) {
 		s, err := site(ctx)
 		return s.Longitude, err
 	}
+	o.Site = func(ctx context.Context) (sky.Site, error) { return site(ctx) }
 	return o
 }
 

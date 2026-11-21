@@ -19,6 +19,7 @@ import (
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
 	"github.com/USA-RedDragon/astro-stacker/internal/goals"
 	"github.com/USA-RedDragon/astro-stacker/internal/imagedata"
+	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/skybright"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/trigger"
@@ -75,6 +76,8 @@ type Options struct {
 	Workers      int
 	Busy         func() bool
 	Longitude    func(ctx context.Context) (float64, error)
+	// Site is the observatory, for the sky a sub taken now is under in the published expected score.
+	Site func(ctx context.Context) (sky.Site, error)
 	// MinScore is the stacker's score cut, published with goal progress so the plugin can tell whether a
 	// sub would pass it.
 	MinScore float64
@@ -118,7 +121,7 @@ func New(db, sched *gorm.DB, objects ObjectGetter, stars StarFetcher, opts Optio
 		opts.Workers = DefaultWorkers
 	}
 	return &Runner{db: db, sched: sched, objects: objects, stars: stars, opts: opts,
-		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts, Longitude: opts.Longitude, MinScore: opts.MinScore},
+		pub: &goals.Publisher{App: db, Sched: sched, Mode: opts.Publish, SeasonBoosts: opts.SeasonBoosts, Longitude: opts.Longitude, Site: opts.Site, MinScore: opts.MinScore},
 		now: func() time.Time { return time.Now().UTC() }, poll: idlePoll, pubEvery: publishEvery,
 		measure: &trigger.Debouncer{Quiet: MeasureQuiet, MaxWait: MeasureMaxWait},
 		pubKick: &trigger.Debouncer{Quiet: PublishQuiet, MaxWait: PublishMaxWait, MinGap: PublishMinGap},

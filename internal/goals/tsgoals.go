@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"github.com/USA-RedDragon/astro-stacker/internal/tslink"
@@ -85,8 +86,11 @@ func (s *rowTime) Scan(v any) error {
 	return nil
 }
 
+// targetMap links targets and objects. pos is each target's RA and Dec in degrees, left out at 0, 0, which
+// is how the scheduler stores a target without coordinates.
 type targetMap struct {
 	objects map[string][]string
+	pos     map[string][2]float64
 	guids   map[string]string
 	links   map[string]tslink.ObjectLink
 	known   map[string]bool
@@ -108,13 +112,17 @@ func loadTargetMap(ctx context.Context, appDB, sched *gorm.DB) (targetMap, error
 	}
 	known := make(map[string]bool, len(targets))
 	names := make(map[string]string, len(targets))
+	pos := make(map[string][2]float64, len(targets))
 	for _, t := range targets {
 		if t.GUID != "" {
 			known[t.GUID] = true
 			names[t.GUID] = t.Name
 		}
+		if t.GUID != "" && (t.RA != 0 || t.Dec != 0) {
+			pos[t.GUID] = [2]float64{t.RA, t.Dec}
+		}
 	}
-	return targetMap{objects: tslink.TargetObjects(guids), guids: guids, links: links, known: known, names: names}, nil
+	return targetMap{objects: tslink.TargetObjects(guids), pos: pos, guids: guids, links: links, known: known, names: names}, nil
 }
 
 func ObjectGUIDs(ctx context.Context, appDB, sched *gorm.DB) (map[string]string, error) {
@@ -379,14 +387,18 @@ type Publisher struct {
 	Mode         string
 	SeasonBoosts SeasonBoostSource
 	Longitude    func(ctx context.Context) (float64, error)
-	Now          func() time.Time
-	Log          *slog.Logger
+	// Site is the observatory, for the sky a sub taken now is under; without it the expected score comes
+	// from tonight's recent subs only.
+	Site func(ctx context.Context) (sky.Site, error)
+	Now  func() time.Time
+	Log  *slog.Logger
 	// MinScore is the stacker's score cut, a fraction of the target's best score; 0 publishes no score cut.
 	MinScore float64
 
 	mu      sync.Mutex
 	outcome string
 	lon     *float64
+	known   *sky.Site
 	pass    *PassInputs
 	passAt  time.Time
 }
@@ -411,6 +423,23 @@ func (p *Publisher) longitude(ctx context.Context) *float64 {
 	}
 	p.mu.Lock()
 	p.lon = &v
+	p.mu.Unlock()
+	return &v
+}
+
+func (p *Publisher) site(ctx context.Context) *sky.Site {
+	p.mu.Lock()
+	site := p.known
+	p.mu.Unlock()
+	if site != nil || p.Site == nil {
+		return site
+	}
+	v, err := p.Site(ctx)
+	if err != nil {
+		return nil
+	}
+	p.mu.Lock()
+	p.known = &v
 	p.mu.Unlock()
 	return &v
 }
@@ -517,13 +546,21 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 	if err != nil {
 		return sum, err
 	}
+	var site *sky.Site
+	if withPass {
+		site = p.site(ctx)
+	}
 	for _, w := range want {
 		sum.Rows++
 		if withSignals {
 			sig.apply(&w.row)
 		}
 		if withPass {
-			w.row.setPass(pass, tm.objects[w.row.TargetGUID], sig.NightQuality, p.MinScore)
+			var pos *[2]float64
+			if c, ok := tm.pos[w.row.TargetGUID]; ok && !w.body {
+				pos = &c
+			}
+			w.row.setPass(pass, tm.objects[w.row.TargetGUID], pos, site, p.now(), p.MinScore)
 		}
 		if old, ok := have[progressKey{w.row.TargetGUID, w.row.Filter}]; ok && old.same(w.row, withSignals, withReadiness, withPass) {
 			continue
@@ -553,7 +590,7 @@ func (p *Publisher) Publish(ctx context.Context) (PublishSummary, error) {
 }
 
 // signalsAndPass loads the night signals when the table has their columns, and the pass inputs when it
-// has those too: the expected score is for the night quality the signals carry.
+// has those too.
 func (p *Publisher) signalsAndPass(ctx context.Context, withSignals bool) (Signals, bool, PassInputs, error) {
 	if !withSignals {
 		return Signals{}, false, PassInputs{}, nil
@@ -579,6 +616,7 @@ type progressKey struct{ guid, filter string }
 type wantedProgress struct {
 	row  progressRow
 	prog Progress
+	body bool
 }
 
 func goalsByTarget(rows []goalRow, tm targetMap) map[string]map[string]goalRow {
@@ -627,7 +665,10 @@ func (p *Publisher) progressRows(ctx context.Context, byGUID map[string]map[stri
 	for _, guid := range guids {
 		objs := tm.objects[guid]
 		if kind, ok := bodyIn.KindOf(append([]string{tm.names[guid]}, objs...)...); ok {
-			out = append(out, p.bodyRows(guid, kind, objs, byGUID[guid], filters, bodyIn, readiness)...)
+			for _, w := range p.bodyRows(guid, kind, objs, byGUID[guid], filters, bodyIn, readiness) {
+				w.body = true
+				out = append(out, w)
+			}
 			continue
 		}
 		measured, failed := map[string]app.GoalMeasurement{}, map[string]app.GoalMeasurement{}

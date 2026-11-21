@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 	"time"
 
 	"github.com/USA-RedDragon/astro-stacker/internal/frameheader"
+	"github.com/USA-RedDragon/astro-stacker/internal/sky"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/models/app"
 	"github.com/USA-RedDragon/astro-stacker/internal/store/tables"
 	"gorm.io/gorm"
@@ -16,15 +16,6 @@ import (
 const (
 	ColumnScoreCut      = "score_cut"
 	ColumnExpectedScore = "expected_score"
-	// PassHistory is how far back the subs that tell a filter's expected score at a night quality go.
-	PassHistory = 120 * 24 * time.Hour
-	// PassMinSamples is how many past subs taken at about the same night quality a filter needs for an
-	// expected score.
-	PassMinSamples = 20
-	// PassQualityBand is the first and the step of the night quality bands, around the current one, that
-	// past subs are taken from; PassQualityBands is how many steps are tried before there is no estimate.
-	PassQualityBand  = 0.05
-	PassQualityBands = 4
 	// PassMinTargets is how many targets with a settled best score a filter needs before a target that
 	// has not settled its own is judged against theirs.
 	PassMinTargets   = 3
@@ -43,19 +34,16 @@ type PassInputs struct {
 	Best map[Key]BestScore
 	// Reference is each filter's median best score over the objects that have settled theirs (MinSubs).
 	Reference map[string]float64
-	// History is each filter's past subs: the night quality just before each and its score as a fraction
-	// of its object's best (see Best), the ratio the stacker's cut tests.
-	History map[string][]QualityRatio
+	// Sky is the past subs' scores as fractions of their object's best, by the sky they were taken under;
+	// empty without the site.
+	Sky SkyRatios
+	// Recent is each object's subs scored in the ExpectedRecentWindow before now.
+	Recent map[Key][]RecentScore
 }
 
 type BestScore struct {
 	Score float64
 	Subs  int
-}
-
-type QualityRatio struct {
-	Quality float64
-	Ratio   float64
 }
 
 func HasPassColumns(ctx context.Context, sched *gorm.DB) (bool, error) {
@@ -67,10 +55,10 @@ func HasPassColumns(ctx context.Context, sched *gorm.DB) (bool, error) {
 	return true, nil
 }
 
-// LoadPassInputs reads the scored lights: every one for the best scores, PassHistory back from now for
-// the history.
-func LoadPassInputs(ctx context.Context, appDB *gorm.DB, now time.Time) (PassInputs, error) {
-	in := PassInputs{Best: map[Key]BestScore{}, Reference: map[string]float64{}, History: map[string][]QualityRatio{}}
+// LoadPassInputs reads the scored lights: every one for the best scores, ExpectedHistory back from now
+// for the sky fit when site is known, and the recent ones.
+func LoadPassInputs(ctx context.Context, appDB *gorm.DB, now time.Time, site *sky.Site) (PassInputs, error) {
+	in := PassInputs{Best: map[Key]BestScore{}, Reference: map[string]float64{}}
 	for _, t := range []any{&app.Frame{}, &app.StackFrame{}} {
 		if has, err := tables.Has(ctx, appDB, t); err != nil || !has {
 			return in, err
@@ -97,6 +85,24 @@ func LoadPassInputs(ctx context.Context, appDB *gorm.DB, now time.Time) (PassInp
 		cur := in.Best[k]
 		in.Best[k] = BestScore{Score: math.Max(cur.Score, b.Best), Subs: cur.Subs + b.N}
 	}
+	in.settle()
+	if site != nil {
+		var subs []PassSub
+		if err := passSubs(appDB.WithContext(ctx), now.Add(-ExpectedHistory), now).Scan(&subs).Error; err != nil {
+			return in, fmt.Errorf("load past sub scores: %w", err)
+		}
+		in.Sky = in.FitSky(subs, *site)
+	}
+	recent, err := LoadRecent(ctx, appDB, now)
+	if err != nil {
+		return in, err
+	}
+	in.Recent = recent
+	return in, nil
+}
+
+// settle sets Reference from Best.
+func (in *PassInputs) settle() {
 	settled := map[string][]float64{}
 	for k, b := range in.Best {
 		if b.Subs >= MinSubs {
@@ -108,45 +114,6 @@ func LoadPassInputs(ctx context.Context, appDB *gorm.DB, now time.Time) (PassInp
 			in.Reference[f] = median(v)
 		}
 	}
-
-	var subs []struct {
-		Object  string
-		Filter  string
-		Score   float64
-		DateObs time.Time
-	}
-	if err := appDB.WithContext(ctx).Table("stack_frames sf").
-		Select("f.object AS object, f.filter AS filter, sf.score AS score, f.date_obs AS date_obs").
-		Joins("JOIN frames f ON f.id = sf.frame_id").
-		Where("f.type = ? AND f.date_obs IS NOT NULL AND f.date_obs > ? AND f.date_obs <= ?", "LIGHT", now.Add(-PassHistory-NightQualityWindow), now).
-		Where("sf.status IN ?", []string{app.StackStatusAdded, app.StackStatusNight, app.StackStatusLowScore}).
-		Order("f.date_obs").Scan(&subs).Error; err != nil {
-		return in, fmt.Errorf("load past sub scores: %w", err)
-	}
-	all := make([]scoredSub, 0, len(subs))
-	for _, s := range subs {
-		if math.IsNaN(s.Score) || math.IsInf(s.Score, 0) {
-			continue
-		}
-		all = append(all, scoredSub{Score: math.Max(0, math.Min(1, s.Score)), DateObs: s.DateObs})
-	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].DateObs.Before(all[j].DateObs) })
-	for _, s := range subs {
-		if math.IsNaN(s.Score) || math.IsInf(s.Score, 0) || !s.DateObs.After(now.Add(-PassHistory)) {
-			continue
-		}
-		q := qualityBefore(all, s.DateObs)
-		if q == nil {
-			continue
-		}
-		f := frameheader.NormalizeFilter(s.Filter)
-		best := in.best([]string{s.Object}, f)
-		if !(best > 0) {
-			continue
-		}
-		in.History[f] = append(in.History[f], QualityRatio{Quality: *q, Ratio: math.Max(0, math.Min(1, s.Score)) / best})
-	}
-	return in, nil
 }
 
 // best is the best score a target made of objects is judged against in filter f: its own best, or the
@@ -165,42 +132,6 @@ func (in PassInputs) best(objects []string, f string) float64 {
 	return math.Min(best, 1)
 }
 
-// qualityBefore is the night quality the stacker publishes just before t: medianQuality of the subs in
-// the NightQualityWindow before it. all is sorted by time.
-func qualityBefore(all []scoredSub, t time.Time) *float64 {
-	lo := sort.Search(len(all), func(i int) bool { return all[i].DateObs.After(t.Add(-NightQualityWindow)) })
-	hi := sort.Search(len(all), func(i int) bool { return !all[i].DateObs.Before(t) })
-	q, _ := medianQuality(all[lo:hi])
-	return q
-}
-
-// ExpectedScore is the score a sub of filter taken now is expected to get on a target made of objects: the
-// target's best (see best) times the median ratio to their object's best of filter's past subs taken at
-// about night quality q, within PassQualityBand of it, widened a band at a time up to PassQualityBands
-// until PassMinSamples subs are in. Nil without a night quality, a best or enough subs.
-func (in PassInputs) ExpectedScore(objects []string, filter string, q *float64) *float64 {
-	f := frameheader.NormalizeFilter(filter)
-	best := in.best(objects, f)
-	if q == nil || !(best > 0) {
-		return nil
-	}
-	hist := in.History[f]
-	for b := 1; b <= PassQualityBands; b++ {
-		band := float64(b)*PassQualityBand + 1e-9
-		var v []float64
-		for _, h := range hist {
-			if math.Abs(h.Quality-*q) <= band {
-				v = append(v, h.Ratio)
-			}
-		}
-		if len(v) >= PassMinSamples {
-			e := quantize(median(v)*best, passScoreStep)
-			return &e
-		}
-	}
-	return nil
-}
-
 // ScoreCut is the score a new sub of filter needs to stay out of low_score on a target made of objects:
 // minScore times the target's best (see best). Nil when nothing is known.
 func (in PassInputs) ScoreCut(objects []string, filter string, minScore float64) *float64 {
@@ -212,14 +143,22 @@ func (in PassInputs) ScoreCut(objects []string, filter string, minScore float64)
 	return &c
 }
 
+// passInputs is the cached best scores and sky fit, at most passCacheRefresh old, with the recent subs
+// read afresh.
 func (p *Publisher) passInputs(ctx context.Context, now time.Time) (PassInputs, error) {
 	p.mu.Lock()
 	cached, at := p.pass, p.passAt
 	p.mu.Unlock()
 	if cached != nil && now.Sub(at) < passCacheRefresh && !now.Before(at) {
-		return *cached, nil
+		in := *cached
+		recent, err := LoadRecent(ctx, p.App, now)
+		if err != nil {
+			return in, err
+		}
+		in.Recent = recent
+		return in, nil
 	}
-	in, err := LoadPassInputs(ctx, p.App, now)
+	in, err := LoadPassInputs(ctx, p.App, now, p.site(ctx))
 	if err != nil {
 		return in, err
 	}
@@ -229,12 +168,16 @@ func (p *Publisher) passInputs(ctx context.Context, now time.Time) (PassInputs, 
 	return in, nil
 }
 
-// setPass publishes the score cut only: the expected score from absolute
-// night quality held out broadband that passes when low targets drag the
-// night down, so it stays unpublished until it is measured per target.
-func (r *progressRow) setPass(in PassInputs, objects []string, _ *float64, minScore float64) {
+// setPass publishes the score cut and the score a sub taken now is expected to get, under the sky at the
+// target's position pos (RA, Dec in degrees) seen from site; without them only recent subs can give it.
+func (r *progressRow) setPass(in PassInputs, objects []string, pos *[2]float64, site *sky.Site, now time.Time, minScore float64) {
 	r.ScoreCut = in.ScoreCut(objects, r.Filter, minScore)
-	r.ExpectedScore = nil
+	var s *SkyState
+	if pos != nil && site != nil {
+		st := SkyAt(*site, now, pos[0], pos[1])
+		s = &st
+	}
+	r.ExpectedScore = in.ExpectedScore(objects, r.Filter, s)
 }
 
 func (r progressRow) samePass(o progressRow) bool {
