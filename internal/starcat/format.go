@@ -239,7 +239,7 @@ var (
 
 func zenc() *zstd.Encoder {
 	encOnce.Do(func() {
-		encoder, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstdLevel), zstd.WithEncoderConcurrency(runtime.GOMAXPROCS(0)))
+		encoder, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstdLevel), zstd.WithEncoderConcurrency(min(4, runtime.GOMAXPROCS(0))), zstd.WithLowerEncoderMem(true))
 	})
 	return encoder
 }
