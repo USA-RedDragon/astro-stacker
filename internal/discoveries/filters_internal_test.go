@@ -7,16 +7,15 @@ import (
 	"testing"
 )
 
-// TestRunFindsAOneFilterSource replays AT 2026aeob on Pelican Nebula Panel
+// testRunFindsAOneFilterSource replays AT 2026aeob on Pelican Nebula Panel
 // 2's 2026-10-08: a source in R alone, over 5 sigma in R's own comparison
 // and under it in R, G and B combined, is found by R's, said so, and kept
 // to its own null test's bar.
-func TestRunFindsAOneFilterSource(t *testing.T) {
-	t.Parallel()
+func testRunFindsAOneFilterSource(t *testing.T, fields fieldSlots) {
 	if underRace {
-		t.Skip("a synthetic night takes ten minutes under the race detector; TestRunFindsSyntheticChanges runs the same code there")
+		t.Skip("a synthetic night takes ten minutes under the race detector; TestSyntheticFields/RunFindsSyntheticChanges runs the same code there")
 	}
-	f := newField(t)
+	f := fields.newField(t)
 	f.red, f.RedFlux = true, 0.045
 	f.RedX, f.RedY = f.emptySpot(t, 1400, 300)
 	res, err := Run(context.Background(), f.filterInput(t, []string{filterRed, "Green", "Blue"}, nil))

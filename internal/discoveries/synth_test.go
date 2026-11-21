@@ -56,10 +56,51 @@ type field struct {
 type synthStar struct{ X, Y, Flux float64 }
 
 const (
-	synthSubSeconds = 60
-	synthCadence    = 6 * time.Minute
-	synthBorder     = 12
+	synthSubSeconds   = 60
+	synthCadence      = 6 * time.Minute
+	synthBorder       = 12
+	synthFieldsAtOnce = 3
 )
+
+// fieldSlots caps how many synthetic fields are alive at once: each holds
+// its rendered subs and runs a whole comparison, a few hundred megabytes.
+type fieldSlots chan struct{}
+
+// newField takes a slot for the life of t and makes the field.
+func (s fieldSlots) newField(t *testing.T) *field {
+	t.Helper()
+	s <- struct{}{}
+	t.Cleanup(func() { <-s })
+	return newField(t)
+}
+
+// TestSyntheticFields runs every test built on a synthetic field, at most
+// synthFieldsAtOnce of them at a time.
+func TestSyntheticFields(t *testing.T) {
+	t.Parallel()
+	fields := make(fieldSlots, synthFieldsAtOnce)
+	for _, tc := range []struct {
+		name string
+		run  func(*testing.T, fieldSlots)
+	}{
+		{"RunFindsAOneFilterSource", testRunFindsAOneFilterSource},
+		{"ReferenceNightCannotMakeAChange", testReferenceNightCannotMakeAChange},
+		{"ReferenceOutburstCannotMakeAFade", testReferenceOutburstCannotMakeAFade},
+		{"RunnerComparesSettledNight", testRunnerComparesSettledNight},
+		{"RequestedRerunKeepsVetting", testRequestedRerunKeepsVetting},
+		{"RunnerBacksOffAfterAFailure", testRunnerBacksOffAfterAFailure},
+		{"SpotNightsSeesTheNewSourceOnlyWhereItIs", testSpotNightsSeesTheNewSourceOnlyWhereItIs},
+		{"RunFindsSyntheticChanges", testRunFindsSyntheticChanges},
+		{"RunComparesANightOfOneSubPerFilter", testRunComparesANightOfOneSubPerFilter},
+		{"RunHoldsADefectPixel", testRunHoldsADefectPixel},
+		{"RunLeavesMagnitudesUnknownWithoutAGaiaTie", testRunLeavesMagnitudesUnknownWithoutAGaiaTie},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.run(t, fields)
+		})
+	}
+}
 
 func newField(t *testing.T) *field {
 	t.Helper()
@@ -289,9 +330,8 @@ func (f *field) input(t *testing.T) Input {
 		}}
 }
 
-func TestRunFindsSyntheticChanges(t *testing.T) {
-	t.Parallel()
-	f := newField(t)
+func testRunFindsSyntheticChanges(t *testing.T, fields fieldSlots) {
+	f := fields.newField(t)
 	in := f.input(t)
 	res, err := Run(context.Background(), in)
 	if err != nil {
@@ -355,14 +395,13 @@ func TestRunFindsSyntheticChanges(t *testing.T) {
 	}
 }
 
-// TestRunComparesANightOfOneSubPerFilter replays North America Nebula
+// testRunComparesANightOfOneSubPerFilter replays North America Nebula
 // Panel 2's 2025-12-17: two L subs and one each of R, G and B.
-func TestRunComparesANightOfOneSubPerFilter(t *testing.T) {
-	t.Parallel()
+func testRunComparesANightOfOneSubPerFilter(t *testing.T, fields fieldSlots) {
 	if underRace {
-		t.Skip("a synthetic night takes ten minutes under the race detector; TestRunFindsSyntheticChanges runs the same code there")
+		t.Skip("a synthetic night takes ten minutes under the race detector; TestSyntheticFields/RunFindsSyntheticChanges runs the same code there")
 	}
-	f := newField(t)
+	f := fields.newField(t)
 	in := f.input(t)
 	all := in.Filters[0]
 	split := func(name string, night []Sub, ref []Sub) FilterInput {
@@ -406,16 +445,15 @@ func TestRunComparesANightOfOneSubPerFilter(t *testing.T) {
 	}
 }
 
-// TestRunHoldsADefectPixel replays Pelican Nebula Panel 2's night of
+// testRunHoldsADefectPixel replays Pelican Nebula Panel 2's night of
 // 2026-09-14: a defect pixel moved by a pixel between subs by their
 // registration is less sharp in the stack than in each sub, where it is
 // one pixel, and is held at low confidence as a new source.
-func TestRunHoldsADefectPixel(t *testing.T) {
-	t.Parallel()
+func testRunHoldsADefectPixel(t *testing.T, fields fieldSlots) {
 	if underRace {
-		t.Skip("a synthetic night takes ten minutes under the race detector; TestRunFindsSyntheticChanges runs the same code there")
+		t.Skip("a synthetic night takes ten minutes under the race detector; TestSyntheticFields/RunFindsSyntheticChanges runs the same code there")
 	}
-	f := newField(t)
+	f := fields.newField(t)
 	f.hot = true
 	f.HotX, f.HotY = f.emptySpot(t, 1400, 900)
 	res, err := Run(context.Background(), f.input(t))
@@ -441,9 +479,8 @@ func TestRunHoldsADefectPixel(t *testing.T) {
 	}
 }
 
-func TestRunLeavesMagnitudesUnknownWithoutAGaiaTie(t *testing.T) {
-	t.Parallel()
-	f := newField(t)
+func testRunLeavesMagnitudesUnknownWithoutAGaiaTie(t *testing.T, fields fieldSlots) {
+	f := fields.newField(t)
 	in := f.input(t)
 	w, err := ParseWCS(tanWCS(150, 20, 2, 905, 640.5), f.H)
 	if err != nil {

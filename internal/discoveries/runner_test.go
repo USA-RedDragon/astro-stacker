@@ -168,9 +168,9 @@ func seedTarget(t *testing.T, f *field, db *gorm.DB, store *memStore) {
 	}
 }
 
-func newRunnerFixture(t *testing.T) *runnerFixture {
+func newRunnerFixture(t *testing.T, fields fieldSlots) *runnerFixture {
 	t.Helper()
-	fx := &runnerFixture{f: newField(t), db: testDB(t), store: &memStore{m: map[string][]byte{}}}
+	fx := &runnerFixture{f: fields.newField(t), db: testDB(t), store: &memStore{m: map[string][]byte{}}}
 	f := fx.f
 	seedTarget(t, f, fx.db, fx.store)
 	nra, ndec := f.WCS.SkyOf(f.NewX, f.NewY)
@@ -251,9 +251,8 @@ func checkTrack(t *testing.T, c app.DiscoveryCandidate) {
 	}
 }
 
-func TestRunnerComparesSettledNight(t *testing.T) {
-	t.Parallel()
-	fx := newRunnerFixture(t)
+func testRunnerComparesSettledNight(t *testing.T, fields fieldSlots) {
+	fx := newRunnerFixture(t, fields)
 	ctx := context.Background()
 	if err := fx.r.Pass(ctx); err != nil {
 		t.Fatal(err)
@@ -295,15 +294,14 @@ func TestRunnerComparesSettledNight(t *testing.T) {
 	}
 }
 
-// TestRequestedRerunKeepsVetting reruns a night compared before, its new
+// testRequestedRerunKeepsVetting reruns a night compared before, its new
 // find vetted, on request: the vetting stays with the find. It is apart
-// from TestRunnerComparesSettledNight so each compares the synthetic night
+// from testRunnerComparesSettledNight so each compares the synthetic night
 // once, as under the race detector a comparison takes minutes.
 const vetChecked = "checked"
 
-func TestRequestedRerunKeepsVetting(t *testing.T) {
-	t.Parallel()
-	fx := newRunnerFixture(t)
+func testRequestedRerunKeepsVetting(t *testing.T, fields fieldSlots) {
+	fx := newRunnerFixture(t, fields)
 	ctx := context.Background()
 	f := fx.f
 	night := f.Nights[len(f.Nights)-1]
@@ -417,9 +415,8 @@ func TestGroupOfAndHash(t *testing.T) {
 	}
 }
 
-func TestRunnerBacksOffAfterAFailure(t *testing.T) {
-	t.Parallel()
-	fx := newRunnerFixture(t)
+func testRunnerBacksOffAfterAFailure(t *testing.T, fields fieldSlots) {
+	fx := newRunnerFixture(t, fields)
 	fx.db.Where("object = ?", synthObject).Delete(&app.TargetReference{})
 	ctx := context.Background()
 	for range 2 {

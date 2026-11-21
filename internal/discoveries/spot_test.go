@@ -7,9 +7,8 @@ import (
 	"testing"
 )
 
-func TestSpotNightsSeesTheNewSourceOnlyWhereItIs(t *testing.T) {
-	t.Parallel()
-	fx := newRunnerFixture(t)
+func testSpotNightsSeesTheNewSourceOnlyWhereItIs(t *testing.T, fields fieldSlots) {
+	fx := newRunnerFixture(t, fields)
 	f := fx.f
 	ra, dec := f.WCS.SkyOf(f.NewX, f.NewY)
 	last := f.Nights[len(f.Nights)-1]

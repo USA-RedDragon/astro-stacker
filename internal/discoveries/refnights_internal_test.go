@@ -63,13 +63,12 @@ func (f *field) filterInput(t *testing.T, filters []string, counts []int) Input 
 		}}
 }
 
-// TestReferenceNightCannotMakeAChange replays Andromeda's 2025-01-19: a
+// testReferenceNightCannotMakeAChange replays Andromeda's 2025-01-19: a
 // star dimmed on the reference night of most subs reads brighter on a
 // night it is not. Its own dimmed night still reads fainter.
-func TestReferenceNightCannotMakeAChange(t *testing.T) {
-	t.Parallel()
+func testReferenceNightCannotMakeAChange(t *testing.T, fields fieldSlots) {
 	if underRace {
-		t.Skip("a synthetic night takes ten minutes under the race detector; TestRunFindsSyntheticChanges runs the same code there")
+		t.Skip("a synthetic night takes ten minutes under the race detector; TestSyntheticFields/RunFindsSyntheticChanges runs the same code there")
 	}
 	for _, tc := range []struct {
 		name string
@@ -78,7 +77,7 @@ func TestReferenceNightCannotMakeAChange(t *testing.T) {
 	}{{"eclipse in the reference", 0, 0}, {"eclipse on the night", 3, -1}} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			f := newField(t)
+			f := fields.newField(t)
 			f.steady, f.dim = true, map[int]float64{tc.dim: 0.75}
 			res, err := Run(context.Background(), f.filterInput(t, []string{broadbandClear}, []int{18, 3, 3, 6}))
 			if err != nil {
@@ -187,15 +186,14 @@ func TestReferenceNightEnvelope(t *testing.T) {
 	}
 }
 
-// TestReferenceOutburstCannotMakeAFade replays source 23991 in IC 4604
+// testReferenceOutburstCannotMakeAFade replays source 23991 in IC 4604
 // Panel 6, whose two outburst nights held 0.20 and 0.33 of the reference
 // on 2026-03-20, so the quiet star read 0.28 mag fainter: here a star 2.5
 // and 1.75 mag up on two of six reference nights with 0.19 and 0.33 of the
 // weight. A real fade of 0.3 mag on the night still reads fainter.
-func TestReferenceOutburstCannotMakeAFade(t *testing.T) {
-	t.Parallel()
+func testReferenceOutburstCannotMakeAFade(t *testing.T, fields fieldSlots) {
 	if underRace {
-		t.Skip("a synthetic night takes ten minutes under the race detector; TestRunFindsSyntheticChanges runs the same code there")
+		t.Skip("a synthetic night takes ten minutes under the race detector; TestSyntheticFields/RunFindsSyntheticChanges runs the same code there")
 	}
 	for _, tc := range []struct {
 		name  string
@@ -204,7 +202,7 @@ func TestReferenceOutburstCannotMakeAFade(t *testing.T) {
 	}{{"quiet on the night", 0, 0}, {"fade on the night", 0.75, -1}} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			f := newField(t)
+			f := fields.newField(t)
 			f.Nights = nil
 			for n := range 7 {
 				f.Nights = append(f.Nights, time.Date(2026, 3, 1+n, 0, 0, 0, 0, time.UTC))
