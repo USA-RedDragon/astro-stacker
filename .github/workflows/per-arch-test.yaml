@@ -23,13 +23,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
 
       - run: docker run --privileged --rm tonistiigi/binfmt --install all
 
-      - uses: Wandalen/wretry.action@master
+      - uses: Wandalen/wretry.action@e94c43bf2e865e7dbbd90b0c1061053f5888932a # master
         with:
           command: CGO_ENABLED=0 go test -p 2 -v ./...
           attempt_limit: 3
